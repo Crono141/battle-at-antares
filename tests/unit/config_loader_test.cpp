@@ -14,6 +14,7 @@
 #include "config/config_snapshot.h"
 #include "config/mod_manifest.h"
 #include "config/mod_manager.h"
+#include "antares/packages.h"
 #include "doctest/doctest.h"
 #include "game/build_queue.h"
 #include "game/netmox.h"
@@ -2654,6 +2655,34 @@ DOCTEST_TEST_SUITE("configuration include loader") {
             saved_with_art, &config::saved_config_snapshot, &snapshot_state, &diagnostic));
         DOCTEST_CHECK(vfs::File_Exists("hd/sprite.txt") == 0);
         DOCTEST_CHECK(Read_Vfs_Text_("stream.txt") == "music");
+    }
+
+    DOCTEST_TEST_CASE("antares: legacy Lua snapshots drop only art-only packages the registry lacks") {
+        s_config_test_directory files;
+        files.Write(fs::path("data") / "mods" / "art" / "mod.json5", Manifest_("art"));
+        files.Write(fs::path("data") / "mods" / "art" / "config" / "main.cfg", "");
+        files.Write(fs::path("data") / "mods" / "art" / "data" / "hd" / "sprite.txt", "hd");
+        files.Write(fs::path("data") / "mods" / "music" / "mod.json5", Manifest_("music"));
+        files.Write(fs::path("data") / "mods" / "music" / "config" / "main.cfg", "");
+        files.Write(fs::path("data") / "mods" / "music" / "data" / "stream.txt", "music");
+        files.Initialize_Vfs();
+
+        orion2re::lua::s_lua_save_snapshot legacy;
+        legacy.registry.packages_high_to_low_priority = {{"art", "1.0.0"}, {"music", "1.0.0"}};
+        orion2re::lua::s_lua_registry active;
+        active.packages_high_to_low_priority = {{"music", "1.0.0"}};
+        orion2re::lua::s_lua_save_snapshot storage;
+
+        const orion2re::lua::s_lua_save_snapshot* restored = antares::Without_Art_Packages(&legacy, active, &storage);
+        DOCTEST_REQUIRE(restored == &storage);
+        DOCTEST_REQUIRE(restored->registry.packages_high_to_low_priority.size() == 1);
+        DOCTEST_CHECK(restored->registry.packages_high_to_low_priority[0].id == "music");
+
+        // Not art-only (music replaces a data file): kept, so the normal mismatch is reported.
+        active.packages_high_to_low_priority.clear();
+        legacy.registry.packages_high_to_low_priority = {{"music", "1.0.0"}};
+        DOCTEST_CHECK(antares::Without_Art_Packages(&legacy, active, &storage) == &legacy);
+        DOCTEST_CHECK(antares::Without_Art_Packages(nullptr, active, &storage) == nullptr);
     }
 
     DOCTEST_TEST_CASE("snapshot reapplication preserves local Lua hash override") {
