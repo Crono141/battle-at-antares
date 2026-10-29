@@ -1,0 +1,17 @@
+# Galaxy screen, then one zoom step in.
+# args: -config profiles/hd.cfg -load-save 10
+# fixture: SAVE10.GAM
+# timeout: 120
+expect_screen STARBG.LBX 60000   # the galaxy (STARBG loads after the main menu)
+wait_input 20
+click 272 252                    # CLOSE on the "Loaded config" box
+wait_input 20
+screenshot_hd $OUT/galaxy.png
+screenshot_page $OUT/galaxy.page.png
+wait_frames 2
+click 262 433                    # ZOOM +
+wait_input 20
+screenshot_hd $OUT/galaxy-zoomed.png
+screenshot_page $OUT/galaxy-zoomed.page.png
+wait_frames 2
+quit

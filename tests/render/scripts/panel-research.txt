@@ -1,0 +1,14 @@
+# Right-hand panel: change research (research panel).
+# args: -config profiles/hd.cfg -load-save 10
+# fixture: SAVE10.GAM
+# timeout: 120
+expect_screen STARBG.LBX 60000   # the galaxy (STARBG loads after the main menu)
+wait_input 20
+click 272 252                    # CLOSE on the "Loaded config" box
+wait_input 20
+click 580 380
+wait_input 20
+screenshot_hd $OUT/panel-research.png
+screenshot_page $OUT/panel-research.page.png
+wait_frames 2
+quit

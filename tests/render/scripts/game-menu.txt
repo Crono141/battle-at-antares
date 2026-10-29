@@ -1,0 +1,19 @@
+# GAME menu, then SETTINGS.
+# args: -config profiles/hd.cfg -load-save 10
+# fixture: SAVE10.GAM
+# timeout: 120
+expect_screen STARBG.LBX 60000   # the galaxy (STARBG loads after the main menu)
+wait_input 20
+click 272 252                    # CLOSE on the "Loaded config" box
+wait_input 20
+click 272 10                     # GAME
+wait_input 20
+screenshot_hd $OUT/game-menu.png
+screenshot_page $OUT/game-menu.page.png
+wait_frames 2
+click 220 344                    # SETTINGS
+wait_input 20
+screenshot_hd $OUT/settings.png
+screenshot_page $OUT/settings.page.png
+wait_frames 2
+quit

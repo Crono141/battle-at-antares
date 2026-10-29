@@ -1,0 +1,14 @@
+# Bottom bar: FLEETS screen.
+# args: -config profiles/hd.cfg -load-save 10
+# fixture: SAVE10.GAM
+# timeout: 120
+expect_screen STARBG.LBX 60000   # the galaxy (STARBG loads after the main menu)
+wait_input 20
+click 272 252                    # CLOSE on the "Loaded config" box
+wait_input 20
+click 197 446                # FLEETS
+wait_input 20
+screenshot_hd $OUT/fleets.png
+screenshot_page $OUT/fleets.page.png
+wait_frames 2
+quit

@@ -1,0 +1,28 @@
+# Colony screen (first row of the colonies list), build list, ship design.
+# args: -config profiles/hd.cfg -load-save 10
+# fixture: SAVE10.GAM
+# timeout: 120
+expect_screen STARBG.LBX 60000   # the galaxy (STARBG loads after the main menu)
+wait_input 20
+click 272 252                    # CLOSE on the "Loaded config" box
+wait_input 20
+click 62 446                     # COLONIES
+wait_input 20
+click 40 44                      # first colony
+wait_input 20
+screenshot_hd $OUT/colony.png
+screenshot_page $OUT/colony.page.png
+wait_frames 2
+click 550 132                    # CHANGE: build list
+wait_input 20
+screenshot_hd $OUT/build-list.png
+screenshot_page $OUT/build-list.page.png
+wait_frames 2
+click 590 388                    # DESIGN (a mode: then pick the ship to design from)
+wait_input 10
+click 500 115                    # Scout
+wait 4000                        # the design screen keeps loading art: no settle signal
+screenshot_hd $OUT/ship-design.png
+screenshot_page $OUT/ship-design.page.png
+wait_frames 2
+quit

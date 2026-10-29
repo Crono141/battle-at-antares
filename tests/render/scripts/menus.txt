@@ -1,0 +1,22 @@
+# Main menu, NEW GAME setup, back, LOAD GAME (needs a save to list).
+# args: -config profiles/hd.cfg
+# fixture: SAVE10.GAM
+# timeout: 150
+expect_screen MAINMENU.LBX 60000
+wait_input 60                    # the credits animation loads files; this takes about 13 s
+screenshot_hd $OUT/main-menu.png
+screenshot_page $OUT/main-menu.page.png
+wait_frames 2
+click 527 229                    # NEW GAME
+wait_input 20
+screenshot_hd $OUT/new-game.png
+screenshot_page $OUT/new-game.page.png
+wait_frames 2
+key Escape
+wait_input 60
+click 527 205                    # LOAD GAME
+wait_input 20
+screenshot_hd $OUT/load-game.png
+screenshot_page $OUT/load-game.page.png
+wait_frames 2
+quit
