@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/identity.h"
+#include "antares/input_trace.h"
 
 namespace fields {
     namespace {
@@ -181,6 +182,7 @@ namespace fields {
         if (fields_count < 2) {
             return 0;
         }
+        antares::input_trace::Note_Poll(fields_count); // test scripts: wait_input
 
         // A mouse wheel notch presses the arrow button of the list under the pointer.
         const int16_t wheel_field = mouse_wheel::Take_Field();

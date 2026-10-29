@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/lbx_trace.h"
+
 #include "vfs.h"
 
 #include "vfs_detail.h"
@@ -232,6 +234,7 @@ namespace vfs {
         if (!vfs_detail::g_vfs_state.initialized || lbx_name == nullptr || entry_idx < 0) {
             return nullptr;
         }
+        antares::lbx_trace::Note_Load(lbx_name); // test scripts: expect_screen
 
         if (vfs_detail::Build_Lbx_Entry_Path_(lbx_name, entry_idx, entry_path, sizeof(entry_path))) {
             entry_override_file = vfs::fopen(entry_path, "rb");

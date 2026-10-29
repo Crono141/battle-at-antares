@@ -1,0 +1,24 @@
+# Space combat at Fortuna (recipe in notes/hd-rendering.md, "Flip axes").
+# args: -config profiles/hd.cfg -load-save 10
+# fixture: SAVE10.GAM
+# timeout: 180
+expect_screen STARBG.LBX 60000   # the galaxy (STARBG loads after the main menu)
+wait_input 20
+click 272 252                    # CLOSE on the "Loaded config" box
+wait_input 20
+click 590 453                    # TURN: combat select dialog
+wait_input 20
+screenshot_hd $OUT/combat-select.png
+screenshot_page $OUT/combat-select.page.png
+wait_frames 2
+click 324 262                    # the marked planet: combat starts
+wait 12000                       # combat streams art: no settle signal
+screenshot_hd $OUT/combat.png
+screenshot_page $OUT/combat.page.png
+wait_frames 2
+click 585 413                    # minimap: scroll to the enemy
+wait 3000
+screenshot_hd $OUT/combat-enemy.png
+screenshot_page $OUT/combat-enemy.page.png
+wait_frames 2
+quit

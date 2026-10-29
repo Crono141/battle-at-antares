@@ -1,0 +1,18 @@
+# Diplomacy: RACES, AUDIENCE, then the race (Krakatoa, at war, still talks).
+# args: -config profiles/hd.cfg -load-save 10
+# fixture: SAVE10.GAM
+# timeout: 120
+expect_screen STARBG.LBX 60000   # the galaxy (STARBG loads after the main menu)
+wait_input 20
+click 272 252                    # CLOSE on the "Loaded config" box
+wait_input 20
+click 420 446                    # RACES
+wait_input 20
+click 380 432                    # AUDIENCE (a mode)
+wait_input 10
+click 60 90                      # the race portrait
+wait 6000                        # the room animates in; it has no fields to poll
+screenshot_hd $OUT/diplomacy.png
+screenshot_page $OUT/diplomacy.page.png
+wait_frames 2
+quit

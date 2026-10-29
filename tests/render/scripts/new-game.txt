@@ -1,0 +1,42 @@
+# A fresh game: setup, race, names, the first turn's research choice and colony.
+# args: -config profiles/hd.cfg
+# timeout: 240
+expect_screen MAINMENU.LBX 60000
+wait_input 60
+click 527 229                    # NEW GAME
+wait_input 20
+click 470 400                    # ACCEPT the defaults
+wait 4000                        # the race portraits animate: no settle signal
+screenshot_hd $OUT/race-select.png
+screenshot_page $OUT/race-select.page.png
+wait_frames 2
+click 410 352                    # Humans
+wait_input 20
+key Return                       # ruler name
+wait 2000
+wait_input 20
+screenshot_hd $OUT/banner.png
+screenshot_page $OUT/banner.page.png
+wait_frames 2
+key Return                       # banner
+wait 2000
+wait_input 20
+key Return                       # home star name
+wait 2000
+wait_input 20
+screenshot_hd $OUT/fresh-galaxy.png
+screenshot_page $OUT/fresh-galaxy.page.png
+wait_frames 2
+click 590 453                    # TURN: research choice
+wait 8000
+wait_input 20
+screenshot_hd $OUT/research-select.png
+screenshot_page $OUT/research-select.page.png
+wait_frames 2
+click 267 57                     # a research topic
+wait 3000
+wait_input 20
+screenshot_hd $OUT/fresh-colony.png
+screenshot_page $OUT/fresh-colony.page.png
+wait_frames 2
+quit

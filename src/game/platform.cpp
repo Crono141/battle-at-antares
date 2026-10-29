@@ -1,6 +1,9 @@
 #include "pch.h"
 
 #include "antares/identity.h"
+#include "antares/input_trace.h"
+#include "antares/lbx_trace.h"
+#include "antares/script_capture.h"
 
 #include "config/config_runtime.h"
 #include "game/scalers/scaler.h"
@@ -902,6 +905,11 @@ namespace platform {
             (void)SDL_SetPaletteColors(g_sdl_present_palette, colors, 0, 256);
         }
 
+        // Test input script captures (see the script commands further down).
+        std::string g_pending_screenshot_hd;
+        std::string g_pending_screenshot_page;
+        uint64_t g_presented_frames;
+
         // HD presentation: the 4x HD surface of the presented page, coloured with its palette.
         SDL_Texture* g_hd_texture;
         uint32_t* g_hd_pixels;
@@ -937,7 +945,12 @@ namespace platform {
                     resolve_ms_total / resolve_count, resolve_count);
             }
 
-            // Debug aid for headless runs: ORION2RE_HD_DUMP=<directory> saves every 50th
+            if (!g_pending_screenshot_hd.empty()) {
+                const bool saved = antares::script_capture::Save_Argb_Png(g_pending_screenshot_hd.c_str(), g_hd_pixels, width, height, width);
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_hd %s%s", g_pending_screenshot_hd.c_str(), saved ? "" : " FAILED");
+                g_pending_screenshot_hd.clear();
+            }
+            // Debug aid for headless runs: ANTARES_HD_DUMP=<directory> saves every 50th
             // presented HD frame as a BMP.
             static uint32_t hd_frame_counter;
             const char* dump_dir = antares::Get_Env("HD_DUMP");
@@ -977,6 +990,13 @@ namespace platform {
             if (!SDL_BlitSurface(g_sdl_screen_index_surface, nullptr, g_sdl_present_argb_surface, nullptr)) {
                 return;
             }
+            ++g_presented_frames;
+            if (!g_pending_screenshot_page.empty()) {
+                const bool saved = antares::script_capture::Save_Argb_Png(g_pending_screenshot_page.c_str(), (const uint32_t*)g_sdl_present_argb_surface->pixels,
+                    g_sdl_present_argb_surface->w, g_sdl_present_argb_surface->h, g_sdl_present_argb_surface->pitch / (int32_t)sizeof(uint32_t));
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_page %s%s", g_pending_screenshot_page.c_str(), saved ? "" : " FAILED");
+                g_pending_screenshot_page.clear();
+            }
 
             if (!hd_sprites::Enabled()) {
                 Blit_Cursor_On_Present_Surface();
@@ -988,6 +1008,10 @@ namespace platform {
                 return;
             }
 
+            if (!hd_sprites::Enabled() && !g_pending_screenshot_hd.empty()) {
+                SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_hd %s FAILED (no HD pack enabled)", g_pending_screenshot_hd.c_str());
+                g_pending_screenshot_hd.clear();
+            }
             if (hd_sprites::Enabled() && Present_HD_Frame()) {
                 return;
             }
@@ -1398,6 +1422,16 @@ namespace platform {
         //   wheel <notches>     turn the mouse wheel (positive = up, away from the user)
         //   event <name>        window event: focus_lost, focus_gained, exposed
         //   screenshot <file>   save the next presented window as BMP
+        //   screenshot_hd <file.png>    save the next 4x HD frame (2560x1920), any window size
+        //   screenshot_page <file.png>  save the next 640x480 page in its palette
+        //   wait_frames <n>     pause until n more frames have been presented
+        //   expect_screen <lbx> [ms]    pause until <lbx> loads after the last input (default
+        //                       30000 ms); logs "expect_screen ... ok" or "... FAILED"
+        //   wait_input [n] [ms] pause until the game has polled input n times (default 10) with no
+        //                       LBX load or change of field count in between: the screen (or
+        //                       dialog) has settled and takes clicks
+        //                       (default timeout 30000 ms)
+        //   log <word>          write a marker to the log (runner section names)
         //   quit                request exit
         struct s_script_step {
             std::string command;
@@ -1410,6 +1444,20 @@ namespace platform {
         uint64_t g_script_resume_ms;
         bool g_script_loaded;
         std::string g_pending_screenshot;
+        uint64_t g_wait_frames_until;
+        // expect_screen: the LBX awaited, when it started and gives up, and the LBX load serial
+        // at the last input the script sent (a load must come after it).
+        std::string g_expect_lbx;
+        uint64_t g_expect_start_ms;
+        uint64_t g_expect_deadline_ms;
+        uint64_t g_last_input_serial;
+        // wait_input: the poll count to reach, and when to give up.
+        uint64_t g_wait_input_until;
+        uint64_t g_wait_input_count;
+        uint64_t g_wait_input_lbx_serial;
+        uint64_t g_wait_input_layout;
+        uint64_t g_wait_input_start_ms;
+        uint64_t g_wait_input_deadline_ms;
 
         void Load_Input_Script() {
             g_script_loaded = true;
@@ -1447,8 +1495,16 @@ namespace platform {
                 s_script_step step = {command, 0, 0, {}};
                 if (step.command == "move" || step.command == "click" || step.command == "rclick") {
                     (void)sscanf(line.c_str(), "%*s %d %d", &a, &b);
-                } else if (step.command == "wait" || step.command == "wheel") {
+                } else if (step.command == "wait" || step.command == "wheel" || step.command == "wait_frames") {
                     (void)sscanf(line.c_str(), "%*s %d", &a);
+                } else if (step.command == "wait_input") {
+                    a = 10;
+                    b = 30000;
+                    (void)sscanf(line.c_str(), "%*s %d %d", &a, &b);
+                } else if (step.command == "expect_screen") {
+                    a = 30000;
+                    (void)sscanf(line.c_str(), "%*s %255s %d", argument, &a);
+                    step.text = argument;
                 } else if (sscanf(line.c_str(), "%*s %255s", argument) == 1) {
                     step.text = argument;
                 }
@@ -1464,9 +1520,65 @@ namespace platform {
                 Load_Input_Script();
             }
             const uint64_t now = SDL_GetTicks();
-            while (g_script_position < g_script.size() && now >= g_script_resume_ms) {
+            if (!g_expect_lbx.empty()) {
+                const bool loaded = antares::lbx_trace::Last_Load(g_expect_lbx.c_str()) > g_last_input_serial;
+                if (!loaded && now < g_expect_deadline_ms) {
+                    return;
+                }
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: expect_screen %s %s after %llu ms",
+                    g_expect_lbx.c_str(), loaded ? "ok" : "FAILED", (unsigned long long)(now - g_expect_start_ms));
+                g_expect_lbx.clear();
+            }
+            if (g_wait_input_until != 0) {
+                // A screen change loads files: count again from there.
+                const uint64_t lbx_serial = antares::lbx_trace::Serial();
+                const uint64_t layout = antares::input_trace::Layout();
+                if (lbx_serial != g_wait_input_lbx_serial || layout != g_wait_input_layout) {
+                    g_wait_input_lbx_serial = lbx_serial;
+                    g_wait_input_layout = layout;
+                    g_wait_input_until = antares::input_trace::Polls() + g_wait_input_count;
+                }
+                const bool polled = antares::input_trace::Polls() >= g_wait_input_until;
+                if (!polled && now < g_wait_input_deadline_ms) {
+                    return;
+                }
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: wait_input %s after %llu ms",
+                    polled ? "ok" : "FAILED", (unsigned long long)(now - g_wait_input_start_ms));
+                g_wait_input_until = 0;
+            }
+            if (g_presented_frames < g_wait_frames_until) {
+                return;
+            }
+            while (g_script_position < g_script.size() && now >= g_script_resume_ms && g_expect_lbx.empty() &&
+                   g_presented_frames >= g_wait_frames_until && g_wait_input_until == 0) {
                 const s_script_step& step = g_script[g_script_position++];
-                if (step.command == "wait") {
+                if (step.command == "click" || step.command == "rclick" || step.command == "key" || step.command == "wheel") {
+                    g_last_input_serial = antares::lbx_trace::Serial();
+                }
+                if (step.command == "wait_input") {
+                    g_wait_input_count = (uint64_t)std::max(step.a, 1);
+                    g_wait_input_until = antares::input_trace::Polls() + g_wait_input_count;
+                    g_wait_input_lbx_serial = antares::lbx_trace::Serial();
+                    g_wait_input_layout = antares::input_trace::Layout();
+                    g_wait_input_start_ms = now;
+                    g_wait_input_deadline_ms = now + (uint64_t)step.b;
+                } else if (step.command == "wait_frames") {
+                    g_wait_frames_until = g_presented_frames + (uint64_t)step.a;
+                    Request_Present_Refresh();
+                } else if (step.command == "expect_screen") {
+                    g_expect_lbx = step.text;
+                    g_expect_start_ms = now;
+                    g_expect_deadline_ms = now + (uint64_t)step.a;
+                } else if (step.command == "screenshot_hd") {
+                    g_pending_screenshot_hd = step.text;
+                    g_hd_frame_valid = false; // resolve the whole frame, not only changed rows
+                    Request_Present_Refresh();
+                } else if (step.command == "screenshot_page") {
+                    g_pending_screenshot_page = step.text;
+                    Request_Present_Refresh();
+                } else if (step.command == "log") {
+                    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: log %s", step.text.c_str());
+                } else if (step.command == "wait") {
                     g_script_resume_ms = now + (uint64_t)step.a;
                 } else if (step.command == "move" || step.command == "click" || step.command == "rclick") {
                     Set_Present_Mouse_Position((int16_t)step.a, (int16_t)step.b);
