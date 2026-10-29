@@ -516,7 +516,9 @@ orion2re_add_unit_test(test_config_lifecycle
 orion2re_add_unit_test(test_startup_options
     SOURCES
         tests/unit/startup_options_test.cpp
+        tests/unit/antares_identity_test.cpp
     PRODUCTION_SOURCES
+        src/antares/identity.cpp
         src/command_line.cpp
         src/startup_options.cpp
 )
@@ -534,6 +536,8 @@ orion2re_add_unit_test(test_config_loader
         src/config/config_loader.cpp
         src/config/config_snapshot.cpp
         src/config/mod_manifest.cpp
+        src/antares/manifest.cpp
+        src/antares/packages.cpp
         src/config/mod_manager.cpp
         src/game/netturn.cpp
         src/lua/lua_fingerprint.cpp

@@ -3,11 +3,12 @@
 #include <cstdint>
 #include <string>
 
+#include "antares/identity.h"
 #include "command_line.h"
 
 namespace startup {
     struct s_startup_options {
-        std::string config_path = "orion2re.cfg";
+        std::string config_path = antares::CONFIG_FILE;
         bool config_selected = false;
         bool skip_intro = false;
         int32_t load_save = 0; // SAVE<n>.GAM, 1-10; zero means no request.

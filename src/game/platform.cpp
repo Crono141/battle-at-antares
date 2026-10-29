@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/identity.h"
+
 #include "config/config_runtime.h"
 #include "game/scalers/scaler.h"
 
@@ -930,7 +932,7 @@ namespace platform {
             static double resolve_ms_total;
             static uint32_t resolve_count;
             resolve_ms_total += (double)(SDL_GetPerformanceCounter() - resolve_start) * 1000.0 / (double)SDL_GetPerformanceFrequency();
-            if (++resolve_count % 200 == 0 && SDL_getenv("ORION2RE_HD_STATS") != nullptr) {
+            if (++resolve_count % 200 == 0 && antares::Get_Env("HD_STATS") != nullptr) {
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd stats: resolve %.2f ms average over %u frames",
                     resolve_ms_total / resolve_count, resolve_count);
             }
@@ -938,7 +940,7 @@ namespace platform {
             // Debug aid for headless runs: ORION2RE_HD_DUMP=<directory> saves every 50th
             // presented HD frame as a BMP.
             static uint32_t hd_frame_counter;
-            const char* dump_dir = SDL_getenv("ORION2RE_HD_DUMP");
+            const char* dump_dir = antares::Get_Env("HD_DUMP");
             if (dump_dir != nullptr && (hd_frame_counter++ % 50) == 0) {
                 SDL_Surface* dump = SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_ARGB8888,
                     g_hd_pixels, width * (int32_t)sizeof(uint32_t));
@@ -1411,7 +1413,7 @@ namespace platform {
 
         void Load_Input_Script() {
             g_script_loaded = true;
-            const char* path = SDL_getenv("ORION2RE_INPUT_SCRIPT");
+            const char* path = antares::Get_Env("INPUT_SCRIPT");
             if (path == nullptr) {
                 return;
             }
@@ -1833,7 +1835,7 @@ namespace platform {
             window_flags |= SDL_WINDOW_FULLSCREEN;
         }
 
-        g_sdl_window = SDL_CreateWindow("Orion2 Redone", g_window_width, g_window_height, window_flags);
+        g_sdl_window = SDL_CreateWindow(antares::PRODUCT_NAME, g_window_width, g_window_height, window_flags);
         if (g_sdl_window == nullptr) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "platform: SDL_CreateWindow failed: %s", SDL_GetError());
             SDL_DestroyMutex(g_present_cursor_mutex);

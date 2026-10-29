@@ -19,7 +19,7 @@ DOCTEST_TEST_CASE("startup defaults do not select a config or save") {
     std::string error;
     const char* argv[] = {"orion2re"};
     DOCTEST_REQUIRE(startup::Parse_Startup_Options(1, argv, &options, &error));
-    DOCTEST_CHECK(options.config_path == "orion2re.cfg");
+    DOCTEST_CHECK(options.config_path == "antares.cfg");
     DOCTEST_CHECK_FALSE(options.config_selected);
     DOCTEST_CHECK_FALSE(options.skip_intro);
     DOCTEST_CHECK(options.load_save == 0);

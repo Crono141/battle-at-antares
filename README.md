@@ -1,3 +1,46 @@
+# Battle at Antares
+
+**Battle at Antares** is an HD remaster of Master of Orion II. It is an enhanced fork of
+[Orion2 Redone (orion2re)](https://github.com/orion2re/orion2re), the faithful restoration of the
+Master of Orion II engine, in the way [Augustus](https://github.com/Keriew/augustus) is to Julius.
+
+Version 0.1.0 (early development; nothing is released yet).
+
+## Credits
+
+Almost everything that makes this game play like Master of Orion II is the work of the **Orion2
+Redone** project: Serge Koval, Christopher Wellons, Rocco and the other Redone contributors. Their
+restoration of the game rules, AI, combat, saves and mod system is what Battle at Antares builds
+on, and their fixes are merged here as they land. Please support and credit their project. Report
+Battle at Antares bugs here, not to Redone.
+
+## What is different from Redone
+
+- **HD art.** The drawing library works at two resolutions: the original 640x480 palette screen
+  stays authoritative for game logic, and every draw also renders into a 4x screen with HD art
+  where a pack provides it. Later, screens are rebuilt natively with a camera on the galaxy map.
+- **Identity.** The binary is `antares`, the config file is `data/antares.cfg` (an existing
+  `orion2re.cfg` is read on first run), and environment knobs are `ANTARES_*` (`ORION2RE_*` still
+  works for now).
+- **Mods.** Redone mods keep loading: `requires.engine` still checks Redone's mod API version
+  (2.x). Packages that need Antares features can add `requires: { antares: ">=0.1.0" }`.
+  Art-only packages (only `data/hd/` or `data/art/`, no rules) are not recorded in saves, so
+  turning an art pack on or off never stops a save from loading.
+- **Online multiplayer is off by default.** Redone's community router belongs to Redone; set
+  `interface router` to a router you run. Hotseat and LAN play work as before.
+
+Saves use Redone's game-state format, so Redone saves load in Battle at Antares.
+
+## Licence
+
+GPLv3 or later, as Redone (see [`LICENSE`](LICENSE)). You need your own copy of Master of Orion II;
+no original or derived game assets are in this repository.
+
+---
+
+The rest of this file is Redone's README, kept as it is upstream. Build and test instructions
+apply unchanged; the game binary is named `antares` instead of `orion2re`.
+
 # orion2re
 
 This project is a restoration effort for the Master of Orion II game engine. Check our [documentation portal](https://moo2mod.com/redone/doc/) too.

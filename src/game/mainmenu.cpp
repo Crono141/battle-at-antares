@@ -4,6 +4,7 @@
 #include <string>
 
 #include "config/mod_manager.h"
+#include "antares/identity.h"
 
 namespace MAINMENU {
     s_main_menu* mainmenu;
@@ -392,7 +393,7 @@ namespace MAINMENU {
 
         fonts::Set_Font_Style(1, &color_buffer);
         int16_t font_h = fonts::Get_Font_Height();
-        fonts::Print_Centered(0x205, 0x1BB - (font_h + 1), GAME_VERSION_LABEL);
+        fonts::Print_Centered(0x205, 0x1BB - (font_h + 1), antares::PRODUCT_VERSION_LABEL);
     }
 
     void __cdecl Draw_Loaded_Mods() {

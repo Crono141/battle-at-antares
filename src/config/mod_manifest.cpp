@@ -7,6 +7,7 @@
 
 #include "game/vfs.h"
 #include "version.h"
+#include "antares/manifest.h"
 #include "yyjson.h"
 
 namespace config {
@@ -560,16 +561,23 @@ namespace config {
         }
 
         yyjson_val* requirements = valid ? yyjson_obj_get(root, "requires") : nullptr;
+        std::string antares_error;
         if (valid && !yyjson_is_obj(requirements)) {
             valid = Fail(path, "manifest property 'requires' must be an object", diagnostic);
         }
         if (valid) {
             size_t requires_size = yyjson_obj_size(requirements);
             yyjson_val* engine = yyjson_obj_get(requirements, "engine");
+            yyjson_val* antares_range = yyjson_obj_get(requirements, "antares");
+            if (antares_range != nullptr) {
+                --requires_size;
+            }
             if (requires_size != 1 || !yyjson_is_str(engine) || yyjson_get_len(engine) == 0) {
                 valid = Fail(path, "manifest property 'requires.engine' must be the only "
-                                    "non-empty requirement",
+                                    "non-empty requirement besides 'requires.antares'",
                     diagnostic);
+            } else if (!antares::Check_Requires_Antares(antares_range, &candidate.antares_range, &antares_error)) {
+                valid = Fail(path, antares_error, diagnostic);
             } else {
                 candidate.engine_range.assign(yyjson_get_str(engine), yyjson_get_len(engine));
                 const s_semantic_version engine_version = {

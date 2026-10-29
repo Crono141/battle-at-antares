@@ -1,11 +1,13 @@
 #include "mod_manager.h"
 
+#include <algorithm>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "config/mod_manifest.h"
 #include "config/config_profile.h"
+#include "antares/packages.h"
 #include "game/config_refresh.h"
 #include "game/vfs.h"
 #include "lua/lua_mod_runtime.h"
@@ -320,6 +322,7 @@ namespace config {
         bool Resolve_Enabled_Packages(const s_cfg_document& base_document,
             const std::vector<s_mod_requirement>* required_packages,
             s_package_resolver* resolver) {
+            std::vector<std::string> art_packages;
             if (required_packages == nullptr) {
                 for (const s_cfg_statement& statement : base_document.statements) {
                     if (statement.kind == CFG_STATEMENT_ENABLE) {
@@ -342,6 +345,18 @@ namespace config {
                     Record_Package_Request(resolver, required.id);
                     if (!Resolve_Package(resolver, required.id, false, location)) {
                         return false;
+                    }
+                }
+                // Antares (D18): saves don't list art-only packages; keep the ones enabled now.
+                for (const s_cfg_statement& statement : base_document.statements) {
+                    if (statement.kind == CFG_STATEMENT_ENABLE &&
+                        std::none_of(required_packages->begin(), required_packages->end(), [&](const s_mod_requirement& required) { return required.id == statement.argument.value; }) &&
+                        antares::Is_Art_Only_Package(statement.argument.value)) {
+                        Record_Package_Request(resolver, statement.argument.value);
+                        if (!Resolve_Package(resolver, statement.argument.value, false, statement.argument.location)) {
+                            return false;
+                        }
+                        art_packages.push_back(statement.argument.value);
                     }
                 }
             }
@@ -374,15 +389,21 @@ namespace config {
 
             Normalize_Package_Priority(resolver);
             if (required_packages != nullptr) {
-                if (resolver->packages.size() != required_packages->size()) {
+                std::vector<const s_enabled_package*> bound_packages;
+                for (const s_enabled_package& package : resolver->packages) {
+                    if (std::find(art_packages.begin(), art_packages.end(), package.manifest.id) == art_packages.end()) {
+                        bound_packages.push_back(&package);
+                    }
+                }
+                if (bound_packages.size() != required_packages->size()) {
                     resolver->diagnostic->location.source = "configuration snapshot";
                     resolver->diagnostic->message =
                         "configuration snapshot package order does not match installed dependencies";
                     return false;
                 }
-                for (size_t index = 0; index < resolver->packages.size(); ++index) {
+                for (size_t index = 0; index < bound_packages.size(); ++index) {
                     const s_mod_manifest& installed =
-                        resolver->packages[index].manifest;
+                        bound_packages[index]->manifest;
                     const s_mod_requirement& required = (*required_packages)[index];
                     if (installed.id != required.id) {
                         resolver->diagnostic->location.source = "configuration snapshot";
@@ -440,6 +461,7 @@ namespace config {
             packages->clear();
             packages->reserve(resolver.packages.size());
             for (const s_enabled_package& package : resolver.packages) {
+                if (antares::Is_Art_Only_Package(package.manifest, package.document)) continue; // D18
                 packages->push_back({
                     package.manifest.id,
                     package.manifest.version_text,

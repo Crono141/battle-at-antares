@@ -11,6 +11,7 @@
 #include "config/config_loader.h"
 #include "lua/lua_mod_runtime.h"
 #include "startup_options.h"
+#include "antares/identity.h"
 
 #if defined(_WIN32)
 #include <io.h>
@@ -178,7 +179,7 @@ int main(int argc, char** argv) {
     std::string startup_error;
     if (!startup::Parse_Startup_Options(argc, argv, &startup_options, &startup_error)) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "main: %s", startup_error.c_str());
-        Show_Message_Box(nullptr, startup_error.c_str(), "Orion2 Redone", true);
+        Show_Message_Box(nullptr, startup_error.c_str(), antares::PRODUCT_NAME, true);
         Shutdown_Game_Log_();
         return EXIT_FAILURE;
     }
@@ -224,12 +225,13 @@ int main(int argc, char** argv) {
     config::s_effective_config effective_config;
     config::s_cfg_diagnostic config_diagnostic;
     bool config_loaded = false;
-    const char* startup_config_path = startup_options.config_path.c_str();
+    const std::string resolved_config_path = antares::Resolve_Startup_Config_Path(startup_options.config_path, startup_options.config_selected, [](const char* path) { return vfs::File_Exists(path) != 0; });
+    const char* startup_config_path = resolved_config_path.c_str();
     if (!config::Load_Startup_Config(startup_config_path, "base_game", &effective_config, &config_loaded, &config_diagnostic, startup_options.config_selected)) {
         char config_error[2048];
         snprintf(config_error, sizeof(config_error), "Failed to load configuration:\n%s:%u:%u: %s", config_diagnostic.location.source.empty() ? startup_config_path : config_diagnostic.location.source.c_str(), config_diagnostic.location.line, config_diagnostic.location.column, config_diagnostic.message.c_str());
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "%s", config_error);
-        Show_Message_Box(nullptr, config_error, "Orion2 Redone", true);
+        Show_Message_Box(nullptr, config_error, antares::PRODUCT_NAME, true);
         orion2re::lua::Shutdown_Lua();
         config::Shutdown_Config_Loader();
         config::Shutdown_Runtime();

@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/identity.h"
+
 namespace fields {
     namespace {
         s_field g_fields_storage[MAX_FIELDS_COUNT];
@@ -1637,7 +1639,7 @@ namespace fields {
 
         video::Clear_Display_And_Release_Palette();
 
-        Show_Message_Box(platform::g_main_window, buffer, "Orion2re", true);
+        Show_Message_Box(platform::g_main_window, buffer, antares::PRODUCT_NAME, true);
 
         platform::Prepare_Exit();
         platform::Check_Exit();

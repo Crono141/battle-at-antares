@@ -334,13 +334,13 @@ namespace netcode {
             if (mode == 1) {
                 if (endpoint_result == ROUTER_ENDPOINT_MISSING) {
                     initialization_error =
-                        "Online play requires a router. Add interface router = \"host[:port]\"; to data/orion2re.cfg.";
+                        "Online play requires a router. Add interface router = \"host[:port]\"; to data/antares.cfg.";
                     SDL_Log("%s", initialization_error);
                     return false;
                 }
                 if (endpoint_result == ROUTER_ENDPOINT_INVALID) {
                     initialization_error =
-                        "Invalid online router. Use interface router = \"host[:port]\"; in data/orion2re.cfg.";
+                        "Invalid online router. Use interface router = \"host[:port]\"; in data/antares.cfg.";
                     SDL_Log("%s", initialization_error);
                     return false;
                 }
