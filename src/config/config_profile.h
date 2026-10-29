@@ -10,7 +10,7 @@ namespace config {
         explicit s_config_profile(const char* phase)
             : phase_(phase), start_(std::chrono::steady_clock::now()) {}
         ~s_config_profile() {
-            if (std::getenv("ORION2RE_CONFIG_PROFILE") == nullptr) return;
+            if (std::getenv("ANTARES_CONFIG_PROFILE") == nullptr && std::getenv("ORION2RE_CONFIG_PROFILE") == nullptr) return;
             const std::chrono::duration<double, std::milli> elapsed = std::chrono::steady_clock::now() - start_;
             std::fprintf(stderr, "config-profile %s %.3f ms\n", phase_, elapsed.count());
         }

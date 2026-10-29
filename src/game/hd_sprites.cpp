@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "game/hd_sprites.h"
+#include "antares/identity.h"
 
 #include <algorithm>
 #include <atomic>
@@ -107,10 +108,10 @@ namespace hd_sprites {
         int32_t glyph_font_count;
         std::unordered_map<std::string, int32_t> glyph_font_by_key;
 
-        // ORION2RE_HD_STATS: count draws that had no HD art, by asset, and log them
+        // ANTARES_HD_STATS: count draws that had no HD art, by asset, and log them
         // periodically. Debug aid for finding coverage gaps.
         bool stats_enabled;
-        // ORION2RE_HD_TRACE: logs every LBX entry load and how long draws waited for their art.
+        // ANTARES_HD_TRACE: logs every LBX entry load and how long draws waited for their art.
         bool trace_enabled;
         uint64_t trace_wait_start;
         size_t trace_wait_peak;
@@ -119,13 +120,13 @@ namespace hd_sprites {
         std::unordered_map<std::string, uint32_t> stats_missing;
         uint32_t stats_draws;
         uint32_t stats_interval = 20000;
-        // ORION2RE_HD_SLOW_IO=<ms>: debug aid, every art load waits this long first, to reproduce
+        // ANTARES_HD_SLOW_IO=<ms>: debug aid, every art load waits this long first, to reproduce
         // what players on slow (network, spinning) disks see when art arrives late.
         uint32_t slow_io_ms = 0;
         uint32_t stats_glyph_missing_art;
         uint32_t stats_publishes;
         uint32_t stats_settled_pixels;
-        // Game-thread time per stage (ORION2RE_HD_STATS), reported with the settle count.
+        // Game-thread time per stage (ANTARES_HD_STATS), reported with the settle count.
         enum e_timer { TIMER_RENDER,
             TIMER_COPY,
             TIMER_PUBLISH,
@@ -148,14 +149,14 @@ namespace hd_sprites {
                 }
             }
         };
-        // ORION2RE_HD_DEBUG=sd: tint blocks that fell back to the enlarged original because
+        // ANTARES_HD_DEBUG=sd: tint blocks that fell back to the enlarged original because
         // unhooked code changed the page pixel.
         bool debug_sd;
-        // ORION2RE_HD_PROBE=x,y: log every HD write to that page pixel (debug aid).
+        // ANTARES_HD_PROBE=x,y: log every HD write to that page pixel (debug aid).
         int32_t probe_x = -1;
         int32_t probe_y = -1;
 
-        // ORION2RE_HD_CAPTURE=<dir>: write the live palette the first time each LBX sprite is
+        // ANTARES_HD_CAPTURE=<dir>: write the live palette the first time each LBX sprite is
         // drawn under it, as <dir>/<LBX>_<EEE>_<hash>.pal (256 x RGB, 8-bit). The HD pipeline uses
         // these instead of palettes inferred from the source code.
         std::string capture_dir;
@@ -1806,17 +1807,17 @@ namespace hd_sprites {
         }
         initialized = true;
         enabled = vfs::File_Exists("hd/pack.json") != 0;
-        const char* stats = SDL_getenv("ORION2RE_HD_STATS");
+        const char* stats = antares::Get_Env("HD_STATS");
         stats_enabled = enabled && stats != nullptr;
-        trace_enabled = enabled && SDL_getenv("ORION2RE_HD_TRACE") != nullptr;
-        const char* debug = SDL_getenv("ORION2RE_HD_DEBUG");
+        trace_enabled = enabled && antares::Get_Env("HD_TRACE") != nullptr;
+        const char* debug = antares::Get_Env("HD_DEBUG");
         debug_sd = enabled && debug != nullptr && (strcmp(debug, "sd") == 0 || strcmp(debug, "stale") == 0);
-        const char* capture = SDL_getenv("ORION2RE_HD_CAPTURE");
+        const char* capture = antares::Get_Env("HD_CAPTURE");
         if (capture != nullptr && capture[0] != '\0') {
             capture_dir = capture;
             (void)SDL_CreateDirectory(capture_dir.c_str());
         }
-        const char* probe = SDL_getenv("ORION2RE_HD_PROBE");
+        const char* probe = antares::Get_Env("HD_PROBE");
         if (probe != nullptr) {
             (void)sscanf(probe, "%d,%d", &probe_x, &probe_y);
         }
@@ -1824,11 +1825,11 @@ namespace hd_sprites {
             stats_interval = (uint32_t)atoi(stats);
         }
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %s", enabled ? "HD sprite pack found" : "no HD sprite pack");
-        const char* slow_io = SDL_getenv("ORION2RE_HD_SLOW_IO");
+        const char* slow_io = antares::Get_Env("HD_SLOW_IO");
         if (slow_io != nullptr && atoi(slow_io) > 0) {
             slow_io_ms = (uint32_t)atoi(slow_io);
         }
-        const char* budget = SDL_getenv("ORION2RE_HD_CACHE_MB");
+        const char* budget = antares::Get_Env("HD_CACHE_MB");
         if (budget != nullptr && atoi(budget) > 0) {
             cache_budget = (int64_t)atoi(budget) << 20;
         }

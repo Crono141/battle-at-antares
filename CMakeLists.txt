@@ -101,7 +101,7 @@ endif()
 set(ORION2RE_GAME_DIR "" CACHE PATH "Optional game directory used for runtime output and debugger working directory")
 set(ORION2RE_BASE_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/base")
 set(ORION2RE_PACKAGED_BASE_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/data/base.zip")
-set(ORION2RE_DEFAULT_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/data/orion2re.cfg")
+set(ORION2RE_DEFAULT_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/data/antares.cfg")
 set(ORION2RE_SUPPORTED_MODS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/mods")
 set(ORION2RE_PACKAGED_MODS_DIR "${CMAKE_CURRENT_BINARY_DIR}/data/mods")
 
@@ -578,7 +578,7 @@ set(ORION2RE_PACKAGE_DEFAULT_CONFIG_COMMANDS
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/data"
     COMMAND ${CMAKE_COMMAND}
         "-DINPUT_FILE=${ORION2RE_DEFAULT_CONFIG}"
-        "-DOUTPUT_FILE=${CMAKE_CURRENT_BINARY_DIR}/data/orion2re.cfg"
+        "-DOUTPUT_FILE=${CMAKE_CURRENT_BINARY_DIR}/data/antares.cfg"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_if_missing.cmake"
 )
 if(ORION2RE_GAME_DIR)
@@ -586,7 +586,7 @@ if(ORION2RE_GAME_DIR)
         COMMAND ${CMAKE_COMMAND} -E make_directory "${ORION2RE_GAME_DIR}/data"
         COMMAND ${CMAKE_COMMAND}
             "-DINPUT_FILE=${ORION2RE_DEFAULT_CONFIG}"
-            "-DOUTPUT_FILE=${ORION2RE_GAME_DIR}/data/orion2re.cfg"
+            "-DOUTPUT_FILE=${ORION2RE_GAME_DIR}/data/antares.cfg"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_if_missing.cmake"
     )
 endif()
@@ -665,6 +665,9 @@ if(ORION2RE_BUILD_GAME)
         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
         "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"
     )
+
+    # Battle at Antares: the target keeps Redone's name so merges stay cheap; the binary is antares.
+    set_target_properties(orion2re PROPERTIES OUTPUT_NAME antares)
 
     if(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL)
         set_target_properties(orion2re PROPERTIES EXCLUDE_FROM_ALL YES)

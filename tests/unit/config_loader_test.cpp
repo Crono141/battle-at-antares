@@ -1321,6 +1321,38 @@ DOCTEST_TEST_SUITE("configuration include loader") {
         DOCTEST_CHECK(diagnostic.location.source == "mods/future/mod.json5");
     }
 
+    DOCTEST_TEST_CASE("antares requirement is optional and checked against the product version") {
+        s_config_test_directory files;
+        files.Write("main.cfg", "enable fits;\n");
+        files.Write(fs::path("data") / "mods" / "fits" / "mod.json5",
+            "{ id: \"fits\", name: \"Fits\", version: \"1.0.0\",\n"
+            "  requires: { engine: \">=2.0.0 <3.0.0\", antares: \">=0.1.0\" }, config: \"config/main.cfg\" }\n");
+        files.Write(fs::path("data") / "mods" / "fits" / "config" / "main.cfg", "");
+        files.Write("late.cfg", "enable late;\n");
+        files.Write(fs::path("data") / "mods" / "late" / "mod.json5",
+            "{ id: \"late\", name: \"Late\", version: \"1.0.0\",\n"
+            "  requires: { engine: \">=2.0.0 <3.0.0\", antares: \">=9.0.0\" }, config: \"config/main.cfg\" }\n");
+        files.Write("other.cfg", "enable other;\n");
+        files.Write(fs::path("data") / "mods" / "other" / "mod.json5",
+            "{ id: \"other\", name: \"Other\", version: \"1.0.0\",\n"
+            "  requires: { engine: \">=2.0.0 <3.0.0\", vcmi: \"1\" }, config: \"config/main.cfg\" }\n");
+        files.Initialize_Vfs();
+        config::s_effective_config effective;
+        config::s_cfg_diagnostic diagnostic;
+
+        config::Initialize_Effective_Config(&effective);
+        DOCTEST_CHECK(config::Load_Config_File("main.cfg", "base_game", &effective, &diagnostic));
+
+        config::Initialize_Effective_Config(&effective);
+        DOCTEST_CHECK_FALSE(config::Load_Config_File("late.cfg", "base_game", &effective, &diagnostic));
+        DOCTEST_CHECK(diagnostic.message ==
+            "package requires Battle at Antares '>=9.0.0' but this is 0.1.0");
+
+        config::Initialize_Effective_Config(&effective);
+        DOCTEST_CHECK_FALSE(config::Load_Config_File("other.cfg", "base_game", &effective, &diagnostic));
+        DOCTEST_CHECK(diagnostic.message.find("must be the only") != std::string::npos);
+    }
+
     DOCTEST_TEST_CASE("invalid compatible version range is rejected") {
         s_config_test_directory files;
         files.Write("main.cfg", "enable invalid_compatibility;\n");
@@ -2570,6 +2602,58 @@ DOCTEST_TEST_SUITE("configuration include loader") {
         DOCTEST_CHECK(vfs::File_Exists("resource.txt") == 0);
         DOCTEST_CHECK(config::Get_Active_Config()->package_order.empty());
         DOCTEST_CHECK(TEST_CONFIG_REFRESH::refresh_count == 3);
+    }
+
+    DOCTEST_TEST_CASE("antares: art-only packages are left out of saves and stay enabled on load") {
+        s_config_test_directory files;
+        files.Write("antares.cfg", "enable art;\nenable zipart;\nenable music;\n");
+        files.Write(fs::path("data") / "mods" / "art" / "mod.json5", Manifest_("art"));
+        files.Write(fs::path("data") / "mods" / "art" / "config" / "main.cfg", "# HD sprites\n");
+        files.Write(fs::path("data") / "mods" / "art" / "data" / "hd" / "sprite.txt", "hd");
+        files.Write_Zip(fs::path("data") / "mods" / "zipart.zip", {
+                                                                    {"mod.json5", Manifest_("zipart")},
+                                                                    {"config/main.cfg", ""},
+                                                                    {"data/art/glyph.txt", "art"},
+                                                                });
+        // Not art-only: it replaces a data file outside data/hd and data/art.
+        files.Write(fs::path("data") / "mods" / "music" / "mod.json5", Manifest_("music"));
+        files.Write(fs::path("data") / "mods" / "music" / "config" / "main.cfg", "");
+        files.Write(fs::path("data") / "mods" / "music" / "data" / "stream.txt", "music");
+        files.Write(fs::path("data") / "mods" / "rules" / "mod.json5", Manifest_("rules"));
+        files.Write(fs::path("data") / "mods" / "rules" / "config" / "main.cfg",
+            "interface scroll_interval = 9;\n");
+        files.Initialize_Vfs();
+        Set_Native_Defaults_();
+        config::s_effective_config effective;
+        config::s_cfg_diagnostic diagnostic;
+        bool loaded = false;
+        DOCTEST_REQUIRE(config::Load_Startup_Config(
+            "antares.cfg", "base_game", &effective, &loaded, &diagnostic));
+        const std::vector<config::s_mod_requirement> saved_with_art = {{"music", "1.0.0"}};
+        DOCTEST_CHECK(config::Get_Active_Config()->required_mods == saved_with_art);
+        DOCTEST_CHECK(Read_Vfs_Text_("hd/sprite.txt") == "hd");
+        DOCTEST_CHECK(Read_Vfs_Text_("art/glyph.txt") == "art");
+
+        // Loading a save that lists other packages keeps the player's art packs.
+        config::s_config_state snapshot_state;
+        DOCTEST_REQUIRE(config::Initialize_Defaults(&snapshot_state));
+        const std::vector<config::s_mod_requirement> saved_mods = {{"rules", "1.0.0"}};
+        DOCTEST_REQUIRE(config::Reapply_Config_Snapshot(
+            saved_mods, &config::saved_config_snapshot, &snapshot_state, &diagnostic));
+        DOCTEST_CHECK(COMBINIT::scroll_interval == 9);
+        DOCTEST_CHECK(config::Get_Active_Config()->required_mods == saved_mods);
+        DOCTEST_CHECK(Read_Vfs_Text_("hd/sprite.txt") == "hd");
+        DOCTEST_CHECK(Read_Vfs_Text_("art/glyph.txt") == "art");
+        DOCTEST_CHECK(vfs::File_Exists("stream.txt") == 0);
+
+        // A save made with the art pack enabled loads without it.
+        files.Write("antares.cfg", "enable music;\n");
+        DOCTEST_REQUIRE(config::Load_Startup_Config(
+            "antares.cfg", "base_game", &effective, &loaded, &diagnostic));
+        DOCTEST_REQUIRE(config::Reapply_Config_Snapshot(
+            saved_with_art, &config::saved_config_snapshot, &snapshot_state, &diagnostic));
+        DOCTEST_CHECK(vfs::File_Exists("hd/sprite.txt") == 0);
+        DOCTEST_CHECK(Read_Vfs_Text_("stream.txt") == "music");
     }
 
     DOCTEST_TEST_CASE("snapshot reapplication preserves local Lua hash override") {

@@ -42,6 +42,7 @@ namespace config {
         std::string version_text;
         std::string compatible_versions;
         std::string engine_range;
+        std::string antares_range; // optional requires.antares, checked against the product version
         std::vector<s_mod_dependency> dependencies;
         std::vector<s_mod_dependency> optional_dependencies;
         std::vector<std::string> conflicts;
