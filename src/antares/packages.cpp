@@ -2,7 +2,9 @@
 
 #include "antares/packages.h"
 
+#include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <map>
 
 #include "game/vfs.h"
@@ -89,29 +91,22 @@ namespace antares {
         }
 
         bool Directory_Is_Art_Only_(const std::string& root, const std::string& relative, const std::string& config_path) {
-            const std::string folder = relative.empty() ? root : root + relative + "/";
-            int count = 0;
-            char** entries = SDL_GlobDirectory(folder.c_str(), nullptr, 0, &count);
-            if (entries == nullptr) {
-                return false;
-            }
-            bool art_only = true;
-            for (int index = 0; art_only && index < count; ++index) {
-                const std::string child = relative.empty() ? entries[index] : relative + "/" + entries[index];
-                SDL_PathInfo info{};
-                if (!SDL_GetPathInfo((root + child).c_str(), &info)) {
-                    art_only = false;
-                } else if (info.type == SDL_PATHTYPE_DIRECTORY) {
+            std::error_code error;
+            const std::filesystem::path folder = std::filesystem::path(relative.empty() ? root : root + relative);
+            for (std::filesystem::directory_iterator entry(folder, error), end; !error && entry != end; entry.increment(error)) {
+                const std::string name = entry->path().filename().string();
+                const std::string child = relative.empty() ? name : relative + "/" + name;
+                if (entry->is_directory(error)) {
                     const std::string path = Lower_(child);
-                    if (path != "data/hd" && path != "data/art") {
-                        art_only = Is_Allowed_Folder_(child, config_path) && Directory_Is_Art_Only_(root, child, config_path);
+                    if (path != "data/hd" && path != "data/art" &&
+                        !(Is_Allowed_Folder_(child, config_path) && Directory_Is_Art_Only_(root, child, config_path))) {
+                        return false;
                     }
-                } else {
-                    art_only = Is_Art_Path_(child, config_path);
+                } else if (!Is_Art_Path_(child, config_path)) {
+                    return false;
                 }
             }
-            SDL_free(entries);
-            return art_only;
+            return !error;
         }
 
         bool Archive_Is_Art_Only_(const std::string& path, const std::string& config_path) {
@@ -164,8 +159,15 @@ namespace antares {
     } // namespace
 
     bool Is_Art_Only_Package(const config::s_mod_manifest& manifest, const config::s_cfg_document& document) {
-        return document.statements.empty() && !manifest.has_lua_runtime && manifest.dependencies.empty() &&
+        const bool art_only = document.statements.empty() && !manifest.has_lua_runtime && manifest.dependencies.empty() &&
             manifest.optional_dependencies.empty() && Files_Are_Art_Only_(manifest.id, manifest.config);
+        static std::map<std::string, bool> logged;
+        const auto found = logged.find(manifest.id);
+        if (found == logged.end() || found->second != art_only) {
+            logged[manifest.id] = art_only;
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "packages: '%s' is %s", manifest.id.c_str(), art_only ? "art-only (not recorded in saves)" : "recorded in saves");
+        }
+        return art_only;
     }
 
     bool Is_Art_Only_Package(const std::string& package_id) {
@@ -200,5 +202,28 @@ namespace antares {
             return false;
         }
         return Files_Are_Art_Only_(package_id, config_path);
+    }
+
+    const orion2re::lua::s_lua_save_snapshot* Without_Art_Packages(const orion2re::lua::s_lua_save_snapshot* snapshot, const orion2re::lua::s_lua_registry& active, orion2re::lua::s_lua_save_snapshot* storage) {
+        if (snapshot == nullptr) {
+            return nullptr;
+        }
+        const auto is_dropped = [&](const orion2re::lua::s_lua_package_record& package) {
+            for (const orion2re::lua::s_lua_package_record& kept : active.packages_high_to_low_priority) {
+                if (kept.id == package.id) return false;
+            }
+            for (const orion2re::lua::s_lua_runtime_package_record& runtime : snapshot->registry.runtime_packages) {
+                if (runtime.package_id == package.id) return false;
+            }
+            return Is_Art_Only_Package(package.id);
+        };
+        const auto& packages = snapshot->registry.packages_high_to_low_priority;
+        if (std::none_of(packages.begin(), packages.end(), is_dropped)) {
+            return snapshot;
+        }
+        *storage = *snapshot;
+        auto& kept = storage->registry.packages_high_to_low_priority;
+        kept.erase(std::remove_if(kept.begin(), kept.end(), is_dropped), kept.end());
+        return storage;
     }
 } // namespace antares

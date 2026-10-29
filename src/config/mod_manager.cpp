@@ -189,6 +189,7 @@ namespace config {
             manifests->clear();
             manifests->reserve(resolver.packages.size());
             for (const s_enabled_package& package : resolver.packages) {
+                if (antares::Is_Art_Only_Package(package.manifest, package.document)) continue; // D18: no Lua, not in Lua saves
                 manifests->push_back(package.manifest);
             }
         }
@@ -624,7 +625,8 @@ namespace config {
             return false;
         }
         if (lua_snapshot != nullptr) {
-            if (!orion2re::lua::Restore_Lua_Save_Snapshot(lua_snapshot,
+            orion2re::lua::s_lua_save_snapshot legacy_snapshot;
+            if (!orion2re::lua::Restore_Lua_Save_Snapshot(antares::Without_Art_Packages(lua_snapshot, lua_registry, &legacy_snapshot),
                     &lua_registry,
                     lua_runtimes,
                     &fingerprint_diagnostic)) {
