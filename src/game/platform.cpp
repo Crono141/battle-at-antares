@@ -1388,7 +1388,7 @@ namespace platform {
     }
 
     namespace {
-        // ORION2RE_INPUT_SCRIPT=<file>: replays timed input for automated testing. One command
+        // ANTARES_INPUT_SCRIPT=<file> (or ORION2RE_INPUT_SCRIPT): replays timed input for automated testing. One command
         // per line, '#' comments:
         //   wait <ms>           pause before the next command
         //   move <x> <y>        move the mouse (640x480 game coordinates)
