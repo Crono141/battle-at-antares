@@ -728,7 +728,7 @@ namespace COMBINIT {
         }
 
         MOX::ai_retreat_flag = (int16_t)retreat_flag;
-        hd_sprites::Begin_Preload();
+        render::Begin_Preload();
         MOX::combat_turn = 0;
         MOX::combat_clock_frame = 15;
         MOX::bio_weapon_flag = 0;
@@ -1219,7 +1219,7 @@ namespace COMBINIT {
 
             Deploy_Ships();
             RUSS::Mox_Update();
-            hd_sprites::End_Preload(20000);
+            render::End_Preload(20000);
 
             MOX::auto_combat_flag[0] = 0;
             MOX::auto_combat_flag[1] = 0;

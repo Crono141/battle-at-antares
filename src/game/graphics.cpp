@@ -89,7 +89,7 @@ namespace graphics {
             }
         }
 
-        hd_sprites::Overwrite_Rect(video::current_video_page, x1, y1, x2, y2);
+        render::Overwrite_Rect(video::current_video_page, x1, y1, x2, y2);
         platform::Unlock_Appropriate_Render_Buffer();
     }
 
@@ -178,7 +178,7 @@ namespace graphics {
         uint8_t* framebuffer = video::current_video_page;
         int32_t offset = static_cast<int32_t>(y) * video::g_screen_res_x + static_cast<int32_t>(x);
         framebuffer[offset] = color;
-        hd_sprites::Overwrite_Rect(framebuffer, x, y, x, y);
+        render::Overwrite_Rect(framebuffer, x, y, x, y);
 
         platform::Unlock_Appropriate_Render_Buffer();
     }
@@ -221,7 +221,7 @@ namespace graphics {
             int32_t width = x2 - x1 + 1;
             uint8_t* color_map = (uint8_t*)&video::glass_remap_colors + (tint_color * 256);
             regions::Tint_Fill_Column(color_map, dest, width, height);
-            hd_sprites::Tint_Rect(video::current_video_page, x1, y1, width, height, tint_color);
+            render::Tint_Rect(video::current_video_page, x1, y1, width, height, tint_color);
         } else {
             // Exact binary behavior: split-path uses base glass remap table; tint_color offset is only used in the single-block path.
             int32_t start_pixels = 4 - (x1 & 3);
@@ -238,7 +238,7 @@ namespace graphics {
                         video::current_video_page + offset_y + start_col * 4,
                         middle_blocks + 1,
                         height);
-                    hd_sprites::Tint_Rect(video::current_video_page, start_col * 4, y1, (middle_blocks + 1) * 4, height, 0);
+                    render::Tint_Rect(video::current_video_page, start_col * 4, y1, (middle_blocks + 1) * 4, height, 0);
                 }
             } else {
                 regions::Tint_Fill_Column(
@@ -251,8 +251,8 @@ namespace graphics {
                     video::current_video_page + offset_y + start_col * 4 + 4,
                     middle_blocks,
                     height);
-                hd_sprites::Tint_Rect(video::current_video_page, x1, y1, start_pixels, height, 0);
-                hd_sprites::Tint_Rect(video::current_video_page, start_col * 4 + 4, y1, middle_blocks * 4, height, 0);
+                render::Tint_Rect(video::current_video_page, x1, y1, start_pixels, height, 0);
+                render::Tint_Rect(video::current_video_page, start_col * 4 + 4, y1, middle_blocks * 4, height, 0);
             }
 
             // Exact binary behavior: trailing partial width is (x2 & 3); zero suppresses the tail call.
@@ -262,7 +262,7 @@ namespace graphics {
                     video::current_video_page + offset_y + end_col * 4,
                     end_pixels,
                     height);
-                hd_sprites::Tint_Rect(video::current_video_page, end_col * 4, y1, end_pixels, height, 0);
+                render::Tint_Rect(video::current_video_page, end_col * 4, y1, end_pixels, height, 0);
             }
         }
 
@@ -368,7 +368,7 @@ namespace graphics {
             }
         }
 
-        hd_sprites::Overwrite_Rect(video::current_video_page, x1, y1, x2, y2);
+        render::Overwrite_Rect(video::current_video_page, x1, y1, x2, y2);
         platform::Unlock_Appropriate_Render_Buffer();
     }
 
@@ -450,7 +450,7 @@ namespace graphics {
             }
         }
 
-        hd_sprites::Overwrite_Rect(video::current_video_page, x1, y1, x2, y2);
+        render::Overwrite_Rect(video::current_video_page, x1, y1, x2, y2);
         platform::Unlock_Appropriate_Render_Buffer();
     }
 

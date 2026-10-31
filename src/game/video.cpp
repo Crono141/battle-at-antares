@@ -64,7 +64,7 @@ namespace video {
         g_page_back.height = height;
         g_page_published.width = width;
         g_page_published.height = height;
-        hd_sprites::Allocate_Planes(width, height);
+        render::Allocate_Planes(width, height);
     }
 
     void __cdecl Free_Page_Buffers() {
@@ -89,7 +89,7 @@ namespace video {
         g_page_back.height = 0;
         g_page_published.width = 0;
         g_page_published.height = 0;
-        hd_sprites::Free_Planes();
+        render::Free_Planes();
     }
 
     uint8_t* __cdecl Get_Page_Pixels(int32_t page_index) {
@@ -159,7 +159,7 @@ namespace video {
 
         const size_t page_size = (size_t)video::g_screen_res_x * (size_t)video::g_screen_res_y;
         memcpy(g_page_published.pixels, g_page_off.pixels, page_size);
-        hd_sprites::Publish_Plane(g_page_published.pixels);
+        render::Publish_Plane(g_page_published.pixels);
         if (g_palette_mutex != nullptr) {
             SDL_LockMutex(g_palette_mutex);
         }
@@ -502,7 +502,7 @@ namespace video {
                     alt_offscreen_surface + dword_offset,
                     (uint32_t*)(offscreen_surface + dword_offset * (int32_t)sizeof(*alt_offscreen_surface)),
                     (uint32_t)count);
-                hd_sprites::Copy_Plane_Span(offscreen_surface, (const uint8_t*)alt_offscreen_surface,
+                render::Copy_Plane_Span(offscreen_surface, (const uint8_t*)alt_offscreen_surface,
                     dword_offset * 4, count * 4);
             }
 
@@ -551,13 +551,13 @@ namespace video {
     void __cdecl Copy_Back_To_Off() {
         const size_t page_size = (size_t)video::g_screen_res_x * (size_t)video::g_screen_res_y;
         memcpy(video::g_page_off.pixels, video::g_page_back.pixels, page_size);
-        hd_sprites::Copy_Plane(video::g_page_back.pixels, video::g_page_off.pixels);
+        render::Copy_Plane(video::g_page_back.pixels, video::g_page_off.pixels);
     }
 
     void __cdecl Copy_Off_To_Back() {
         const size_t page_size = (size_t)video::g_screen_res_x * (size_t)video::g_screen_res_y;
         memcpy(video::g_page_back.pixels, video::g_page_off.pixels, page_size);
-        hd_sprites::Copy_Plane(video::g_page_off.pixels, video::g_page_back.pixels);
+        render::Copy_Plane(video::g_page_off.pixels, video::g_page_back.pixels);
     }
 
     void __cdecl Allocate_Refresh_Lists(uint32_t unused, int32_t entry_count) {

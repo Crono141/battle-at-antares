@@ -15,7 +15,7 @@ namespace fontdraw {
                 if (glyph_byte < 0x80) {
                     if (glyph_byte != 0) {
                         *dest = palette[glyph_byte - 1];
-                        hd_sprites::Stamp_Run(dest, 1);
+                        render::Stamp_Run(dest, 1);
                     }
                     dest++;
                 } else {

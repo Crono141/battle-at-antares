@@ -2008,7 +2008,7 @@ orion2re_add_unit_test(test_farload_buffer_vfs
         src/game/vfs_path.cpp
         src/game/vfs_zip.cpp
     FAKE_SOURCES
-        tests/fakes/fake_hd_sprites_register.cpp
+        tests/fakes/fake_render_register.cpp
         tests/fakes/fake_allocate.cpp
         tests/fakes/fake_exitm.cpp
         tests/fakes/fake_fields_helpers_runtime.cpp

@@ -9,7 +9,19 @@ namespace video {
     struct s_palette_color;
 }
 
-// Parallel 4x rendering of the game screen with higher-resolution art.
+// Parallel 4x rendering of the game screen with higher-resolution art: the facade of the render
+// modules in src/antares/render/ (the game calls only what is declared here).
+//
+//   render.cpp   switches (ANTARES_HD_*), statistics, Initialize
+//   assets.cpp   frame decoding, hd/index.json, sprite.json, LBX load registry
+//   cache.cpp    decoding workers, eviction, preloads, screen-map prefetch
+//   glyphs.cpp   HD font glyphs
+//   planes.cpp   the HD surfaces of the pages and their copies
+//   images.cpp   HD surfaces of off-screen images (bitmap::*)
+//   stamps.cpp   attempt 2's draw model: stamps, settle, deferred upgrades (retired in WP1.3a)
+//   present.cpp  publish, presenter snapshot, resolve to ARGB, cursor art
+//   video.cpp    HD cutscenes
+//   pixels.h     the HD pixel format; internal.h: what the modules share
 //
 // The engine keeps drawing 8-bit pixels into its 640x480 pages, and everything that reads
 // them (game logic, hit tests, captures) is unchanged. Alongside each page, and alongside
@@ -30,9 +42,9 @@ namespace video {
 //
 // HD art is read from the VFS under hd/<LBX>/<EEE>/ (sprite.json plus one PNG per frame,
 // grey = palette index, alpha = coverage), normally supplied by a mod package's data/ tree.
-namespace hd_sprites {
+namespace render {
 
-#define HD_SPRITES_SCALE 4
+    constexpr int32_t SCALE = 4;
 
     // Enables the feature when the VFS provides hd/pack.json. Safe to call more than once.
     void Initialize();
@@ -150,4 +162,21 @@ namespace hd_sprites {
     // changed; otherwise [row_first, row_last) are the changed output rows.
     bool Resolve(const video::s_palette_color* palette, uint32_t* output, int32_t* row_first, int32_t* row_last);
 
-} // namespace hd_sprites
+    // HD cutscenes on the parallel 4x screen (video.cpp).
+    //
+    // A Smacker video `<NAME>.LBX` has HD frames when the VFS provides hd/VIDEO/<NAME>/video.json
+    // (width, height, frames, scale, hd_frames) plus one <NNNNNN>.webp per HD frame. With
+    // hd_frames == 2 * frames, HD frame 2k is source frame k and 2k+1 lies halfway to k+1; those
+    // in-between frames are published on their own, halfway between two source frames, so the
+    // video plays at twice its frame rate. Audio, timing and the 8-bit page are unchanged.
+
+    // A Smacker video was opened (smckplay::Open_Smacker_Animation).
+    void Video_Open(const char* file_name, int32_t width, int32_t height, int32_t frame_count);
+    // Source frame `frame` was just written at (left, top) of the off page.
+    void Video_Frame(int32_t left, int32_t top, int32_t frame);
+    // Before waiting for the next source frame, due at `next_frame_ns` (SDL_GetTicksNS):
+    // publishes the in-between frame at its time when it is ready.
+    void Video_Between_Frames(uint64_t next_frame_ns, uint64_t frame_duration_ns);
+    void Video_Close();
+
+} // namespace render
