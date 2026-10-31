@@ -416,7 +416,7 @@ namespace SYS {
 
         uint8_t* anim_frame = Animation_Frame_Data_(anim_hdr, anim_hdr->current_frame);
         int8_t* mask_frame = (int8_t*)Animation_Frame_Data_(mask_hdr, mask_hdr->current_frame);
-        hd_sprites::Begin_Masked_Remap_Draw(
+        render::Begin_Masked_Remap_Draw(
             anim_hdr, x, y, remap::picture_remap_color_list, mask_frame, remap_gray_percentages, 10);
 
         if (!is_clipped) {
@@ -462,7 +462,7 @@ namespace SYS {
             }
         }
 
-        hd_sprites::End_Draw();
+        render::End_Draw();
         SYS::mask_header->current_frame++;
         animate::animation_header->current_frame++;
 
@@ -2022,7 +2022,7 @@ namespace SYS {
 
                             video::current_video_page[screen_offset++] = color;
                         } while (screen_offset < end_offset);
-                        hd_sprites::Stamp_Run(&video::current_video_page[end_offset - run_len], run_len);
+                        render::Stamp_Run(&video::current_video_page[end_offset - run_len], run_len);
                     }
 
                     sprite_idx += (run_len + 1) / 2;
@@ -2154,7 +2154,7 @@ namespace SYS {
                         }
 
                         video::current_video_page[dest_x] = out_color;
-                        hd_sprites::Stamp_Run(&video::current_video_page[dest_x], 1);
+                        render::Stamp_Run(&video::current_video_page[dest_x], 1);
                         ++pixel_byte_index;
                         ++dest_x;
                         ++skipped_pixels;

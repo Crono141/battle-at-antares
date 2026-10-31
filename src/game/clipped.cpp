@@ -109,7 +109,7 @@ namespace clipped {
                         run_start_abs++;
                         cursor_abs++;
                     }
-                    hd_sprites::Stamp_Run(stamp_start, (int32_t)(screen_ptr - stamp_start));
+                    render::Stamp_Run(stamp_start, (int32_t)(screen_ptr - stamp_start));
                 }
                 sprite_word_idx += (count + 1) / 2;
             }
@@ -368,10 +368,10 @@ namespace clipped {
                             if (pixel >= 0xF0) {
                                 const uint8_t background = *current_screen_row;
                                 *current_screen_row = video::glass_remap_colors[pixel - 0xF0][background];
-                                hd_sprites::Stamp_Glass(current_screen_row, background, pixel - 0xF0);
+                                render::Stamp_Glass(current_screen_row, background, pixel - 0xF0);
                             } else {
                                 *current_screen_row = pixel;
-                                hd_sprites::Stamp_Run(current_screen_row, 1);
+                                render::Stamp_Run(current_screen_row, 1);
                             }
                         }
                         current_screen_row++;
@@ -463,10 +463,10 @@ namespace clipped {
                                 if (pixel >= 0xF0) {
                                     const uint8_t background = *dst;
                                     *dst = video::glass_remap_colors[pixel - 0xF0][background];
-                                    hd_sprites::Stamp_Glass(dst, background, pixel - 0xF0);
+                                    render::Stamp_Glass(dst, background, pixel - 0xF0);
                                 } else {
                                     *dst = pixel;
-                                    hd_sprites::Stamp_Run(dst, 1);
+                                    render::Stamp_Run(dst, 1);
                                 }
                             }
                             ++pixel_src;

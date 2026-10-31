@@ -90,7 +90,7 @@ namespace file_ani {
             exitm::Exit_With_Message("File Animation Frame Too Large");
         }
 
-        hd_sprites::Begin_Asset_Draw(file_animation_name, file_animation_entry, current_frame, 0, 0);
+        render::Begin_Asset_Draw(file_animation_name, file_animation_entry, current_frame, 0, 0);
         vfs::fseek(file_animation_fptr, (int32_t)frame_offset, SEEK_SET);
         vfs::fread(file_animation_buffer, frame_size, 1, file_animation_fptr);
 
@@ -147,7 +147,7 @@ namespace file_ani {
             }
         }
 
-        hd_sprites::End_Draw();
+        render::End_Draw();
         animate::animation_header->current_frame++;
 
         if ((animate::animation_header->flags & 0x20) == 0) {
@@ -184,7 +184,7 @@ namespace file_ani {
             exitm::Exit_With_Message("File Animation Frame Too Large");
         }
 
-        hd_sprites::Begin_Asset_Draw(file_animation_name, file_animation_entry, animate::animation_header->current_frame, 0, 0);
+        render::Begin_Asset_Draw(file_animation_name, file_animation_entry, animate::animation_header->current_frame, 0, 0);
         vfs::fseek(file_animation_fptr, (int32_t)frame_offset, SEEK_SET);
         vfs::fread(file_animation_buffer, frame_size, 1, file_animation_fptr);
 
@@ -207,7 +207,7 @@ namespace file_ani {
                 break;
         }
 
-        hd_sprites::End_Draw();
+        render::End_Draw();
         animate::animation_header->current_frame++;
 
         if (animate::animation_header->flags & 0x20) {
@@ -316,7 +316,7 @@ namespace file_ani {
             exitm::Exit_With_Message("File Animation Frame Too Large");
         }
 
-        hd_sprites::Begin_Asset_Draw(file_animation_name_multi[anim_idx], file_animation_entry_multi[anim_idx], animate::animation_header->current_frame, 0, 0);
+        render::Begin_Asset_Draw(file_animation_name_multi[anim_idx], file_animation_entry_multi[anim_idx], animate::animation_header->current_frame, 0, 0);
         vfs::fseek(file_animation[anim_idx], (int32_t)frame_offset, SEEK_SET);
         vfs::fread(file_animation_buffer, frame_size, 1, file_animation[anim_idx]);
 
@@ -343,7 +343,7 @@ namespace file_ani {
                 break;
         }
 
-        hd_sprites::End_Draw();
+        render::End_Draw();
         animate::animation_header->current_frame++;
 
         if (animate::animation_header->flags & 0x20) {
@@ -385,7 +385,7 @@ namespace file_ani {
         }
 
         uint8_t* sprite = file_animation_buffer;
-        hd_sprites::Begin_Asset_Draw(file_animation_name_multi[anim_idx], file_animation_entry_multi[anim_idx], animate::animation_header->current_frame, 0, 0);
+        render::Begin_Asset_Draw(file_animation_name_multi[anim_idx], file_animation_entry_multi[anim_idx], animate::animation_header->current_frame, 0, 0);
         vfs::fseek(file_animation[anim_idx], (int32_t)frame_offset, SEEK_SET);
         vfs::fread(sprite, frame_size, 1, file_animation[anim_idx]);
 
@@ -413,7 +413,7 @@ namespace file_ani {
                 break;
         }
 
-        hd_sprites::End_Draw();
+        render::End_Draw();
         animate::animation_header->current_frame++;
 
         if ((animate::animation_header->flags & 0x20) != 0) {

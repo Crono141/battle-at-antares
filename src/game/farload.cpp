@@ -57,7 +57,7 @@ namespace farload {
         }
 
         vfs::fclose(file);
-        hd_sprites::Register_Load(dest_buf, size, lib_name, entry_idx);
+        render::Register_Load(dest_buf, size, lib_name, entry_idx);
         return dest_buf;
     }
 

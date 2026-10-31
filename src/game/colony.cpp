@@ -444,9 +444,9 @@ namespace COLONY {
             ship_bitm_n = picture_num;
             g_ship_player_n = (int32_t)previous_owner;
 
-            hd_sprites::Begin_Preload(); // drawn once into a bitmap: its HD art must be ready
+            render::Begin_Preload(); // drawn once into a bitmap: its HD art must be ready
             s_animation_header* picture_seg = KEN::Get_Ship_Picture_Seg(previous_owner, picture_num);
-            hd_sprites::End_Preload(2000);
+            render::End_Preload(2000);
             bitmap::Draw_Picture_To_Bitmap(ship_bitm, picture_seg);
 
             replace::Replace_Color_Range(ship_bitm, palette_buffer, 1, 31);
@@ -1185,9 +1185,9 @@ namespace COLONY {
             COLONY::ship_bitm_n = ship_picture_num;
             COLONY::g_ship_player_n = (int32_t)MOX::PLAYER_NUM;
 
-            hd_sprites::Begin_Preload(); // drawn once into a bitmap: its HD art must be ready
+            render::Begin_Preload(); // drawn once into a bitmap: its HD art must be ready
             s_animation_header* ship_seg = KEN::Get_Ship_Picture_Seg(MOX::PLAYER_NUM, ship_picture_num);
-            hd_sprites::End_Preload(2000);
+            render::End_Preload(2000);
             bitmap::Draw_Picture_To_Bitmap(COLONY::ship_bitm, ship_seg);
 
             replace::Replace_Color_Range(COLONY::ship_bitm, ship_palette_map, 1, 31);

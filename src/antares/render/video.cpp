@@ -1,6 +1,6 @@
 #include "pch.h"
 
-#include "game/hd_video.h"
+#include "antares/render/render.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -14,10 +14,9 @@
 #include "webp/decode.h"
 #include "yyjson.h"
 
-namespace hd_video {
+namespace render {
 
     namespace {
-        constexpr int32_t SCALE = HD_SPRITES_SCALE;
         // HD frames read and decoded ahead of the one shown (about a second at 26 fps).
         constexpr int32_t LOOKAHEAD = 24;
         constexpr int32_t WORKER_COUNT = 3;
@@ -168,9 +167,9 @@ namespace hd_video {
         }
     } // namespace
 
-    void Open(const char* file_name, int32_t width, int32_t height, int32_t frame_count) {
-        Close();
-        if (!hd_sprites::Enabled() || file_name == nullptr || width <= 0 || height <= 0 || frame_count <= 0) {
+    void Video_Open(const char* file_name, int32_t width, int32_t height, int32_t frame_count) {
+        Video_Close();
+        if (!Enabled() || file_name == nullptr || width <= 0 || height <= 0 || frame_count <= 0) {
             return;
         }
         // hd/VIDEO/<file name without directory and extension, upper case>
@@ -215,7 +214,7 @@ namespace hd_video {
         static bool exit_registered;
         if (!exit_registered) {
             exit_registered = true;
-            std::atexit(Close); // quitting during a video: join the workers before static destruction
+            std::atexit(Video_Close); // quitting during a video: join the workers before static destruction
         }
         for (int32_t i = 0; i < WORKER_COUNT; ++i) {
             state.workers.emplace_back(Worker);
@@ -224,7 +223,7 @@ namespace hd_video {
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: playing %s in HD (%d frames)", name.c_str(), state.hd_count);
     }
 
-    void Frame(int32_t left, int32_t top, int32_t frame) {
+    void Video_Frame(int32_t left, int32_t top, int32_t frame) {
         if (!state.active || !Rect_On_Page(left, top)) {
             return;
         }
@@ -240,14 +239,14 @@ namespace hd_video {
             return;
         }
         state.frames_hd++;
-        hd_sprites::Literal_Rect((const uint8_t*)video::g_page_off.pixels, left, top, state.width, state.height, rgb->data());
+        Literal_Rect((const uint8_t*)video::g_page_off.pixels, left, top, state.width, state.height, rgb->data());
         state.shown = frame;
         if (state.ratio > 1) {
             Copy_Rect_From_Page(&state.shown_pixels);
         }
     }
 
-    void Between_Frames(uint64_t next_frame_ns, uint64_t frame_duration_ns) {
+    void Video_Between_Frames(uint64_t next_frame_ns, uint64_t frame_duration_ns) {
         if (!state.active || state.ratio < 2 || state.shown < 0 || frame_duration_ns == 0) {
             return;
         }
@@ -272,11 +271,11 @@ namespace hd_video {
         // The off page still shows the source frame (or was partly restored meanwhile): put its
         // pixels back so the in-between HD pixels belong to them, then publish just this frame.
         Copy_Rect_To_Page(state.shown_pixels);
-        hd_sprites::Literal_Rect((const uint8_t*)video::g_page_off.pixels, state.left, state.top, state.width, state.height, rgb->data());
+        Literal_Rect((const uint8_t*)video::g_page_off.pixels, state.left, state.top, state.width, state.height, rgb->data());
         video::Publish_Off_Page();
     }
 
-    void Close() {
+    void Video_Close() {
         if (!state.active) {
             return;
         }
@@ -290,11 +289,10 @@ namespace hd_video {
             worker.join();
         }
         state.workers.clear();
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %s closed: %d frames in HD, %d without art; %d in-between frames shown, %d skipped",
-            state.directory.c_str(), state.frames_hd, state.frames_sd, state.between_shown, state.between_skipped);
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %s closed: %d frames in HD, %d without art; %d in-between frames shown, %d skipped", state.directory.c_str(), state.frames_hd, state.frames_sd, state.between_shown, state.between_skipped);
         state.decoded.clear();
         state.shown_pixels.clear();
         state.active = false;
     }
 
-} // namespace hd_video
+} // namespace render

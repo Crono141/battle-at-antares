@@ -85,7 +85,7 @@ namespace bitmap {
         header->keyframe_interval = 0;
         header->flags = ANIMATION_DRAW_MODE_BITMAP;
         Set_Animation_Frame_Offset_(header, 0, kBitmapFrameDataOffset);
-        hd_sprites::Bitmap_Reset(header, width, height);
+        render::Bitmap_Reset(header, width, height);
     }
 
     void __cdecl Create_Blank_Bitmap(int16_t width, int16_t height, void* bitmap) {
@@ -113,7 +113,7 @@ namespace bitmap {
         uint8_t* src = video::current_video_page + ((int32_t)y1 * video::g_screen_res_x) + (int32_t)x1;
 
         shear::Capture_Screen_Block(src, width, height, dest);
-        hd_sprites::Bitmap_Capture(header, x1, y1, width, height);
+        render::Bitmap_Capture(header, x1, y1, width, height);
 
         platform::Unlock_Appropriate_Render_Buffer();
     }
@@ -149,7 +149,7 @@ namespace bitmap {
             }
         }
         // Modes 0 and 1 mirror left to right ("Down"), 2 and 3 top to bottom ("Left").
-        hd_sprites::Bitmap_Flip(dst_hdr, src_hdr, flip_mode != 0 && flip_mode != 1);
+        render::Bitmap_Flip(dst_hdr, src_hdr, flip_mode != 0 && flip_mode != 1);
     }
 
     void __cdecl Copy_Bitmap_To_Bitmap(s_animation_header* dst, s_animation_header* src) {
@@ -165,7 +165,7 @@ namespace bitmap {
         int32_t size = (int32_t)height * (int32_t)width;
 
         struct_::Copy_Structure(dst_ptr, src_ptr, size);
-        hd_sprites::Bitmap_Copy(dst, src);
+        render::Bitmap_Copy(dst, src);
     }
 
     void __cdecl Outline_Bitmap(s_animation_header* dst, s_animation_header* src, int16_t color, int16_t no_glass) {
@@ -213,7 +213,7 @@ namespace bitmap {
         uint8_t* remap_table = video::glass_remap_colors[tint_color_index];
 
         Tint_Bitmap_Pixels(src_pixels, remap_table, 0, dest_pixels, width, height);
-        hd_sprites::Bitmap_Glass(dest, dest_pixels, tint_color_index);
+        render::Bitmap_Glass(dest, dest_pixels, tint_color_index);
     }
 
     void __cdecl Mask_Out_Bitmap_With_Bitmap(int16_t x, int16_t y, s_animation_header* dest, s_animation_header* src, int16_t type) {
@@ -564,7 +564,7 @@ namespace bitmap {
         animate::animation_header = anim;
         uint32_t* pixels = (uint32_t*)Animation_Frame_Data_(anim, anim->current_frame);
         shear::Mask_Bitmap_Colors_Pixels(pixels, start_color, end_color, 0, anim->width, anim->height);
-        hd_sprites::Bitmap_Sync(anim, (const uint8_t*)pixels);
+        render::Bitmap_Sync(anim, (const uint8_t*)pixels);
     }
 
     void __cdecl Mask_Brighten_Bitmap(int32_t x, int32_t y, s_animation_header* dst_anim, s_animation_header* src_anim, uint8_t color) {
@@ -736,7 +736,7 @@ namespace bitmap {
             animate::animation_header->width = new_width;
             animate::animation_header->height = new_height;
         } else {
-            hd_sprites::Bitmap_Scale(dst, src, dst_frame_ptr, new_width, new_height);
+            render::Bitmap_Scale(dst, src, dst_frame_ptr, new_width, new_height);
         }
     }
 
@@ -786,7 +786,7 @@ namespace bitmap {
 
         if (x_i < dest_width_i && y < dest_height && end_x >= 0 && end_y >= 0) {
             int32_t frame_offset = Animation_Frame_Offset_(src, src->current_frame);
-            hd_sprites::Begin_Draw_To_Bitmap(src, x, y, dest);
+            render::Begin_Draw_To_Bitmap(src, x, y, dest);
 
             int32_t dest_x;
             int16_t src_skip_x;
@@ -833,7 +833,7 @@ namespace bitmap {
                                 uint8_t pixel = *((int8_t*)src + frame_offset + src_idx);
                                 if (pixel != 0) {
                                     *((uint8_t*)dest + kBitmapFrameDataOffset + dest_idx) = pixel;
-                                    hd_sprites::Stamp_Bitmap(dest, dest_idx, pixel);
+                                    render::Stamp_Bitmap(dest, dest_idx, pixel);
                                 }
                                 src_idx++;
                                 dest_idx++;
@@ -845,7 +845,7 @@ namespace bitmap {
                         rows--;
                     } while (rows != 0);
                 }
-                hd_sprites::End_Draw();
+                render::End_Draw();
                 return;
             } else {
                 int32_t current_y =
@@ -914,14 +914,14 @@ namespace bitmap {
                             for (; run_idx < limit; ++run_idx) {
                                 const uint8_t pixel = *((uint8_t*)src + frame_offset + pixel_offset);
                                 *((uint8_t*)dest + kBitmapFrameDataOffset + run_idx) = pixel;
-                                hd_sprites::Stamp_Bitmap(dest, run_idx, pixel);
+                                render::Stamp_Bitmap(dest, run_idx, pixel);
                                 pixel_offset++;
                             }
                         }
                         word_idx += (run_len + 1) / 2;
                     }
                 }
-                hd_sprites::End_Draw();
+                render::End_Draw();
             }
         }
     }
@@ -939,11 +939,11 @@ namespace bitmap {
             uint8_t* src_pixels = Animation_Frame_Data_(src, src->current_frame);
             uint8_t* dst_pixels = (uint8_t*)dest + kBitmapFrameDataOffset;
             struct_::Copy_Structure(dst_pixels, src_pixels, width * height);
-            hd_sprites::Bitmap_Copy(dest, src);
+            render::Bitmap_Copy(dest, src);
             return;
         }
 
-        hd_sprites::Begin_Draw_To_Bitmap(src, 0, 0, dest);
+        render::Begin_Draw_To_Bitmap(src, 0, 0, dest);
         int8_t interval = (int8_t)src->keyframe_interval;
         int32_t start_frame = 0;
 
@@ -983,7 +983,7 @@ namespace bitmap {
                             int32_t src_offset = word_offset * 2;
                             while (pixel_offset < end_offset) {
                                 dst_pixels[pixel_offset] = frame_data[src_offset++];
-                                hd_sprites::Stamp_Bitmap(dest, pixel_offset, dst_pixels[pixel_offset]);
+                                render::Stamp_Bitmap(dest, pixel_offset, dst_pixels[pixel_offset]);
                                 ++pixel_offset;
                             }
                         }
@@ -993,7 +993,7 @@ namespace bitmap {
                 }
             }
         }
-        hd_sprites::End_Draw();
+        render::End_Draw();
     }
 
     void __cdecl Jumble_Bitmap(s_animation_header* dest, s_animation_header* src, int16_t noise_threshold, int16_t jumble_mask) {

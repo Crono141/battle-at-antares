@@ -196,7 +196,7 @@ namespace smckplay {
         Queue_Smacker_Audio_Frame();
 
         smacker_state.next_frame_tick_ns = SDL_GetTicksNS();
-        hd_video::Open(file_name, (int32_t)smacker_state.width, (int32_t)smacker_state.height, (int32_t)smacker_state.frame_count);
+        render::Video_Open(file_name, (int32_t)smacker_state.width, (int32_t)smacker_state.height, (int32_t)smacker_state.frame_count);
 
         return (int8_t)(smk != nullptr);
     }
@@ -221,7 +221,7 @@ namespace smckplay {
 
     void __cdecl Do_Draw_Smacker_Animation(int32_t left, int32_t top) {
         if (smckplay::smk != nullptr) {
-            hd_video::Between_Frames(smacker_state.next_frame_tick_ns, (Uint64)(smacker_state.microseconds_per_frame * 1000.0));
+            render::Video_Between_Frames(smacker_state.next_frame_tick_ns, (Uint64)(smacker_state.microseconds_per_frame * 1000.0));
             const Uint64 now_ns = SDL_GetTicksNS();
             if (smacker_state.next_frame_tick_ns > now_ns) {
                 SDL_DelayNS(smacker_state.next_frame_tick_ns - now_ns);
@@ -229,7 +229,7 @@ namespace smckplay {
 
             smckplay::Set_Smacker_Palette();
             Blit_Smacker_Frame(left, top);
-            hd_video::Frame(left, top, (int32_t)smacker_state.current_frame);
+            render::Video_Frame(left, top, (int32_t)smacker_state.current_frame);
 
             setvesa::Add_Square_To_Scan_List(left,
                 top,
@@ -292,7 +292,7 @@ namespace smckplay {
 
     void __cdecl Close_Smacker_Animation(void) {
         if (smk != nullptr) {
-            hd_video::Close();
+            render::Video_Close();
             Close_Smacker_Audio_Streams();
             smk_close(smk);
             smk = nullptr;

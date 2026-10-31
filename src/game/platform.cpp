@@ -918,8 +918,8 @@ namespace platform {
         bool g_hd_frame_valid;
 
         bool Present_HD_Frame() {
-            const int32_t width = video::g_screen_res_x * HD_SPRITES_SCALE;
-            const int32_t height = video::g_screen_res_y * HD_SPRITES_SCALE;
+            const int32_t width = video::g_screen_res_x * render::SCALE;
+            const int32_t height = video::g_screen_res_y * render::SCALE;
             if (g_hd_texture == nullptr) {
                 g_hd_texture = SDL_CreateTexture(g_sdl_renderer, SDL_PIXELFORMAT_ARGB8888,
                     SDL_TEXTUREACCESS_STREAMING, width, height);
@@ -936,7 +936,7 @@ namespace platform {
             const uint64_t resolve_start = SDL_GetPerformanceCounter();
             int32_t row_first = 0;
             int32_t row_last = 0;
-            const bool changed = hd_sprites::Resolve(g_present_palette_entries, g_hd_pixels, &row_first, &row_last);
+            const bool changed = render::Resolve(g_present_palette_entries, g_hd_pixels, &row_first, &row_last);
             static double resolve_ms_total;
             static uint32_t resolve_count;
             resolve_ms_total += (double)(SDL_GetPerformanceCounter() - resolve_start) * 1000.0 / (double)SDL_GetPerformanceFrequency();
@@ -998,7 +998,7 @@ namespace platform {
                 g_pending_screenshot_page.clear();
             }
 
-            if (!hd_sprites::Enabled()) {
+            if (!render::Enabled()) {
                 Blit_Cursor_On_Present_Surface();
             }
             if (!scalers::Process(
@@ -1008,11 +1008,11 @@ namespace platform {
                 return;
             }
 
-            if (!hd_sprites::Enabled() && !g_pending_screenshot_hd.empty()) {
+            if (!render::Enabled() && !g_pending_screenshot_hd.empty()) {
                 SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_hd %s FAILED (no HD pack enabled)", g_pending_screenshot_hd.c_str());
                 g_pending_screenshot_hd.clear();
             }
-            if (hd_sprites::Enabled() && Present_HD_Frame()) {
+            if (render::Enabled() && Present_HD_Frame()) {
                 return;
             }
 
@@ -1062,11 +1062,11 @@ namespace platform {
                 return;
             }
             // HD cursor art (looked up by the cursor image's fingerprint), else the original.
-            static uint32_t hd_cursor[k_cursor_dimension * HD_SPRITES_SCALE * k_cursor_dimension * HD_SPRITES_SCALE];
+            static uint32_t hd_cursor[k_cursor_dimension * render::SCALE * k_cursor_dimension * render::SCALE];
             SDL_Texture* cursor = nullptr;
-            if (hd_sprites::Enabled() &&
-                hd_sprites::Cursor_Art(cursor_state.pixels, k_cursor_dimension, g_present_palette_entries, hd_cursor)) {
-                const int32_t size = k_cursor_dimension * HD_SPRITES_SCALE;
+            if (render::Enabled() &&
+                render::Cursor_Art(cursor_state.pixels, k_cursor_dimension, g_present_palette_entries, hd_cursor)) {
+                const int32_t size = k_cursor_dimension * render::SCALE;
                 cursor = SDL_CreateTexture(g_sdl_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, size, size);
                 if (cursor != nullptr) {
                     (void)SDL_UpdateTexture(cursor, nullptr, hd_cursor, size * (int32_t)sizeof(uint32_t));
@@ -1357,7 +1357,7 @@ namespace platform {
 
     void Cleanup_Surfaces() {
         // HD art decoding threads use SDL; they must finish before SDL shuts down.
-        hd_sprites::Shutdown();
+        render::Shutdown();
         Destroy_Present_Backend();
 
         uint8_t* const primary_cursor_surface = g_cursor_surface_1;
@@ -1811,7 +1811,7 @@ namespace platform {
         for (int32_t y = 0; y < video::g_screen_res_y; ++y) {
             memcpy(dst + y * video::g_screen_res_x, src + y * video::g_screen_res_x, (size_t)video::g_screen_res_x);
         }
-        hd_sprites::Snapshot_Plane();
+        render::Snapshot_Plane();
     }
 
     void Force_Cursor_Pos(int16_t x, int16_t y) {

@@ -60,7 +60,7 @@ namespace fonts {
 
                 if (cmd < 0x80) {
                     *dest = selected_colors[cmd - 1];
-                    hd_sprites::Stamp_Run(dest, 1);
+                    render::Stamp_Run(dest, 1);
                     ++dest;
                 } else {
                     dest += (cmd & 0x7F);
@@ -402,9 +402,9 @@ namespace fonts {
         uint32_t offset = font_header.font_style_offsets[(int16_t)c];
         uint8_t* glyph_ptr = (uint8_t*)font_data + offset;
 
-        hd_sprites::Begin_Glyph(font_name, current_font_style, (uint8_t)c, x, y, font_header.selected_colors.colors);
+        render::Begin_Glyph(font_name, current_font_style, (uint8_t)c, x, y, font_header.selected_colors.colors);
         Print_Character_ASM(dest_ptr, glyph_ptr, font_header.selected_colors.colors, (uint32_t)font_header.current_height);
-        hd_sprites::End_Draw();
+        render::End_Draw();
 
         platform::Unlock_Appropriate_Render_Buffer();
 
@@ -439,13 +439,13 @@ namespace fonts {
 
         uint8_t* glyph_ptr = (uint8_t*)font_data + font_header.font_style_offsets[char_idx];
 
-        hd_sprites::Begin_Glyph(font_name, current_font_style, (uint8_t)character, x, y, font_header.selected_colors.colors);
+        render::Begin_Glyph(font_name, current_font_style, (uint8_t)character, x, y, font_header.selected_colors.colors);
         fontdraw::Print_Character_No_Alias_ASM(
             dest_ptr,
             glyph_ptr,
             font_header.selected_colors.colors,
             (int)font_header.current_height);
-        hd_sprites::End_Draw();
+        render::End_Draw();
 
         platform::Unlock_Appropriate_Render_Buffer();
 
@@ -648,9 +648,9 @@ namespace fonts {
             clipped_h = max_y_idx - draw_y + 1;
         }
 
-        hd_sprites::Begin_Glyph(font_name, current_font_style, (uint8_t)ch, x, y, font_header.selected_colors.colors);
+        render::Begin_Glyph(font_name, current_font_style, (uint8_t)ch, x, y, font_header.selected_colors.colors);
         Print_Clipped_Letter_To_Bitmap(draw_x, draw_y, ch, src_x, clipped_w, src_y, clipped_h, bitmap);
-        hd_sprites::End_Draw();
+        render::End_Draw();
     }
 
     void __cdecl Print_To_Bitmap(int16_t x, int16_t y, const char* text, void* bitmap) {
@@ -956,7 +956,7 @@ namespace fonts {
                         if (data <= 0x80) {
                             if (data != 0 && dest_clip_start <= current_dest_offset && current_dest_offset < dest_clip_end) {
                                 frame_ptr[current_dest_offset] = font_header.selected_colors.colors[data - 1];
-                                hd_sprites::Stamp_Bitmap(bitmap, current_dest_offset, frame_ptr[current_dest_offset]);
+                                render::Stamp_Bitmap(bitmap, current_dest_offset, frame_ptr[current_dest_offset]);
                             }
                             current_dest_offset++;
                         } else {
@@ -1006,7 +1006,7 @@ namespace fonts {
                         } else {
                             if (screen_idx >= clip_start_idx && screen_idx < clip_end_idx) {
                                 video::current_video_page[screen_idx] = font_header.selected_colors.colors[pixel - 1];
-                                hd_sprites::Stamp_Run(&video::current_video_page[screen_idx], 1);
+                                render::Stamp_Run(&video::current_video_page[screen_idx], 1);
                             }
                             ++screen_idx;
                         }
@@ -1067,10 +1067,10 @@ namespace fonts {
                 print_height = video::screen_window_y2 - y + 1;
             }
 
-            hd_sprites::Begin_Glyph(font_name, current_font_style, (uint8_t)c, (int16_t)(x - clip_x),
+            render::Begin_Glyph(font_name, current_font_style, (uint8_t)c, (int16_t)(x - clip_x),
                 (int16_t)(y - clip_y), font_header.selected_colors.colors);
             Print_Clipped_Letter(x, y, c, clip_x, char_width, clip_y, print_height);
-            hd_sprites::End_Draw();
+            render::End_Draw();
         }
 
         return spacing + char_width + x;

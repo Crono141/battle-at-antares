@@ -268,13 +268,13 @@ namespace buffer {
 
                 freed_size = static_cast<int32_t>(next_data_ptr - victim_data_ptr);
 
-                hd_sprites::Forget_Loads(victim_data_ptr, next_data_ptr);
+                render::Forget_Loads(victim_data_ptr, next_data_ptr);
                 if (next_file_buffer_index != 1000) {
                     const int32_t bytes_to_move =
                         (int32_t)(used_end - next_data_ptr);
 
                     struct_::Copy_Structure(victim_data_ptr, next_data_ptr, bytes_to_move);
-                    hd_sprites::Move_Loads(next_data_ptr, used_end, -(ptrdiff_t)freed_size);
+                    render::Move_Loads(next_data_ptr, used_end, -(ptrdiff_t)freed_size);
 
                     if (buffer::file_buffer_count > 0) {
                         for (int32_t file_buffer_index = 0;
@@ -319,7 +319,7 @@ namespace buffer {
         }
 
         vfs::fclose(file);
-        hd_sprites::Register_Load(loaded_data, (int32_t)entry_size, file_name, entry_index);
+        render::Register_Load(loaded_data, (int32_t)entry_size, file_name, entry_index);
         return loaded_data;
     }
 

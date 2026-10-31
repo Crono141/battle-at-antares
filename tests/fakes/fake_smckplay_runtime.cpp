@@ -46,19 +46,19 @@ namespace sound {
     }
 }
 
-namespace hd_video {
-    void Open(const char*, int32_t, int32_t, int32_t) {
+namespace render {
+    void Video_Open(const char*, int32_t, int32_t, int32_t) {
     }
 
-    void Frame(int32_t, int32_t, int32_t) {
+    void Video_Frame(int32_t, int32_t, int32_t) {
     }
 
-    void Between_Frames(uint64_t, uint64_t) {
+    void Video_Between_Frames(uint64_t, uint64_t) {
     }
 
-    void Close() {
+    void Video_Close() {
     }
-} // namespace hd_video
+} // namespace render
 
 namespace palette {
     void __cdecl Save_Palette() {
