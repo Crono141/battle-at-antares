@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "antares/cosmetic_random.h"
 #include "antares/rules_trace.h"
 
 namespace COMBFIND {
@@ -2769,7 +2770,7 @@ namespace COMBFIND {
         int p1;
         int p2;
 
-        if (game_random::Random(2) == 1) {
+        if (antares::cosmetic_random::Random(2) == 1) {
             p1 = player1_idx;
             p2 = player2_idx;
         } else {

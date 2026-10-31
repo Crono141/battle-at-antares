@@ -523,6 +523,13 @@ orion2re_add_unit_test(test_startup_options
         src/startup_options.cpp
 )
 
+orion2re_add_unit_test(test_antares_random
+    SOURCES
+        tests/unit/antares_random_test.cpp
+    PRODUCTION_SOURCES
+        src/game/random.cpp
+)
+
 orion2re_add_unit_test(test_config_loader
     SOURCES
         tests/unit/config_loader_test.cpp

@@ -1,4 +1,6 @@
 #include "pch.h"
+
+#include "antares/cosmetic_random.h"
 #include "string_overrides.h"
 #include "fields.h"
 #include "raceopt.h"
@@ -783,7 +785,7 @@ namespace RACESEL {
         fields::Assign_Auto_Function(RACESEL::Draw_Naming_Popup, 1);
         allocate::Push_Block(MOX::screen_seg);
 
-        const int32_t name_index = (int32_t)game_random::Random(8) + (int32_t)race_idx * 8 - 1;
+        const int32_t name_index = (int32_t)antares::cosmetic_random::Random(8) + (int32_t)race_idx * 8 - 1;
         RACESEL::temp_ruler_name = (char*)farload::Far_Reload_Next_Data(
             "RACENAME.LBX",
             0,

@@ -1,4 +1,6 @@
 #include "pch.h"
+
+#include "antares/cosmetic_random.h"
 #include "string_overrides.h"
 
 namespace ANTAROOM {
@@ -109,7 +111,7 @@ namespace ANTAROOM {
     void __cdecl Get_Antaran_Room_Message(int16_t message_index) {
         char buffer[200];
 
-        uint32_t random_val = game_random::Random(4);
+        uint32_t random_val = antares::cosmetic_random::Random(4);
         int16_t message_lbx_index = (int16_t)(random_val + (message_index + (uint8_t)MOX::settings.language * 2) * 4 - 1);
 
         string_overrides::Load_Message("antarmsg.LBX", message_lbx_index, 0, sizeof(buffer),

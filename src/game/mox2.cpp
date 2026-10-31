@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/identity.h"
+
 #include <exception>
 #include "config/config_loader.h"
 #include "game/config_refresh.h"
@@ -24,6 +26,12 @@ namespace MOX2 {
     void __cdecl Set_Game_Random_Seed() {
         capture::Check_Release_Version();
 
+        // Test-only: a fixed rules seed for new-game replays (WP0.7). Saves carry their own seed.
+        if (MOX::cmd_line_seed == 0) {
+            if (const char* seed = antares::Get_Env("RULES_SEED"); seed != nullptr && seed[0] != '\0') {
+                MOX::cmd_line_seed = (uint32_t)strtoul(seed, nullptr, 0);
+            }
+        }
         if (MOX::cmd_line_seed != 0) {
             game_random::Set_Random_Seed(MOX::cmd_line_seed);
         } else {

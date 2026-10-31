@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/cosmetic_random.h"
+
 namespace DIP_SCRN {
     /**
      * @brief Resolves a treaty proposal and determines whether it succeeds.
@@ -499,7 +501,7 @@ namespace DIP_SCRN {
 
         diplomacy_current_music = -1;
         diplomacy_good_music = (int16_t)MOX::player[ambassador_player_id].race + 1;
-        diplomacy_bad_music = (int16_t)game_random::Random(3) + 13;
+        diplomacy_bad_music = (int16_t)antares::cosmetic_random::Random(3) + 13;
     }
 
     void __cdecl Start_Diplomacy_Music(int16_t music_type) {
@@ -551,7 +553,7 @@ namespace DIP_SCRN {
         farload::Farload_Data_Static(filename, file_msg_id, buf, 0, 1, 5202);
 
         int count = buf[1];
-        int rnd_idx = game_random::Random(count) - 1;
+        int rnd_idx = antares::cosmetic_random::Random(count) - 1;
         char* record = reinterpret_cast<char*>(buf) + 2 + rnd_idx * 200;
 
         for (int i = 0; record[i] != '\0'; ++i) {
