@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/cosmetic_random.h"
+
 namespace SCORE {
     s_hof hof;
 
@@ -212,8 +214,8 @@ namespace SCORE {
         }
 
         for (int i = 0; i < 10; ++i) {
-            int16_t idx1 = (int16_t)game_random::Random(11) + 1;
-            int16_t idx2 = (int16_t)game_random::Random(11) + 1;
+            int16_t idx1 = (int16_t)antares::cosmetic_random::Random(11) + 1;
+            int16_t idx2 = (int16_t)antares::cosmetic_random::Random(11) + 1;
             if (idx2 != idx1) {
                 int16_t swapped_index = indices[idx1];
                 indices[idx1] = indices[idx2];
@@ -222,8 +224,8 @@ namespace SCORE {
         }
 
         for (int i = 0; i < 8; ++i) {
-            int16_t idx1 = (int16_t)game_random::Random(8) + 1;
-            int16_t idx2 = (int16_t)game_random::Random(8) + 1;
+            int16_t idx1 = (int16_t)antares::cosmetic_random::Random(8) + 1;
+            int16_t idx2 = (int16_t)antares::cosmetic_random::Random(8) + 1;
             if (idx2 != idx1) {
                 char temp_name[20];
                 strlcpy(temp_name, default_names[idx1], sizeof(temp_name));
@@ -236,8 +238,8 @@ namespace SCORE {
         int16_t rand_range = 10;
 
         for (int i = 0; i < 10; ++i) {
-            int16_t r1 = (int16_t)game_random::Random(rand_range + 1);
-            int16_t r2 = (int16_t)game_random::Random(5);
+            int16_t r1 = (int16_t)antares::cosmetic_random::Random(rand_range + 1);
+            int16_t r2 = (int16_t)antares::cosmetic_random::Random(5);
 
             hof.scores[i] = score_base + (r2 * 10) + ((r1 - 1) * 15);
             hof.difficulties[i] = (int8_t)(i % GAME_DIFFICULTY_COUNT);

@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/cosmetic_random.h"
+
 namespace REPORT {
     uint8_t no_outpost_prompt;
     int16_t n_reports;
@@ -731,7 +733,7 @@ namespace REPORT {
                     if (target_star_idx != -1) {
                         // Check if player has a colony at the target system
                         if ((MOX::star[target_star_idx].has_colony >> (uint8_t)MOX::PLAYER_NUM) & 1) {
-                            if (game_random::Random(10) <= 4) {
+                            if (antares::cosmetic_random::Random(10) <= 4) {
                                 ANTAROOM::Main_Antaran_Room_Screen(MOX::antarans.invasion_stardate < 35000 /* 0x88B8 */);
                                 room_screen_shown = true;
                             }

@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/cosmetic_random.h"
+
 #include <cstddef>
 
 namespace CMBTSPEC {
@@ -1441,7 +1443,7 @@ namespace CMBTSPEC {
     }
 
     void __cdecl Play_Ship_Explosion_SFX(int16_t size_class) {
-        int32_t random_val = game_random::Random(3);
+        int32_t random_val = antares::cosmetic_random::Random(3);
         int16_t switch_idx = (int16_t)(random_val + size_class - 1);
 
         switch (switch_idx) {
@@ -1774,9 +1776,9 @@ namespace CMBTSPEC {
                                 (frame > 8 && ship_dist_ratios[j] == 4))) {
                             int16_t ship_idx = ship_indices[j];
                             int16_t cx = MOX::combat_data[ship_idx].x - MOX::cur_combat_x;
-                            cx = cx * 20 - 3 + (int16_t)game_random::Random(5);
+                            cx = cx * 20 - 3 + (int16_t)antares::cosmetic_random::Random(5);
                             int16_t cy = MOX::combat_data[ship_idx].y - MOX::cur_combat_y;
-                            cy = cy * 20 - 3 + (int16_t)game_random::Random(5);
+                            cy = cy * 20 - 3 + (int16_t)antares::cosmetic_random::Random(5);
                             CMBTDRW1::Draw_Ship(ship_idx, cx, cy);
                             draw_ship = false;
                         } else if (sfx_type != 0 && sfx_type != 1) {
@@ -1788,9 +1790,9 @@ namespace CMBTSPEC {
                                 if (frame_val < 85 || (frame_val >= 85 && dist_sq <= frame_val_sq - 625)) {
                                     int16_t ship_idx = ship_indices[j];
                                     int16_t cx = MOX::combat_data[ship_idx].x - MOX::cur_combat_x;
-                                    cx = cx * 20 - 3 + (int16_t)game_random::Random(5);
+                                    cx = cx * 20 - 3 + (int16_t)antares::cosmetic_random::Random(5);
                                     int16_t cy = MOX::combat_data[ship_idx].y - MOX::cur_combat_y;
-                                    cy = cy * 20 - 3 + (int16_t)game_random::Random(5);
+                                    cy = cy * 20 - 3 + (int16_t)antares::cosmetic_random::Random(5);
                                     CMBTDRW1::Draw_Ship(ship_idx, cx, cy);
                                     draw_ship = false;
                                 }

@@ -1,4 +1,6 @@
 #include "pch.h"
+
+#include "antares/cosmetic_random.h"
 #include "string_overrides.h"
 
 namespace council {
@@ -771,7 +773,7 @@ namespace council {
         int16_t message_idx;
         do {
             /* BUG: message_idx can be -1 if Random_(14) returns 0. */
-            message_idx = (int16_t)game_random::Random(14) - 1;
+            message_idx = (int16_t)antares::cosmetic_random::Random(14) - 1;
         } while (player_voted_winner_message_id[message_idx] != 0xFF);
 
         player_voted_winner_message_id[message_idx] = (uint8_t)message_idx;

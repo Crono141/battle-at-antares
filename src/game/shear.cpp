@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/cosmetic_random.h"
+
 namespace shear {
 
     uint16_t x_step_8_8;
@@ -781,7 +783,7 @@ namespace shear {
         // reads Vanish_Bitmap_Pixels's saved incoming ESI, which holds the source pointer.
         const uint32_t random_max =
             static_cast<uint32_t>(reinterpret_cast<uintptr_t>(src));
-        uint32_t rand_val = game_random::Random(random_max);
+        uint32_t rand_val = antares::cosmetic_random::Random(random_max);
         noise_start_index = (rand_val - 1) & 0xFFFE;
 
         uint32_t total_pixels = width * height;
