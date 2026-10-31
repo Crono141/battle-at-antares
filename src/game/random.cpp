@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/rng_trace.h"
+
 namespace game_random {
     uint32_t random_seed;
     uint32_t saved_random_seed;
@@ -23,6 +25,7 @@ namespace game_random {
     }
 
     uint32_t __cdecl Random(uint32_t max_val) {
+        antares::rng_trace::Note_Call(ANTARES_RNG_CALLER()); // rules replay probe (WP0.5)
         if (max_val == 0) {
             return 1;
         }

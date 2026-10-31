@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "antares/rules_trace.h"
 #include "game/savegame.h"
 #include "game/config_refresh.h"
 
@@ -213,6 +214,7 @@ namespace FILEDEF {
         HAROLD::Restore_Mouse_List();
         RUSS::Release_All_Blocks(MOX::screen_seg);
         CONFIG_REFRESH::Request_Resource_Reload();
+        antares::rules_trace::Mark("load"); // rules replay probe (WP0.5)
 
         return 1;
     }

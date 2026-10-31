@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "antares/rules_trace.h"
 #include "lua/lua_game.h"
 
 namespace NEXTTURN {
@@ -41,8 +42,10 @@ namespace NEXTTURN {
             Do_Autosave();
         }
 
+        antares::rules_trace::Mark("turn-start"); // rules replay probe (WP0.5)
         HAROLD::Confirm_Planet_And_Star_Index_Link(HAROLD::s_in_next_turn);
         Next_Turn_Calc();
+        antares::rules_trace::Mark("turn-end");
 
         MOX::current_screen = MOX::return_screen;
 

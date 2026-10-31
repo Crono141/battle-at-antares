@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/rules_trace.h"
+
 namespace COMBFIND {
 
     namespace {
@@ -1690,6 +1692,7 @@ namespace COMBFIND {
             }
         }
 
+        antares::rules_trace::Mark("combat-end"); // rules replay probe (WP0.5)
         MAINSCR::Update_Ship_Icons_In_Between_Turns();
 
         if (combat_result_code < 0) {
