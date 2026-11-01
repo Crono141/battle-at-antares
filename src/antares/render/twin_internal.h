@@ -101,6 +101,7 @@ namespace render::twin {
     void Glass_Image(const void* header, int32_t level);
     // bitmap::Flip_Bitmap: dst becomes src mirrored (vertical: top to bottom, else left to right).
     void Flip_Image(const void* dst, const void* src, bool vertical);
+    void Table_Rows(const uint8_t* page, int32_t first_row, const uint8_t* table);
     void Overwrite_Rect(const uint8_t* page, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     void Tint_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, int32_t level);
     void Copy_Page(const uint8_t* src_page, const uint8_t* dst_page);

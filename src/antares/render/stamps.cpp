@@ -867,4 +867,10 @@ namespace render {
         Stamp(image, index, value, -1);
     }
 
+    void Table_Rows(const uint8_t* page, int32_t first_row, const uint8_t* table) {
+        if (twins_on) {
+            twin::Table_Rows(page, first_row, table);
+        }
+    }
+
 } // namespace render

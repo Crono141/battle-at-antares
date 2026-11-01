@@ -88,6 +88,10 @@ namespace render {
     // animations): frame `frame` drawn with its top-left at (x, y).
     void Begin_Asset_Draw(const char* lbx_name, int32_t entry, int16_t frame, int16_t x, int16_t y);
 
+    // Every other row of `page` from `first_row` went through `table` (256 entries) in place
+    // (replace::Interlaced_Gray_Scale_Off_Page): twin planes map their pixels the same way.
+    void Table_Rows(const uint8_t* page, int32_t first_row, const uint8_t* table);
+
     // Off-screen images (bitmap-mode animations built with bitmap::*) get their own HD surface
     // once something with HD art is drawn into them.
     void Bitmap_Reset(const void* bitmap, int32_t width, int32_t height);

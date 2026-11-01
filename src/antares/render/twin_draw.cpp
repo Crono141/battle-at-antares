@@ -144,12 +144,20 @@ namespace render::twin {
             return (((rgb >> 16) & 0xFF) * 77u + ((rgb >> 8) & 0xFF) * 150u + (rgb & 0xFF) * 29u) >> 8;
         }
 
+        uint32_t Through_Table(uint32_t rgb, const uint8_t* table);
+
         uint32_t Glass_Through_Table(uint32_t rgb, int32_t level) {
+            return Through_Table(rgb, video::glass_remap_colors[level & 15]);
+        }
+
+        // A full-colour pixel through an index table: its nearest index goes through the table and
+        // the pixel keeps its brightness relative to that index.
+        uint32_t Through_Table(uint32_t rgb, const uint8_t* table) {
             if (nearest_lut.empty()) {
                 Sync_Glass_Lut();
             }
             const uint8_t index = Nearest_Index(rgb);
-            const uint32_t through = Base_Rgb(video::glass_remap_colors[level & 15][index]);
+            const uint32_t through = Base_Rgb(table[index]);
             const uint32_t base_luma = SDL_max(Luma(Base_Rgb(index)), 1u);
             const uint32_t ratio = SDL_clamp(Luma(rgb) * 256u / base_luma, 128u, 512u); // keep detail, within reason
             uint32_t out = 0;
@@ -748,6 +756,32 @@ namespace render::twin {
         }
         to->px = std::move(mirrored);
         Accept_Rect(dst, 0, 0, width, height);
+    }
+
+    void Table_Rows(const uint8_t* page, int32_t first_row, const uint8_t* table) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* plane = Resolve_Target(page, &pixels, &width, &height);
+        if (plane == nullptr || plane->px.empty() || table == nullptr) {
+            return;
+        }
+        Sync_Glass_Lut();
+        const size_t stride = (size_t)width * S;
+        for (int32_t y = first_row; y < height; y += 2) {
+            s_px* row = &plane->px[(size_t)y * S * stride];
+            for (size_t i = 0; i < stride * S; ++i) {
+                s_px& px = row[i];
+                if (Kind(px) == KIND_INDEX) {
+                    const uint32_t bg = (px.mask & MASK_CLEAR) != 0 ? (px.mask >> 8) & 0xFF : table[(px.mask >> 8) & 0xFF];
+                    px.mask = (px.mask & ~0xFFFFu) | (bg << 8) | table[px.mask & 0xFF];
+                } else {
+                    px.base = (px.base & 0xFF000000u) | Through_Table(px.base & 0xFFFFFFu, table);
+                }
+            }
+            Mark_Row(*plane, y);
+            Accept_Rect(page, 0, y, width, y + 1);
+        }
     }
 
     void Overwrite_Rect(const uint8_t* page, int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
