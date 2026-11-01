@@ -1,6 +1,8 @@
 # Main menu, NEW GAME setup, back, LOAD GAME (needs a save to list).
 # args: -config profiles/hd.cfg
+# LOAD GAME stays greyed with only the autosave (slot 10), so slot 1 is needed too.
 # fixture: SAVE10.GAM
+# fixture: SAVE1.GAM
 # timeout: 150
 expect_screen MAINMENU.LBX 60000
 wait_input 60                    # the credits animation loads files; this takes about 13 s
