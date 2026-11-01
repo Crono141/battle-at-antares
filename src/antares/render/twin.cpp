@@ -153,11 +153,6 @@ namespace render {
                 return;
             }
             Note_Op(header, "(created)");
-            static const bool check_attach = antares::Get_Env("TWIN_CHECK") != nullptr;
-            static uint32_t logged_attach;
-            if (check_attach && logged_attach++ < 12) {
-                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin check: attach %p %dx%d at depth %d", header, width, height, depth);
-            }
             // Headers are created again in place for every flip, copy and scale: keep the buffer.
             s_plane& plane = images[header];
             plane.width = width;
@@ -317,12 +312,6 @@ namespace render {
             }
             uint32_t changed = 0;
             if (plane->px.empty() || width != entry.width || height != entry.height) {
-                static const bool check_full = antares::Get_Env("TWIN_CHECK") != nullptr;
-                static uint32_t logged_full;
-                if (check_full && logged_full++ < 10) {
-                    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin check: %s on %p refilled whole: empty=%d size %dx%d (opened %dx%d) depth=%d",
-                        entry.op, entry.target, plane->px.empty() ? 1 : 0, width, height, entry.width, entry.height, depth);
-                }
                 // An image created or resized inside the operation: all of it from 1x.
                 Fill_From_1x(*plane, pixels);
                 changed = (uint32_t)width * height;
@@ -337,8 +326,7 @@ namespace render {
                             static const bool check = antares::Get_Env("TWIN_CHECK") != nullptr;
                             static uint32_t logged;
                             if (check && changed == 0 && logged++ < 40) {
-                                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin check: Unported %s on %p (%dx%d) first change at %d,%d: %u -> %u",
-                                    entry.op, entry.target, width, height, x, y, was[x - entry.x0], now[x]);
+                                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin check: Unported %s on %p (%dx%d) first change at %d,%d: %u -> %u", entry.op, entry.target, width, height, x, y, was[x - entry.x0], now[x]);
                             }
                             Fill_Block_Index(*plane, x, y, now[x]);
                             row_changed = true;

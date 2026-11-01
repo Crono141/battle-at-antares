@@ -383,12 +383,6 @@ namespace render::twin {
             int32_t height = 0;
             s_plane* plane = Resolve_Target(target, &pixels, &width, &height);
             if (plane == nullptr || offset < 0 || offset >= width * height) {
-                static const bool check = antares::Get_Env("TWIN_CHECK") != nullptr;
-                static uint32_t logged;
-                if (check && logged++ < 10) {
-                    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin check: touch on %p offset %d dropped (plane %p, %dx%d)", target,
-                        offset, (void*)plane, width, height);
-                }
                 return;
             }
             if (plane->px.empty()) {
@@ -406,11 +400,6 @@ namespace render::twin {
     }
 
     void Touch_Image(const void* header, int32_t index) {
-        static const bool check = antares::Get_Env("TWIN_CHECK") != nullptr;
-        static uint32_t logged;
-        if (check && logged++ < 5) {
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin check: Touch_Image %p %d", header, index);
-        }
         Touch(header, index, -1);
     }
 
