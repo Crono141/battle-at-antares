@@ -21,6 +21,7 @@ namespace video {
 //   stamps.cpp   attempt 2's draw model: stamps, settle, deferred upgrades (retired in WP1.3a)
 //   present.cpp  publish, presenter snapshot, resolve to ARGB, cursor art
 //   video.cpp    HD cutscenes
+//   parity.cpp   parity harness (ANTARES_PARITY, WP1.2)
 //   pixels.h     the HD pixel format; internal.h: what the modules share
 //
 // The engine keeps drawing 8-bit pixels into its 640x480 pages, and everything that reads
@@ -161,6 +162,13 @@ namespace render {
     // that changed since the last call unless the palette changed. Returns false when nothing
     // changed; otherwise [row_first, row_last) are the changed output rows.
     bool Resolve(const video::s_palette_color* palette, uint32_t* output, int32_t* row_first, int32_t* row_last);
+
+    // Parity harness (parity.cpp, ANTARES_PARITY=1): compares the presented HD plane with the page
+    // it was presented with (presenter thread, after Snapshot_Plane), and writes the last
+    // comparison next to an HD screenshot as <name>.parity.png.
+    bool Parity_Enabled();
+    void Parity_Check(const uint8_t* page, const video::s_palette_color* palette);
+    bool Parity_Save(const char* screenshot_path);
 
     // HD cutscenes on the parallel 4x screen (video.cpp).
     //
