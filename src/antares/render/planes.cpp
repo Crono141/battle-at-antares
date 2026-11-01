@@ -99,6 +99,10 @@ namespace render {
     }
 
     void Copy_Plane(const uint8_t* src_page, const uint8_t* dst_page) {
+        if (twins_on) {
+            twin::Copy_Page(src_page, dst_page);
+            return;
+        }
         s_surface* src = Page_Surface(src_page);
         s_surface* dst = Page_Surface(dst_page);
         if (src == nullptr || dst == nullptr || src == dst) {
@@ -113,6 +117,10 @@ namespace render {
     }
 
     void Copy_Plane_Span(const uint8_t* src_page, const uint8_t* dst_page, int32_t offset, int32_t count) {
+        if (twins_on) {
+            twin::Copy_Page_Span(src_page, dst_page, offset, count);
+            return;
+        }
         s_surface* src = Page_Surface(src_page);
         s_surface* dst = Page_Surface(dst_page);
         if (src == nullptr || dst == nullptr || src == dst || count <= 0 || offset < 0 ||

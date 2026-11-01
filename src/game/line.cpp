@@ -33,6 +33,7 @@ namespace line {
             int16_t count = dy + 1;
             while (count > 0) {
                 *local_ptr = colors->colors[color_index & 7];
+                render::Stamp_Run(local_ptr, 1);
                 color_index++;
                 local_ptr += video::g_screen_res_x;
                 count--;
@@ -49,6 +50,7 @@ namespace line {
             int16_t count = abs_dx + 1;
             while (count > 0) {
                 *local_ptr = colors->colors[color_index & 7];
+                render::Stamp_Run(local_ptr, 1);
                 color_index++;
                 local_ptr += x_dir;
                 count--;
@@ -66,6 +68,7 @@ namespace line {
             int16_t count = abs_dx + 1;
             while (count > 0) {
                 *local_ptr = colors->colors[color_index & 7];
+                render::Stamp_Run(local_ptr, 1);
                 color_index++;
                 local_ptr += video::g_screen_res_x + x_dir;
                 count--;
@@ -327,6 +330,7 @@ namespace line {
             int16_t count = dy + 1;
             do {
                 *render_ptr = color;
+                render::Stamp_Run(render_ptr, 1);
                 render_ptr += video::g_screen_res_x;
                 count--;
             } while (count != 0);
@@ -344,6 +348,7 @@ namespace line {
             int16_t count = dx + 1;
             do {
                 *render_ptr = color;
+                render::Stamp_Run(render_ptr, 1);
                 render_ptr += x_step;
                 count--;
             } while (count != 0);
@@ -361,6 +366,7 @@ namespace line {
             int16_t count = dx + 1;
             do {
                 *render_ptr = color;
+                render::Stamp_Run(render_ptr, 1);
                 render_ptr += (video::g_screen_res_x + x_step);
                 count--;
             } while (count != 0);
@@ -492,6 +498,7 @@ namespace line {
             int32_t remaining = (int32_t)count;
             do {
                 *current_ptr = color;
+                render::Stamp_Run(current_ptr, 1);
                 current_ptr += video::g_screen_res_x;
                 remaining--;
             } while (remaining != 0);
@@ -506,6 +513,7 @@ namespace line {
             int32_t remaining = (int32_t)count;
             do {
                 *current_pos = color;
+                render::Stamp_Run(current_pos, 1);
                 current_pos += step_x;
                 remaining--;
             } while (remaining != 0);
@@ -546,6 +554,7 @@ namespace line {
             int32_t count = length;
             do {
                 *ptr = colors->colors[*color_index & 7];
+                render::Stamp_Run(ptr, 1);
                 ptr += step;
                 (*color_index)++;
                 count--;
@@ -559,6 +568,7 @@ namespace line {
 
         for (int16_t i = 0; i < height; ++i) {
             *dest = colors->colors[*color_index & 7];
+            render::Stamp_Run(dest, 1);
             (*color_index)++;
             dest += video::g_screen_res_x;
         }
@@ -597,6 +607,7 @@ namespace line {
                 int16_t count = dy + 1;
                 do {
                     *ptr = color_map[color_index & 0x3ff];
+                    render::Stamp_Run(ptr, 1);
                     color_index++;
                     ptr += video::g_screen_res_x;
                     count--;
@@ -620,6 +631,7 @@ namespace line {
                 int16_t count = dx + 1;
                 do {
                     *ptr = color_map[color_index & 0x3ff];
+                    render::Stamp_Run(ptr, 1);
                     color_index++;
                     ptr += x_dir;
                     count--;
@@ -640,6 +652,7 @@ namespace line {
                 int16_t count = dx + 1;
                 do {
                     *ptr = color_map[color_index & 0x3ff];
+                    render::Stamp_Run(ptr, 1);
                     color_index++;
                     ptr += video::g_screen_res_x + x_dir;
                     count--;
@@ -816,6 +829,7 @@ namespace line {
                 // Look up color from plasma table using a 10-bit masked index
                 uint16_t index = *plasma_index_ptr;
                 *current_pixels = plasma_table[index & 0x3FF /* 1023 */];
+                render::Stamp_Run(current_pixels, 1);
 
                 // Increment cyclic index and move to the next screen row
                 *plasma_index_ptr = index + 1;
@@ -836,6 +850,7 @@ namespace line {
             int32_t count = (int32_t)length;
             do {
                 *dest = plasma_table[*plasma_index_ptr & 0x3FF];
+                render::Stamp_Run(dest, 1);
                 dest += step;
                 (*plasma_index_ptr)++;
                 count--;

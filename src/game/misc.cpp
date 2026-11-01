@@ -163,6 +163,7 @@ namespace MISC {
     }
 
     void __cdecl Replace_Bitmap_Colors(int16_t x_start, int16_t y_start, int16_t x_end, int16_t y_end, uint8_t full_bitmap, uint8_t* old_colors, uint8_t* new_colors, int8_t color_count, s_animation_header* anim) {
+        render::twin::Scope twin_scope("Replace_Bitmap_Colors", anim, 0, 0, 0, 0);
         int16_t width;
         int16_t height;
 
@@ -440,6 +441,7 @@ namespace MISC {
     }
 
     void __cdecl Swap_Bitmap_Colors(int16_t x_start, int16_t y_start, int16_t x_end, int16_t y_end, void* old_colors_ptr, void* new_colors_ptr, int16_t num_colors, s_animation_header* bitmap) {
+        render::twin::Scope twin_scope("Swap_Bitmap_Colors", bitmap, 0, 0, 0, 0);
         int16_t width;
         int16_t height;
 
@@ -469,6 +471,7 @@ namespace MISC {
     }
 
     void __cdecl Tint_Bitmap_Colors(int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool full_bitmap, uint8_t tint_value, s_animation_header* anim) {
+        render::twin::Scope twin_scope("Tint_Bitmap_Colors", anim, 0, 0, 0, 0);
         int16_t width;
         int16_t height;
 
