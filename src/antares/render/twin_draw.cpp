@@ -423,12 +423,18 @@ namespace render::twin {
                     mark[(size_t)touch.offset] = generation;
                 }
             }
+            // Keyed by render pass, not by draw generation: a late-art replay renders again under
+            // the original draw's generation.
+            static uint32_t render_pass;
+            if (++render_pass == 0) {
+                render_pass = 1;
+            }
             std::vector<uint32_t>& done = Done(plane);
             for (const s_touch& touch : touched) {
-                if (touch.plane != &plane || done[(size_t)touch.offset] == generation) {
+                if (touch.plane != &plane || done[(size_t)touch.offset] == render_pass) {
                     continue; // a pixel reported twice renders once (glass must not tint twice)
                 }
-                done[(size_t)touch.offset] = generation;
+                done[(size_t)touch.offset] = render_pass;
                 const int32_t x = touch.offset % plane.width;
                 const int32_t y = touch.offset / plane.width;
                 if (probe_x >= 0 && x == probe_x && y == probe_y) {
