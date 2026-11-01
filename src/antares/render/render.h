@@ -22,6 +22,7 @@ namespace video {
 //   present.cpp  publish, presenter snapshot, resolve to ARGB, cursor art
 //   video.cpp    HD cutscenes
 //   parity.cpp   parity harness (ANTARES_PARITY, WP1.2)
+//   twin*.cpp    twin planes (WP1.3a): scopes, Unported fallback, planes, present
 //   pixels.h     the HD pixel format; internal.h: what the modules share
 //
 // The engine keeps drawing 8-bit pixels into its 640x480 pages, and everything that reads
@@ -162,6 +163,48 @@ namespace render {
     // that changed since the last call unless the palette changed. Returns false when nothing
     // changed; otherwise [row_first, row_last) are the changed output rows.
     bool Resolve(const video::s_palette_color* palette, uint32_t* output, int32_t* row_first, int32_t* row_last);
+
+    // Twin planes (WP1.3a, twin.cpp). ANTARES_TWINS=1 replaces attempt 2's stamps with the twin
+    // model; it becomes the default once the twins cover the drawing (WP1.3b).
+    extern bool twins_on;
+
+    namespace twin {
+
+        // Brackets one drawing operation (the twin contract, PLAN.md section 3.3): the first
+        // statement of every drawing entry point. `target` is the 1x pixels of a page
+        // (video::current_video_page) or an image header; the rectangle is in its 1x pixels
+        // (width or height <= 0: all of it). Until the operation has a twin, closing the scope
+        // runs the Unported fallback (section 3.4): every 1x pixel the operation changed is
+        // bound to its new index, enlarged. Scopes nest; each covers its own rectangle.
+        class Scope {
+          public:
+            Scope(const char* op, const void* target, int32_t x, int32_t y, int32_t width, int32_t height) {
+                if (twins_on) {
+                    Open(op, target, x, y, width, height);
+                }
+            }
+            // A sprite drawn with its top-left at (x, y); screen backgrounds cover the page.
+            Scope(const char* op, const void* target, int32_t x, int32_t y, const s_animation_header* anim) {
+                if (twins_on) {
+                    Open_Sprite(op, target, x, y, anim);
+                }
+            }
+            ~Scope() {
+                if (slot_ >= 0) {
+                    Close();
+                }
+            }
+            Scope(const Scope&) = delete;
+            Scope& operator=(const Scope&) = delete;
+
+          private:
+            void Open(const char* op, const void* target, int32_t x, int32_t y, int32_t width, int32_t height);
+            void Open_Sprite(const char* op, const void* target, int32_t x, int32_t y, const s_animation_header* anim);
+            void Close();
+            int32_t slot_ = -1;
+        };
+
+    } // namespace twin
 
     // Parity harness (parity.cpp, ANTARES_PARITY=1): compares the presented HD plane with the page
     // it was presented with (presenter thread, after Snapshot_Plane), and writes the last

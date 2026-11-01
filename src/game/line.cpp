@@ -3,6 +3,7 @@
 namespace line {
 
     void __cdecl Multi_Colored_Line(int16_t x1, int16_t y1, int16_t x2, int16_t y2, s_colors* colors, int16_t offset) {
+        render::twin::Scope twin_scope("Multi_Colored_Line", video::current_video_page, SDL_min(x1, x2), SDL_min(y1, y2), SDL_abs(x2 - x1) + 1, SDL_abs(y2 - y1) + 1);
         uint16_t color_index = (uint16_t)offset;
 
         if (animate::clipping_flag == 1) {
@@ -295,6 +296,7 @@ namespace line {
     }
 
     void __cdecl Line(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint8_t color) {
+        render::twin::Scope twin_scope("Line", video::current_video_page, SDL_min(x1, x2), SDL_min(y1, y2), SDL_abs(x2 - x1) + 1, SDL_abs(y2 - y1) + 1);
         if (animate::clipping_flag == 1) {
             if (Clip_Line(&x1, &y1, &x2, &y2) == 1) {
                 return;
@@ -565,6 +567,7 @@ namespace line {
     }
 
     void __cdecl Plasma_Line(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint8_t* color_map, uint16_t color_index) {
+        render::twin::Scope twin_scope("Plasma_Line", video::current_video_page, SDL_min(x1, x2), SDL_min(y1, y2), SDL_abs(x2 - x1) + 1, SDL_abs(y2 - y1) + 1);
         if (animate::clipping_flag == 1) {
             if (line::Clip_Line(&x1, &y1, &x2, &y2) == 1) {
                 return;

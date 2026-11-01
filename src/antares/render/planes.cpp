@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/render/internal.h"
+#include "antares/render/twin_internal.h"
 namespace render {
 
     s_surface page_off;
@@ -75,6 +76,10 @@ namespace render {
         if (!enabled) {
             return;
         }
+        if (twins_on) {
+            twin::Allocate_Pages(width, height);
+            return;
+        }
         Free_Planes();
         std::lock_guard<std::mutex> lock(planes_mutex);
         Allocate_Page(page_off, width, height);
@@ -84,6 +89,7 @@ namespace render {
     }
 
     void Free_Planes() {
+        twin::Free_Pages();
         std::lock_guard<std::mutex> lock(planes_mutex);
         Reset_Stamps();
         Free_Surface(page_off);

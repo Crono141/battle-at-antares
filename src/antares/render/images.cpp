@@ -1,12 +1,17 @@
 #include "pch.h"
 
 #include "antares/render/internal.h"
+#include "antares/render/twin_internal.h"
 #include <algorithm>
 
 namespace render {
 
     void Bitmap_Reset(const void* bitmap, int32_t width, int32_t height) {
-        if (!enabled || bitmap == nullptr || width <= 0 || height <= 0) {
+        if (twins_on) {
+            twin::Attach_Image(bitmap, width, height);
+            return;
+        }
+        if (!Legacy() || bitmap == nullptr || width <= 0 || height <= 0) {
             return;
         }
         Flush_Pending();
@@ -19,7 +24,7 @@ namespace render {
     }
 
     void Bitmap_Flip(const void* dst, const void* src, bool vertical) {
-        if (!enabled) {
+        if (!Legacy()) {
             return;
         }
         Flush_Pending();
@@ -89,7 +94,7 @@ namespace render {
     }
 
     void Bitmap_Copy(const void* dst, const void* src) {
-        if (!enabled || dst == src) {
+        if (!Legacy() || dst == src) {
             return;
         }
         Flush_Pending();
@@ -112,7 +117,7 @@ namespace render {
     }
 
     void Bitmap_Scale(const void* dst, const void* src, const uint8_t* dst_pixels, int32_t width, int32_t height) {
-        if (!enabled || dst == src || dst_pixels == nullptr) {
+        if (!Legacy() || dst == src || dst_pixels == nullptr) {
             return;
         }
         Flush_Pending();
@@ -171,7 +176,7 @@ namespace render {
     }
 
     void Bitmap_Glass(const void* bitmap, const uint8_t* pixels, int32_t level) {
-        if (!enabled || pixels == nullptr) {
+        if (!Legacy() || pixels == nullptr) {
             return;
         }
         Flush_Pending();
@@ -208,7 +213,7 @@ namespace render {
     }
 
     void Bitmap_Recolor(const void* bitmap, int32_t first, int32_t count, const uint8_t* map) {
-        if (!enabled || map == nullptr || count <= 0) {
+        if (!Legacy() || map == nullptr || count <= 0) {
             return;
         }
         Flush_Pending();
@@ -252,7 +257,7 @@ namespace render {
     }
 
     void Bitmap_Sync(const void* bitmap, const uint8_t* pixels) {
-        if (!enabled || pixels == nullptr) {
+        if (!Legacy() || pixels == nullptr) {
             return;
         }
         Flush_Pending();
@@ -294,7 +299,7 @@ namespace render {
     }
 
     void Bitmap_Capture(const void* bitmap, int32_t x1, int32_t y1, int32_t width, int32_t height) {
-        if (!enabled) {
+        if (!Legacy()) {
             return;
         }
         Flush_Pending();

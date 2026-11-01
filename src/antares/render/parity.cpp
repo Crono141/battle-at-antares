@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/render/internal.h"
+#include "antares/render/twin_internal.h"
 #include "antares/identity.h"
 #include "antares/script_capture.h"
 
@@ -60,6 +61,17 @@ namespace render {
             return rgb == colors[value] ? PARITY_OK : PARITY_COLOUR;
         }
 
+        // A twin plane pixel in attempt 2's form, for Classify: `index` keeps fg, bg, coverage and
+        // the clear bit; every other kind counts as full colour.
+        uint32_t Legacy_Form(const twin::s_px& px) {
+            if (twin::Kind(px) != twin::KIND_INDEX) {
+                return HD_LITERAL;
+            }
+            return (px.mask & 0xFFFFFFu) | ((px.mask & twin::MASK_CLEAR) != 0 ? HD_CLEAR : 0u);
+        }
+
+        std::string parity_unported;
+
     } // namespace
 
     bool Parity_Enabled() {
@@ -76,12 +88,13 @@ namespace render {
             return;
         }
         std::lock_guard<std::mutex> planes(planes_mutex);
-        if (page_present.hd.empty()) {
+        if (twins_on ? twin::plane_present.px.empty() : page_present.hd.empty()) {
             return;
         }
         std::lock_guard<std::mutex> lock(parity_mutex);
-        const int32_t width = page_present.width;
-        const int32_t height = page_present.height;
+        const int32_t width = twins_on ? twin::plane_present.width : page_present.width;
+        const int32_t height = twins_on ? twin::plane_present.height : page_present.height;
+        parity_unported = twins_on ? twin::Presented_Unported() : std::string();
         parity_width = width;
         parity_height = height;
         parity_map.assign((size_t)width * height, PARITY_OK);
@@ -94,11 +107,13 @@ namespace render {
         for (int32_t y = 0; y < height; ++y) {
             for (int32_t x = 0; x < width; ++x) {
                 const size_t i = (size_t)y * width + x;
-                const uint32_t* block = &page_present.hd[(size_t)y * S * stride + (size_t)x * S];
+                const size_t at = (size_t)y * S * stride + (size_t)x * S;
                 uint8_t worst = PARITY_OK;
                 for (int32_t sy = 0; sy < S; ++sy) {
                     for (int32_t sx = 0; sx < S; ++sx) {
-                        worst = SDL_max(worst, (uint8_t)Classify(block[sy * stride + sx], page[i], parity_colors));
+                        const size_t j = at + sy * stride + sx;
+                        const uint32_t pixel = twins_on ? Legacy_Form(twin::plane_present.px[j]) : page_present.hd[j];
+                        worst = SDL_max(worst, (uint8_t)Classify(pixel, page[i], parity_colors));
                     }
                 }
                 parity_map[i] = worst;
@@ -138,7 +153,7 @@ namespace render {
             argb[i] = 0xFF000000u | (parity_map[i] != PARITY_OK ? marks[parity_map[i]] : (rgb >> 2) & 0x3F3F3Fu);
         }
         const bool saved = antares::script_capture::Save_Argb_Png(path.c_str(), argb.data(), parity_width, parity_height, parity_width);
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "parity: %s index=%u colour=%u literal=%u%s", path.c_str(), parity_counts[PARITY_INDEX], parity_counts[PARITY_COLOUR], parity_counts[PARITY_LITERAL], saved ? "" : " FAILED");
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "parity: %s index=%u colour=%u literal=%u%s%s%s", path.c_str(), parity_counts[PARITY_INDEX], parity_counts[PARITY_COLOUR], parity_counts[PARITY_LITERAL], saved ? "" : " FAILED", twins_on ? " unported=" : "", twins_on ? (parity_unported.empty() ? "(none)" : parity_unported.c_str()) : "");
         return saved;
     }
 

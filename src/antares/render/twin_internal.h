@@ -1,0 +1,90 @@
+#pragma once
+
+// Twin planes (WP1.3a, PLAN.md sections 3.1 to 3.4): shared by the twin modules. Include after
+// internal.h.
+
+#include <string>
+
+namespace render::twin {
+
+    // One plane pixel: a 32-bit base colour plus a mask saying how it follows the game's index
+    // tricks (D20, PLAN.md section 3.2).
+    //   mask bits 0-7    fg index (`index`, `shade`) or glass level (`glass`)
+    //   mask bits 8-15   bg index, shown under partial coverage
+    //   mask bits 16-23  coverage of fg over bg (255 = full)
+    //   mask bits 24-27  kind
+    //   mask bit  28     MASK_CLEAR: the bg is transparent (inside images)
+    // `none` pixels show their base (0xAARRGGBB) and follow whole-screen fades at present.
+    struct s_px {
+        uint32_t base;
+        uint32_t mask;
+    };
+
+    enum e_kind : uint32_t {
+        KIND_NONE = 0,
+        KIND_INDEX = 1,
+        KIND_SHADE = 2, // WP1.7
+        KIND_GLASS = 3, // WP1.4
+    };
+    constexpr uint32_t KIND_SHIFT = 24;
+    constexpr uint32_t MASK_CLEAR = 1u << 28;
+
+    inline uint32_t Kind(const s_px& px) {
+        return (px.mask >> KIND_SHIFT) & 0xF;
+    }
+
+    // Bound to palette index `index` at full coverage: what the stock loader and the Unported
+    // fallback write.
+    inline s_px Index_Px(uint8_t index) {
+        return {0u, index | (255u << 16) | (KIND_INDEX << KIND_SHIFT)};
+    }
+
+    inline s_px Literal_Px(uint32_t rgb) {
+        return {0xFF000000u | (rgb & 0xFFFFFFu), KIND_NONE << KIND_SHIFT};
+    }
+
+    // A page or an off-screen image at scale S. An image plane with no pixels yet stands for its
+    // 1x pixels enlarged (planes are attached at header creation and filled on first write).
+    struct s_plane {
+        int32_t width = 0; // in 1x pixels
+        int32_t height = 0;
+        std::vector<s_px> px;           // (width * S) x (height * S), or empty (images)
+        std::vector<uint8_t> row_dirty; // pages: 1x rows changed since copied onward
+    };
+
+    extern s_plane plane_off;
+    extern s_plane plane_back;
+    extern s_plane plane_published;
+    extern s_plane plane_present;
+    // Off-screen images keyed by their header (bitmap::Create_Bitmap_Header).
+    extern std::unordered_map<const void*, s_plane> images;
+
+    inline s_px* Block(s_plane& plane, int32_t x, int32_t y) {
+        return &plane.px[(size_t)y * S * plane.width * S + (size_t)x * S];
+    }
+
+    // The plane `target` names: a page's 1x pixels (g_page_off/back) or an image header. Sets
+    // the 1x pixels and size. Null when the target has no plane (loaded sprites, unknown buffers).
+    s_plane* Resolve_Target(const void* target, const uint8_t** pixels, int32_t* width, int32_t* height);
+    // Fills the plane from its 1x pixels, enlarged, every pixel bound to its index.
+    void Fill_From_1x(s_plane& plane, const uint8_t* pixels);
+    void Fill_Block_Index(s_plane& plane, int32_t x, int32_t y, uint8_t index);
+
+    void Attach_Image(const void* header, int32_t width, int32_t height);
+    void Drop_Images(const void* begin, const void* end);
+    void Allocate_Pages(int32_t width, int32_t height);
+    void Free_Pages();
+
+    // present (twin_present.cpp)
+    void Publish();
+    void Snapshot();
+    bool Resolve(const video::s_palette_color* palette, uint32_t* output, int32_t* row_first, int32_t* row_last);
+    void Literal_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, const uint8_t* rgb);
+
+    // Unported bookkeeping (twin.cpp): ops whose fallback ran since the last publish.
+    void End_Frame_Unported(std::string* names, uint32_t* pixels);
+    void End_Window_Unported(std::string* names, uint32_t* pixels, uint64_t* scope_ns);
+    // The Unported calls of the frame last presented, for the parity harness.
+    std::string Presented_Unported();
+
+} // namespace render::twin

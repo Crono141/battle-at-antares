@@ -8,6 +8,7 @@ namespace graphics {
     int16_t old_screen_window_x1;
 
     void __cdecl Fill(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint8_t color) {
+        render::twin::Scope twin_scope("Fill", video::current_video_page, SDL_min(x1, x2), SDL_min(y1, y2), SDL_abs(x2 - x1) + 1, SDL_abs(y2 - y1) + 1);
         video::g_screen_res_x = platform::Lock_Appropriate_Render_Buffer();
 
         if (x2 < x1) {
@@ -162,6 +163,7 @@ namespace graphics {
     }
 
     void __cdecl Dot(int16_t x, int16_t y, uint8_t color) {
+        render::twin::Scope twin_scope("Dot", video::current_video_page, x, y, 1, 1);
         if (animate::clipping_flag == 1) {
             if (x < video::screen_window_x1 || y < video::screen_window_y1 ||
                 x > video::screen_window_x2 || y > video::screen_window_y2) {
@@ -184,6 +186,7 @@ namespace graphics {
     }
 
     void __cdecl Tint_Fill(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t tint_color) {
+        render::twin::Scope twin_scope("Tint_Fill", video::current_video_page, SDL_min(x1, x2), SDL_min(y1, y2), SDL_abs(x2 - x1) + 1, SDL_abs(y2 - y1) + 1);
         video::g_screen_res_x = platform::Lock_Appropriate_Render_Buffer();
 
         if (x2 < x1) {
@@ -270,6 +273,7 @@ namespace graphics {
     }
 
     void __cdecl Interlaced_Fill(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t color1, int16_t color2) {
+        render::twin::Scope twin_scope("Interlaced_Fill", video::current_video_page, SDL_min(x1, x2), SDL_min(y1, y2), SDL_abs(x2 - x1) + 1, SDL_abs(y2 - y1) + 1);
         int32_t start_col;
         int32_t end_col;
         int32_t left_rem;
@@ -373,6 +377,7 @@ namespace graphics {
     }
 
     void __cdecl Tri_Interlaced_Fill(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t color1, int16_t color2, int16_t color3) {
+        render::twin::Scope twin_scope("Tri_Interlaced_Fill", video::current_video_page, SDL_min(x1, x2), SDL_min(y1, y2), SDL_abs(x2 - x1) + 1, SDL_abs(y2 - y1) + 1);
         video::g_screen_res_x = platform::Lock_Appropriate_Render_Buffer();
 
         uint32_t color = ((uint32_t)color3 << 16) + ((uint32_t)color2 << 8) + (uint32_t)color1;
@@ -455,6 +460,7 @@ namespace graphics {
     }
 
     void __cdecl Gray_Scale_Fill(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint8_t* palette_map, int32_t gradient_scale, int32_t invert_flag) {
+        render::twin::Scope twin_scope("Gray_Scale_Fill", video::current_video_page, SDL_min(x1, x2), SDL_min(y1, y2), SDL_abs(x2 - x1) + 1, SDL_abs(y2 - y1) + 1);
         video::g_screen_res_x = platform::Lock_Appropriate_Render_Buffer();
 
         if (x2 < x1) {
@@ -503,6 +509,7 @@ namespace graphics {
     }
 
     void __cdecl Gradient_Fill(int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t mode, uint8_t* palette, int32_t gradient_scale, s_animation_header* pic, s_colors* colors) {
+        render::twin::Scope twin_scope("Gradient_Fill", video::current_video_page, SDL_min(x1, x2), SDL_min(y1, y2), SDL_abs(x2 - x1) + 1, SDL_abs(y2 - y1) + 1);
         switch (mode) {
             case 1:
                 Fill((int16_t)x1, (int16_t)y1, (int16_t)x2, (int16_t)y2, (int8_t)*palette);

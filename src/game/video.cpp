@@ -475,6 +475,7 @@ namespace video {
         video::Toggle_Pages_On_Odd_Frame();
     }
     void __cdecl Stencil_Out_Background() {
+        render::twin::Scope twin_scope("Stencil_Out_Background", video::g_page_off.pixels, 0, 0, 0, 0);
         platform::Lock_Offscreen_Surface();
 
         uint8_t* offscreen_surface = platform::offscreen_surface;
@@ -549,12 +550,14 @@ namespace video {
     }
 
     void __cdecl Copy_Back_To_Off() {
+        render::twin::Scope twin_scope("Copy_Back_To_Off", video::g_page_off.pixels, 0, 0, 0, 0);
         const size_t page_size = (size_t)video::g_screen_res_x * (size_t)video::g_screen_res_y;
         memcpy(video::g_page_off.pixels, video::g_page_back.pixels, page_size);
         render::Copy_Plane(video::g_page_back.pixels, video::g_page_off.pixels);
     }
 
     void __cdecl Copy_Off_To_Back() {
+        render::twin::Scope twin_scope("Copy_Off_To_Back", video::g_page_back.pixels, 0, 0, 0, 0);
         const size_t page_size = (size_t)video::g_screen_res_x * (size_t)video::g_screen_res_y;
         memcpy(video::g_page_back.pixels, video::g_page_off.pixels, page_size);
         render::Copy_Plane(video::g_page_off.pixels, video::g_page_back.pixels);

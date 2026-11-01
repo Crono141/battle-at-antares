@@ -97,6 +97,7 @@ namespace bitmap {
     }
 
     void __cdecl Screen_Bitmap_Capture(int16_t x1, int16_t y1, int16_t x2, int16_t y2, s_animation_header* header) {
+        render::twin::Scope twin_scope("Screen_Bitmap_Capture", header, 0, 0, 0, 0);
         if (x2 < x1) {
             strings::Swap_Short(&x1, &x2);
             strings::Swap_Short(&y1, &y2);
@@ -124,6 +125,7 @@ namespace bitmap {
     }
 
     void __cdecl Flip_Bitmap(s_animation_header* dst_hdr, s_animation_header* src_hdr, int16_t flip_mode) {
+        render::twin::Scope twin_scope("Flip_Bitmap", dst_hdr, 0, 0, 0, 0);
         animate::animation_header = src_hdr;
 
         int32_t height = src_hdr->height;
@@ -153,6 +155,7 @@ namespace bitmap {
     }
 
     void __cdecl Copy_Bitmap_To_Bitmap(s_animation_header* dst, s_animation_header* src) {
+        render::twin::Scope twin_scope("Copy_Bitmap_To_Bitmap", dst, 0, 0, 0, 0);
         animate::animation_header = src;
         int16_t width = src->width;
         int16_t height = src->height;
@@ -169,6 +172,7 @@ namespace bitmap {
     }
 
     void __cdecl Outline_Bitmap(s_animation_header* dst, s_animation_header* src, int16_t color, int16_t no_glass) {
+        render::twin::Scope twin_scope("Outline_Bitmap", dst, 0, 0, 0, 0);
         animate::animation_header = src;
 
         int16_t width = src->width;
@@ -194,6 +198,7 @@ namespace bitmap {
     }
 
     void __cdecl Tint_Bitmap(s_animation_header* dest, s_animation_header* src, int16_t tint_color_index) {
+        render::twin::Scope twin_scope("Tint_Bitmap", dest, 0, 0, 0, 0);
         animate::animation_header = src;
         int16_t width = src->width;
         int16_t height = src->height;
@@ -217,6 +222,7 @@ namespace bitmap {
     }
 
     void __cdecl Mask_Out_Bitmap_With_Bitmap(int16_t x, int16_t y, s_animation_header* dest, s_animation_header* src, int16_t type) {
+        render::twin::Scope twin_scope("Mask_Out_Bitmap_With_Bitmap", dest, 0, 0, 0, 0);
         animate::animation_header = src;
 
         uint8_t* src_frame_data_orig = Animation_Frame_Data_(src, src->current_frame);
@@ -301,6 +307,7 @@ namespace bitmap {
     }
 
     void __cdecl Draw_Bitmap_Line(int16_t x1, int16_t y1, int16_t x2, int16_t y2, s_animation_header* img) {
+        render::twin::Scope twin_scope("Draw_Bitmap_Line", video::current_video_page, 0, 0, 0, 0);
         int32_t dx = x2 - x1;
         int32_t dy = y2 - y1;
         int32_t line_len = special::isqrt(dy * dy + dx * dx);
@@ -561,6 +568,7 @@ namespace bitmap {
     }
 
     void __cdecl Mask_Out_Colors(s_animation_header* anim, int16_t start_color, int16_t end_color) {
+        render::twin::Scope twin_scope("Mask_Out_Colors", anim, 0, 0, 0, 0);
         animate::animation_header = anim;
         uint32_t* pixels = (uint32_t*)Animation_Frame_Data_(anim, anim->current_frame);
         shear::Mask_Bitmap_Colors_Pixels(pixels, start_color, end_color, 0, anim->width, anim->height);
@@ -568,6 +576,7 @@ namespace bitmap {
     }
 
     void __cdecl Mask_Brighten_Bitmap(int32_t x, int32_t y, s_animation_header* dst_anim, s_animation_header* src_anim, uint8_t color) {
+        render::twin::Scope twin_scope("Mask_Brighten_Bitmap", dst_anim, 0, 0, 0, 0);
         brighten_start_color = (int32_t)(int8_t)color;
         animate::animation_header = src_anim;
 
@@ -683,6 +692,7 @@ namespace bitmap {
     }
 
     void __cdecl Scale_Bitmap(s_animation_header* dst, s_animation_header* src, int16_t scale_x, int16_t scale_y) {
+        render::twin::Scope twin_scope("Scale_Bitmap", dst, 0, 0, 0, 0);
         animate::animation_header = src;
 
         int orig_scale_x = scale_x;
@@ -741,6 +751,7 @@ namespace bitmap {
     }
 
     void __cdecl Vanish_Bitmap(s_animation_header* dest, s_animation_header* src, int16_t intensity) {
+        render::twin::Scope twin_scope("Vanish_Bitmap", dest, 0, 0, 0, 0);
         animate::animation_header = src;
         int16_t current_frame = src->current_frame;
         int16_t width = src->width;
@@ -769,6 +780,7 @@ namespace bitmap {
     }
 
     void __cdecl Add_Picture_To_Bitmap(int16_t x, int16_t y, s_animation_header* src, s_animation_header* dest) {
+        render::twin::Scope twin_scope("Add_Picture_To_Bitmap", dest, 0, 0, 0, 0);
         animate::animation_header = dest;
         int16_t dest_width = dest->width;
         int32_t dest_width_i = dest_width;
@@ -927,6 +939,7 @@ namespace bitmap {
     }
 
     void __cdecl Draw_Picture_To_Bitmap(s_animation_header* dest, s_animation_header* src) {
+        render::twin::Scope twin_scope("Draw_Picture_To_Bitmap", dest, 0, 0, 0, 0);
         animate::animation_header = src;
         int16_t width = src->width;
         int16_t height = src->height;
@@ -997,6 +1010,7 @@ namespace bitmap {
     }
 
     void __cdecl Jumble_Bitmap(s_animation_header* dest, s_animation_header* src, int16_t noise_threshold, int16_t jumble_mask) {
+        render::twin::Scope twin_scope("Jumble_Bitmap", dest, 0, 0, 0, 0);
         uint32_t seed = game_random::Get_Random_Seed();
 
         animate::animation_header = src;
@@ -1026,6 +1040,7 @@ namespace bitmap {
         int16_t start_color,
         const uint8_t* color_translation_table,
         int16_t end_color) {
+        render::twin::Scope twin_scope("Gray_Scale_Bitmap", animation_header, 0, 0, 0, 0);
         animate::animation_header = animation_header;
 
         const int32_t frame_index = animation_header->current_frame;

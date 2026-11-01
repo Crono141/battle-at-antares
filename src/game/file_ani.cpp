@@ -73,6 +73,7 @@ namespace file_ani {
     }
 
     void __cdecl Draw_File_Animation() {
+        render::twin::Scope twin_scope("Draw_File_Animation", video::current_video_page, 0, 0, 0, 0);
         animate::animation_header = (s_animation_header*)init::io_buffer;
 
         if ((animate::animation_header->flags & ANIMATION_FLAG_HAS_PALETTE) != 0) {
@@ -162,6 +163,7 @@ namespace file_ani {
     }
 
     void __cdecl Draw_File_Animation_Stencil() {
+        render::twin::Scope twin_scope("Draw_File_Animation_Stencil", video::current_video_page, 0, 0, 0, 0);
         uint32_t saved_refresh_flag = video::screen_refresh_flag;
         animate::animation_header = init::io_buffer;
         video::screen_refresh_flag = 2;
@@ -296,6 +298,7 @@ namespace file_ani {
     }
 
     void __cdecl Draw_Multi_File_Animation_Stencil(int16_t anim_idx) {
+        render::twin::Scope twin_scope("Draw_Multi_File_Animation_Stencil", video::current_video_page, 0, 0, 0, 0);
         animate::animation_header = (s_animation_header*)(((uint8_t*)init::io_buffer) + anim_idx * FILE_ANI_MULTI_SLOT_SIZE);
 
         if (animate::animation_header->frame_count >= 678) {
@@ -362,6 +365,7 @@ namespace file_ani {
     }
 
     void __cdecl Draw_Multi_File_Animation(int16_t anim_idx) {
+        render::twin::Scope twin_scope("Draw_Multi_File_Animation", video::current_video_page, 0, 0, 0, 0);
         animate::animation_header = (s_animation_header*)(((uint8_t*)init::io_buffer) + (anim_idx * FILE_ANI_MULTI_SLOT_SIZE));
 
         if (animate::animation_header->frame_count >= 0x2A6) {
@@ -444,6 +448,7 @@ namespace file_ani {
     }
 
     void __cdecl Draw_Multi_File_Animation_Palette(int32_t anim_idx) {
+        render::twin::Scope twin_scope("Draw_Multi_File_Animation_Palette", video::current_video_page, 0, 0, 0, 0);
         animate::animation_header = (s_animation_header*)(((uint8_t*)init::io_buffer) + anim_idx * FILE_ANI_MULTI_SLOT_SIZE);
 
         if (animate::animation_header->frame_count >= 678) {

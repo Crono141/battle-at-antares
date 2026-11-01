@@ -16,6 +16,7 @@ namespace replace {
     uint8_t* palette_color_list;
 
     void __cdecl Replace_Color_All(s_animation_header* anim, uint8_t color) {
+        render::twin::Scope twin_scope("Replace_Color_All", anim, 0, 0, 0, 0);
         animate::animation_header = anim;
         if (anim->frame_count <= 0) {
             return;
@@ -101,6 +102,7 @@ namespace replace {
     }
 
     void __cdecl Replace_Color(s_animation_header* anim, int16_t old_color, uint8_t new_color) {
+        render::twin::Scope twin_scope("Replace_Color", anim, 0, 0, 0, 0);
         animate::animation_header = anim;
 
         if (anim->frame_count > 0) {
@@ -210,6 +212,7 @@ namespace replace {
     }
 
     void __cdecl Replace_Color_Range(s_animation_header* anim, uint8_t* palette_map, int16_t start_color, int16_t num_colors) {
+        render::twin::Scope twin_scope("Replace_Color_Range", anim, 0, 0, 0, 0);
         render::Note_Recolor(anim, start_color, num_colors, palette_map);
         int32_t end_color = num_colors + start_color - 1;
         animate::animation_header = anim;
@@ -297,6 +300,7 @@ namespace replace {
     }
 
     void __cdecl Shift_Palette_Range(s_animation_header* anim, int32_t shift) {
+        render::twin::Scope twin_scope("Shift_Palette_Range", anim, 0, 0, 0, 0);
         animate::animation_header = anim;
 
         animate::palette_header = Animation_Palette_Header_(anim);
@@ -309,6 +313,7 @@ namespace replace {
     }
 
     void __cdecl Interlaced_Gray_Scale_Off_Page(uint8_t color_offset1, int16_t gradient_start1, uint8_t color_offset2, int16_t gradient_start2, int16_t invert) {
+        render::twin::Scope twin_scope("Interlaced_Gray_Scale_Off_Page", video::g_page_off.pixels, 0, 0, 0, 0);
         replace::palette_color_list = replace::graphics_buffer;
 
         replace::Establish_Color_Gradient(gradient_start1, invert);

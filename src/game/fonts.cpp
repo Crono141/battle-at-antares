@@ -376,6 +376,7 @@ namespace fonts {
     }
 
     int16_t __cdecl Print_Character(int16_t x, int16_t y, int8_t c) {
+        render::twin::Scope twin_scope("Print_Character", video::current_video_page, 0, y - 8, 0x7FFF, Get_Font_Height() + 16);
         const int16_t advance = x + (int16_t)font_header.font_style_widths[(int16_t)c] + font_header.font_style_spacing;
         uint32_t res_x = (uint32_t)platform::Lock_Appropriate_Render_Buffer();
         video::g_screen_res_x = (int32_t)res_x;
@@ -550,6 +551,7 @@ namespace fonts {
     }
 
     void __cdecl Print_Display_To_Bitmap(int16_t x, int16_t y, const char* str, int16_t max_width, s_animation_header* bitmap) {
+        render::twin::Scope twin_scope("Print_Display_To_Bitmap", bitmap, 0, 0, 0, 0);
         animate::animation_header = bitmap;
 
         if ((bitmap->flags & ANIMATION_FLAG_DRAW_MODE_MASK) != ANIMATION_DRAW_MODE_BITMAP) {
@@ -602,6 +604,7 @@ namespace fonts {
     }
 
     void __cdecl Print_Character_To_Bitmap(int16_t x, int16_t y, char ch, s_animation_header* bitmap) {
+        render::twin::Scope twin_scope("Print_Character_To_Bitmap", bitmap, 0, 0, 0, 0);
         if ((int16_t)(int8_t)ch > 0x80) {
             return;
         }
@@ -658,6 +661,7 @@ namespace fonts {
     }
 
     void __cdecl Print_Display(int16_t x, int16_t y, const char* str, int16_t width) {
+        render::twin::Scope twin_scope("Print_Display", video::current_video_page, 0, y - 8, 0x7FFF, width > 0 ? 0x7FFF : Get_Font_Height() + 16);
         int32_t offset = 0;
 
         if (font_header.font_style != 0) {

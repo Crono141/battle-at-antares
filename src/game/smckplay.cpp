@@ -126,6 +126,7 @@ namespace smckplay {
     }
 
     void Blit_Smacker_Frame(int32_t left, int32_t top) {
+        render::twin::Scope twin_scope("Blit_Smacker_Frame", video::current_video_page, 0, 0, 0, 0);
         const unsigned char* frame = smk_get_video(smk);
         if (frame == nullptr || video::g_page_off.pixels == nullptr) {
             return;

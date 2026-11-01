@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/render/internal.h"
+#include "antares/render/twin_internal.h"
 #include <thread>
 
 namespace render {
@@ -18,6 +19,10 @@ namespace render {
 
     void Publish_Plane(const uint8_t* published_page_pixels) {
         (void)published_page_pixels;
+        if (twins_on) {
+            twin::Publish();
+            return;
+        }
         if (page_off.hd.empty()) {
             return;
         }
@@ -113,6 +118,10 @@ namespace render {
     }
 
     void Snapshot_Plane() {
+        if (twins_on) {
+            twin::Snapshot();
+            return;
+        }
         std::lock_guard<std::mutex> lock(planes_mutex);
         if (page_published.hd.empty()) {
             return;
@@ -172,6 +181,9 @@ namespace render {
     }
 
     bool Resolve(const video::s_palette_color* palette, uint32_t* output, int32_t* row_first, int32_t* row_last) {
+        if (twins_on) {
+            return twin::Resolve(palette, output, row_first, row_last);
+        }
         static uint32_t last_palette[256];
         static uint32_t last_fade = 0xFFFFFFFFu;
         std::lock_guard<std::mutex> lock(planes_mutex);
