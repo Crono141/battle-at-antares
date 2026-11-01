@@ -89,6 +89,11 @@ namespace render::twin {
     void Touch_Page(const uint8_t* page, const uint8_t* dst, int32_t count, int32_t level);
     void Touch_Image(const void* header, int32_t index);
     void End_Draw();
+    // Late art: replays art draws whose frame has finished decoding (game thread, at publish).
+    void Replay_Late_Art();
+    size_t Late_Count();
+    std::string Late_Stats(); // and resets the window
+    void Reset_Late_Art();
     void Overwrite_Rect(const uint8_t* page, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     void Tint_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, int32_t level);
     void Copy_Page(const uint8_t* src_page, const uint8_t* dst_page);

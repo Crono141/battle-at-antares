@@ -190,6 +190,7 @@ namespace render {
 
         void Free_Pages() {
             std::lock_guard<std::mutex> lock(planes_mutex);
+            Reset_Late_Art();
             plane_off = s_plane();
             plane_back = s_plane();
             plane_published = s_plane();

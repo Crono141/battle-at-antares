@@ -292,6 +292,27 @@ namespace render::twin {
             return &found->second;
         }
 
+        // Late art (PLAN.md section 3.3): an art draw whose frame was still decoding showed its 1x
+        // pixels enlarged; it is replayed when the frame is ready, onto the pixels it drew that no
+        // later draw has claimed and whose 1x value is unchanged.
+        struct s_late_pixel {
+            int32_t offset;
+            uint8_t value;
+            int8_t level;
+        };
+        struct s_late {
+            s_draw draw;
+            uint32_t generation;
+            uint32_t published; // publish count when drawn
+            const void* target;
+            std::vector<s_late_pixel> pixels;
+        };
+        std::vector<s_late> late_draws;
+        bool replaying;
+        // Stats window (ANTARES_HD_STATS): replayed entries, upgraded and skipped pixels.
+        uint32_t late_replayed, late_upgraded, late_drawn_over, late_changed, late_no_plane;
+        uint32_t late_on_off, late_on_back, late_on_image, late_twins;
+
         bool Marked(const s_plane& plane, const std::vector<uint32_t>& mark, int32_t x, int32_t y) {
             return x >= 0 && y >= 0 && x < plane.width && y < plane.height && mark[(size_t)y * plane.width + x] == generation;
         }
@@ -299,8 +320,19 @@ namespace render::twin {
         // Renders the touched pixels of one plane.
         void Render_Plane(s_plane& plane, const void* target, const uint8_t* pixels) {
             const s_draw& draw = current_draw;
+            // Glyph frames are decoded on the spot when first used (glyphs.cpp), so they are ready
+            // once they exist; sprite frames come from the decoding workers.
             const bool art = draw.source == SOURCE_ART && draw.frame != nullptr && !draw.waiting &&
-                Frame_Ready(draw.frame);
+                (draw.glyph || Frame_Ready(draw.frame));
+            const bool late = draw.source == SOURCE_ART && draw.frame != nullptr && !art && !replaying;
+            s_late* record = nullptr;
+            if (late) {
+                if (late_draws.size() >= 4096) {
+                    late_draws.erase(late_draws.begin(), late_draws.begin() + 1024);
+                }
+                late_draws.push_back({draw, generation, publish_count, target, {}});
+                record = &late_draws.back();
+            }
             const s_plane* image = art ? nullptr : Image_Source();
             std::vector<uint32_t>& mark = Marks(plane);
             int32_t x0 = plane.width;
@@ -354,9 +386,12 @@ namespace render::twin {
                     Fill_Block_Index(plane, x, y, pixels[touch.offset]);
                     Mark_Row(plane, y);
                 }
+                if (record != nullptr) {
+                    record->pixels.push_back({touch.offset, pixels[touch.offset], touch.level});
+                }
                 Accept(target, x, y);
             }
-            if (!art || x1 < 0 || plane.row_dirty.empty()) {
+            if (!art || x1 < 0 || plane.row_dirty.empty() || replaying) {
                 return; // images get no fringe: their transparent pixels are never drawn
             }
             // The art's soft edge past the 1x outline, over untouched neighbours, inside the clip.
@@ -392,6 +427,108 @@ namespace render::twin {
         }
 
     } // namespace
+
+    void Replay_Late_Art() {
+        if (late_draws.empty()) {
+            return;
+        }
+        const s_draw saved = current_draw;
+        size_t kept = 0;
+        for (size_t i = 0; i < late_draws.size(); ++i) {
+            s_late& entry = late_draws[i];
+            const uint8_t state = entry.draw.frame->load.load(std::memory_order_acquire);
+            if (state != LOAD_READY) {
+                // Still decoding (or evicted and queued again): keep it a while.
+                if (state != LOAD_FAILED && publish_count - entry.published < 600) {
+                    if (kept != i) {
+                        late_draws[kept] = std::move(entry);
+                    }
+                    kept++;
+                }
+                continue;
+            }
+            const uint8_t* pixels = nullptr;
+            int32_t width = 0;
+            int32_t height = 0;
+            s_plane* plane = Resolve_Target(entry.target, &pixels, &width, &height);
+            if (plane == nullptr || plane->px.empty() || width != plane->width) {
+                late_no_plane++;
+                continue;
+            }
+            late_replayed++;
+            (plane == &plane_off ? late_on_off : plane == &plane_back ? late_on_back
+                                                                      : late_on_image)++;
+            std::vector<uint32_t>& mark = Marks(*plane);
+            // The other page may hold the same plain blocks (screens copy the finished page
+            // across and restore from it): they get the art too.
+            s_plane* other = plane == &plane_off ? &plane_back : plane == &plane_back ? &plane_off
+                                                                                      : nullptr;
+            const uint8_t* other_pixels = other == &plane_off ? video::g_page_off.pixels : other == &plane_back ? video::g_page_back.pixels
+                                                                                                                : nullptr;
+            current_draw = entry.draw;
+            current_draw.waiting = false;
+            replaying = true;
+            const uint32_t saved_generation = generation;
+            generation = entry.generation;
+            touched.clear();
+            // The other page is judged on its own: screens copy the finished page across and
+            // restore from it, so it may still hold the plain blocks where this page was drawn over.
+            std::vector<s_touch> other_touched;
+            for (const s_late_pixel& pixel : entry.pixels) {
+                if (mark[(size_t)pixel.offset] != entry.generation) {
+                    late_drawn_over++;
+                } else if (pixels[pixel.offset] != pixel.value) {
+                    late_changed++;
+                } else {
+                    late_upgraded++;
+                    touched.push_back({plane, entry.target, pixels, pixel.offset, pixel.level});
+                }
+                if (other != nullptr && !other->px.empty() && other_pixels[pixel.offset] == pixel.value && pixel.level < 0) {
+                    const s_px* block = Block(*other, pixel.offset % width, pixel.offset / width);
+                    const size_t stride = (size_t)width * S;
+                    const uint32_t plain_mask = Index_Px(pixel.value).mask;
+                    bool plain = true;
+                    for (int32_t sy = 0; sy < S && plain; ++sy) {
+                        for (int32_t sx = 0; sx < S && plain; ++sx) {
+                            plain = block[sy * stride + sx].mask == plain_mask;
+                        }
+                    }
+                    if (plain) {
+                        other_touched.push_back({other, other_pixels, other_pixels, pixel.offset, pixel.level});
+                    }
+                }
+            }
+            if (!touched.empty()) {
+                Render_Plane(*plane, entry.target, pixels);
+            }
+            touched = std::move(other_touched);
+            late_twins += (uint32_t)touched.size();
+            if (!touched.empty()) {
+                Render_Plane(*other, other_pixels, other_pixels);
+            }
+            touched.clear();
+            generation = saved_generation;
+            replaying = false;
+        }
+        late_draws.resize(kept);
+        current_draw = saved;
+    }
+
+    size_t Late_Count() {
+        return late_draws.size();
+    }
+
+    std::string Late_Stats() {
+        char text[256];
+        snprintf(text, sizeof(text), "late art: %u draws replayed (off %u, back %u, images %u; %u pixels, %u copied to the other page; %u drawn over, %u changed), %u without plane", late_replayed, late_on_off, late_on_back, late_on_image, late_upgraded, late_twins, late_drawn_over, late_changed, late_no_plane);
+        late_replayed = late_upgraded = late_drawn_over = late_changed = late_no_plane = 0;
+        late_on_off = late_on_back = late_on_image = late_twins = 0;
+        return text;
+    }
+
+    void Reset_Late_Art() {
+        late_draws.clear();
+    }
 
     void Touch_Page(const uint8_t* page, const uint8_t* dst, int32_t count, int32_t level) {
         for (int32_t i = 0; i < count; ++i) {
