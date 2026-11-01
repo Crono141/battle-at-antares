@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/render/internal.h"
+#include "antares/render/twin_internal.h"
 #include <algorithm>
 
 // Attempt 2's draw model: hooked blitters stamp the page pixels they write, and the HD art of
@@ -416,7 +417,7 @@ namespace render {
         // Sets up the current draw for `anim` drawn with its top-left at (x, y).
         void Begin_Source(const s_animation_header* anim, int16_t x, int16_t y) {
             Start_Draw();
-            if (!enabled || anim == nullptr) {
+            if (!Legacy() || anim == nullptr) {
                 return;
             }
             if (!capture_dir.empty() || probe_x >= 0 || stats_enabled) {
@@ -662,7 +663,7 @@ namespace render {
             Initialize();
         }
         Start_Draw();
-        if (!enabled || font_file == nullptr || colors == nullptr) {
+        if (!Legacy() || font_file == nullptr || colors == nullptr) {
             return;
         }
         const s_hd_frame* glyph = Glyph_Art(font_file, font_index, code);
@@ -686,7 +687,7 @@ namespace render {
             Initialize();
         }
         Start_Draw();
-        if (!enabled || lbx_name == nullptr) {
+        if (!Legacy() || lbx_name == nullptr) {
             return;
         }
         const int32_t asset_index = Find_Or_Create_Asset(lbx_name, entry);
@@ -727,7 +728,11 @@ namespace render {
     }
 
     void Literal_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, const uint8_t* rgb) {
-        if (!enabled || rgb == nullptr || width <= 0 || height <= 0) {
+        if (twins_on) {
+            twin::Literal_Rect(page, x, y, width, height, rgb);
+            return;
+        }
+        if (!Legacy() || rgb == nullptr || width <= 0 || height <= 0) {
             return;
         }
         s_surface* target = Page_Surface(page);
@@ -760,7 +765,7 @@ namespace render {
     }
 
     void Stamp_Page(const uint8_t* page, const uint8_t* dst, int32_t count) {
-        if (!enabled || count <= 0) {
+        if (!Legacy() || count <= 0) {
             return;
         }
         s_surface* target = Page_Surface(page);
@@ -777,7 +782,7 @@ namespace render {
     }
 
     void Overwrite_Rect(const uint8_t* page, int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
-        if (!enabled) {
+        if (!Legacy()) {
             return;
         }
         s_surface* target = Page_Surface(page);
@@ -799,7 +804,7 @@ namespace render {
     }
 
     void Tint_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, int32_t level) {
-        if (!enabled || width <= 0 || height <= 0) {
+        if (!Legacy() || width <= 0 || height <= 0) {
             return;
         }
         s_surface* target = Page_Surface(page);
@@ -836,7 +841,7 @@ namespace render {
 
     void Stamp_Glass(const uint8_t* dst, uint8_t background_value, int32_t level) {
         (void)background_value;
-        if (!enabled) {
+        if (!Legacy()) {
             return;
         }
         s_surface* target = Page_Surface(video::current_video_page);
@@ -851,7 +856,7 @@ namespace render {
     }
 
     void Stamp_Bitmap(const void* bitmap, int32_t index, uint8_t value) {
-        if (!enabled) {
+        if (!Legacy()) {
             return;
         }
         const auto found = images.find(bitmap);

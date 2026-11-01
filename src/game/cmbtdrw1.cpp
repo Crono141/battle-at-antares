@@ -3014,6 +3014,7 @@ namespace CMBTDRW1 {
     }
 
     void __cdecl Plasma_Darken(s_animation_header* bitmap, int16_t progress, int16_t mode) {
+        render::twin::Scope twin_scope("Plasma_Darken", bitmap, 0, 0, 0, 0);
         int frame = progress % 16;
         animate::Set_Animation_Frame(MOX::darken_plasma_map, frame);
 

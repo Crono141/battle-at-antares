@@ -82,6 +82,9 @@ namespace render {
         }
         initialized = true;
         enabled = vfs::File_Exists("hd/pack.json") != 0;
+        // ANTARES_TWINS=1: the twin planes (WP1.3a) instead of attempt 2's stamps.
+        const char* twins = antares::Get_Env("TWINS");
+        twins_on = enabled && twins != nullptr && twins[0] != '\0' && twins[0] != '0';
         const char* stats = antares::Get_Env("HD_STATS");
         stats_enabled = enabled && stats != nullptr;
         trace_enabled = enabled && antares::Get_Env("HD_TRACE") != nullptr;
@@ -99,7 +102,7 @@ namespace render {
         if (stats_enabled && atoi(stats) > 1) {
             stats_interval = (uint32_t)atoi(stats);
         }
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %s", enabled ? "HD sprite pack found" : "no HD sprite pack");
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %s%s", enabled ? "HD sprite pack found" : "no HD sprite pack", twins_on ? " (twin planes)" : "");
         const char* slow_io = antares::Get_Env("HD_SLOW_IO");
         if (slow_io != nullptr && atoi(slow_io) > 0) {
             slow_io_ms = (uint32_t)atoi(slow_io);

@@ -389,6 +389,7 @@ namespace SYS {
     }
 
     void __cdecl Remap_Draw_With_Mask(int16_t x, int16_t y, s_animation_header* anim_hdr, s_animation_header* mask_hdr) {
+        render::twin::Scope twin_scope("Remap_Draw_With_Mask", video::current_video_page, x, y, anim_hdr);
         bool is_clipped = false;
         int16_t x2;
         int16_t y2;

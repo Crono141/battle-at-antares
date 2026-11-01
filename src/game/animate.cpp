@@ -91,6 +91,7 @@ namespace animate {
     }
 
     void __cdecl Draw(int16_t x, int16_t y, s_animation_header* anim) {
+        render::twin::Scope twin_scope("Draw", video::current_video_page, x, y, anim);
         animation_header = anim;
         render::Begin_Draw(anim, x, y);
 
@@ -452,6 +453,7 @@ namespace animate {
     }
 
     void __cdecl Remap_Draw(int16_t x, int16_t y, s_animation_header* anim) {
+        render::twin::Scope twin_scope("Remap_Draw", video::current_video_page, x, y, anim);
         render::Begin_Remap_Draw(anim, x, y, remap::picture_remap_color_list);
         Remap_Draw_Body(x, y, anim);
         render::End_Draw();
@@ -551,6 +553,7 @@ namespace animate {
     }
 
     void __cdecl Draw_No_Glass(int16_t x, int16_t y, s_animation_header* header) {
+        render::twin::Scope twin_scope("Draw_No_Glass", video::current_video_page, x, y, header);
         animation_header = header;
         render::Begin_Draw(header, x, y);
 

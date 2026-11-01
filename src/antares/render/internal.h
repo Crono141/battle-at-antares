@@ -235,4 +235,9 @@ namespace render {
     // Drops pending stamps and deferred draws (the page surfaces are being freed).
     void Reset_Stamps();
 
+    // Attempt 2's model is the one running (HD on, twin planes off).
+    inline bool Legacy() {
+        return enabled && !twins_on;
+    }
+
 } // namespace render

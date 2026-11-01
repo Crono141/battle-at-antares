@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/render/internal.h"
+#include "antares/render/twin_internal.h"
 
 #include "webp/decode.h"
 #include "yyjson.h"
@@ -366,6 +367,8 @@ namespace render {
         if (!enabled || data == nullptr || lbx_name == nullptr || size < (int32_t)sizeof(s_registration::header)) {
             return;
         }
+        // A load wins over any image plane in its memory (PLAN.md section 3.1, lifetime).
+        twin::Drop_Images(data, (const uint8_t*)data + size);
         if (stats_enabled || !capture_dir.empty() || probe_x >= 0) {
             char key[64];
             snprintf(key, sizeof(key), "%s#%03d", lbx_name, (int)entry);
@@ -415,6 +418,7 @@ namespace render {
         if (!enabled) {
             return;
         }
+        twin::Drop_Images(begin, end);
         for (auto it = registrations.begin(); it != registrations.end();) {
             it = it->first >= begin && it->first < end ? registrations.erase(it) : std::next(it);
         }

@@ -457,6 +457,7 @@ namespace INFO {
     }
 
     void __cdecl Colorize_Bitmap(s_animation_header* anim, s_colors* color_table, uint8_t range_start, uint8_t range_end) {
+        render::twin::Scope twin_scope("Colorize_Bitmap", anim, 0, 0, 0, 0);
         int32_t total_pixels = (int32_t)anim->height * (int32_t)anim->width;
 
         if (total_pixels > 0) {
