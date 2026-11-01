@@ -2,6 +2,7 @@
 
 #include "antares/render/internal.h"
 #include "antares/render/twin_internal.h"
+#include "antares/identity.h"
 
 #include <algorithm>
 #include <string>
@@ -71,6 +72,25 @@ namespace render {
 
         } // namespace
 
+        // The last operations run on each image (debug: ANTARES_TWIN_CHECK).
+        std::unordered_map<const void*, std::string> recent_ops;
+
+        std::string Recent_Ops(const void* target) {
+            const auto found = recent_ops.find(target);
+            return found == recent_ops.end() ? std::string("(none)") : found->second;
+        }
+
+        void Note_Op(const void* target, const char* op) {
+            if (images.count(target) == 0) {
+                return;
+            }
+            std::string& ops = recent_ops[target];
+            ops = std::string(op) + (ops.empty() ? "" : " < ") + ops;
+            if (ops.size() > 200) {
+                ops.resize(200);
+            }
+        }
+
         s_plane* Resolve_Target(const void* target, const uint8_t** pixels, int32_t* width, int32_t* height) {
             if (target == nullptr) {
                 return nullptr;
@@ -99,7 +119,17 @@ namespace render {
             return &found->second;
         }
 
+        void Probe(const s_plane& plane, int32_t x, int32_t y, const char* what, int32_t value) {
+            if (x == probe_x && y == probe_y && (&plane == &plane_off || &plane == &plane_back)) {
+                const s_px px = plane.px.empty() ? s_px{0u, 0u} : plane.px[(size_t)y * S * plane.width * S + (size_t)x * S];
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin probe (%d,%d) %s %s value=%d depth=%d plane before=%08x", x, y, &plane == &plane_off ? "off" : "back", what, value, depth, px.mask);
+            }
+        }
+
         void Fill_Block_Index(s_plane& plane, int32_t x, int32_t y, uint8_t index) {
+            if (probe_x >= 0) {
+                Probe(plane, x, y, "index", index);
+            }
             s_px* block = Block(plane, x, y);
             const size_t stride = (size_t)plane.width * S;
             const s_px px = Index_Px(index);
@@ -122,11 +152,26 @@ namespace render {
             if (header == nullptr || width <= 0 || height <= 0) {
                 return;
             }
+            Note_Op(header, "(created)");
             // Headers are created again in place for every flip, copy and scale: keep the buffer.
             s_plane& plane = images[header];
             plane.width = width;
             plane.height = height;
             plane.px.clear();
+            // Created again inside an operation on it (Draw_Picture_To_Bitmap, Screen_Bitmap_Capture,
+            // Scale_Bitmap): the open scope covers the new image, starting from a blank one.
+            for (int32_t i = 0; i < depth; ++i) {
+                s_open& entry = open_scopes[(size_t)i];
+                if (entry.target == header) {
+                    entry.width = width;
+                    entry.height = height;
+                    entry.x0 = 0;
+                    entry.y0 = 0;
+                    entry.x1 = width;
+                    entry.y1 = height;
+                    entry.before.assign((size_t)width * height, 0);
+                }
+            }
         }
 
         void Drop_Images(const void* begin, const void* end) {
@@ -145,6 +190,7 @@ namespace render {
 
         void Free_Pages() {
             std::lock_guard<std::mutex> lock(planes_mutex);
+            Reset_Late_Art();
             plane_off = s_plane();
             plane_back = s_plane();
             plane_published = s_plane();
@@ -167,7 +213,42 @@ namespace render {
             window_scope_ns = 0;
         }
 
+        void Accept_Rect(const void* target, int32_t x0, int32_t y0, int32_t x1, int32_t y1) {
+            const uint8_t* pixels = nullptr;
+            int32_t width = 0;
+            for (int32_t i = 0; i < depth; ++i) {
+                s_open& entry = open_scopes[(size_t)i];
+                if (entry.target != target) {
+                    continue;
+                }
+                if (pixels == nullptr) {
+                    int32_t height = 0;
+                    if (Resolve_Target(target, &pixels, &width, &height) == nullptr || width != entry.width) {
+                        return;
+                    }
+                }
+                const int32_t ax0 = SDL_max(x0, entry.x0);
+                const int32_t ay0 = SDL_max(y0, entry.y0);
+                const int32_t ax1 = SDL_min(x1, entry.x1);
+                const int32_t ay1 = SDL_min(y1, entry.y1);
+                for (int32_t y = ay0; y < ay1; ++y) {
+                    if (ax0 < ax1) {
+                        memcpy(&entry.before[(size_t)(y - entry.y0) * (entry.x1 - entry.x0) + (ax0 - entry.x0)],
+                            pixels + (size_t)y * width + ax0,
+                            (size_t)(ax1 - ax0));
+                    }
+                }
+            }
+        }
+
+        void Accept(const void* target, int32_t x, int32_t y) {
+            if (depth > 0) {
+                Accept_Rect(target, x, y, x + 1, y + 1);
+            }
+        }
+
         void Scope::Open(const char* op, const void* target, int32_t x, int32_t y, int32_t width, int32_t height) {
+            Note_Op(target, op);
             const uint8_t* pixels = nullptr;
             int32_t target_width = 0;
             int32_t target_height = 0;
@@ -219,6 +300,7 @@ namespace render {
         }
 
         void Scope::Close() {
+            End_Draw(); // a draw still collecting pixels inside this operation renders first
             depth = slot_;
             const s_open& entry = open_scopes[(size_t)slot_];
             slot_ = -1;
@@ -226,8 +308,8 @@ namespace render {
             int32_t width = 0;
             int32_t height = 0;
             s_plane* plane = Resolve_Target(entry.target, &pixels, &width, &height);
-            if (plane == nullptr) {
-                return;
+            if (plane == nullptr || plane->px.empty()) {
+                return; // an image with no plane pixels yet stands for its 1x pixels: nothing to do
             }
             uint32_t changed = 0;
             if (plane->px.empty() || width != entry.width || height != entry.height) {
@@ -242,6 +324,11 @@ namespace render {
                     bool row_changed = false;
                     for (int32_t x = entry.x0; x < entry.x1; ++x) {
                         if (now[x] != was[x - entry.x0]) {
+                            static const bool check = antares::Get_Env("TWIN_CHECK") != nullptr;
+                            static uint32_t logged;
+                            if (check && changed == 0 && logged++ < 40) {
+                                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin check: Unported %s on %p (%dx%d) first change at %d,%d: %u -> %u", entry.op, entry.target, width, height, x, y, was[x - entry.x0], now[x]);
+                            }
                             Fill_Block_Index(*plane, x, y, now[x]);
                             row_changed = true;
                             changed++;

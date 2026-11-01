@@ -71,6 +71,7 @@ namespace render {
         }
 
         std::string parity_unported;
+        std::string parity_examples; // the first index mismatches (twin planes)
 
     } // namespace
 
@@ -95,6 +96,7 @@ namespace render {
         const int32_t width = twins_on ? twin::plane_present.width : page_present.width;
         const int32_t height = twins_on ? twin::plane_present.height : page_present.height;
         parity_unported = twins_on ? twin::Presented_Unported() : std::string();
+        parity_examples.clear();
         parity_width = width;
         parity_height = height;
         parity_map.assign((size_t)width * height, PARITY_OK);
@@ -118,6 +120,12 @@ namespace render {
                 }
                 parity_map[i] = worst;
                 parity_counts[worst]++;
+                if (worst == PARITY_INDEX && parity_counts[PARITY_INDEX] <= 5 && twins_on) {
+                    const twin::s_px& px = twin::plane_present.px[at];
+                    parity_examples += " (" + std::to_string(x) + "," + std::to_string(y) + " page=" + std::to_string(page[i]) +
+                        " kind=" + std::to_string(twin::Kind(px)) + " fg=" + std::to_string(px.mask & 0xFF) + " bg=" +
+                        std::to_string((px.mask >> 8) & 0xFF) + " cov=" + std::to_string((px.mask >> 16) & 0xFF) + ")";
+                }
             }
         }
         frames_checked++;
@@ -153,7 +161,7 @@ namespace render {
             argb[i] = 0xFF000000u | (parity_map[i] != PARITY_OK ? marks[parity_map[i]] : (rgb >> 2) & 0x3F3F3Fu);
         }
         const bool saved = antares::script_capture::Save_Argb_Png(path.c_str(), argb.data(), parity_width, parity_height, parity_width);
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "parity: %s index=%u colour=%u literal=%u%s%s%s", path.c_str(), parity_counts[PARITY_INDEX], parity_counts[PARITY_COLOUR], parity_counts[PARITY_LITERAL], saved ? "" : " FAILED", twins_on ? " unported=" : "", twins_on ? (parity_unported.empty() ? "(none)" : parity_unported.c_str()) : "");
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "parity: %s index=%u colour=%u literal=%u%s%s%s%s", path.c_str(), parity_counts[PARITY_INDEX], parity_counts[PARITY_COLOUR], parity_counts[PARITY_LITERAL], saved ? "" : " FAILED", twins_on ? " unported=" : "", twins_on ? (parity_unported.empty() ? "(none)" : parity_unported.c_str()) : "", parity_examples.c_str());
         return saved;
     }
 

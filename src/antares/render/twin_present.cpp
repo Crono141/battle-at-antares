@@ -44,6 +44,7 @@ namespace render::twin {
         uint32_t pixels = 0;
         End_Frame_Unported(&names, &pixels);
         published_unported = names;
+        Replay_Late_Art();
         publish_count++;
         Evict_Over_Budget();
         Pump_Prefetch(PREFETCH_BUDGET_NS);
@@ -68,14 +69,16 @@ namespace render::twin {
                 image_bytes += item.second.px.capacity() * sizeof(s_px);
             }
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                "twin stats: last 100 frames: publish %.2f ms, drawing scopes %.2f ms per frame; %zu image planes (%zu MB); "
+                "twin stats: last 100 frames: publish %.2f ms, drawing scopes %.2f ms per frame; %zu image planes (%zu MB); %zu draws waiting for art; "
                 "Unported fallback %u pixels: %s",
                 (double)window_publish_ns / 1e8,
                 (double)scope_ns / 1e8,
                 images.size(),
                 image_bytes >> 20,
+                Late_Count(),
                 window_pixels,
                 window.empty() ? "(none)" : window.c_str());
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: %s", Late_Stats().c_str());
             window_publish_ns = 0;
         }
     }

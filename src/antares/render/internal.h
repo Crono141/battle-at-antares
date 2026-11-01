@@ -222,6 +222,47 @@ namespace render {
     void Fill_Block(s_surface& surface, int32_t x, int32_t y, uint32_t pixel);
     s_surface* Page_Surface(const uint8_t* page);
 
+    // ------------------------------------------------------------ the current draw
+    // Set up by the Begin_* hooks (stamps.cpp) for both models: which art a draw uses, where,
+    // and how it is recoloured.
+
+    enum e_source {
+        SOURCE_NONE,  // no HD art: written pixels show the original enlarged
+        SOURCE_ART,   // a sprite, glyph or file animation frame with HD art
+        SOURCE_IMAGE, // an off-screen image with an HD surface
+    };
+
+    struct s_draw {
+        e_source source = SOURCE_NONE;
+        const s_hd_frame* frame = nullptr;
+        bool glyph = false;
+        bool glassed = false;
+        bool redrawn = false;
+        int32_t x = 0; // where the sprite's top-left lands in the target
+        int32_t y = 0;
+        bool remapped = false;
+        uint8_t remap[256];
+        uint8_t colors[8];
+        std::vector<uint8_t> shade; // brightness percent per sprite pixel, empty = none
+        int32_t shade_width = 0;
+        int32_t shade_height = 0;
+        const s_surface* image = nullptr;
+        const void* anim = nullptr; // the header drawn (twin planes: image sources)
+        int32_t image_x = 0;
+        int32_t image_y = 0;
+        std::string name; // for the probe
+        // The frame has art that is still being decoded: written pixels show the original
+        // for now and are recorded so they can be upgraded when it arrives.
+        bool waiting = false;
+        // Clip window at the start of the draw (the fringe must stay inside it).
+        int32_t clip_x1 = 0;
+        int32_t clip_y1 = 0;
+        int32_t clip_x2 = 0x7FFF;
+        int32_t clip_y2 = 0x7FFF;
+    };
+
+    extern s_draw current_draw;
+
     // ------------------------------------------------------------ attempt 2's draw model
     // (stamps.cpp; retired in WP1.3a)
 

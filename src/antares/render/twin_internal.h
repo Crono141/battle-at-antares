@@ -69,11 +69,35 @@ namespace render::twin {
     // Fills the plane from its 1x pixels, enlarged, every pixel bound to its index.
     void Fill_From_1x(s_plane& plane, const uint8_t* pixels);
     void Fill_Block_Index(s_plane& plane, int32_t x, int32_t y, uint8_t index);
+    // ANTARES_HD_PROBE=x,y: logs twin writes to that page pixel.
+    void Probe(const s_plane& plane, int32_t x, int32_t y, const char* what, int32_t value);
 
     void Attach_Image(const void* header, int32_t width, int32_t height);
     void Drop_Images(const void* begin, const void* end);
     void Allocate_Pages(int32_t width, int32_t height);
     void Free_Pages();
+
+    // The open scopes on `target` take the 1x pixels of the rectangle [x0, x1) x [y0, y1) as
+    // handled by a twin: their Unported fallback leaves them alone.
+    void Accept_Rect(const void* target, int32_t x0, int32_t y0, int32_t x1, int32_t y1);
+    void Accept(const void* target, int32_t x, int32_t y);
+
+    // Debug (ANTARES_TWIN_CHECK): the last operations run on an image.
+    std::string Recent_Ops(const void* target);
+
+    // core drawing twins (twin_draw.cpp)
+    void Touch_Page(const uint8_t* page, const uint8_t* dst, int32_t count, int32_t level);
+    void Touch_Image(const void* header, int32_t index);
+    void End_Draw();
+    // Late art: replays art draws whose frame has finished decoding (game thread, at publish).
+    void Replay_Late_Art();
+    size_t Late_Count();
+    std::string Late_Stats(); // and resets the window
+    void Reset_Late_Art();
+    void Overwrite_Rect(const uint8_t* page, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
+    void Tint_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, int32_t level);
+    void Copy_Page(const uint8_t* src_page, const uint8_t* dst_page);
+    void Copy_Page_Span(const uint8_t* src_page, const uint8_t* dst_page, int32_t offset, int32_t count);
 
     // present (twin_present.cpp)
     void Publish();
