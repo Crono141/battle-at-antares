@@ -948,6 +948,7 @@ namespace platform {
             if (!g_pending_screenshot_hd.empty()) {
                 const bool saved = antares::script_capture::Save_Argb_Png(g_pending_screenshot_hd.c_str(), g_hd_pixels, width, height, width);
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_hd %s%s", g_pending_screenshot_hd.c_str(), saved ? "" : " FAILED");
+                render::Parity_Save(g_pending_screenshot_hd.c_str());
                 g_pending_screenshot_hd.clear();
             }
             // Debug aid for headless runs: ANTARES_HD_DUMP=<directory> saves every 50th
@@ -1812,6 +1813,7 @@ namespace platform {
             memcpy(dst + y * video::g_screen_res_x, src + y * video::g_screen_res_x, (size_t)video::g_screen_res_x);
         }
         render::Snapshot_Plane();
+        render::Parity_Check(g_present_surface, g_present_palette_entries);
     }
 
     void Force_Cursor_Pos(int16_t x, int16_t y) {
