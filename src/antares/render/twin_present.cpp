@@ -78,7 +78,7 @@ namespace render::twin {
                 Late_Count(),
                 window_pixels,
                 window.empty() ? "(none)" : window.c_str());
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: %s", Late_Stats().c_str());
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: %s; cache %lld MB decoded, %d frames queued", Late_Stats().c_str(), (long long)(decoded_bytes.load() >> 20), Queue_Length());
             window_publish_ns = 0;
         }
     }

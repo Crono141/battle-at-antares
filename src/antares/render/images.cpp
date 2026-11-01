@@ -94,6 +94,10 @@ namespace render {
     }
 
     void Bitmap_Copy(const void* dst, const void* src) {
+        if (twins_on) {
+            twin::Copy_Image(dst, src);
+            return;
+        }
         if (!Legacy() || dst == src) {
             return;
         }
@@ -176,6 +180,10 @@ namespace render {
     }
 
     void Bitmap_Glass(const void* bitmap, const uint8_t* pixels, int32_t level) {
+        if (twins_on) {
+            twin::Glass_Image(bitmap, level);
+            return;
+        }
         if (!Legacy() || pixels == nullptr) {
             return;
         }
@@ -213,6 +221,10 @@ namespace render {
     }
 
     void Bitmap_Recolor(const void* bitmap, int32_t first, int32_t count, const uint8_t* map) {
+        if (twins_on) {
+            twin::Recolor_Image(bitmap, first, count, map);
+            return;
+        }
         if (!Legacy() || map == nullptr || count <= 0) {
             return;
         }

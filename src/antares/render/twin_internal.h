@@ -94,6 +94,11 @@ namespace render::twin {
     size_t Late_Count();
     std::string Late_Stats(); // and resets the window
     void Reset_Late_Art();
+    // An image's indices [first, first + count) recoloured in place through `map` (Replace_Color*).
+    void Recolor_Image(const void* header, int32_t first, int32_t count, const uint8_t* map);
+    // bitmap::Copy_Bitmap_To_Bitmap and the glass tint of bitmap::Tint_Bitmap on image planes.
+    void Copy_Image(const void* dst, const void* src);
+    void Glass_Image(const void* header, int32_t level);
     void Overwrite_Rect(const uint8_t* page, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     void Tint_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, int32_t level);
     void Copy_Page(const uint8_t* src_page, const uint8_t* dst_page);

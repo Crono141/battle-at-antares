@@ -92,6 +92,73 @@ namespace render::twin {
             return Literal_Px(alpha >= 255 ? rgb : Mix(rgb, Base_Color(dest), alpha));
         }
 
+        // Full-colour pixels under glass follow the game's glass table too: the original maps every
+        // index through it (a red light under the build screen's dark glass turns dark blue), so a
+        // true-colour tint (Glass_Rgb) left saturated details showing. The pixel's colour is matched
+        // to its nearest palette index, that index goes through the table, and the pixel keeps its
+        // own brightness relative to the index, so the art's detail survives.
+        std::vector<uint8_t> nearest_lut; // 15-bit RGB -> nearest palette index; 0xFF00 marks unset
+        std::vector<uint8_t> nearest_ready;
+        uint8_t lut_palette[768];
+
+        void Sync_Glass_Lut() {
+            uint8_t palette[768];
+            for (int32_t i = 0; i < 256; ++i) {
+                palette[i * 3] = video::current_palette[i].r;
+                palette[i * 3 + 1] = video::current_palette[i].g;
+                palette[i * 3 + 2] = video::current_palette[i].b;
+            }
+            if (nearest_lut.empty() || memcmp(palette, lut_palette, sizeof(palette)) != 0) {
+                memcpy(lut_palette, palette, sizeof(palette));
+                nearest_lut.assign(32768, 0);
+                nearest_ready.assign(32768, 0);
+            }
+        }
+
+        uint8_t Nearest_Index(uint32_t rgb) {
+            const uint32_t key = (((rgb >> 19) & 0x1F) << 10) | (((rgb >> 11) & 0x1F) << 5) | ((rgb >> 3) & 0x1F);
+            if (nearest_ready[key] == 0) {
+                const int32_t r = (int32_t)((rgb >> 16) & 0xF8) + 4;
+                const int32_t g = (int32_t)((rgb >> 8) & 0xF8) + 4;
+                const int32_t b = (int32_t)(rgb & 0xF8) + 4;
+                int32_t best = 0;
+                int32_t best_distance = 0x7FFFFFFF;
+                for (int32_t i = 0; i < 256; ++i) {
+                    const uint32_t c = Base_Rgb((uint8_t)i);
+                    const int32_t dr = (int32_t)((c >> 16) & 0xFF) - r;
+                    const int32_t dg = (int32_t)((c >> 8) & 0xFF) - g;
+                    const int32_t db = (int32_t)(c & 0xFF) - b;
+                    const int32_t distance = dr * dr * 3 + dg * dg * 6 + db * db;
+                    if (distance < best_distance) {
+                        best_distance = distance;
+                        best = i;
+                    }
+                }
+                nearest_lut[key] = (uint8_t)best;
+                nearest_ready[key] = 1;
+            }
+            return nearest_lut[key];
+        }
+
+        uint32_t Luma(uint32_t rgb) {
+            return (((rgb >> 16) & 0xFF) * 77u + ((rgb >> 8) & 0xFF) * 150u + (rgb & 0xFF) * 29u) >> 8;
+        }
+
+        uint32_t Glass_Through_Table(uint32_t rgb, int32_t level) {
+            if (nearest_lut.empty()) {
+                Sync_Glass_Lut();
+            }
+            const uint8_t index = Nearest_Index(rgb);
+            const uint32_t through = Base_Rgb(video::glass_remap_colors[level & 15][index]);
+            const uint32_t base_luma = SDL_max(Luma(Base_Rgb(index)), 1u);
+            const uint32_t ratio = SDL_clamp(Luma(rgb) * 256u / base_luma, 128u, 512u); // keep detail, within reason
+            uint32_t out = 0;
+            for (int32_t shift = 0; shift <= 16; shift += 8) {
+                out |= SDL_min(255u, ((through >> shift) & 0xFF) * ratio / 256u) << shift;
+            }
+            return out;
+        }
+
         // Glass of level `level` over `dest`: index-bound pixels go through the game's own glass
         // table (exactly what the 1x pixel gets); full-colour pixels are tinted in true colour.
         // The D20 `glass` kind (WP1.4) refines partial coverage.
@@ -102,7 +169,7 @@ namespace render::twin {
                 const uint32_t bg = table[(dest.mask >> 8) & 0xFF];
                 return {0u, (dest.mask & ~0xFFFFu) | (bg << 8) | fg};
             }
-            return Literal_Px(Glass_Rgb(dest.base & 0xFFFFFFu, level));
+            return Literal_Px(Glass_Through_Table(dest.base & 0xFFFFFFu, level));
         }
 
         // Darkens `rgb` by the shade mask sampled bilinearly (Begin_Masked_Remap_Draw).
@@ -319,6 +386,7 @@ namespace render::twin {
 
         // Renders the touched pixels of one plane.
         void Render_Plane(s_plane& plane, const void* target, const uint8_t* pixels) {
+            Sync_Glass_Lut();
             const s_draw& draw = current_draw;
             // Glyph frames are decoded on the spot when first used (glyphs.cpp), so they are ready
             // once they exist; sprite frames come from the decoding workers.
@@ -334,6 +402,17 @@ namespace render::twin {
                 record = &late_draws.back();
             }
             const s_plane* image = art ? nullptr : Image_Source();
+            if (plane.row_dirty.empty() && plane.width >= 40) {
+                static const bool check = antares::Get_Env("TWIN_CHECK") != nullptr;
+                static uint32_t logged;
+                if (check && logged++ < 20) {
+                    size_t count = 0;
+                    for (const s_touch& t : touched) {
+                        count += t.plane == &plane ? 1 : 0;
+                    }
+                    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin check: draw into image %p %dx%d: %zu pixels, source %d art %d waiting %d frame %dx%d at %d,%d (%s)", target, plane.width, plane.height, count, (int)draw.source, art ? 1 : 0, draw.waiting ? 1 : 0, draw.frame != nullptr ? draw.frame->width : 0, draw.frame != nullptr ? draw.frame->height : 0, draw.x, draw.y, draw.name.c_str());
+                }
+            }
             std::vector<uint32_t>& mark = Marks(plane);
             int32_t x0 = plane.width;
             int32_t y0 = plane.height;
@@ -558,6 +637,79 @@ namespace render::twin {
         }
     }
 
+    void Recolor_Image(const void* header, int32_t first, int32_t count, const uint8_t* map) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* plane = Resolve_Target(header, &pixels, &width, &height);
+        if (plane == nullptr || map == nullptr || count <= 0) {
+            return;
+        }
+        if (!plane->px.empty()) {
+            // Index-bound pixels take the same map as the 1x pixels (pixel-tests.md: index 0 is
+            // never rewritten); full-colour pixels keep their colour.
+            const auto recolor = [&](uint32_t index) {
+                return index != 0 && (int32_t)index >= first && (int32_t)index < first + count ? (uint32_t)map[index - first] : index;
+            };
+            for (s_px& px : plane->px) {
+                if (Kind(px) != KIND_INDEX) {
+                    continue;
+                }
+                const uint32_t fg = recolor(px.mask & 0xFF);
+                const uint32_t bg = (px.mask & MASK_CLEAR) != 0 ? (px.mask >> 8) & 0xFF : recolor((px.mask >> 8) & 0xFF);
+                px.mask = (px.mask & ~0xFFFFu) | (bg << 8) | fg;
+            }
+        }
+        Accept_Rect(header, 0, 0, width, height);
+    }
+
+    void Copy_Image(const void* dst, const void* src) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* to = Resolve_Target(dst, &pixels, &width, &height);
+        if (to == nullptr || dst == src) {
+            return;
+        }
+        int32_t src_width = 0;
+        int32_t src_height = 0;
+        const uint8_t* src_pixels = nullptr;
+        const s_plane* from = Resolve_Target(src, &src_pixels, &src_width, &src_height);
+        if (from != nullptr && !from->px.empty() && src_width == width && src_height == height) {
+            to->px = from->px;
+        } else {
+            to->px.clear(); // stands for its 1x pixels
+        }
+        Accept_Rect(dst, 0, 0, width, height);
+    }
+
+    void Glass_Image(const void* header, int32_t level) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* plane = Resolve_Target(header, &pixels, &width, &height);
+        if (plane == nullptr) {
+            return;
+        }
+        if (!plane->px.empty()) {
+            Sync_Glass_Lut();
+            // bitmap::Tint_Bitmap_Pixels tints the non-zero pixels through the glass table.
+            const uint8_t* table = video::glass_remap_colors[level & 15];
+            for (s_px& px : plane->px) {
+                if (Kind(px) == KIND_INDEX) {
+                    const uint32_t fg = px.mask & 0xFF;
+                    const uint32_t bg = (px.mask >> 8) & 0xFF;
+                    const uint32_t new_fg = fg != 0 ? table[fg] : 0u;
+                    const uint32_t new_bg = (px.mask & MASK_CLEAR) != 0 || bg == 0 ? bg : table[bg];
+                    px.mask = (px.mask & ~0xFFFFu) | (new_bg << 8) | new_fg;
+                } else if (((px.base >> 24) & 0xFF) != 0) {
+                    px.base = (px.base & 0xFF000000u) | Glass_Through_Table(px.base & 0xFFFFFFu, level);
+                }
+            }
+        }
+        Accept_Rect(header, 0, 0, width, height);
+    }
+
     void Overwrite_Rect(const uint8_t* page, int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
         const uint8_t* pixels = nullptr;
         int32_t width = 0;
@@ -582,6 +734,7 @@ namespace render::twin {
     }
 
     void Tint_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, int32_t level) {
+        Sync_Glass_Lut();
         const uint8_t* pixels = nullptr;
         int32_t page_width = 0;
         int32_t page_height = 0;
