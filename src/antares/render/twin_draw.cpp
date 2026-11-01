@@ -716,6 +716,40 @@ namespace render::twin {
         Accept_Rect(header, 0, 0, width, height);
     }
 
+    void Flip_Image(const void* dst, const void* src, bool vertical) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* to = Resolve_Target(dst, &pixels, &width, &height);
+        if (to == nullptr) {
+            return;
+        }
+        const uint8_t* src_pixels = nullptr;
+        int32_t src_width = 0;
+        int32_t src_height = 0;
+        s_plane* from = Resolve_Target(src, &src_pixels, &src_width, &src_height);
+        if (from == nullptr || from->px.empty() || src_width != width || src_height != height) {
+            to->px.clear(); // stands for its (mirrored) 1x pixels
+            Accept_Rect(dst, 0, 0, width, height);
+            return;
+        }
+        // Mirrored copies: combat ships facing left or down are their right-facing frames flipped.
+        const int32_t hw = width * S;
+        const int32_t hh = height * S;
+        std::vector<s_px> mirrored((size_t)hw * hh);
+        for (int32_t y = 0; y < hh; ++y) {
+            const s_px* row = &from->px[(size_t)(vertical ? hh - 1 - y : y) * hw];
+            s_px* out = &mirrored[(size_t)y * hw];
+            if (vertical) {
+                std::copy(row, row + hw, out);
+            } else {
+                std::reverse_copy(row, row + hw, out);
+            }
+        }
+        to->px = std::move(mirrored);
+        Accept_Rect(dst, 0, 0, width, height);
+    }
+
     void Overwrite_Rect(const uint8_t* page, int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
         const uint8_t* pixels = nullptr;
         int32_t width = 0;

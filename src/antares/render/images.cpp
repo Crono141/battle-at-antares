@@ -24,6 +24,10 @@ namespace render {
     }
 
     void Bitmap_Flip(const void* dst, const void* src, bool vertical) {
+        if (twins_on) {
+            twin::Flip_Image(dst, src, vertical);
+            return;
+        }
         if (!Legacy()) {
             return;
         }
