@@ -473,13 +473,13 @@ namespace bitmap {
                         uint8_t pixel = frame_pixels[(ry - img_y1) * img_w - img_x1 + scaled_x];
                         if (pixel != 0) {
                             video_page[y * 640 + x] = pixel;
-                            render::Bitmap_Line_Pixel(img, (ry - img_y1) * img_w - img_x1 + scaled_x, x, y);
                         }
                     }
                 }
             }
         }
 
+        render::Bitmap_Line(img, mid_x, mid_y, angle_val, ext_x1, ext_x2, img_x1, img_y1, img_y2, scale_factor, min_x, min_y, max_x, max_y);
         platform::Unlock_Appropriate_Render_Buffer();
     }
 

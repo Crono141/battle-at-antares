@@ -11,6 +11,7 @@ namespace line {
                 return;
             }
         }
+        render::Begin_Line(x1, y1, x2, y2); // D21: the twin draws the clipped segment at 4x
 
         if (y2 < y1) {
             strings::Swap_Short(&y1, &y2);
@@ -305,6 +306,7 @@ namespace line {
                 return;
             }
         }
+        render::Begin_Line(x1, y1, x2, y2); // D21: the twin draws the clipped segment at 4x
 
         if (y2 < y1) {
             strings::Swap_Short(&y1, &y2);
@@ -583,6 +585,7 @@ namespace line {
                 return;
             }
         }
+        render::Begin_Line(x1, y1, x2, y2); // D21: the twin draws the clipped segment at 4x
 
         if (y1 > y2) {
             strings::Swap_Short(&y1, &y2);

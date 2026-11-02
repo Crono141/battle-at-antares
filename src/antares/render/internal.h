@@ -189,6 +189,7 @@ namespace render {
     enum e_source {
         SOURCE_NONE, // no HD art: written pixels show the original enlarged
         SOURCE_ART,  // a sprite, glyph or file animation frame with HD art
+        SOURCE_LINE, // a line (D21): its pixels are drawn as a stroke at 4x
     };
 
     struct s_draw {
@@ -206,7 +207,11 @@ namespace render {
         int32_t shade_width = 0;
         int32_t shade_height = 0;
         const void* anim = nullptr; // the header drawn (image sources)
-        std::string name;           // for the probe
+        int32_t line_x1 = 0;        // SOURCE_LINE: the segment, in 1x pixels
+        int32_t line_y1 = 0;
+        int32_t line_x2 = 0;
+        int32_t line_y2 = 0;
+        std::string name; // for the probe
         // The frame has art that is still being decoded: written pixels show the original
         // for now, and the draw is replayed when it arrives (late art, twin_draw.cpp).
         bool waiting = false;

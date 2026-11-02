@@ -28,6 +28,9 @@ namespace render::twin {
     };
     constexpr uint32_t KIND_SHIFT = 24;
     constexpr uint32_t MASK_CLEAR = 1u << 28;
+    // Written by a line stroke (D21): parity counts it apart (the stroke follows the line, not the
+    // 1x pixels). Any later write of the pixel drops it.
+    constexpr uint32_t MASK_STROKE = 1u << 29;
 
     inline uint32_t Kind(const s_px& px) {
         return (px.mask >> KIND_SHIFT) & 0xF;
@@ -123,7 +126,7 @@ namespace render::twin {
     void Capture_Image(const void* header, const uint8_t* page, int32_t x1, int32_t y1, int32_t width, int32_t height);
     void Scale_Image(const void* dst, const void* src);
     void Outline_Image(const void* header, uint8_t color, bool no_glass);
-    void Line_Image_Pixel(const uint8_t* page, int32_t x, int32_t y, const void* header, int32_t source_offset);
+    void Line_Image(const uint8_t* page, const void* header, int32_t mid_x, int32_t mid_y, int32_t angle, int32_t ext_x1, int32_t ext_x2, int32_t img_x1, int32_t img_y1, int32_t img_y2, int32_t scale_percent, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     // Plane blocks of the image in [x0, x1) x [y0, y1) through an index table.
     void Map_Image_Rect(const void* header, int32_t x0, int32_t y0, int32_t x1, int32_t y1, const uint8_t* table);
     void Plasma_Image(const void* header, const uint8_t* darken, int32_t darken_width, int32_t darken_height, int32_t darkness, const uint8_t* darken_map);

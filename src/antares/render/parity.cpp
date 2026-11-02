@@ -19,6 +19,7 @@ namespace render {
         // Per page pixel, the worst of its SxS HD pixels.
         enum e_parity : uint8_t {
             PARITY_OK,
+            PARITY_STROKE,  // a line stroke (D21): follows the line, not the 1x pixels; counted apart
             PARITY_LITERAL, // full-colour HD pixel: excluded from parity (D20 `none` pixels)
             PARITY_COLOUR,  // bound index right, colour wrong (partial coverage blends)
             PARITY_INDEX,   // bound index differs from the page (or a transparent HD pixel)
@@ -44,6 +45,9 @@ namespace render {
         // An `index` pixel keeps fg, bg, coverage and the clear bit; every other kind counts as
         // full colour.
         e_parity Classify(const twin::s_px& px, uint8_t value, const uint32_t* colors) {
+            if ((px.mask & twin::MASK_STROKE) != 0) {
+                return PARITY_STROKE;
+            }
             if (twin::Kind(px) != twin::KIND_INDEX) {
                 return PARITY_LITERAL;
             }
@@ -149,15 +153,16 @@ namespace render {
         std::string path = screenshot_path;
         const size_t dot = path.rfind(".png");
         path = (dot == std::string::npos ? path : path.substr(0, dot)) + ".parity.png";
-        // The page dimmed, with mismatches marked: red index, yellow colour only, blue full colour.
-        static const uint32_t marks[PARITY_KINDS] = {0, 0x3070FF, 0xFFD000, 0xFF2020};
+        // The page dimmed, with mismatches marked: red index, yellow colour only, blue full colour,
+        // green line strokes (D21).
+        static const uint32_t marks[PARITY_KINDS] = {0, 0x30C060, 0x3070FF, 0xFFD000, 0xFF2020};
         std::vector<uint32_t> argb(parity_map.size());
         for (size_t i = 0; i < parity_map.size(); ++i) {
             const uint32_t rgb = parity_colors[parity_page[i]];
             argb[i] = 0xFF000000u | (parity_map[i] != PARITY_OK ? marks[parity_map[i]] : (rgb >> 2) & 0x3F3F3Fu);
         }
         const bool saved = antares::script_capture::Save_Argb_Png(path.c_str(), argb.data(), parity_width, parity_height, parity_width);
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "parity: %s index=%u colour=%u literal=%u%s%s%s%s", path.c_str(), parity_counts[PARITY_INDEX], parity_counts[PARITY_COLOUR], parity_counts[PARITY_LITERAL], saved ? "" : " FAILED", " unported=", parity_unported.empty() ? "(none)" : parity_unported.c_str(), parity_examples.c_str());
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "parity: %s index=%u colour=%u literal=%u stroke=%u%s%s%s%s", path.c_str(), parity_counts[PARITY_INDEX], parity_counts[PARITY_COLOUR], parity_counts[PARITY_LITERAL], parity_counts[PARITY_STROKE], saved ? "" : " FAILED", " unported=", parity_unported.empty() ? "(none)" : parity_unported.c_str(), parity_examples.c_str());
         return saved;
     }
 
