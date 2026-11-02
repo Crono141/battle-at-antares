@@ -121,6 +121,10 @@ namespace render {
             }
         }
         frames_checked++;
+        if (parity_counts[PARITY_INDEX] != 0 && frames_index < 10) {
+            // The first frames with index mismatches, as they happen (scripts may take no screenshot).
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "parity: frame %u has %u index mismatches; unported=%s;%s", frames_checked, parity_counts[PARITY_INDEX], parity_unported.empty() ? "(none)" : parity_unported.c_str(), parity_examples.c_str());
+        }
         frames_index += parity_counts[PARITY_INDEX] != 0 ? 1 : 0;
         frames_colour += parity_counts[PARITY_INDEX] == 0 && parity_counts[PARITY_COLOUR] != 0 ? 1 : 0;
         worst_index = SDL_max(worst_index, parity_counts[PARITY_INDEX]);

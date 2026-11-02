@@ -114,6 +114,7 @@ namespace bitmap {
         uint8_t* src = video::current_video_page + ((int32_t)y1 * video::g_screen_res_x) + (int32_t)x1;
 
         shear::Capture_Screen_Block(src, width, height, dest);
+        render::Bitmap_Capture(header, x1, y1, width, height);
 
         platform::Unlock_Appropriate_Render_Buffer();
     }
@@ -194,6 +195,7 @@ namespace bitmap {
         } else {
             shear::Outline_Bitmap_Pixels_No_Glass(src_pixels, color, 0, dst_pixels, width, height);
         }
+        render::Bitmap_Outline(dst, color, no_glass != 0);
     }
 
     void __cdecl Tint_Bitmap(s_animation_header* dest, s_animation_header* src, int16_t tint_color_index) {
@@ -303,6 +305,7 @@ namespace bitmap {
         } else {
             shear::Mask_Bitmap_Pixels(src_ptr, src_skip, dest_skip, dest_ptr, draw_width, draw_height);
         }
+        render::Bitmap_Cleared(dest);
     }
 
     void __cdecl Draw_Bitmap_Line(int16_t x1, int16_t y1, int16_t x2, int16_t y2, s_animation_header* img) {
@@ -470,6 +473,7 @@ namespace bitmap {
                         uint8_t pixel = frame_pixels[(ry - img_y1) * img_w - img_x1 + scaled_x];
                         if (pixel != 0) {
                             video_page[y * 640 + x] = pixel;
+                            render::Bitmap_Line_Pixel(img, (ry - img_y1) * img_w - img_x1 + scaled_x, x, y);
                         }
                     }
                 }
@@ -571,6 +575,7 @@ namespace bitmap {
         animate::animation_header = anim;
         uint32_t* pixels = (uint32_t*)Animation_Frame_Data_(anim, anim->current_frame);
         shear::Mask_Bitmap_Colors_Pixels(pixels, start_color, end_color, 0, anim->width, anim->height);
+        render::Bitmap_Cleared(anim);
     }
 
     void __cdecl Mask_Brighten_Bitmap(int32_t x, int32_t y, s_animation_header* dst_anim, s_animation_header* src_anim, uint8_t color) {
@@ -671,6 +676,7 @@ namespace bitmap {
         }
 
         shear::Mask_Brighten_Bitmap_Pixels(adjusted_src_pixels, src_skip, dst_skip, adjusted_dst_pixels, draw_width, draw_height);
+        render::Bitmap_Brighten(dst_anim, (int32_t)(adjusted_dst_pixels - dst_pixels), adjusted_src_pixels, src_skip, dst_skip, draw_width, draw_height, brighten_palette_seg, brighten_start_color);
     }
 
     void __cdecl Tint_Bitmap_Pixels(uint8_t* src, uint8_t* tint_table, int32_t unused_param, uint8_t* dest, int32_t width, int32_t height) {
@@ -744,6 +750,7 @@ namespace bitmap {
             animate::animation_header->width = new_width;
             animate::animation_header->height = new_height;
         }
+        render::Bitmap_Scale(dst, src);
     }
 
     void __cdecl Vanish_Bitmap(s_animation_header* dest, s_animation_header* src, int16_t intensity) {
@@ -769,10 +776,12 @@ namespace bitmap {
             if (src != dest) {
                 struct_::Copy_Structure(dest_data, src_data, height * width);
             }
+            render::Bitmap_Vanish(dest, src);
             return;
         }
 
         shear::Vanish_Bitmap_Pixels(src_data, intensity, 0, dest_data, width, height);
+        render::Bitmap_Vanish(dest, src);
     }
 
     void __cdecl Add_Picture_To_Bitmap(int16_t x, int16_t y, s_animation_header* src, s_animation_header* dest) {
@@ -1026,6 +1035,7 @@ namespace bitmap {
         }
 
         shear::Jumble_Bitmap_Pixels(src_pixels, jumble_mask, noise_threshold, dest_pixels, width, height);
+        render::Bitmap_Jumble(dest, src, shear::jumble_mask, shear::noise_threshold, shear::noise_start_index, shear::jumble_direction_toggle, shear::noise_table);
 
         game_random::Set_Random_Seed(seed);
     }
@@ -1059,5 +1069,6 @@ namespace bitmap {
             width,
             width,
             height);
+        render::Bitmap_Table(animation_header, replace::palette_color_list);
     }
 } // namespace bitmap

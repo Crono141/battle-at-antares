@@ -96,6 +96,14 @@ namespace render::twin {
             }
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: %s; cache %lld MB decoded, %d frames queued; process %lld MB resident; %u image planes dropped by allocator rewinds", Late_Stats().c_str(), (long long)(decoded_bytes.load() >> 20), Queue_Length(), rss_mb, rewind_drops);
             rewind_drops = 0;
+            if (!bitmap_twin_calls.empty()) {
+                std::string calls;
+                for (const auto& item : bitmap_twin_calls) {
+                    calls += (calls.empty() ? "" : ",") + item.first + "=" + std::to_string(item.second);
+                }
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: bitmap twins: %s", calls.c_str());
+                bitmap_twin_calls.clear();
+            }
             window_publish_ns = 0;
         }
     }
