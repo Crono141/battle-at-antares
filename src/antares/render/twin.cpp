@@ -10,8 +10,6 @@
 // Twin planes, WP1.3a: plane storage and lookup, scopes, and the Unported fallback.
 namespace render {
 
-    bool twins_on;
-
     namespace twin {
 
         s_plane plane_off;
@@ -176,10 +174,17 @@ namespace render {
             }
         }
 
-        void Drop_Images(const void* begin, const void* end) {
+        size_t Drop_Images(const void* begin, const void* end) {
+            size_t dropped = 0;
             for (auto it = images.begin(); it != images.end();) {
-                it = it->first >= begin && it->first < end ? images.erase(it) : std::next(it);
+                if (it->first >= begin && it->first < end) {
+                    it = images.erase(it);
+                    dropped++;
+                } else {
+                    ++it;
+                }
             }
+            return dropped;
         }
 
         void Allocate_Pages(int32_t width, int32_t height) {

@@ -201,9 +201,7 @@ namespace render {
     } // namespace
 
     void Load_Asset(s_hd_asset* asset) {
-        const uint64_t start = SDL_GetTicksNS();
         Load_Asset_Meta(asset);
-        trace_meta_ns += SDL_GetTicksNS() - start;
     }
 
     namespace {

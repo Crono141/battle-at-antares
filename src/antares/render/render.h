@@ -16,31 +16,26 @@ namespace video {
 //   assets.cpp   frame decoding, hd/index.json, sprite.json, LBX load registry
 //   cache.cpp    decoding workers, eviction, preloads, screen-map prefetch
 //   glyphs.cpp   HD font glyphs
-//   planes.cpp   the HD surfaces of the pages and their copies
-//   images.cpp   HD surfaces of off-screen images (bitmap::*)
-//   stamps.cpp   attempt 2's draw model: stamps, settle, deferred upgrades (retired in WP1.3a)
-//   present.cpp  publish, presenter snapshot, resolve to ARGB, cursor art
+//   stamps.cpp   the current draw (Begin_* hooks) and the touched-pixel reports (Stamp_*)
+//   facade.cpp   page and image plumbing (planes, copies, flips, publish), cursor art
 //   video.cpp    HD cutscenes
 //   parity.cpp   parity harness (ANTARES_PARITY, WP1.2)
-//   twin*.cpp    twin planes (WP1.3a): scopes, Unported fallback, planes, present
-//   pixels.h     the HD pixel format; internal.h: what the modules share
+//   twin*.cpp    twin planes: scopes, Unported fallback, the drawing twins, present
+//   pixels.h     colour helpers; internal.h, twin_internal.h: what the modules share
 //
 // The engine keeps drawing 8-bit pixels into its 640x480 pages, and everything that reads
-// them (game logic, hit tests, captures) is unchanged. Alongside each page, and alongside
-// off-screen images, an HD surface holds 4x4 HD pixels per page pixel. The hooked blitters
-// report every page pixel a draw writes ("stamps"); at the end of the draw the HD art of that
-// sprite, glyph or image is rendered into the HD surface, blended at its edges over what was
-// already there and spilling a soft fringe past the original outline.
+// them (game logic, hit tests, captures) is unchanged. Every page, and every off-screen image
+// once written, has a twin plane at 4x (twin_internal.h). Each drawing operation opens a
+// twin::Scope; the hooked blitters report the 1x pixels a draw writes ("stamps"), and its twin
+// renders the draw's HD art into the plane, blended at its edges and spilling a soft fringe
+// past the original outline. Pixels an operation without a twin changed are bound to their
+// new index, enlarged, when its scope closes (the Unported fallback), so unported drawing
+// shows as plain 4x scaling and never as stale or wrong art. Until WP1.3b (2026-11-02) attempt
+// 2's model ran instead when ANTARES_TWINS was unset; it is gone.
 //
-// Each HD block remembers the page value it was made for. Pixels written by code without
-// hooks (fills, lines, video, effects) no longer match; publishing a frame replaces those
-// blocks with the original pixel enlarged, so unhooked drawing shows as plain 4x scaling and
-// never as stale or wrong art.
-//
-// HD pixels are either palette based (foreground index, background index and coverage,
-// coloured with the live palette when presented, so fades and palette cycling keep working)
-// or literal RGB (shading, glass tints), which follow screen fades by a factor derived from the
-// palette.
+// Plane pixels are palette based (foreground index, background index and coverage, coloured
+// with the live palette when presented, so fades and palette cycling keep working) or full
+// colour (shading, glass tints), which follow screen fades by a factor derived from the palette.
 //
 // HD art is read from the VFS under hd/<LBX>/<EEE>/ (sprite.json plus one PNG per frame,
 // grey = palette index, alpha = coverage), normally supplied by a mod package's data/ tree.
@@ -92,45 +87,41 @@ namespace render {
     // (replace::Interlaced_Gray_Scale_Off_Page): twin planes map their pixels the same way.
     void Table_Rows(const uint8_t* page, int32_t first_row, const uint8_t* table);
 
-    // Off-screen images (bitmap-mode animations built with bitmap::*) get their own HD surface
-    // once something with HD art is drawn into them.
+    // Off-screen images (bitmap-mode animations built with bitmap::*) get a twin plane when
+    // their header is created; it stays empty (the 1x pixels enlarged) until written.
     void Bitmap_Reset(const void* bitmap, int32_t width, int32_t height);
+    // The allocator rewound a block: [begin, end) is free memory now, and the planes of image
+    // headers in it are dropped (PLAN.md 3.1, lifetime). LBX load registrations are kept: those
+    // go when a new load lands on them (Forget_Loads).
+    void Forget_Images(const void* begin, const void* end);
     // Source `src` drawn with its top-left at (x, y) of `target_bitmap`.
     void Begin_Draw_To_Bitmap(const s_animation_header* src, int16_t x, int16_t y, const void* target_bitmap);
     // Pixel `index` of `bitmap` was written with `value` by the current draw.
     void Stamp_Bitmap(const void* bitmap, int32_t index, uint8_t value);
-    // Same-size copy of src's HD surface to dst (bitmap::Copy_Bitmap_To_Bitmap etc.).
+    // Same-size copy of src's plane to dst (bitmap::Copy_Bitmap_To_Bitmap etc.).
     // bitmap::Flip_Bitmap: dst becomes src mirrored (vertical: top to bottom, else left to right).
     void Bitmap_Flip(const void* dst, const void* src, bool vertical);
     void Bitmap_Copy(const void* dst, const void* src);
-    // `dst` (width x height, pixels at `dst_pixels`) is a resized copy of `src`
-    // (bitmap::Scale_Bitmap, e.g. stars on a zoomed-out galaxy).
-    void Bitmap_Scale(const void* dst, const void* src, const uint8_t* dst_pixels, int32_t width, int32_t height);
     // The pixels of `bitmap` (at `pixels`) went through glass level `level` (bitmap::Tint_Bitmap):
-    // its HD pixels are tinted the same way in true colour.
+    // its plane pixels are tinted the same way in true colour.
     void Bitmap_Glass(const void* bitmap, const uint8_t* pixels, int32_t level);
-    // The pixels of `bitmap` were changed in place by plain recolouring (Mask_Out_Colors etc.):
-    // HD pixels whose page pixel became 0 turn transparent, other changes are recoloured.
-    void Bitmap_Sync(const void* bitmap, const uint8_t* pixels);
     // Every non-zero index of `bitmap` in [first, first + count) became map[index - first]
     // (replace::Replace_Color_Range): indexed HD pixels take the same map, true-colour ones keep
     // their colour.
     void Bitmap_Recolor(const void* bitmap, int32_t first, int32_t count, const uint8_t* map);
-    // A rectangle of the current page captured into `bitmap`.
-    void Bitmap_Capture(const void* bitmap, int32_t x1, int32_t y1, int32_t width, int32_t height);
 
     // Records that `count` pixels at `dst` (inside the current video page) were written.
     void Stamp_Run(const uint8_t* dst, int32_t count);
 
     // The rectangle (inclusive corners) of `page` was overwritten by plain drawing (solid
-    // fills): its HD pixels become the original pixels enlarged, whatever values were written.
+    // fills): its plane pixels become the original pixels enlarged, whatever values were written.
     void Overwrite_Rect(const uint8_t* page, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
 
     // The rectangle (x, y, width, height) of `page` went through glass level `level`
     // (graphics::Tint_Fill): its HD pixels are tinted the same way in true colour.
     void Tint_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, int32_t level);
 
-    // Full-colour pixels replace the HD pixels of the rectangle (x, y, width, height) of `page`,
+    // Full-colour pixels replace the plane pixels of the rectangle (x, y, width, height) of `page`,
     // whose page pixels were just written (HD video frames). `rgb` holds (width*4) x (height*4)
     // pixels, 3 bytes each.
     void Literal_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, const uint8_t* rgb);
@@ -144,14 +135,14 @@ namespace render {
     // tinted in true colour.
     void Stamp_Glass(const uint8_t* dst, uint8_t background_value, int32_t level);
 
-    // Page plumbing: HD surfaces follow page allocation, copies and publishing.
+    // Page plumbing: the page planes follow page allocation, copies and publishing.
     void Allocate_Planes(int32_t width, int32_t height);
     void Free_Planes();
     void Copy_Plane(const uint8_t* src_page, const uint8_t* dst_page);
     // Partial page copy (count bytes at byte offset `offset`).
     void Copy_Plane_Span(const uint8_t* src_page, const uint8_t* dst_page, int32_t offset, int32_t count);
-    // Game thread, with the off page being published: settles unhooked writes and copies the
-    // changed rows to the published surface.
+    // Game thread, with the off page being published: replays late art and copies the changed
+    // rows to the published plane.
     void Publish_Plane(const uint8_t* published_page_pixels);
 
     // HD art for the mouse cursor image `pixels` (size x size palette indices, 0 = transparent),
@@ -168,9 +159,8 @@ namespace render {
     // changed; otherwise [row_first, row_last) are the changed output rows.
     bool Resolve(const video::s_palette_color* palette, uint32_t* output, int32_t* row_first, int32_t* row_last);
 
-    // Twin planes (WP1.3a, twin.cpp). ANTARES_TWINS=1 replaces attempt 2's stamps with the twin
-    // model; it becomes the default once the twins cover the drawing (WP1.3b).
-    extern bool twins_on;
+    // The HD pack was found (Initialize): the twin planes run.
+    extern bool enabled;
 
     namespace twin {
 
@@ -183,13 +173,13 @@ namespace render {
         class Scope {
           public:
             Scope(const char* op, const void* target, int32_t x, int32_t y, int32_t width, int32_t height) {
-                if (twins_on) {
+                if (enabled) {
                     Open(op, target, x, y, width, height);
                 }
             }
             // A sprite drawn with its top-left at (x, y); screen backgrounds cover the page.
             Scope(const char* op, const void* target, int32_t x, int32_t y, const s_animation_header* anim) {
-                if (twins_on) {
+                if (enabled) {
                     Open_Sprite(op, target, x, y, anim);
                 }
             }

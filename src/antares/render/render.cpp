@@ -11,11 +11,9 @@ namespace render {
     bool enabled;
     bool stats_enabled;
     bool trace_enabled;
-    uint64_t trace_meta_ns;
     std::unordered_map<const void*, std::string> stats_names;
     uint32_t slow_io_ms = 0;
     uint64_t stats_timer_ns[TIMER_COUNT];
-    bool debug_sd;
     int32_t probe_x = -1;
     int32_t probe_y = -1;
     std::string capture_dir;
@@ -82,14 +80,9 @@ namespace render {
         }
         initialized = true;
         enabled = vfs::File_Exists("hd/pack.json") != 0;
-        // ANTARES_TWINS=1: the twin planes (WP1.3a) instead of attempt 2's stamps.
-        const char* twins = antares::Get_Env("TWINS");
-        twins_on = enabled && twins != nullptr && twins[0] != '\0' && twins[0] != '0';
         const char* stats = antares::Get_Env("HD_STATS");
         stats_enabled = enabled && stats != nullptr;
         trace_enabled = enabled && antares::Get_Env("HD_TRACE") != nullptr;
-        const char* debug = antares::Get_Env("HD_DEBUG");
-        debug_sd = enabled && debug != nullptr && (strcmp(debug, "sd") == 0 || strcmp(debug, "stale") == 0);
         const char* capture = antares::Get_Env("HD_CAPTURE");
         if (capture != nullptr && capture[0] != '\0') {
             capture_dir = capture;
@@ -102,7 +95,7 @@ namespace render {
         if (stats_enabled && atoi(stats) > 1) {
             stats_interval = (uint32_t)atoi(stats);
         }
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %s%s", enabled ? "HD sprite pack found" : "no HD sprite pack", twins_on ? " (twin planes)" : "");
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %s", enabled ? "HD sprite pack found (twin planes)" : "no HD sprite pack");
         const char* slow_io = antares::Get_Env("HD_SLOW_IO");
         if (slow_io != nullptr && atoi(slow_io) > 0) {
             slow_io_ms = (uint32_t)atoi(slow_io);

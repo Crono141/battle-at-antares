@@ -96,28 +96,20 @@ namespace render {
     // (render.cpp)
 
     extern bool initialized;
-    extern bool enabled;
+    // `enabled` (the HD pack was found) is declared in render.h.
     // ANTARES_HD_STATS: count draws that had no HD art, by asset, and log them
     // periodically. Debug aid for finding coverage gaps.
     extern bool stats_enabled;
     // ANTARES_HD_TRACE: logs every LBX entry load and how long draws waited for their art.
     extern bool trace_enabled;
-    extern uint64_t trace_meta_ns;
     extern std::unordered_map<const void*, std::string> stats_names;
     // ANTARES_HD_SLOW_IO=<ms>: debug aid, every art load waits this long first, to reproduce
     // what players on slow (network, spinning) disks see when art arrives late.
     extern uint32_t slow_io_ms;
-    // Game-thread time per stage (ANTARES_HD_STATS), reported with the settle count.
-    enum e_timer { TIMER_RENDER,
-        TIMER_COPY,
-        TIMER_PUBLISH,
-        TIMER_UPGRADE, // parts of TIMER_PUBLISH
-        TIMER_EVICT,
-        TIMER_PREFETCH,
-        TIMER_SETTLE,
-        TIMER_SCOPE_OPEN,  // twin planes: a scope's snapshot of its rectangle
-        TIMER_SCOPE_CLOSE, // twin planes: the compare and Unported fallback when it closes
-        TIMER_TWIN_RENDER, // twin planes: drawing a draw's art into its plane (Render_Plane)
+    // Game-thread time per stage (ANTARES_HD_STATS), reported in the twin stats.
+    enum e_timer { TIMER_SCOPE_OPEN, // twin planes: a scope's snapshot of its rectangle
+        TIMER_SCOPE_CLOSE,           // twin planes: the compare and Unported fallback when it closes
+        TIMER_TWIN_RENDER,           // twin planes: drawing a draw's art into its plane (Render_Plane)
         TIMER_COUNT };
     extern uint64_t stats_timer_ns[TIMER_COUNT];
 
@@ -131,9 +123,6 @@ namespace render {
             }
         }
     };
-    // ANTARES_HD_DEBUG=sd: tint blocks that fell back to the enlarged original because
-    // unhooked code changed the page pixel.
-    extern bool debug_sd;
     // ANTARES_HD_PROBE=x,y: log every HD write to that page pixel (debug aid).
     extern int32_t probe_x;
     extern int32_t probe_y;
@@ -189,53 +178,17 @@ namespace render {
     // HD art of glyph `code` of a font, or null when there is none (counted in the stats).
     const s_hd_frame* Glyph_Art(const char* font_file, int16_t font_index, uint8_t code);
 
-    // ------------------------------------------------------------ surfaces (planes.cpp)
-
-    struct s_surface {
-        int32_t width = 0; // in page pixels
-        int32_t height = 0;
-        std::vector<uint32_t> hd;       // (width * S) x (height * S); empty: no HD (images)
-        std::vector<uint16_t> shadow;   // page value each block was made for
-        std::vector<uint32_t> mark;     // draw that last stamped each pixel
-        std::vector<uint8_t> row_dirty; // pages: rows changed since last copied onward
-        std::vector<uint8_t> fringe;    // pages: block holds art spilled past a sprite's outline
-    };
-
-    extern s_surface page_off;
-    extern s_surface page_back;
-    extern s_surface page_published;
-    extern s_surface page_present;
-    // Guards allocating/freeing the page surfaces (game thread) against the presenter
-    // reading the published/present surfaces.
+    // Guards allocating/freeing the page planes (game thread) against the presenter reading the
+    // published/present planes (facade.cpp).
     extern std::mutex planes_mutex;
-    // Factor (0-256) applied to literal pixels so they follow palette fades.
-    extern uint32_t published_fade;
-    extern uint32_t present_fade;
-    // Off-screen images keyed by their header. Nodes stay put, so pointers remain valid.
-    extern std::unordered_map<const void*, s_surface> images;
-
-    inline uint32_t* Block(s_surface& surface, int32_t x, int32_t y) {
-        return &surface.hd[(size_t)y * S * surface.width * S + (size_t)x * S];
-    }
-
-    inline void Mark_Row(s_surface& surface, int32_t y) {
-        if (!surface.row_dirty.empty()) {
-            surface.row_dirty[(size_t)y] = 1;
-        }
-    }
-
-    void Ensure_Hd(s_surface& surface);
-    void Fill_Block(s_surface& surface, int32_t x, int32_t y, uint32_t pixel);
-    s_surface* Page_Surface(const uint8_t* page);
 
     // ------------------------------------------------------------ the current draw
-    // Set up by the Begin_* hooks (stamps.cpp) for both models: which art a draw uses, where,
-    // and how it is recoloured.
+    // Set up by the Begin_* hooks (stamps.cpp): which art a draw uses, where, and how it is
+    // recoloured.
 
     enum e_source {
-        SOURCE_NONE,  // no HD art: written pixels show the original enlarged
-        SOURCE_ART,   // a sprite, glyph or file animation frame with HD art
-        SOURCE_IMAGE, // an off-screen image with an HD surface
+        SOURCE_NONE, // no HD art: written pixels show the original enlarged
+        SOURCE_ART,  // a sprite, glyph or file animation frame with HD art
     };
 
     struct s_draw {
@@ -243,7 +196,6 @@ namespace render {
         const s_hd_frame* frame = nullptr;
         bool glyph = false;
         bool glassed = false;
-        bool redrawn = false;
         bool art_outline = false;
         int32_t x = 0; // where the sprite's top-left lands in the target
         int32_t y = 0;
@@ -253,13 +205,10 @@ namespace render {
         std::vector<uint8_t> shade; // brightness percent per sprite pixel, empty = none
         int32_t shade_width = 0;
         int32_t shade_height = 0;
-        const s_surface* image = nullptr;
-        const void* anim = nullptr; // the header drawn (twin planes: image sources)
-        int32_t image_x = 0;
-        int32_t image_y = 0;
-        std::string name; // for the probe
+        const void* anim = nullptr; // the header drawn (image sources)
+        std::string name;           // for the probe
         // The frame has art that is still being decoded: written pixels show the original
-        // for now and are recorded so they can be upgraded when it arrives.
+        // for now, and the draw is replayed when it arrives (late art, twin_draw.cpp).
         bool waiting = false;
         // Clip window at the start of the draw (the fringe must stay inside it).
         int32_t clip_x1 = 0;
@@ -269,23 +218,5 @@ namespace render {
     };
 
     extern s_draw current_draw;
-
-    // ------------------------------------------------------------ attempt 2's draw model
-    // (stamps.cpp; retired in WP1.3a)
-
-    void Flush_Pending();
-    // Blocks whose page pixel was changed by code without hooks are replaced by the original
-    // pixel enlarged. Runs over each publish, and over a draw's area before HD art is blended
-    // into it, so soft edges never blend over leftovers of an earlier screen.
-    uint32_t Settle(s_surface& surface, const uint8_t* page, int32_t x0, int32_t y0, int32_t x1, int32_t y1);
-    void Upgrade_Deferred();
-    size_t Deferred_Count();
-    // Drops pending stamps and deferred draws (the page surfaces are being freed).
-    void Reset_Stamps();
-
-    // Attempt 2's model is the one running (HD on, twin planes off).
-    inline bool Legacy() {
-        return enabled && !twins_on;
-    }
 
 } // namespace render
