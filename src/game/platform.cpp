@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "antares/control.h"
 #include "antares/identity.h"
 #include "antares/input_trace.h"
 #include "antares/lbx_trace.h"
@@ -908,6 +909,16 @@ namespace platform {
         // Test input script captures (see the script commands further down).
         std::string g_pending_screenshot_hd;
         std::string g_pending_screenshot_page;
+
+        // Outcomes of waits and screenshots since the last control reply.
+        std::vector<std::string> g_control_results;
+
+        void Note_Script_Result(const std::string& result) {
+            if (antares::control::Enabled()) {
+                g_control_results.push_back(result);
+            }
+        }
+
         uint64_t g_presented_frames;
 
         // HD presentation: the 4x HD surface of the presented page, coloured with its palette.
@@ -948,6 +959,7 @@ namespace platform {
             if (!g_pending_screenshot_hd.empty()) {
                 const bool saved = antares::script_capture::Save_Argb_Png(g_pending_screenshot_hd.c_str(), g_hd_pixels, width, height, width);
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_hd %s%s", g_pending_screenshot_hd.c_str(), saved ? "" : " FAILED");
+                Note_Script_Result("screenshot_hd " + g_pending_screenshot_hd + (saved ? " ok" : " FAILED"));
                 render::Parity_Save(g_pending_screenshot_hd.c_str());
                 g_pending_screenshot_hd.clear();
             }
@@ -996,6 +1008,7 @@ namespace platform {
                 const bool saved = antares::script_capture::Save_Argb_Png(g_pending_screenshot_page.c_str(), (const uint32_t*)g_sdl_present_argb_surface->pixels,
                     g_sdl_present_argb_surface->w, g_sdl_present_argb_surface->h, g_sdl_present_argb_surface->pitch / (int32_t)sizeof(uint32_t));
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_page %s%s", g_pending_screenshot_page.c_str(), saved ? "" : " FAILED");
+                Note_Script_Result("screenshot_page " + g_pending_screenshot_page + (saved ? " ok" : " FAILED"));
                 g_pending_screenshot_page.clear();
             }
 
@@ -1011,6 +1024,7 @@ namespace platform {
 
             if (!render::Enabled() && !g_pending_screenshot_hd.empty()) {
                 SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_hd %s FAILED (no HD pack enabled)", g_pending_screenshot_hd.c_str());
+                Note_Script_Result("screenshot_hd " + g_pending_screenshot_hd + " FAILED (no HD pack)");
                 g_pending_screenshot_hd.clear();
             }
             if (render::Enabled() && Present_HD_Frame()) {
@@ -1434,6 +1448,10 @@ namespace platform {
         //                       (default timeout 30000 ms)
         //   log <word>          write a marker to the log (runner section names)
         //   quit                request exit
+        // ANTARES_CONTROL=<socket path> (antares/control.h) takes the same commands live, one line at
+        // a time, plus `state` (no input, just the reply). After each command and its waits, the game
+        // answers one JSON line: {"ok", "results" (wait/expect/screenshot outcomes), "frame",
+        // "polls", "fields", "screen", "stardate", "recent_lbx"}. Clicks reply after the release.
         struct s_script_step {
             std::string command;
             int32_t a;
@@ -1460,6 +1478,81 @@ namespace platform {
         uint64_t g_wait_input_start_ms;
         uint64_t g_wait_input_deadline_ms;
 
+        // One input-script line to a step; false for blank and comment lines.
+        bool Parse_Script_Line(std::string line, s_script_step* out) {
+            const size_t hash = line.find('#');
+            if (hash != std::string::npos) {
+                line.resize(hash);
+            }
+            char command[32] = {};
+            char argument[256] = {};
+            int a = 0;
+            int b = 0;
+            if (sscanf(line.c_str(), "%31s", command) != 1) {
+                return false;
+            }
+            s_script_step step = {command, 0, 0, {}};
+            if (step.command == "move" || step.command == "click" || step.command == "rclick") {
+                (void)sscanf(line.c_str(), "%*s %d %d", &a, &b);
+            } else if (step.command == "wait" || step.command == "wheel" || step.command == "wait_frames") {
+                (void)sscanf(line.c_str(), "%*s %d", &a);
+            } else if (step.command == "wait_input") {
+                a = 10;
+                b = 30000;
+                (void)sscanf(line.c_str(), "%*s %d %d", &a, &b);
+            } else if (step.command == "expect_screen") {
+                a = 30000;
+                (void)sscanf(line.c_str(), "%*s %255s %d", argument, &a);
+                step.text = argument;
+            } else if (sscanf(line.c_str(), "%*s %255s", argument) == 1) {
+                step.text = argument;
+            }
+            step.a = a;
+            step.b = b;
+            *out = step;
+            return true;
+        }
+
+        void Send_Control_Reply() {
+            std::string json = "{\"ok\":true,\"results\":[";
+            for (size_t i = 0; i < g_control_results.size(); ++i) {
+                json += (i != 0 ? ",\"" : "\"") + antares::control::Json_Escape(g_control_results[i]) + "\"";
+            }
+            g_control_results.clear();
+            json += "],\"frame\":" + std::to_string(g_presented_frames);
+            json += ",\"polls\":" + std::to_string(antares::input_trace::Polls());
+            json += ",\"fields\":" + std::to_string(antares::input_trace::g_last_field_count);
+            json += ",\"screen\":" + std::to_string((int)MOX::current_screen);
+            json += ",\"stardate\":" + std::to_string((int)MOX::stardate);
+            json += ",\"recent_lbx\":[";
+            const std::vector<std::string> recent = antares::lbx_trace::Recent(6);
+            for (size_t i = 0; i < recent.size(); ++i) {
+                json += (i != 0 ? ",\"" : "\"") + antares::control::Json_Escape(recent[i]) + "\"";
+            }
+            json += "]}";
+            antares::control::Reply(json);
+        }
+
+        // Live control: when the queue has drained, take the next command and queue it with a reply.
+        void Poll_Control() {
+            if (g_script_position < g_script.size() || !antares::control::Enabled()) {
+                return;
+            }
+            std::string line;
+            if (!antares::control::Read_Line(&line)) {
+                return;
+            }
+            s_script_step step;
+            if (!Parse_Script_Line(line, &step)) {
+                antares::control::Reply("{\"ok\":false,\"error\":\"empty command\"}");
+                return;
+            }
+            if (step.command != "state") {
+                g_script.push_back(step);
+            }
+            g_script.push_back(s_script_step{"reply", 0, 0, {}});
+        }
+
         void Load_Input_Script() {
             g_script_loaded = true;
             const char* path = antares::Get_Env("INPUT_SCRIPT");
@@ -1482,35 +1575,10 @@ namespace platform {
                 }
                 std::string line = all.substr(start, end - start);
                 start = end + 1;
-                const size_t hash = line.find('#');
-                if (hash != std::string::npos) {
-                    line.resize(hash);
-                }
-                char command[32] = {};
-                char argument[256] = {};
-                int a = 0;
-                int b = 0;
-                if (sscanf(line.c_str(), "%31s", command) != 1) {
+                s_script_step step;
+                if (!Parse_Script_Line(line, &step)) {
                     continue;
                 }
-                s_script_step step = {command, 0, 0, {}};
-                if (step.command == "move" || step.command == "click" || step.command == "rclick") {
-                    (void)sscanf(line.c_str(), "%*s %d %d", &a, &b);
-                } else if (step.command == "wait" || step.command == "wheel" || step.command == "wait_frames") {
-                    (void)sscanf(line.c_str(), "%*s %d", &a);
-                } else if (step.command == "wait_input") {
-                    a = 10;
-                    b = 30000;
-                    (void)sscanf(line.c_str(), "%*s %d %d", &a, &b);
-                } else if (step.command == "expect_screen") {
-                    a = 30000;
-                    (void)sscanf(line.c_str(), "%*s %255s %d", argument, &a);
-                    step.text = argument;
-                } else if (sscanf(line.c_str(), "%*s %255s", argument) == 1) {
-                    step.text = argument;
-                }
-                step.a = a;
-                step.b = b;
                 g_script.push_back(step);
             }
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: %zu steps from %s", g_script.size(), path);
@@ -1520,6 +1588,7 @@ namespace platform {
             if (!g_script_loaded) {
                 Load_Input_Script();
             }
+            Poll_Control();
             const uint64_t now = SDL_GetTicks();
             if (!g_expect_lbx.empty()) {
                 const bool loaded = antares::lbx_trace::Last_Load(g_expect_lbx.c_str()) > g_last_input_serial;
@@ -1528,6 +1597,8 @@ namespace platform {
                 }
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: expect_screen %s %s after %llu ms",
                     g_expect_lbx.c_str(), loaded ? "ok" : "FAILED", (unsigned long long)(now - g_expect_start_ms));
+                Note_Script_Result("expect_screen " + g_expect_lbx + (loaded ? " ok" : " FAILED") + " " +
+                                   std::to_string(now - g_expect_start_ms) + " ms");
                 g_expect_lbx.clear();
             }
             if (g_wait_input_until != 0) {
@@ -1545,6 +1616,8 @@ namespace platform {
                 }
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "input script: wait_input %s after %llu ms",
                     polled ? "ok" : "FAILED", (unsigned long long)(now - g_wait_input_start_ms));
+                Note_Script_Result(std::string("wait_input ") + (polled ? "ok " : "FAILED ") +
+                                   std::to_string(now - g_wait_input_start_ms) + " ms");
                 g_wait_input_until = 0;
             }
             if (g_presented_frames < g_wait_frames_until) {
@@ -1620,7 +1693,16 @@ namespace platform {
                 } else if (step.command == "screenshot") {
                     g_pending_screenshot = step.text;
                     Request_Present_Refresh();
+                } else if (step.command == "reply") {
+                    // Answer once the screenshots this command asked for are on disk.
+                    if (!g_pending_screenshot_hd.empty() || !g_pending_screenshot_page.empty() || !g_pending_screenshot.empty()) {
+                        --g_script_position;
+                        break;
+                    }
+                    Send_Control_Reply();
                 } else if (step.command == "quit") {
+                    Note_Script_Result("quit");
+                    Send_Control_Reply();
                     Request_SDL_Exit();
                 } else {
                     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "input script: unknown command '%s'", step.command.c_str());
