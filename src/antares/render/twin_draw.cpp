@@ -29,6 +29,9 @@ namespace render::twin {
 
         std::vector<s_touch> touched;
         uint32_t generation = 1;
+        // Replaying a late-art draw (Replay_Late_Art): its glass was already applied when it was
+        // first drawn, through the game's table, and must not tint the block a second time.
+        bool replaying;
 
         // Per 1x pixel of a plane: the generation of the draw that last touched it.
         std::unordered_map<const s_plane*, std::vector<uint32_t>> marks;
@@ -237,7 +240,7 @@ namespace render::twin {
                 return Over_Index(dest, draw.colors[index - 1], alpha);
             }
             if (draw.glassed && index >= 0xF0) {
-                if (alpha < 128 || fringe) {
+                if (alpha < 128 || fringe || replaying) {
                     return dest;
                 }
                 return in_image ? Index_Px(index) : Glass_Over(dest, index - 0xF0);
@@ -412,7 +415,6 @@ namespace render::twin {
             std::vector<s_late_pixel> pixels;
         };
         std::vector<s_late> late_draws;
-        bool replaying;
         // Stats window (ANTARES_HD_STATS): replayed entries, upgraded and skipped pixels.
         uint32_t late_replayed, late_upgraded, late_drawn_over, late_changed, late_no_plane;
         uint32_t late_on_off, late_on_back, late_on_image, late_twins;
@@ -609,6 +611,9 @@ namespace render::twin {
             // restore from it, so it may still hold the plain blocks where this page was drawn over.
             std::vector<s_touch> other_touched;
             for (const s_late_pixel& pixel : entry.pixels) {
+                if (pixel.level >= 0) {
+                    continue; // glass: applied when first drawn
+                }
                 if (mark[(size_t)pixel.offset] != entry.generation) {
                     late_drawn_over++;
                 } else if (pixels[pixel.offset] != pixel.value) {
@@ -1039,8 +1044,7 @@ namespace render::twin {
         Accept_Rect(header, 0, 0, width, height);
     }
 
-    void Brighten_Image(const void* header, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width,
-        int32_t height, const uint8_t* tables, int32_t start_color) {
+    void Brighten_Image(const void* header, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width, int32_t height, const uint8_t* tables, int32_t start_color) {
         const uint8_t* pixels = nullptr;
         int32_t image_width = 0;
         int32_t image_height = 0;
@@ -1253,8 +1257,7 @@ namespace render::twin {
         Accept(page, x, y);
     }
 
-    void Jumble_Image(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after,
-        const uint8_t* noise_table) {
+    void Jumble_Image(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after, const uint8_t* noise_table) {
         const uint8_t* pixels = nullptr;
         int32_t width = 0;
         int32_t height = 0;
@@ -1317,6 +1320,52 @@ namespace render::twin {
             }
         }
         Accept_Rect(dst, 0, 0, width, height);
+    }
+
+    void Map_Image_Rect(const void* header, int32_t x0, int32_t y0, int32_t x1, int32_t y1, const uint8_t* table) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* plane = Image_Plane(header, &pixels, &width, &height);
+        if (plane != nullptr && table != nullptr) {
+            Sync_Glass_Lut();
+            for (int32_t y = SDL_max(y0, 0); y < SDL_min(y1, height); ++y) {
+                for (int32_t x = SDL_max(x0, 0); x < SDL_min(x1, width); ++x) {
+                    Block_Through_Table(*plane, x, y, table);
+                }
+            }
+        }
+        Accept_Rect(header, 0, 0, width, height);
+    }
+
+    void Plasma_Image(const void* header, const uint8_t* darken, int32_t darken_width, int32_t darken_height, int32_t darkness, const uint8_t* darken_map) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* plane = Image_Plane(header, &pixels, &width, &height);
+        const uint8_t* before = Scope_Before(header);
+        if (plane != nullptr && before != nullptr && darken != nullptr && darken_map != nullptr && darkness != 0) {
+            Sync_Glass_Lut();
+            // The same walk as CMBTDRW1::Plasma_Darken: each pixel goes through the darken map's
+            // column for the plasma level at its place (ship_darken_map[pixel][level]).
+            uint8_t tables[16][256];
+            bool built[16] = {};
+            for (int32_t y = 0; y < SDL_min(height, darken_height); ++y) {
+                for (int32_t x = 0; x < SDL_min(width, darken_width); ++x) {
+                    const uint32_t d = darken[(size_t)y * darken_width + x];
+                    uint32_t level = darkness < 5 ? (d * (uint32_t)darkness) >> 2 : d + (uint32_t)darkness - 4;
+                    level = SDL_min(level, 15u);
+                    if (!built[level]) {
+                        for (int32_t i = 0; i < 256; ++i) {
+                            tables[level][i] = darken_map[i * 16 + level];
+                        }
+                        built[level] = true;
+                    }
+                    Block_Through_Table(*plane, x, y, tables[level]);
+                }
+            }
+        }
+        Accept_Rect(header, 0, 0, width, height);
     }
 
 } // namespace render::twin

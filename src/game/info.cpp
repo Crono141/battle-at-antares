@@ -474,6 +474,7 @@ namespace INFO {
                 total_pixels--;
             }
         }
+        render::Bitmap_Colorize(anim, color_table->colors, range_start, range_end);
     }
 
     int16_t __cdecl Initialize_Maintenance_Values(int32_t* result_buffer) {

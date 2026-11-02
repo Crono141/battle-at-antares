@@ -119,14 +119,15 @@ namespace render::twin {
     void Sync_Cleared(const void* header); // pixels the operation set to 0 become transparent
     void Vanish_Image(const void* dst, const void* src);
     void Table_Image(const void* header, const uint8_t* table);
-    void Brighten_Image(const void* header, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width,
-        int32_t height, const uint8_t* tables, int32_t start_color);
+    void Brighten_Image(const void* header, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width, int32_t height, const uint8_t* tables, int32_t start_color);
     void Capture_Image(const void* header, const uint8_t* page, int32_t x1, int32_t y1, int32_t width, int32_t height);
     void Scale_Image(const void* dst, const void* src);
     void Outline_Image(const void* header, uint8_t color, bool no_glass);
     void Line_Image_Pixel(const uint8_t* page, int32_t x, int32_t y, const void* header, int32_t source_offset);
-    void Jumble_Image(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after,
-        const uint8_t* noise_table);
+    // Plane blocks of the image in [x0, x1) x [y0, y1) through an index table.
+    void Map_Image_Rect(const void* header, int32_t x0, int32_t y0, int32_t x1, int32_t y1, const uint8_t* table);
+    void Plasma_Image(const void* header, const uint8_t* darken, int32_t darken_width, int32_t darken_height, int32_t darkness, const uint8_t* darken_map);
+    void Jumble_Image(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after, const uint8_t* noise_table);
     void Overwrite_Rect(const uint8_t* page, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     void Tint_Rect(const uint8_t* page, int32_t x, int32_t y, int32_t width, int32_t height, int32_t level);
     void Copy_Page(const uint8_t* src_page, const uint8_t* dst_page);

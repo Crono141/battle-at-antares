@@ -58,7 +58,7 @@ namespace render {
     namespace twin {
         uint32_t rewind_drops;
         std::unordered_map<std::string, uint32_t> bitmap_twin_calls;
-    }
+    } // namespace twin
 
     namespace {
         // ANTARES_HD_STATS: which bitmap twins ran (coverage of a test run).
@@ -148,19 +148,107 @@ namespace render {
         }
     }
 
-    void Bitmap_Brighten(const void* bitmap, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width,
-        int32_t height, const uint8_t* tables, int32_t start_color) {
+    void Bitmap_Brighten(const void* bitmap, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width, int32_t height, const uint8_t* tables, int32_t start_color) {
         if (enabled) {
             Count("Brighten");
             twin::Brighten_Image(bitmap, dst_offset, src, src_skip, dst_skip, width, height, tables, start_color);
         }
     }
 
-    void Bitmap_Jumble(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after,
-        const uint8_t* noise_table) {
+    void Bitmap_Jumble(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after, const uint8_t* noise_table) {
         if (enabled) {
             Count("Jumble");
             twin::Jumble_Image(dst, src, mask, threshold, noise_start, toggle_after, noise_table);
+        }
+    }
+
+    void Bitmap_Replace_Colors(const void* bitmap, int32_t x0, int32_t y0, int32_t x1, int32_t y1, const uint8_t* old_colors, const uint8_t* new_colors, int32_t count) {
+        if (!enabled || old_colors == nullptr || new_colors == nullptr) {
+            return;
+        }
+        // misc.cpp: each pair applies in turn to the pixel as it stands ((int8_t)old == pixel).
+        uint8_t table[256];
+        for (int32_t v = 0; v < 256; ++v) {
+            uint8_t pixel = (uint8_t)v;
+            for (int32_t i = 0; i < count; ++i) {
+                if ((int8_t)old_colors[i] == pixel) {
+                    pixel = new_colors[i];
+                }
+            }
+            table[v] = pixel;
+        }
+        Bitmap_Map_Rect(bitmap, x0, y0, x1, y1, table);
+    }
+
+    void Bitmap_Swap_Colors(const void* bitmap, int32_t x0, int32_t y0, int32_t x1, int32_t y1, const uint8_t* old_colors, const uint8_t* new_colors, int32_t count) {
+        if (!enabled || old_colors == nullptr || new_colors == nullptr) {
+            return;
+        }
+        uint8_t table[256]; // the first pair that matches wins
+        for (int32_t v = 0; v < 256; ++v) {
+            table[v] = (uint8_t)v;
+            for (int32_t i = 0; i < count; ++i) {
+                if (old_colors[i] == v) {
+                    table[v] = new_colors[i];
+                    break;
+                }
+            }
+        }
+        Bitmap_Map_Rect(bitmap, x0, y0, x1, y1, table);
+    }
+
+    void Bitmap_Tint_Colors(const void* bitmap, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint8_t tint) {
+        uint8_t table[256];
+        for (int32_t v = 0; v < 256; ++v) {
+            table[v] = v != 0 ? (uint8_t)(v + tint) : 0;
+        }
+        Bitmap_Map_Rect(bitmap, x0, y0, x1, y1, table);
+    }
+
+    void Bitmap_Colorize(const void* bitmap, const uint8_t* colors, int32_t first, int32_t last) {
+        if (colors == nullptr) {
+            return;
+        }
+        uint8_t table[256];
+        for (int32_t v = 0; v < 256; ++v) {
+            table[v] = v >= first && v <= last ? colors[v - first] : (uint8_t)v;
+        }
+        Bitmap_Map_Rect(bitmap, 0, 0, 0x7FFF, 0x7FFF, table);
+    }
+
+    void Recolor_All(s_animation_header* anim, uint8_t color) {
+        if (!enabled || anim == nullptr) {
+            return;
+        }
+        uint8_t map[255];
+        memset(map, color, sizeof(map)); // every non-zero index
+        Note_Recolor(anim, 1, 255, map);
+        if ((anim->flags & ANIMATION_FLAG_DRAW_MODE_MASK) == ANIMATION_DRAW_MODE_BITMAP) {
+            Bitmap_Recolor(anim, 1, 255, map);
+        }
+    }
+
+    void Recolor_One(s_animation_header* anim, int16_t old_color, uint8_t new_color) {
+        // Sprite frames compare the pixel as a signed byte with old_color (replace.cpp), so only
+        // -128..127 can match; bitmaps were handled by Bitmap_Recolor already.
+        if (!enabled || anim == nullptr || old_color < -128 || old_color > 127 ||
+            (anim->flags & ANIMATION_FLAG_DRAW_MODE_MASK) == ANIMATION_DRAW_MODE_BITMAP) {
+            return;
+        }
+        Note_Recolor(anim, (uint8_t)old_color, 1, &new_color);
+    }
+
+    void Bitmap_Map_Rect(const void* bitmap, int32_t x0, int32_t y0, int32_t x1, int32_t y1, const uint8_t* table) {
+        if (enabled) {
+            Count("Map_Rect");
+            twin::Map_Image_Rect(bitmap, x0, y0, x1, y1, table);
+        }
+    }
+
+    void Bitmap_Plasma(const void* bitmap, const uint8_t* darken, int32_t darken_width, int32_t darken_height, int32_t darkness, const uint8_t* darken_map) {
+        if (enabled) {
+            Count("Plasma");
+            twin::Plasma_Image(bitmap, darken, darken_width, darken_height, darkness, darken_map);
         }
     }
 
