@@ -28,6 +28,9 @@ namespace render::twin {
     };
     constexpr uint32_t KIND_SHIFT = 24;
     constexpr uint32_t MASK_CLEAR = 1u << 28;
+    // Written by a line stroke (D21): parity counts it apart (the stroke follows the line, not the
+    // 1x pixels). Any later write of the pixel drops it.
+    constexpr uint32_t MASK_STROKE = 1u << 29;
 
     inline uint32_t Kind(const s_px& px) {
         return (px.mask >> KIND_SHIFT) & 0xF;

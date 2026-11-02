@@ -423,9 +423,117 @@ namespace render::twin {
             return x >= 0 && y >= 0 && x < plane.width && y < plane.height && mark[(size_t)y * plane.width + x] == generation;
         }
 
+        // D21: a diagonal line as a stroke one 1x pixel wide through the centres of its end pixels,
+        // with coverage from each sub-pixel's distance to the segment. Its colour at each place is
+        // the 1x pixel the line wrote there (the nearest touched pixel to the closest point of the
+        // segment), so ramps and patterns stay. Drawn inside the clip window, over what is there.
+        void Render_Stroke(s_plane& plane, const void* target, const uint8_t* pixels) {
+            const s_draw& draw = current_draw;
+            std::unordered_map<int32_t, uint8_t> values;
+            int32_t bx0 = plane.width;
+            int32_t by0 = plane.height;
+            int32_t bx1 = -1;
+            int32_t by1 = -1;
+            for (const s_touch& touch : touched) {
+                if (touch.plane != &plane) {
+                    continue;
+                }
+                const int32_t x = touch.offset % plane.width;
+                const int32_t y = touch.offset / plane.width;
+                values[touch.offset] = pixels[touch.offset];
+                bx0 = SDL_min(bx0, x);
+                by0 = SDL_min(by0, y);
+                bx1 = SDL_max(bx1, x);
+                by1 = SDL_max(by1, y);
+            }
+            if (bx1 < 0) {
+                return;
+            }
+            const float half = S / 2.0f;
+            const float ax = (float)draw.line_x1 * S + half;
+            const float ay = (float)draw.line_y1 * S + half;
+            const float dx = (float)(draw.line_x2 - draw.line_x1) * S;
+            const float dy = (float)(draw.line_y2 - draw.line_y1) * S;
+            const float length2 = dx * dx + dy * dy;
+            const int32_t clip_x1 = SDL_max(0, draw.clip_x1);
+            const int32_t clip_y1 = SDL_max(0, draw.clip_y1);
+            const int32_t clip_x2 = SDL_min(plane.width - 1, draw.clip_x2);
+            const int32_t clip_y2 = SDL_min(plane.height - 1, draw.clip_y2);
+            const size_t stride = (size_t)plane.width * S;
+            for (int32_t y = SDL_max(by0 - 1, clip_y1); y <= SDL_min(by1 + 1, clip_y2); ++y) {
+                bool row_changed = false;
+                for (int32_t x = SDL_max(bx0 - 1, clip_x1); x <= SDL_min(bx1 + 1, clip_x2); ++x) {
+                    s_px* block = Block(plane, x, y);
+                    for (int32_t sy = 0; sy < S; ++sy) {
+                        for (int32_t sx = 0; sx < S; ++sx) {
+                            const float px = (float)(x * S + sx) + 0.5f;
+                            const float py = (float)(y * S + sy) + 0.5f;
+                            float t = length2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / length2 : 0.0f;
+                            t = SDL_clamp(t, 0.0f, 1.0f);
+                            const float qx = ax + t * dx;
+                            const float qy = ay + t * dy;
+                            const float distance = SDL_sqrtf((px - qx) * (px - qx) + (py - qy) * (py - qy));
+                            const float cover = SDL_clamp(half + 0.5f - distance, 0.0f, 1.0f);
+                            if (cover <= 0.0f) {
+                                continue;
+                            }
+                            // The line's colour at the closest point: the touched pixel there, or the
+                            // nearest touched neighbour.
+                            const int32_t cx = (int32_t)(qx / S);
+                            const int32_t cy = (int32_t)(qy / S);
+                            int32_t value = -1;
+                            int32_t best = 1 << 30;
+                            for (int32_t ny = cy - 1; ny <= cy + 1; ++ny) {
+                                for (int32_t nx = cx - 1; nx <= cx + 1; ++nx) {
+                                    if (nx < 0 || ny < 0 || nx >= plane.width || ny >= plane.height) {
+                                        continue;
+                                    }
+                                    const auto found = values.find(ny * plane.width + nx);
+                                    const int32_t d = (nx - cx) * (nx - cx) + (ny - cy) * (ny - cy);
+                                    if (found != values.end() && d < best) {
+                                        best = d;
+                                        value = found->second;
+                                    }
+                                }
+                            }
+                            if (value < 0) {
+                                continue; // a part of the segment the 1x line didn't draw (clipped)
+                            }
+                            s_px& out = block[sy * stride + sx];
+                            const uint32_t alpha = (uint32_t)(cover * 255.0f + 0.5f);
+                            if ((out.mask & MASK_STROKE) != 0 && Kind(out) == KIND_INDEX) {
+                                // Another stroke's soft edge (a bolt's parallel strands), over the same
+                                // background: the strands meet without a dark seam.
+                                const uint32_t old_alpha = (out.mask >> 16) & 0xFF;
+                                // Side by side, two strands split the pixel between them: coverages add.
+                                const uint32_t combined = SDL_min(255u, old_alpha + alpha);
+                                const uint32_t fg = alpha >= old_alpha ? (uint32_t)value : (out.mask & 0xFF);
+                                out.mask = (out.mask & ~0x00FF00FFu) | fg | (combined << 16);
+                            } else {
+                                out = Over_Index(out, (uint8_t)value, alpha);
+                                out.mask |= MASK_STROKE;
+                            }
+                            row_changed = true;
+                        }
+                    }
+                }
+                if (row_changed) {
+                    Mark_Row(plane, y);
+                }
+            }
+            for (const auto& item : values) {
+                Accept(target, item.first % plane.width, item.first / plane.width);
+            }
+        }
+
         // Renders the touched pixels of one plane.
         void Render_Plane(s_plane& plane, const void* target, const uint8_t* pixels) {
             s_scoped_timer timer(TIMER_TWIN_RENDER);
+            if (current_draw.source == SOURCE_LINE && current_draw.line_x1 != current_draw.line_x2 &&
+                current_draw.line_y1 != current_draw.line_y2 && !plane.row_dirty.empty()) {
+                Render_Stroke(plane, target, pixels);
+                return;
+            }
             Sync_Glass_Lut();
             const s_draw& draw = current_draw;
             // Glyph frames are decoded on the spot when first used (glyphs.cpp), so they are ready

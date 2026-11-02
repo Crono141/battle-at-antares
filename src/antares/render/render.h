@@ -83,6 +83,10 @@ namespace render {
     // animations): frame `frame` drawn with its top-left at (x, y).
     void Begin_Asset_Draw(const char* lbx_name, int32_t entry, int16_t frame, int16_t x, int16_t y);
 
+    // D21: a line from (x1, y1) to (x2, y2) (after clipping) is being drawn; its pixels follow
+    // (Stamp_Run). The twin draws diagonal lines as a smooth stroke at 4x (line.cpp).
+    void Begin_Line(int16_t x1, int16_t y1, int16_t x2, int16_t y2);
+
     // Every other row of `page` from `first_row` went through `table` (256 entries) in place
     // (replace::Interlaced_Gray_Scale_Off_Page): twin planes map their pixels the same way.
     void Table_Rows(const uint8_t* page, int32_t first_row, const uint8_t* table);

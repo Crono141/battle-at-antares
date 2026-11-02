@@ -217,6 +217,19 @@ namespace render {
         }
     }
 
+    void Begin_Line(int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
+        Start_Draw();
+        if (!enabled) {
+            return;
+        }
+        current_draw.source = SOURCE_LINE;
+        current_draw.line_x1 = x1;
+        current_draw.line_y1 = y1;
+        current_draw.line_x2 = x2;
+        current_draw.line_y2 = y2;
+        Note_Clip_Window();
+    }
+
     void End_Draw() {
         Start_Draw();
     }
