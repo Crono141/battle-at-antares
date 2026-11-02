@@ -1,11 +1,14 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 // Records when each LBX file was last opened, so test scripts can wait for a screen
 // (`expect_screen <lbx>`) instead of guessing a delay. Header-only so every target that links
@@ -41,6 +44,23 @@ namespace antares::lbx_trace {
     /** The current serial; a later load of any LBX gets a higher one. */
     inline uint64_t Serial() {
         return g_serial.load();
+    }
+
+    /** The `count` most recently loaded LBX files, newest first (a hint to the current screen). */
+    inline std::vector<std::string> Recent(size_t count) {
+        std::vector<std::pair<uint64_t, std::string>> loads;
+        {
+            const std::lock_guard<std::mutex> lock(g_mutex);
+            for (const auto& [name, serial] : g_last_load) {
+                loads.emplace_back(serial, name);
+            }
+        }
+        std::sort(loads.begin(), loads.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        std::vector<std::string> names;
+        for (size_t i = 0; i < loads.size() && i < count; ++i) {
+            names.push_back(loads[i].second);
+        }
+        return names;
     }
 
     /** The serial of the last load of `lbx_name`, or 0 when it hasn't loaded. */
