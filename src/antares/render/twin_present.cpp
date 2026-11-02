@@ -78,7 +78,11 @@ namespace render::twin {
                 Late_Count(),
                 window_pixels,
                 window.empty() ? "(none)" : window.c_str());
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: slowest scopes (100 frames): %s; per frame: snapshot %.2f ms, close %.2f ms, art %.2f ms", window_slowest.empty() ? "(none)" : window_slowest.c_str(), (double)stats_timer_ns[TIMER_SCOPE_OPEN] / 1e8, (double)stats_timer_ns[TIMER_SCOPE_CLOSE] / 1e8, (double)stats_timer_ns[TIMER_TWIN_RENDER] / 1e8);
+            static uint64_t window_started;
+            const uint64_t now = SDL_GetTicksNS();
+            const double window_ms = window_started != 0 ? (double)(now - window_started) / 1e6 : 0.0;
+            window_started = now;
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: 100 frames took %.0f ms; slowest scopes: %s; per frame: snapshot %.2f ms, close %.2f ms, art %.2f ms", window_ms, window_slowest.empty() ? "(none)" : window_slowest.c_str(), (double)stats_timer_ns[TIMER_SCOPE_OPEN] / 1e8, (double)stats_timer_ns[TIMER_SCOPE_CLOSE] / 1e8, (double)stats_timer_ns[TIMER_TWIN_RENDER] / 1e8);
             stats_timer_ns[TIMER_SCOPE_OPEN] = stats_timer_ns[TIMER_SCOPE_CLOSE] = stats_timer_ns[TIMER_TWIN_RENDER] = 0;
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: %s; cache %lld MB decoded, %d frames queued", Late_Stats().c_str(), (long long)(decoded_bytes.load() >> 20), Queue_Length());
             window_publish_ns = 0;

@@ -76,6 +76,12 @@ namespace render {
         if (stats_enabled) {
             stats_settled_pixels += settled;
             if (++stats_publishes % 100 == 0) {
+                static uint64_t window_started;
+                const uint64_t window_now = SDL_GetTicksNS();
+                if (window_started != 0) {
+                    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd stats: 100 frames took %.0f ms", (double)(window_now - window_started) / 1e6);
+                }
+                window_started = window_now;
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                     "hd stats: %u pixels settled to plain scaling over the last 100 frames; per frame: render %.2f ms, "
                     "page copies %.2f ms, publish %.2f ms (upgrades %.2f, eviction %.2f, prefetch %.2f, settle %.2f), longest frame %.0f ms; "
