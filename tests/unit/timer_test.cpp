@@ -20,6 +20,10 @@ extern "C" void SDLCALL SDL_Delay(Uint32 milliseconds) {
     fake_delay = milliseconds;
 }
 
+// timer.cpp logs speed changes; the test links no SDL.
+extern "C" void SDLCALL SDL_LogInfo(int, SDL_PRINTF_FORMAT_STRING const char*, ...) {
+}
+
 namespace platform {
     void __cdecl Pump_Game_Input_Queue() {
     }
