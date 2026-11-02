@@ -236,6 +236,8 @@ namespace render {
             asset->scale = (int32_t)yyjson_get_int(yyjson_obj_get(root, "scale"));
             asset->glassed = yyjson_get_bool(yyjson_obj_get(root, "glassed"));
             asset->redrawn = yyjson_obj_get(root, "redraw") != nullptr;
+            const char* outline = yyjson_get_str(yyjson_obj_get(root, "outline"));
+            asset->art_outline = outline != nullptr && strcmp(outline, "art") == 0;
             const char* format = yyjson_get_str(yyjson_obj_get(root, "format"));
             // Frame files are <FFF>.png, or <FFF>.webp when sprite.json says "image": "webp".
             const char* image = yyjson_get_str(yyjson_obj_get(root, "image"));

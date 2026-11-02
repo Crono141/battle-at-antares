@@ -62,6 +62,9 @@ namespace render {
         uint32_t source_hash; // FNV-1a of the LBX entry the art was made from
         bool glassed;
         bool redrawn; // new art (sprite.json "redraw"), not an upscale of the original pixels
+        // sprite.json "outline": "art": the art, not the original's pixels, is the sprite's outline
+        // (static art for a sprite whose frames animate, e.g. the combat monsters' wings).
+        bool art_outline;
         int32_t scale;
         int32_t frame_count;
         s_hd_frame* frames;
@@ -238,6 +241,7 @@ namespace render {
         bool glyph = false;
         bool glassed = false;
         bool redrawn = false;
+        bool art_outline = false;
         int32_t x = 0; // where the sprite's top-left lands in the target
         int32_t y = 0;
         bool remapped = false;

@@ -262,6 +262,14 @@ namespace render::twin {
             return frame->alpha[i] != 0 && frame->index[i] >= 0xF0;
         }
 
+        void Clear_Block(s_plane& plane, int32_t x, int32_t y) {
+            s_px* block = Block(plane, x, y);
+            const size_t stride = (size_t)plane.width * S;
+            for (int32_t sy = 0; sy < S; ++sy) {
+                std::fill(block + sy * stride, block + sy * stride + S, Clear_Px());
+            }
+        }
+
         void Apply_Art_Block(s_plane& plane, int32_t x, int32_t y, bool fringe) {
             s_px* block = Block(plane, x, y);
             const size_t stride = (size_t)plane.width * S;
@@ -469,7 +477,14 @@ namespace render::twin {
                         Marked(plane, mark, x, y - 1) && Marked(plane, mark, x, y + 1);
                     // Glass in the art tints what was there, so it must not be pre-filled with the
                     // pixel the 1x glass produced (the glass would apply twice).
-                    if (interior && !Art_Is_Glass(x, y)) {
+                    if (draw.art_outline) {
+                        // The art is the outline: where it is empty, the 1x pixel (a wing the
+                        // static art doesn't flap) doesn't show. A page keeps what was under it;
+                        // an image becomes transparent there.
+                        if (plane.row_dirty.empty()) {
+                            Clear_Block(plane, x, y);
+                        }
+                    } else if (interior && !Art_Is_Glass(x, y)) {
                         Fill_Block_Index(plane, x, y, pixels[touch.offset]);
                     }
                     Apply_Art_Block(plane, x, y, false);

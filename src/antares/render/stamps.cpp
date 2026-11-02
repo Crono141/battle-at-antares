@@ -332,6 +332,7 @@ namespace render {
             current_draw.glyph = false;
             current_draw.glassed = false;
             current_draw.redrawn = false;
+            current_draw.art_outline = false;
             current_draw.remapped = false;
             current_draw.shade.clear();
             current_draw.image = nullptr;
@@ -458,6 +459,7 @@ namespace render {
             }
             current_draw.glassed = asset->glassed || (anim->flags & ANIMATION_FLAG_GLASSED) != 0;
             current_draw.redrawn = asset->redrawn;
+            current_draw.art_outline = asset->art_outline;
             Settle_Art_Area();
         }
 
@@ -687,6 +689,7 @@ namespace render {
         current_draw.y = y;
         current_draw.glassed = asset->glassed;
         current_draw.redrawn = asset->redrawn;
+        current_draw.art_outline = asset->art_outline;
         Settle_Art_Area();
         if (probe_x >= 0) {
             current_draw.name = asset->directory;

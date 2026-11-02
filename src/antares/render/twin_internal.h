@@ -39,6 +39,11 @@ namespace render::twin {
         return {0u, index | (255u << 16) | (KIND_INDEX << KIND_SHIFT)};
     }
 
+    // Nothing: a transparent pixel inside an image (drawing the image leaves the page as it is).
+    inline s_px Clear_Px() {
+        return {0u, (KIND_INDEX << KIND_SHIFT) | MASK_CLEAR};
+    }
+
     inline s_px Literal_Px(uint32_t rgb) {
         return {0xFF000000u | (rgb & 0xFFFFFFu), KIND_NONE << KIND_SHIFT};
     }
