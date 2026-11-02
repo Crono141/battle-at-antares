@@ -149,8 +149,10 @@ namespace render {
     // CMBTDRW1::Plasma_Darken over `bitmap`: each pixel through column `level` of `darken_map`
     // (256 x 16), the level from the plasma frame `darken` and `darkness`.
     void Bitmap_Plasma(const void* bitmap, const uint8_t* darken, int32_t darken_width, int32_t darken_height, int32_t darkness, const uint8_t* darken_map);
-    // bitmap::Draw_Bitmap_Line wrote page pixel (x, y) from pixel `source_offset` of `bitmap`.
-    void Bitmap_Line_Pixel(const void* bitmap, int32_t source_offset, int32_t x, int32_t y);
+    // bitmap::Draw_Bitmap_Line drew `bitmap` stretched and rotated along a line (the stellar
+    // converter): its geometry (centre, angle in degrees, the source span, the stretch in percent)
+    // and the page rectangle it covered. The twin samples the image's HD plane per sub-pixel.
+    void Bitmap_Line(const void* bitmap, int32_t mid_x, int32_t mid_y, int32_t angle, int32_t ext_x1, int32_t ext_x2, int32_t img_x1, int32_t img_y1, int32_t img_y2, int32_t scale_percent, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
 
     // Records that `count` pixels at `dst` (inside the current video page) were written.
     void Stamp_Run(const uint8_t* dst, int32_t count);

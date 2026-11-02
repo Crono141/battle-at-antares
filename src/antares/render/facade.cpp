@@ -252,10 +252,10 @@ namespace render {
         }
     }
 
-    void Bitmap_Line_Pixel(const void* bitmap, int32_t source_offset, int32_t x, int32_t y) {
+    void Bitmap_Line(const void* bitmap, int32_t mid_x, int32_t mid_y, int32_t angle, int32_t ext_x1, int32_t ext_x2, int32_t img_x1, int32_t img_y1, int32_t img_y2, int32_t scale_percent, int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
         if (enabled) {
-            Count("Line_Pixel");
-            twin::Line_Image_Pixel(video::current_video_page, x, y, bitmap, source_offset);
+            Count("Line");
+            twin::Line_Image(video::current_video_page, bitmap, mid_x, mid_y, angle, ext_x1, ext_x2, img_x1, img_y1, img_y2, scale_percent, x1, y1, x2, y2);
         }
     }
 
