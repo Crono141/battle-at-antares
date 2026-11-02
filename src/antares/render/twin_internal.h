@@ -121,6 +121,7 @@ namespace render::twin {
     // Unported bookkeeping (twin.cpp): ops whose fallback ran since the last publish.
     void End_Frame_Unported(std::string* names, uint32_t* pixels);
     void End_Window_Unported(std::string* names, uint32_t* pixels, uint64_t* scope_ns);
+    extern std::string window_slowest; // "op=total ms/calls", slowest first (End_Window_Unported)
     // The Unported calls of the frame last presented, for the parity harness.
     std::string Presented_Unported();
 

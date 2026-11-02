@@ -402,6 +402,7 @@ namespace render::twin {
 
         // Renders the touched pixels of one plane.
         void Render_Plane(s_plane& plane, const void* target, const uint8_t* pixels) {
+            s_scoped_timer timer(TIMER_TWIN_RENDER);
             Sync_Glass_Lut();
             const s_draw& draw = current_draw;
             // Glyph frames are decoded on the spot when first used (glyphs.cpp), so they are ready

@@ -115,6 +115,9 @@ namespace render {
         TIMER_EVICT,
         TIMER_PREFETCH,
         TIMER_SETTLE,
+        TIMER_SCOPE_OPEN,  // twin planes: a scope's snapshot of its rectangle
+        TIMER_SCOPE_CLOSE, // twin planes: the compare and Unported fallback when it closes
+        TIMER_TWIN_RENDER, // twin planes: drawing a draw's art into its plane (Render_Plane)
         TIMER_COUNT };
     extern uint64_t stats_timer_ns[TIMER_COUNT];
 

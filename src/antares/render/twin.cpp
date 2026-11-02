@@ -49,6 +49,8 @@ namespace render {
             std::unordered_map<std::string, uint32_t> window_calls;
             uint32_t window_pixels;
             uint64_t window_scope_ns; // time inside outermost scopes (snapshot, operation, fallback)
+            // The same by operation: total time and calls of outermost scopes.
+            std::unordered_map<std::string, std::pair<uint64_t, uint32_t>> window_op_ns;
 
             std::string Joined(const std::unordered_map<std::string, uint32_t>& calls) {
                 std::vector<std::pair<uint32_t, std::string>> sorted;
@@ -204,11 +206,25 @@ namespace render {
             unported_pixels = 0;
         }
 
+        std::string window_slowest; // the slowest operations of the last stats window
+
         void End_Window_Unported(std::string* names, uint32_t* pixels, uint64_t* scope_ns) {
             *names = Joined(window_calls);
             *pixels = window_pixels;
             *scope_ns = window_scope_ns;
             window_calls.clear();
+            std::vector<std::pair<uint64_t, std::string>> slowest;
+            for (const auto& item : window_op_ns) {
+                char text[96];
+                snprintf(text, sizeof(text), "%s=%.1fms/%u", item.first.c_str(), (double)item.second.first / 1e6, item.second.second);
+                slowest.emplace_back(item.second.first, text);
+            }
+            std::sort(slowest.rbegin(), slowest.rend());
+            window_slowest.clear();
+            for (size_t i = 0; i < slowest.size() && i < 5; ++i) {
+                window_slowest += (i != 0 ? "," : "") + slowest[i].second;
+            }
+            window_op_ns.clear();
             window_pixels = 0;
             window_scope_ns = 0;
         }
@@ -248,6 +264,7 @@ namespace render {
         }
 
         void Scope::Open(const char* op, const void* target, int32_t x, int32_t y, int32_t width, int32_t height) {
+            s_scoped_timer timer(TIMER_SCOPE_OPEN);
             Note_Op(target, op);
             const uint8_t* pixels = nullptr;
             int32_t target_width = 0;
@@ -301,6 +318,7 @@ namespace render {
 
         void Scope::Close() {
             End_Draw(); // a draw still collecting pixels inside this operation renders first
+            s_scoped_timer timer(TIMER_SCOPE_CLOSE);
             depth = slot_;
             const s_open& entry = open_scopes[(size_t)slot_];
             slot_ = -1;
@@ -321,6 +339,9 @@ namespace render {
                 for (int32_t y = entry.y0; y < entry.y1; ++y) {
                     const uint8_t* now = pixels + (size_t)y * width;
                     const uint8_t* was = &entry.before[(size_t)(y - entry.y0) * span];
+                    if (memcmp(now + entry.x0, was, (size_t)span) == 0) {
+                        continue; // most rows of a large scope are untouched
+                    }
                     bool row_changed = false;
                     for (int32_t x = entry.x0; x < entry.x1; ++x) {
                         if (now[x] != was[x - entry.x0]) {
@@ -346,7 +367,11 @@ namespace render {
             unported_pixels += changed;
             window_pixels += changed;
             if (entry.opened_ns != 0) {
-                window_scope_ns += SDL_GetTicksNS() - entry.opened_ns;
+                const uint64_t spent = SDL_GetTicksNS() - entry.opened_ns;
+                window_scope_ns += spent;
+                std::pair<uint64_t, uint32_t>& op = window_op_ns[entry.op];
+                op.first += spent;
+                op.second++;
             }
         }
 
