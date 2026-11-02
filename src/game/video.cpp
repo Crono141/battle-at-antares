@@ -2,6 +2,8 @@
 
 #include "video_scan_bounds.h"
 
+#include "antares/stall_trace.h"
+
 namespace video {
     int32_t g_screen_res_x;
     int32_t g_screen_res_y;
@@ -152,10 +154,12 @@ namespace video {
             return;
         }
 
+        const uint64_t publish_start = SDL_GetTicksNS();
         SDL_LockMutex(g_off_page_mutex);
         while (g_off_page_state != OFF_PAGE_WRITABLE) {
             SDL_WaitCondition(g_off_page_condition, g_off_page_mutex);
         }
+        antares::stall_trace::Note_Publish(publish_start, SDL_GetTicksNS() - publish_start);
 
         const size_t page_size = (size_t)video::g_screen_res_x * (size_t)video::g_screen_res_y;
         memcpy(g_page_published.pixels, g_page_off.pixels, page_size);

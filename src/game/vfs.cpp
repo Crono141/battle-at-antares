@@ -6,6 +6,8 @@
 
 #include "vfs_detail.h"
 
+#include "antares/stall_trace.h"
+
 namespace vfs_detail {
     s_vfs_state g_vfs_state{};
 }
@@ -334,6 +336,7 @@ namespace vfs {
     }
 
     s_vfs_file* fopen(const char* path, const char* mode) {
+        const antares::stall_trace::s_io_scope io(path);
         char asset_path[vfs_detail::VFS_MAX_PATH];
         char resolved_path[vfs_detail::VFS_MAX_PATH];
         vfs_detail::s_vfs_zip_entry zip_entry{};
@@ -386,6 +389,7 @@ namespace vfs {
     }
 
     size_t fread(void* ptr, size_t size, size_t count, s_vfs_file* file) {
+        const antares::stall_trace::s_io_scope io;
         if (file == nullptr || file->ops == nullptr || file->ops->read == nullptr) {
             return 0;
         }
@@ -402,6 +406,7 @@ namespace vfs {
     }
 
     int32_t fseek(s_vfs_file* file, int32_t offset, int32_t origin) {
+        const antares::stall_trace::s_io_scope io;
         if (file == nullptr || file->ops == nullptr || file->ops->seek == nullptr) {
             return -1;
         }
