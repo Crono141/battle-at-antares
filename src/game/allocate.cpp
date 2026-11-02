@@ -226,6 +226,7 @@ namespace allocate {
 
     void* __cdecl Allocate_First_Block(void* block, uint32_t size) {
         ((s_alloc_header*)block - 1)->current = 0;
+        render::Forget_Images(block, (uint8_t*)block + ((s_alloc_header*)block - 1)->size);
 
         return Allocate_Next_Block(block, size);
     }
@@ -288,6 +289,7 @@ namespace allocate {
         uint32_t original_value = mark_stack[index].current;
 
         ((s_alloc_header*)target_base - 1)->current = original_value;
+        render::Forget_Images((uint8_t*)target_base + original_value, (uint8_t*)target_base + ((s_alloc_header*)target_base - 1)->size);
     }
 
     void* __cdecl Allocate_Space_No_Header(uint32_t size) {
@@ -306,6 +308,7 @@ namespace allocate {
 
     void* __cdecl Allocate_First_Block_No_Header(void* block_ptr, uint32_t size) {
         ((s_alloc_header*)block_ptr - 1)->current = 0;
+        render::Forget_Images(block_ptr, (uint8_t*)block_ptr + ((s_alloc_header*)block_ptr - 1)->size);
 
         return Allocate_Next_Block_No_Header(block_ptr, size);
     }
@@ -343,5 +346,6 @@ namespace allocate {
     void __cdecl Release_Block(void* block) {
         auto* header = (s_alloc_header*)block - 1;
         header->current = header->reserved2;
+        render::Forget_Images((uint8_t*)block + header->current, (uint8_t*)block + header->size);
     }
 } // namespace allocate

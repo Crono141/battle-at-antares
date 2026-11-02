@@ -114,7 +114,6 @@ namespace bitmap {
         uint8_t* src = video::current_video_page + ((int32_t)y1 * video::g_screen_res_x) + (int32_t)x1;
 
         shear::Capture_Screen_Block(src, width, height, dest);
-        render::Bitmap_Capture(header, x1, y1, width, height);
 
         platform::Unlock_Appropriate_Render_Buffer();
     }
@@ -572,7 +571,6 @@ namespace bitmap {
         animate::animation_header = anim;
         uint32_t* pixels = (uint32_t*)Animation_Frame_Data_(anim, anim->current_frame);
         shear::Mask_Bitmap_Colors_Pixels(pixels, start_color, end_color, 0, anim->width, anim->height);
-        render::Bitmap_Sync(anim, (const uint8_t*)pixels);
     }
 
     void __cdecl Mask_Brighten_Bitmap(int32_t x, int32_t y, s_animation_header* dst_anim, s_animation_header* src_anim, uint8_t color) {
@@ -745,8 +743,6 @@ namespace bitmap {
         if (src == dst) {
             animate::animation_header->width = new_width;
             animate::animation_header->height = new_height;
-        } else {
-            render::Bitmap_Scale(dst, src, dst_frame_ptr, new_width, new_height);
         }
     }
 

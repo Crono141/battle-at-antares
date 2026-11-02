@@ -78,7 +78,10 @@ namespace render::twin {
     void Probe(const s_plane& plane, int32_t x, int32_t y, const char* what, int32_t value);
 
     void Attach_Image(const void* header, int32_t width, int32_t height);
-    void Drop_Images(const void* begin, const void* end);
+    size_t Drop_Images(const void* begin, const void* end); // returns how many planes it dropped
+    // Image planes dropped because the allocator rewound past their header (facade.cpp), since
+    // the last stats window.
+    extern uint32_t rewind_drops;
     void Allocate_Pages(int32_t width, int32_t height);
     void Free_Pages();
 

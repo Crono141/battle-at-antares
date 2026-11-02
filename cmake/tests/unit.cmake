@@ -209,6 +209,8 @@ orion2re_add_unit_test(test_score
     PRODUCTION_SOURCES
         src/game/score.cpp
         src/game/allocate.cpp
+    FAKE_SOURCES
+        tests/fakes/fake_render_images.cpp
     LINK_SDL
 )
 if(MSVC)

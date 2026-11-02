@@ -12,6 +12,16 @@ namespace {
     std::string fatal_message;
 } // namespace
 
+// The rewind hook: the last range the allocator reported as freed.
+namespace render {
+    const void* forgotten_begin;
+    const void* forgotten_end;
+    void Forget_Images(const void* begin, const void* end) {
+        forgotten_begin = begin;
+        forgotten_end = end;
+    }
+} // namespace render
+
 namespace exitm {
     [[noreturn]] void __cdecl Exit_With_Message(const char* message) {
         fatal_message = message;
@@ -153,4 +163,23 @@ DOCTEST_TEST_CASE("mark stack accepts forty pushes and rejects push forty-one") 
 
         DOCTEST_CHECK(header.current == static_cast<uint32_t>(i));
     }
+}
+DOCTEST_TEST_CASE("rewinding a block reports the memory past the new cursor as freed") {
+    std::array<uint8_t, 256> storage{};
+    auto* header = (allocate::s_alloc_header*)storage.data();
+    *header = {0, 200, 0};
+    uint8_t* pool = (uint8_t*)(header + 1);
+    allocate::Allocate_Next_Block_No_Header(pool, 16);
+    allocate::Push_Block(pool);
+    allocate::Allocate_Next_Block_No_Header(pool, 40);
+    allocate::Pop_Block(pool);
+    DOCTEST_CHECK(render::forgotten_begin == pool + 16);
+    DOCTEST_CHECK(render::forgotten_end == pool + 200);
+    allocate::Mark_Block(pool);
+    allocate::Allocate_Next_Block_No_Header(pool, 8);
+    allocate::Release_Block(pool);
+    DOCTEST_CHECK(render::forgotten_begin == pool + 16);
+    allocate::Allocate_First_Block_No_Header(pool, 4);
+    DOCTEST_CHECK(render::forgotten_begin == pool);
+    DOCTEST_CHECK(render::forgotten_end == pool + 200);
 }
