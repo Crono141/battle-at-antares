@@ -223,8 +223,13 @@ namespace render {
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: playing %s in HD (%d frames)", name.c_str(), state.hd_count);
     }
 
-    void Video_Frame(int32_t left, int32_t top, int32_t frame) {
+    void Video_Frame(int32_t left, int32_t top, int32_t width, int32_t height, int32_t frame) {
+        // A frame shown without HD art: its 1x pixels, bound to their indices (a fill's twin).
+        const auto plain = [&]() {
+            Overwrite_Rect((const uint8_t*)video::g_page_off.pixels, left, top, left + width - 1, top + height - 1);
+        };
         if (!state.active || !Rect_On_Page(left, top)) {
+            plain();
             return;
         }
         const int32_t index = frame * state.ratio;
@@ -236,6 +241,7 @@ namespace render {
         if (rgb == nullptr) {
             state.shown = -1;
             state.frames_sd++;
+            plain();
             return;
         }
         state.frames_hd++;

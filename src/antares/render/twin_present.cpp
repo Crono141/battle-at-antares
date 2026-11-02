@@ -221,6 +221,7 @@ namespace render::twin {
             }
             plane->row_dirty[(size_t)py] = 1;
         }
+        Accept_Rect(page, x0, y0, x1, y1); // the operation that wrote the frame is handled
     }
 
 } // namespace render::twin
