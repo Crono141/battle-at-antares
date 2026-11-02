@@ -262,6 +262,17 @@ namespace render {
             }
         }
 
+        const uint8_t* Scope_Before(const void* target) {
+            for (int32_t i = depth - 1; i >= 0; --i) {
+                const s_open& entry = open_scopes[(size_t)i];
+                if (entry.target == target) {
+                    return entry.x0 == 0 && entry.y0 == 0 && entry.x1 == entry.width && entry.y1 == entry.height ? entry.before.data()
+                                                                                                                 : nullptr;
+                }
+            }
+            return nullptr;
+        }
+
         void Accept(const void* target, int32_t x, int32_t y) {
             if (depth > 0) {
                 Accept_Rect(target, x, y, x + 1, y + 1);

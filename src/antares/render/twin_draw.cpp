@@ -207,7 +207,9 @@ namespace render::twin {
         // The draw's art at sub-pixel (sx, sy) of 1x pixel (x, y), over `dest`.
         // `fringe`: a pixel the 1x draw didn't write. Glass in the art never lands there: glass the
         // 1x draw left out was left out on purpose (Draw_No_Glass draws glassed sprites without it).
-        s_px Apply_Art(const s_px& dest, int32_t x, int32_t y, int32_t sx, int32_t sy, bool fringe) {
+        // `in_image`: drawn into an image, glass keeps its level index, as the 1x pixel does; it
+        // tints the page when the image is drawn there (Stamp_Glass).
+        s_px Apply_Art(const s_px& dest, int32_t x, int32_t y, int32_t sx, int32_t sy, bool fringe, bool in_image) {
             const s_draw& draw = current_draw;
             const s_hd_frame* frame = draw.frame;
             const int32_t lx = (x - draw.x - frame->origin_x) * S + sx;
@@ -235,7 +237,10 @@ namespace render::twin {
                 return Over_Index(dest, draw.colors[index - 1], alpha);
             }
             if (draw.glassed && index >= 0xF0) {
-                return alpha >= 128 && !fringe ? Glass_Over(dest, index - 0xF0) : dest;
+                if (alpha < 128 || fringe) {
+                    return dest;
+                }
+                return in_image ? Index_Px(index) : Glass_Over(dest, index - 0xF0);
             }
             if (draw.remapped) {
                 index = draw.remap[index];
@@ -262,6 +267,22 @@ namespace render::twin {
             return frame->alpha[i] != 0 && frame->index[i] >= 0xF0;
         }
 
+        // Whether the draw's art covers any of 1x pixel (x, y).
+        bool Art_Covers(int32_t x, int32_t y) {
+            const s_draw& draw = current_draw;
+            const s_hd_frame* frame = draw.frame;
+            for (int32_t sy = 0; sy < S; ++sy) {
+                for (int32_t sx = 0; sx < S; ++sx) {
+                    const int32_t lx = (x - draw.x - frame->origin_x) * S + sx;
+                    const int32_t ly = (y - draw.y - frame->origin_y) * S + sy;
+                    if (lx >= 0 && ly >= 0 && lx < frame->width && ly < frame->height && frame->alpha[(size_t)ly * frame->width + lx] != 0) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         void Clear_Block(s_plane& plane, int32_t x, int32_t y) {
             s_px* block = Block(plane, x, y);
             const size_t stride = (size_t)plane.width * S;
@@ -275,7 +296,7 @@ namespace render::twin {
             const size_t stride = (size_t)plane.width * S;
             for (int32_t sy = 0; sy < S; ++sy) {
                 for (int32_t sx = 0; sx < S; ++sx) {
-                    block[sy * stride + sx] = Apply_Art(block[sy * stride + sx], x, y, sx, sy, fringe);
+                    block[sy * stride + sx] = Apply_Art(block[sy * stride + sx], x, y, sx, sy, fringe, plane.row_dirty.empty());
                 }
             }
             Mark_Row(plane, y);
@@ -485,7 +506,11 @@ namespace render::twin {
                         if (plane.row_dirty.empty()) {
                             Clear_Block(plane, x, y);
                         }
-                    } else if (interior && !Art_Is_Glass(x, y)) {
+                    } else if ((interior && !Art_Is_Glass(x, y)) || (plane.row_dirty.empty() && draw.glassed && pixels[touch.offset] >= 0xF0) ||
+                        (plane.row_dirty.empty() && !Art_Covers(x, y))) {
+                        // In an image, a glass pixel is its level index (see Apply_Art), and a pixel
+                        // the art doesn't reach (a keyframe pixel outside the drawn frame's art) is
+                        // its 1x index: there is nothing under it to show.
                         Fill_Block_Index(plane, x, y, pixels[touch.offset]);
                     }
                     Apply_Art_Block(plane, x, y, false);
@@ -891,6 +916,407 @@ namespace render::twin {
             offset += run;
             count -= run;
         }
+    }
+
+    // ---------------------------------------------------------------- bitmap twins (WP1.4)
+    //
+    // They run after the 1x operation, inside its scope: the scope's snapshot (Scope_Before) holds
+    // the image's 1x pixels before it, so each twin sees which pixels changed and how, and does the
+    // same to the plane. Then the image is accepted whole.
+
+    namespace {
+
+        bool Covered(const s_px& px) {
+            if (Kind(px) == KIND_INDEX) {
+                return (px.mask & MASK_CLEAR) == 0 || ((px.mask >> 16) & 0xFF) >= 128;
+            }
+            return ((px.base >> 24) & 0xFF) >= 128;
+        }
+
+        // A plane pixel through an index table: bound indices take it (a transparent background
+        // stays transparent), full-colour pixels go through their nearest index.
+        s_px Px_Through_Table(const s_px& px, const uint8_t* table) {
+            if (Kind(px) == KIND_INDEX) {
+                const uint32_t bg = (px.mask & MASK_CLEAR) != 0 ? (px.mask >> 8) & 0xFF : table[(px.mask >> 8) & 0xFF];
+                return {px.base, (px.mask & ~0xFFFFu) | (bg << 8) | table[px.mask & 0xFF]};
+            }
+            return {(px.base & 0xFF000000u) | Through_Table(px.base & 0xFFFFFFu, table), px.mask};
+        }
+
+        void Block_Through_Table(s_plane& plane, int32_t x, int32_t y, const uint8_t* table) {
+            s_px* block = Block(plane, x, y);
+            const size_t stride = (size_t)plane.width * S;
+            for (int32_t sy = 0; sy < S; ++sy) {
+                for (int32_t sx = 0; sx < S; ++sx) {
+                    block[sy * stride + sx] = Px_Through_Table(block[sy * stride + sx], table);
+                }
+            }
+        }
+
+        void Copy_Block(s_plane& to, int32_t x, int32_t y, const s_plane& from, int32_t fx, int32_t fy) {
+            s_px* dst = Block(to, x, y);
+            const s_px* src = &from.px[(size_t)fy * S * from.width * S + (size_t)fx * S];
+            const size_t dst_stride = (size_t)to.width * S;
+            const size_t src_stride = (size_t)from.width * S;
+            for (int32_t sy = 0; sy < S; ++sy) {
+                std::copy(src + sy * src_stride, src + sy * src_stride + S, dst + sy * dst_stride);
+            }
+        }
+
+        // The image `header` with its plane and 1x pixels, or null when it has no plane pixels
+        // (it stands for its 1x pixels, which the operation already changed).
+        s_plane* Image_Plane(const void* header, const uint8_t** pixels, int32_t* width, int32_t* height) {
+            s_plane* plane = Resolve_Target(header, pixels, width, height);
+            return plane != nullptr && !plane->px.empty() ? plane : nullptr;
+        }
+
+    } // namespace
+
+    void Sync_Cleared(const void* header) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* plane = Image_Plane(header, &pixels, &width, &height);
+        const uint8_t* before = Scope_Before(header);
+        if (plane != nullptr && before != nullptr) {
+            for (int32_t i = 0; i < width * height; ++i) {
+                if (pixels[i] == before[i]) {
+                    continue;
+                }
+                // Masked out (0): transparent; anything else (not expected) bound to its index.
+                if (pixels[i] == 0) {
+                    Clear_Block(*plane, i % width, i / width);
+                } else {
+                    Fill_Block_Index(*plane, i % width, i / width, pixels[i]);
+                }
+            }
+        }
+        Accept_Rect(header, 0, 0, width, height);
+    }
+
+    void Vanish_Image(const void* dst, const void* src) {
+        if (dst == src) {
+            Sync_Cleared(dst);
+            return;
+        }
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* to = Resolve_Target(dst, &pixels, &width, &height);
+        const uint8_t* src_pixels = nullptr;
+        int32_t src_width = 0;
+        int32_t src_height = 0;
+        const s_plane* from = Image_Plane(src, &src_pixels, &src_width, &src_height);
+        if (to == nullptr) {
+            return;
+        }
+        if (from == nullptr || src_width != width || src_height != height) {
+            to->px.clear(); // stands for its 1x pixels
+        } else {
+            to->px = from->px;
+            for (int32_t i = 0; i < width * height; ++i) {
+                if (pixels[i] == 0 && src_pixels[i] != 0) {
+                    Clear_Block(*to, i % width, i / width);
+                } else if (pixels[i] != src_pixels[i]) {
+                    Fill_Block_Index(*to, i % width, i / width, pixels[i]);
+                }
+            }
+        }
+        Accept_Rect(dst, 0, 0, width, height);
+    }
+
+    void Table_Image(const void* header, const uint8_t* table) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* plane = Image_Plane(header, &pixels, &width, &height);
+        if (plane != nullptr && table != nullptr) {
+            Sync_Glass_Lut();
+            for (s_px& px : plane->px) {
+                px = Px_Through_Table(px, table);
+            }
+        }
+        Accept_Rect(header, 0, 0, width, height);
+    }
+
+    void Brighten_Image(const void* header, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width,
+        int32_t height, const uint8_t* tables, int32_t start_color) {
+        const uint8_t* pixels = nullptr;
+        int32_t image_width = 0;
+        int32_t image_height = 0;
+        s_plane* plane = Image_Plane(header, &pixels, &image_width, &image_height);
+        const uint8_t* before = Scope_Before(header);
+        if (plane != nullptr && before != nullptr && tables != nullptr && width > 0 && height > 0) {
+            Sync_Glass_Lut();
+            // The same walk as shear::Mask_Brighten_Bitmap_Pixels: where both pixels are set, the
+            // destination goes through the table row the source pixel picks.
+            int32_t d = dst_offset;
+            for (int32_t row = 0; row < height; ++row) {
+                for (int32_t col = 0; col < width; ++col, ++src, ++d) {
+                    if (*src != 0 && d >= 0 && d < image_width * image_height && before[d] != 0) {
+                        const uint8_t* table = tables + ((uint32_t)(uint8_t)(*src - start_color) << 8);
+                        Block_Through_Table(*plane, d % image_width, d / image_width, table);
+                    }
+                }
+                src += src_skip;
+                d += dst_skip;
+            }
+        }
+        Accept_Rect(header, 0, 0, image_width, image_height);
+    }
+
+    void Capture_Image(const void* header, const uint8_t* page, int32_t x1, int32_t y1, int32_t width, int32_t height) {
+        const uint8_t* pixels = nullptr;
+        int32_t image_width = 0;
+        int32_t image_height = 0;
+        s_plane* image = Resolve_Target(header, &pixels, &image_width, &image_height);
+        const uint8_t* page_pixels = nullptr;
+        int32_t page_width = 0;
+        int32_t page_height = 0;
+        const s_plane* from = Resolve_Target(page, &page_pixels, &page_width, &page_height);
+        if (image == nullptr) {
+            return;
+        }
+        if (from == nullptr || from->px.empty() || image_width != width || image_height != height || x1 < 0 || y1 < 0 ||
+            x1 + width > page_width || y1 + height > page_height) {
+            image->px.clear(); // stands for its 1x pixels
+        } else {
+            image->px.resize((size_t)width * height * S * S);
+            for (int32_t y = 0; y < height; ++y) {
+                for (int32_t x = 0; x < width; ++x) {
+                    Copy_Block(*image, x, y, *from, x1 + x, y1 + y);
+                }
+            }
+        }
+        Accept_Rect(header, 0, 0, image_width, image_height);
+    }
+
+    void Scale_Image(const void* dst, const void* src) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* to = Resolve_Target(dst, &pixels, &width, &height);
+        const uint8_t* src_pixels = nullptr;
+        int32_t src_width = 0;
+        int32_t src_height = 0;
+        const s_plane* from = Image_Plane(src, &src_pixels, &src_width, &src_height);
+        if (to == nullptr || dst == src) {
+            return; // in place: the scope's fallback (the header was resized under it)
+        }
+        if (from == nullptr || width <= 0 || height <= 0) {
+            to->px.clear();
+        } else {
+            // Nearest HD pixel of the source; a pixel bound to an index other than the 1x pixel the
+            // scaler chose for its block takes that index (the scalers pick their own samples).
+            const int32_t hw = width * S;
+            const int32_t hh = height * S;
+            const int32_t src_hw = src_width * S;
+            const int32_t src_hh = src_height * S;
+            std::vector<s_px> scaled((size_t)hw * hh);
+            for (int32_t y = 0; y < hh; ++y) {
+                const int32_t fy = SDL_min(src_hh - 1, (int32_t)(((int64_t)y * 2 + 1) * src_hh / (hh * 2)));
+                const uint8_t* row = pixels + (size_t)(y / S) * width;
+                for (int32_t x = 0; x < hw; ++x) {
+                    const int32_t fx = SDL_min(src_hw - 1, (int32_t)(((int64_t)x * 2 + 1) * src_hw / (hw * 2)));
+                    s_px px = from->px[(size_t)fy * src_hw + fx];
+                    const uint8_t value = row[x / S];
+                    if (Kind(px) == KIND_INDEX && (uint8_t)px.mask != value) {
+                        px = value == 0 ? Clear_Px() : Index_Px(value);
+                    } else if (Kind(px) != KIND_INDEX && value == 0) {
+                        px = Clear_Px();
+                    }
+                    scaled[(size_t)y * hw + x] = px;
+                }
+            }
+            to->px = std::move(scaled);
+        }
+        Accept_Rect(dst, 0, 0, width, height);
+    }
+
+    void Outline_Image(const void* header, uint8_t color, bool no_glass) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* plane = Image_Plane(header, &pixels, &width, &height);
+        const uint8_t* before = Scope_Before(header);
+        if (plane != nullptr && before != nullptr && width > 0) {
+            // D17: the outline follows the art's own edge. A sub-pixel is solid when its 1x pixel is
+            // (not 0, the outline colour or, without glass, a glass level) and the art covers it;
+            // the outline is every other sub-pixel within one 1x pixel of a solid one along its row
+            // or column, as the 1x passes mark the empty pixels beside solid ones. The 1x passes
+            // cover width x width pixels (shear.cpp), so rows past min(width, height) are left.
+            const int32_t rows = SDL_min(width, height);
+            const int32_t hw = width * S;
+            const int32_t hh = rows * S;
+            auto solid_1x = [&](uint8_t v) {
+                return v != 0 && v != color && !(no_glass && v >= 0xF0);
+            };
+            std::vector<uint8_t> solid((size_t)hw * hh, 0);
+            for (int32_t y = 0; y < hh; ++y) {
+                for (int32_t x = 0; x < hw; ++x) {
+                    solid[(size_t)y * hw + x] = solid_1x(pixels[(size_t)(y / S) * width + x / S]) && Covered(plane->px[(size_t)y * hw + x]) ? 1 : 0;
+                }
+            }
+            // Pixels the 1x outline wrote start transparent: only the band shows there.
+            for (int32_t y = 0; y < rows; ++y) {
+                for (int32_t x = 0; x < width; ++x) {
+                    const size_t i = (size_t)y * width + x;
+                    if (pixels[i] != before[i]) {
+                        Clear_Block(*plane, x, y);
+                    }
+                }
+            }
+            // Distance to the nearest solid sub-pixel along rows, then columns (at most S).
+            std::vector<uint8_t> near((size_t)hw * hh, 0);
+            for (int32_t y = 0; y < hh; ++y) {
+                const uint8_t* row = &solid[(size_t)y * hw];
+                int32_t last = -1000;
+                for (int32_t x = 0; x < hw; ++x) {
+                    last = row[x] ? x : last;
+                    near[(size_t)y * hw + x] |= x - last <= S ? 1 : 0;
+                }
+                last = 1000000;
+                for (int32_t x = hw - 1; x >= 0; --x) {
+                    last = row[x] ? x : last;
+                    near[(size_t)y * hw + x] |= last - x <= S ? 1 : 0;
+                }
+            }
+            for (int32_t x = 0; x < hw; ++x) {
+                int32_t last = -1000;
+                for (int32_t y = 0; y < hh; ++y) {
+                    last = solid[(size_t)y * hw + x] ? y : last;
+                    near[(size_t)y * hw + x] |= y - last <= S ? 1 : 0;
+                }
+                last = 1000000;
+                for (int32_t y = hh - 1; y >= 0; --y) {
+                    last = solid[(size_t)y * hw + x] ? y : last;
+                    near[(size_t)y * hw + x] |= last - y <= S ? 1 : 0;
+                }
+            }
+            const s_px band = Index_Px(color);
+            for (size_t i = 0; i < near.size(); ++i) {
+                if (near[i] != 0 && solid[i] == 0) {
+                    plane->px[i] = band;
+                }
+            }
+        }
+        Accept_Rect(header, 0, 0, width, height);
+    }
+
+    void Line_Image_Pixel(const uint8_t* page, int32_t x, int32_t y, const void* header, int32_t source_offset) {
+        const uint8_t* pixels = nullptr;
+        int32_t page_width = 0;
+        int32_t page_height = 0;
+        s_plane* plane = Resolve_Target(page, &pixels, &page_width, &page_height);
+        if (plane == nullptr || plane->px.empty() || x < 0 || y < 0 || x >= page_width || y >= page_height) {
+            return;
+        }
+        const uint8_t* image_pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        const s_plane* image = Image_Plane(header, &image_pixels, &width, &height);
+        const s_px* first = image != nullptr && source_offset >= 0 && source_offset < width * height
+            ? &image->px[(size_t)(source_offset / width) * S * width * S + (size_t)(source_offset % width) * S]
+            : nullptr;
+        if (first != nullptr && !(Kind(*first) == KIND_INDEX && (uint8_t)first->mask == image_pixels[source_offset]) && Kind(*first) == KIND_INDEX) {
+            static const bool check = antares::Get_Env("TWIN_CHECK") != nullptr;
+            static uint32_t logged;
+            if (check && logged++ < 10) {
+                SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "twin check: line source %p %dx%d pixel %d: plane %08x, 1x %u; recent ops: %s", header, width, height, source_offset, first->mask, image_pixels[source_offset], Recent_Ops(header).c_str());
+            }
+        }
+        if (image != nullptr && source_offset >= 0 && source_offset < width * height) {
+            // The source pixel's block, over the page where the image is transparent.
+            const s_px* src = &image->px[(size_t)(source_offset / width) * S * width * S + (size_t)(source_offset % width) * S];
+            const size_t src_stride = (size_t)width * S;
+            s_px* block = Block(*plane, x, y);
+            const size_t stride = (size_t)plane->width * S;
+            for (int32_t sy = 0; sy < S; ++sy) {
+                for (int32_t sx = 0; sx < S; ++sx) {
+                    const s_px& px = src[sy * src_stride + sx];
+                    s_px& out = block[sy * stride + sx];
+                    if (Kind(px) == KIND_INDEX && (px.mask & MASK_CLEAR) != 0 && ((px.mask >> 16) & 0xFF) < 255) {
+                        const uint32_t alpha = (px.mask >> 16) & 0xFF;
+                        out = alpha != 0 ? Over_Index(out, (uint8_t)px.mask, alpha) : out;
+                    } else if (Kind(px) != KIND_INDEX && ((px.base >> 24) & 0xFF) < 255) {
+                        const uint32_t alpha = (px.base >> 24) & 0xFF;
+                        out = alpha != 0 ? Over_Rgb(out, px.base & 0xFFFFFFu, alpha) : out;
+                    } else {
+                        out = px;
+                    }
+                }
+            }
+        } else {
+            Fill_Block_Index(*plane, x, y, pixels[(size_t)y * page_width + x]);
+        }
+        Mark_Row(*plane, y);
+        Accept(page, x, y);
+    }
+
+    void Jumble_Image(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after,
+        const uint8_t* noise_table) {
+        const uint8_t* pixels = nullptr;
+        int32_t width = 0;
+        int32_t height = 0;
+        s_plane* to = Resolve_Target(dst, &pixels, &width, &height);
+        if (to == nullptr) {
+            return;
+        }
+        const bool in_place = dst == src;
+        const uint8_t* src_pixels = nullptr;
+        int32_t src_width = 0;
+        int32_t src_height = 0;
+        const s_plane* from = Image_Plane(src, &src_pixels, &src_width, &src_height);
+        const uint8_t* before = in_place ? Scope_Before(dst) : src_pixels;
+        const int32_t count = width * height - (int32_t)mask * 2;
+        if (from == nullptr || before == nullptr || src_width != width || src_height != height || noise_table == nullptr || count <= 0) {
+            Accept_Rect(dst, 0, 0, width, height);
+            return; // no plane to move: the image stands for its 1x pixels (to->px as the copy left it)
+        }
+        // D16: the 1x call's own noise (start index, table, mask) replayed on block ids. Which
+        // steps swap doesn't depend on the direction toggle, so the toggle at the start follows
+        // from the one after and the number of swaps.
+        uint32_t swaps = 0;
+        for (int32_t i = 0, idx = (int32_t)(noise_start & 0xFF); i < count; ++i, idx = (idx + 1) & 0xFF) {
+            swaps += noise_table[idx] < (threshold & 0xFF) ? 1 : 0;
+        }
+        uint32_t toggle = (swaps & 1) != 0 ? ~toggle_after : toggle_after;
+        const int32_t total = width * height;
+        std::vector<int32_t> source_ids(total);
+        for (int32_t k = 0; k < total; ++k) {
+            source_ids[k] = k;
+        }
+        std::vector<int32_t> ids = source_ids; // the destination starts as the source (copied)
+        std::vector<int32_t>& reads = in_place ? ids : source_ids;
+        for (int32_t i = 0, idx = (int32_t)(noise_start & 0xFF); i < count; ++i, idx = (idx + 1) & 0xFF) {
+            const uint32_t noise = noise_table[idx];
+            if (noise >= (threshold & 0xFF)) {
+                continue;
+            }
+            int32_t offset = (int32_t)(noise & mask) + 1;
+            if (toggle != 0) {
+                offset = -offset;
+            }
+            toggle = ~toggle;
+            const int32_t p = (int32_t)mask + i;
+            if (p + offset < 0 || p + offset >= total) {
+                continue;
+            }
+            const int32_t moved = reads[p];
+            ids[p] = reads[p + offset];
+            ids[p + offset] = moved;
+        }
+        const s_plane source = in_place ? *to : *from;
+        to->px.resize((size_t)total * S * S);
+        for (int32_t k = 0; k < total; ++k) {
+            const int32_t id = ids[k];
+            if (before[id] == pixels[k]) {
+                Copy_Block(*to, k % width, k / width, source, id % width, id / width);
+            } else {
+                Fill_Block_Index(*to, k % width, k / width, pixels[k]); // the replay went astray
+            }
+        }
+        Accept_Rect(dst, 0, 0, width, height);
     }
 
 } // namespace render::twin

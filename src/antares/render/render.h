@@ -110,6 +110,29 @@ namespace render {
     // their colour.
     void Bitmap_Recolor(const void* bitmap, int32_t first, int32_t count, const uint8_t* map);
 
+    // Bitmap twins (WP1.4): called right after the 1x operation, inside its scope.
+    // A rectangle (x1, y1, width x height) of the current page was captured into `bitmap`.
+    void Bitmap_Capture(const void* bitmap, int32_t x1, int32_t y1, int32_t width, int32_t height);
+    // `dst` was made a resized copy of `src` (bitmap::Scale_Bitmap).
+    void Bitmap_Scale(const void* dst, const void* src);
+    // `bitmap` was outlined in `color` (bitmap::Outline_Bitmap; D17: the outline follows the art).
+    void Bitmap_Outline(const void* bitmap, int32_t color, bool no_glass);
+    // Pixels of `bitmap` were set to 0 (masked out): they become transparent.
+    void Bitmap_Cleared(const void* bitmap);
+    // `dst` was made `src` with some pixels cleared (bitmap::Vanish_Bitmap).
+    void Bitmap_Vanish(const void* dst, const void* src);
+    // Every pixel of `bitmap` went through `table` (bitmap::Gray_Scale_Bitmap).
+    void Bitmap_Table(const void* bitmap, const uint8_t* table);
+    // shear::Mask_Brighten_Bitmap_Pixels over `bitmap` from its pixel `dst_offset`, with the same
+    // walk (source pointer, skips, size) and tables (256 per source colour from `start_color`).
+    void Bitmap_Brighten(const void* bitmap, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width,
+        int32_t height, const uint8_t* tables, int32_t start_color);
+    // shear::Jumble_Bitmap_Pixels moved pixels of `src` into `dst` with this noise.
+    void Bitmap_Jumble(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after,
+        const uint8_t* noise_table);
+    // bitmap::Draw_Bitmap_Line wrote page pixel (x, y) from pixel `source_offset` of `bitmap`.
+    void Bitmap_Line_Pixel(const void* bitmap, int32_t source_offset, int32_t x, int32_t y);
+
     // Records that `count` pixels at `dst` (inside the current video page) were written.
     void Stamp_Run(const uint8_t* dst, int32_t count);
 

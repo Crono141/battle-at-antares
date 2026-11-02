@@ -57,7 +57,17 @@ namespace render {
 
     namespace twin {
         uint32_t rewind_drops;
+        std::unordered_map<std::string, uint32_t> bitmap_twin_calls;
     }
+
+    namespace {
+        // ANTARES_HD_STATS: which bitmap twins ran (coverage of a test run).
+        void Count(const char* name) {
+            if (stats_enabled) {
+                twin::bitmap_twin_calls[name]++;
+            }
+        }
+    } // namespace
 
     void Forget_Images(const void* begin, const void* end) {
         if (enabled && begin < end && !twin::images.empty()) {
@@ -93,6 +103,71 @@ namespace render {
     void Bitmap_Recolor(const void* bitmap, int32_t first, int32_t count, const uint8_t* map) {
         if (enabled) {
             twin::Recolor_Image(bitmap, first, count, map);
+        }
+    }
+
+    void Bitmap_Capture(const void* bitmap, int32_t x1, int32_t y1, int32_t width, int32_t height) {
+        if (enabled) {
+            Count("Capture");
+            twin::Capture_Image(bitmap, video::current_video_page, x1, y1, width, height);
+        }
+    }
+
+    void Bitmap_Scale(const void* dst, const void* src) {
+        if (enabled) {
+            Count("Scale");
+            twin::Scale_Image(dst, src);
+        }
+    }
+
+    void Bitmap_Outline(const void* bitmap, int32_t color, bool no_glass) {
+        if (enabled) {
+            Count("Outline");
+            twin::Outline_Image(bitmap, (uint8_t)color, no_glass);
+        }
+    }
+
+    void Bitmap_Cleared(const void* bitmap) {
+        if (enabled) {
+            Count("Cleared");
+            twin::Sync_Cleared(bitmap);
+        }
+    }
+
+    void Bitmap_Vanish(const void* dst, const void* src) {
+        if (enabled) {
+            Count("Vanish");
+            twin::Vanish_Image(dst, src);
+        }
+    }
+
+    void Bitmap_Table(const void* bitmap, const uint8_t* table) {
+        if (enabled) {
+            Count("Table");
+            twin::Table_Image(bitmap, table);
+        }
+    }
+
+    void Bitmap_Brighten(const void* bitmap, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width,
+        int32_t height, const uint8_t* tables, int32_t start_color) {
+        if (enabled) {
+            Count("Brighten");
+            twin::Brighten_Image(bitmap, dst_offset, src, src_skip, dst_skip, width, height, tables, start_color);
+        }
+    }
+
+    void Bitmap_Jumble(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after,
+        const uint8_t* noise_table) {
+        if (enabled) {
+            Count("Jumble");
+            twin::Jumble_Image(dst, src, mask, threshold, noise_start, toggle_after, noise_table);
+        }
+    }
+
+    void Bitmap_Line_Pixel(const void* bitmap, int32_t source_offset, int32_t x, int32_t y) {
+        if (enabled) {
+            Count("Line_Pixel");
+            twin::Line_Image_Pixel(video::current_video_page, x, y, bitmap, source_offset);
         }
     }
 
