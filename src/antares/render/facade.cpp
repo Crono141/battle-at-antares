@@ -259,6 +259,19 @@ namespace render {
         }
     }
 
+    void Combat_Shield_Ship(const void* ship, int32_t x, int32_t y) {
+        if (enabled) {
+            twin::Shield_Ship(ship, x, y);
+        }
+    }
+
+    void Combat_Shield(const s_shield& shield) {
+        if (enabled) {
+            Count("Shield");
+            twin::Shield_Image(shield);
+        }
+    }
+
     // ------------------------------------------------------------------ cursor
 
     bool Cursor_Art(const uint8_t* pixels, int32_t size, const video::s_palette_color* palette, uint32_t* argb) {

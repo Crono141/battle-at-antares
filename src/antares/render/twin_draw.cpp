@@ -342,6 +342,9 @@ namespace render::twin {
                             if (alpha != 0) {
                                 out = Over_Index(out, (uint8_t)px.mask, alpha);
                             }
+                            // Geometry drawn in the image (a stroke, a shield) stays geometry where
+                            // it shows the page under it: parity counts it apart (D21).
+                            out.mask |= px.mask & MASK_STROKE;
                             continue;
                         }
                     } else if (((px.base >> 24) & 0xFF) < 255) {
@@ -661,6 +664,36 @@ namespace render::twin {
                     record->pixels.push_back({touch.offset, pixels[touch.offset], touch.level});
                 }
                 Accept(target, x, y);
+            }
+            if (image != nullptr && image->geometry && x1 >= 0 && !replaying) {
+                // The image's geometry past its 1x pixels (a shield's round edge where the 1x rings
+                // cut corners): drawn over the untouched pixels it reaches, inside the clip.
+                const int32_t gx1 = SDL_max(SDL_max(0, draw.clip_x1), draw.x);
+                const int32_t gy1 = SDL_max(SDL_max(0, draw.clip_y1), draw.y);
+                const int32_t gx2 = SDL_min(SDL_min(plane.width - 1, draw.clip_x2), draw.x + image->width - 1);
+                const int32_t gy2 = SDL_min(SDL_min(plane.height - 1, draw.clip_y2), draw.y + image->height - 1);
+                const size_t src_stride = (size_t)image->width * S;
+                for (int32_t y = gy1; y <= gy2; ++y) {
+                    for (int32_t x = gx1; x <= gx2; ++x) {
+                        if (Marked(plane, mark, x, y)) {
+                            continue;
+                        }
+                        const s_px* src = &image->px[(size_t)(y - draw.y) * S * src_stride + (size_t)(x - draw.x) * S];
+                        bool shows = false;
+                        for (int32_t sy = 0; sy < S && !shows; ++sy) {
+                            for (int32_t sx = 0; sx < S; ++sx) {
+                                const s_px& px = src[sy * src_stride + sx];
+                                if ((px.mask & MASK_STROKE) != 0 && !((px.mask & MASK_CLEAR) != 0 && ((px.mask >> 16) & 0xFF) == 0)) {
+                                    shows = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (shows) {
+                            Image_Block(plane, x, y, *image);
+                        }
+                    }
+                }
             }
             if (!art || x1 < 0 || plane.row_dirty.empty() || replaying) {
                 return; // images get no fringe: their transparent pixels are never drawn

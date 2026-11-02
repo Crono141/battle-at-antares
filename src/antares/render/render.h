@@ -154,6 +154,27 @@ namespace render {
     // and the page rectangle it covered. The twin samples the image's HD plane per sub-pixel.
     void Bitmap_Line(const void* bitmap, int32_t mid_x, int32_t mid_y, int32_t angle, int32_t ext_x1, int32_t ext_x2, int32_t img_x1, int32_t img_y1, int32_t img_y2, int32_t scale_percent, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
 
+    // A combat ship's shield glow, as the game just built it in `image` (CMBTDRW1): the colours Outline_Bitmap grew in order (1 and 2 are
+    // spacers the game clears afterwards), the gap mask and each arc's mask (1x pixels with
+    // their sizes, applied at 0, 0) and, per arc, the ring colours 0x50 + n that
+    // weakness dropped (bit n). The twin draws the shield again at sub-pixel scale.
+    struct s_shield {
+        const void* image = nullptr;
+        uint8_t rings[16] = {};
+        int32_t ring_count = 0;
+        const uint8_t* gap_mask = nullptr;
+        const uint8_t* arc_masks[4] = {};
+        int32_t mask_width = 0; // the gap mask's size
+        int32_t mask_height = 0;
+        int32_t arc_width[4] = {};
+        int32_t arc_height[4] = {};
+        uint8_t dropped[4] = {};
+    };
+    // The ship on its own, before the shield is grown (`ship` placed at x, y in the shield image):
+    // Combat_Shield measures distances from this outline.
+    void Combat_Shield_Ship(const void* ship, int32_t x, int32_t y);
+    void Combat_Shield(const s_shield& shield);
+
     // Records that `count` pixels at `dst` (inside the current video page) were written.
     void Stamp_Run(const uint8_t* dst, int32_t count);
 
