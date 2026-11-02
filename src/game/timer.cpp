@@ -32,7 +32,11 @@ namespace timer {
                 animation_speedup++;
             }
             animation_speed_change_ms = (uint32_t)SDL_GetTicks();
+        } else {
+            return;
         }
+        // The setting lasts for the whole process and shows only in combat: log every change.
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "timer: animation speed %+d (Page %s)", (int)animation_speedup, key_code == key::KEY_PAGE_UP ? "Up" : "Down");
     }
 
     int32_t __cdecl Get_Animation_Speedup() {
