@@ -99,6 +99,7 @@ namespace replace {
                     break;
             }
         }
+        render::Recolor_All(anim, color);
     }
 
     void __cdecl Replace_Color(s_animation_header* anim, int16_t old_color, uint8_t new_color) {
@@ -186,6 +187,7 @@ namespace replace {
             }
         }
         Recolor_Hd_Bitmap(anim, old_color, 1, &new_color);
+        render::Recolor_One(anim, old_color, new_color);
     }
 
     void __cdecl Establish_Color_Gradient(int16_t scale, int16_t invert) {

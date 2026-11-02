@@ -194,6 +194,7 @@ namespace MISC {
                 }
             }
         }
+        render::Bitmap_Replace_Colors(anim, x_start, y_start, x_end, y_end, old_colors, new_colors, color_count);
     }
 
     void __cdecl Fade_Into_Screen(void (*draw_callback)(), uint8_t* status_flag, int16_t palette_id) {
@@ -468,6 +469,7 @@ namespace MISC {
                 }
             }
         }
+        render::Bitmap_Swap_Colors(bitmap, x_start, y_start, x_end, y_end, old_colors, new_colors, num_colors);
     }
 
     void __cdecl Tint_Bitmap_Colors(int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool full_bitmap, uint8_t tint_value, s_animation_header* anim) {
@@ -494,6 +496,7 @@ namespace MISC {
                 }
             }
         }
+        render::Bitmap_Tint_Colors(anim, x1, y1, x2, y2, tint_value);
     }
 
     void __cdecl Get_Bitmap_String_Range(int16_t segment_idx, int16_t divisor, int16_t* out_start_x, int16_t* out_start_y, int16_t* out_end_x, int16_t* out_end_y, char* text) {

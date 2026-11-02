@@ -273,6 +273,27 @@ namespace render {
             return nullptr;
         }
 
+        // ANTARES_HD_PROBE=x,y: catches writes to that pixel of the off or back page made outside
+        // any scope (writers without a twin), between the operations named.
+        void Probe_Unscoped(const char* op, bool opening) {
+            static uint8_t seen[2];
+            static bool known[2];
+            static const char* last_op = "(start)";
+            if (probe_x < 0 || plane_off.px.empty() || probe_x >= plane_off.width || probe_y >= plane_off.height) {
+                return;
+            }
+            const uint8_t* pages[2] = {video::g_page_off.pixels, video::g_page_back.pixels};
+            for (int32_t i = 0; i < 2; ++i) {
+                const uint8_t value = pages[i][(size_t)probe_y * plane_off.width + probe_x];
+                if (opening && depth == 0 && known[i] && value != seen[i]) {
+                    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin probe (%d,%d) %s changed outside any scope between %s and %s: %u -> %u", probe_x, probe_y, i == 0 ? "off" : "back", last_op, op, seen[i], value);
+                }
+                seen[i] = value;
+                known[i] = true;
+            }
+            last_op = op;
+        }
+
         void Accept(const void* target, int32_t x, int32_t y) {
             if (depth > 0) {
                 Accept_Rect(target, x, y, x + 1, y + 1);
@@ -281,6 +302,9 @@ namespace render {
 
         void Scope::Open(const char* op, const void* target, int32_t x, int32_t y, int32_t width, int32_t height) {
             s_scoped_timer timer(TIMER_SCOPE_OPEN);
+            if (probe_x >= 0) {
+                Probe_Unscoped(op, true);
+            }
             Note_Op(target, op);
             const uint8_t* pixels = nullptr;
             int32_t target_width = 0;
@@ -375,6 +399,9 @@ namespace render {
                         plane->row_dirty[(size_t)y] = 1;
                     }
                 }
+            }
+            if (probe_x >= 0 && depth == 0) {
+                Probe_Unscoped(entry.op, false);
             }
             if (depth == 0 && changed != 0) {
                 unported_calls[entry.op]++;

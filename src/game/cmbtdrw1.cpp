@@ -3087,6 +3087,7 @@ namespace CMBTDRW1 {
             dst_offset += bitmap_w;
             src_offset += darken_w;
         }
+        render::Bitmap_Plasma(bitmap, darken_data, darken_w, darken_h, darkness, &MOX::ship_darken_map[0][0]);
     }
 
     void __cdecl Draw_Bombs(int16_t attacker_idx, int16_t target_idx, int16_t weapon_id, int16_t damage) {

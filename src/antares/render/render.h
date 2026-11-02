@@ -125,11 +125,26 @@ namespace render {
     void Bitmap_Table(const void* bitmap, const uint8_t* table);
     // shear::Mask_Brighten_Bitmap_Pixels over `bitmap` from its pixel `dst_offset`, with the same
     // walk (source pointer, skips, size) and tables (256 per source colour from `start_color`).
-    void Bitmap_Brighten(const void* bitmap, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width,
-        int32_t height, const uint8_t* tables, int32_t start_color);
+    void Bitmap_Brighten(const void* bitmap, int32_t dst_offset, const uint8_t* src, int32_t src_skip, int32_t dst_skip, int32_t width, int32_t height, const uint8_t* tables, int32_t start_color);
     // shear::Jumble_Bitmap_Pixels moved pixels of `src` into `dst` with this noise.
-    void Bitmap_Jumble(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after,
-        const uint8_t* noise_table);
+    void Bitmap_Jumble(const void* dst, const void* src, uint32_t mask, uint32_t threshold, uint32_t noise_start, uint32_t toggle_after, const uint8_t* noise_table);
+    // The pixels of `bitmap` in [x0, x1) x [y0, y1) went through `table` (256 entries): the
+    // misc.cpp colour swaps and tints, info.cpp Colorize_Bitmap.
+    void Bitmap_Map_Rect(const void* bitmap, int32_t x0, int32_t y0, int32_t x1, int32_t y1, const uint8_t* table);
+    // misc.cpp's colour operations and info.cpp Colorize_Bitmap, called after their loops with
+    // the same arguments (the rectangle as the loops ran it); each builds its index table the way
+    // its loop treats every value and maps the plane through it.
+    void Bitmap_Replace_Colors(const void* bitmap, int32_t x0, int32_t y0, int32_t x1, int32_t y1, const uint8_t* old_colors, const uint8_t* new_colors, int32_t count);
+    void Bitmap_Swap_Colors(const void* bitmap, int32_t x0, int32_t y0, int32_t x1, int32_t y1, const uint8_t* old_colors, const uint8_t* new_colors, int32_t count);
+    void Bitmap_Tint_Colors(const void* bitmap, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint8_t tint);
+    void Bitmap_Colorize(const void* bitmap, const uint8_t* colors, int32_t first, int32_t last);
+    // replace::Replace_Color_All and Replace_Color, after their loops: loaded sprites take the same
+    // map for their art (Note_Recolor), bitmaps their plane (Bitmap_Recolor).
+    void Recolor_All(s_animation_header* anim, uint8_t color);
+    void Recolor_One(s_animation_header* anim, int16_t old_color, uint8_t new_color);
+    // CMBTDRW1::Plasma_Darken over `bitmap`: each pixel through column `level` of `darken_map`
+    // (256 x 16), the level from the plasma frame `darken` and `darkness`.
+    void Bitmap_Plasma(const void* bitmap, const uint8_t* darken, int32_t darken_width, int32_t darken_height, int32_t darkness, const uint8_t* darken_map);
     // bitmap::Draw_Bitmap_Line wrote page pixel (x, y) from pixel `source_offset` of `bitmap`.
     void Bitmap_Line_Pixel(const void* bitmap, int32_t source_offset, int32_t x, int32_t y);
 
