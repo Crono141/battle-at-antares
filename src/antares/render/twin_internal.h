@@ -58,6 +58,9 @@ namespace render::twin {
         int32_t height = 0;
         std::vector<s_px> px;           // (width * S) x (height * S), or empty (images)
         std::vector<uint8_t> row_dirty; // pages: 1x rows changed since copied onward
+        // Images: holds geometry (MASK_STROKE pixels) that may show past its 1x pixels (a combat
+        // shield): drawing the image also draws those (twin_draw.cpp, Render_Plane).
+        bool geometry = false;
     };
 
     extern s_plane plane_off;
@@ -126,6 +129,9 @@ namespace render::twin {
     void Capture_Image(const void* header, const uint8_t* page, int32_t x1, int32_t y1, int32_t width, int32_t height);
     void Scale_Image(const void* dst, const void* src);
     void Outline_Image(const void* header, uint8_t color, bool no_glass);
+    // render::Combat_Shield (twin_shield.cpp).
+    void Shield_Ship(const void* ship, int32_t x, int32_t y);
+    void Shield_Image(const s_shield& shield);
     void Line_Image(const uint8_t* page, const void* header, int32_t mid_x, int32_t mid_y, int32_t angle, int32_t ext_x1, int32_t ext_x2, int32_t img_x1, int32_t img_y1, int32_t img_y2, int32_t scale_percent, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
     // Plane blocks of the image in [x0, x1) x [y0, y1) through an index table.
     void Map_Image_Rect(const void* header, int32_t x0, int32_t y0, int32_t x1, int32_t y1, const uint8_t* table);

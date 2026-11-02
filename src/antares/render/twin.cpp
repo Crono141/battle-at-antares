@@ -158,6 +158,7 @@ namespace render {
             plane.width = width;
             plane.height = height;
             plane.px.clear();
+            plane.geometry = false;
             // Created again inside an operation on it (Draw_Picture_To_Bitmap, Screen_Bitmap_Capture,
             // Scale_Bitmap): the open scope covers the new image, starting from a blank one.
             for (int32_t i = 0; i < depth; ++i) {
