@@ -424,6 +424,9 @@ namespace render {
         for (auto it = registrations.begin(); it != registrations.end();) {
             it = it->first >= begin && it->first < end ? registrations.erase(it) : std::next(it);
         }
+        for (auto it = stats_names.begin(); it != stats_names.end();) {
+            it = it->first >= begin && it->first < end ? stats_names.erase(it) : std::next(it);
+        }
     }
 
     void Move_Loads(const void* begin, const void* end, ptrdiff_t delta) {

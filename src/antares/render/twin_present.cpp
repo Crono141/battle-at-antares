@@ -84,7 +84,17 @@ namespace render::twin {
             window_started = now;
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: 100 frames took %.0f ms; slowest scopes: %s; per frame: snapshot %.2f ms, close %.2f ms, art %.2f ms", window_ms, window_slowest.empty() ? "(none)" : window_slowest.c_str(), (double)stats_timer_ns[TIMER_SCOPE_OPEN] / 1e8, (double)stats_timer_ns[TIMER_SCOPE_CLOSE] / 1e8, (double)stats_timer_ns[TIMER_TWIN_RENDER] / 1e8);
             stats_timer_ns[TIMER_SCOPE_OPEN] = stats_timer_ns[TIMER_SCOPE_CLOSE] = stats_timer_ns[TIMER_TWIN_RENDER] = 0;
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: %s; cache %lld MB decoded, %d frames queued", Late_Stats().c_str(), (long long)(decoded_bytes.load() >> 20), Queue_Length());
+            // Resident memory, to spot growth over a long session (Linux; 0 elsewhere).
+            long long rss_mb = 0;
+            if (FILE* statm = fopen("/proc/self/statm", "r")) {
+                long long size = 0;
+                long long resident = 0;
+                if (fscanf(statm, "%lld %lld", &size, &resident) == 2) {
+                    rss_mb = resident * 4096 >> 20;
+                }
+                fclose(statm);
+            }
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "twin stats: %s; cache %lld MB decoded, %d frames queued; process %lld MB resident", Late_Stats().c_str(), (long long)(decoded_bytes.load() >> 20), Queue_Length(), rss_mb);
             window_publish_ns = 0;
         }
     }
