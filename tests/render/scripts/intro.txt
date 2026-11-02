@@ -1,0 +1,10 @@
+# The intro cutscene with its HD frames (WP1.6): full-colour frames from hd/VIDEO/INTRO.
+# args: -config profiles/hd.cfg
+# intro: play
+# timeout: 120
+wait 15000
+screenshot_hd $OUT/intro-a.png
+screenshot_page $OUT/intro-a.page.png
+wait 6000
+screenshot_hd $OUT/intro-b.png
+quit

@@ -255,8 +255,8 @@ namespace render {
 
     // A Smacker video was opened (smckplay::Open_Smacker_Animation).
     void Video_Open(const char* file_name, int32_t width, int32_t height, int32_t frame_count);
-    // Source frame `frame` was just written at (left, top) of the off page.
-    void Video_Frame(int32_t left, int32_t top, int32_t frame);
+    // Source frame `frame` (width x height) was just written at (left, top) of the off page.
+    void Video_Frame(int32_t left, int32_t top, int32_t width, int32_t height, int32_t frame);
     // Before waiting for the next source frame, due at `next_frame_ns` (SDL_GetTicksNS):
     // publishes the in-between frame at its time when it is ready.
     void Video_Between_Frames(uint64_t next_frame_ns, uint64_t frame_duration_ns);

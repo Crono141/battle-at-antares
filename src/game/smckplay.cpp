@@ -147,6 +147,7 @@ namespace smckplay {
                 dst_row[x] = src_row[x];
             }
         }
+        render::Video_Frame(left, top, (int32_t)smacker_state.width, (int32_t)smacker_state.height, (int32_t)smacker_state.current_frame);
     }
 
     void Update_Smacker_Frame_Metadata() {
@@ -230,7 +231,6 @@ namespace smckplay {
 
             smckplay::Set_Smacker_Palette();
             Blit_Smacker_Frame(left, top);
-            render::Video_Frame(left, top, (int32_t)smacker_state.current_frame);
 
             setvesa::Add_Square_To_Scan_List(left,
                 top,
