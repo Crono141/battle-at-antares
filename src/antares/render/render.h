@@ -51,6 +51,10 @@ namespace render {
     // with its art in memory instead of streaming it in. Waits at most `max_ms`.
     void Begin_Preload();
     void End_Preload(uint32_t max_ms);
+    // Queues the HD art of an LBX entry the screen is about to draw without loading it into
+    // memory first (file animations, e.g. the diplomacy rooms): its first `first_frames` frames
+    // join a preload in progress, the rest are decoded behind them.
+    void Preload_Asset(const char* lbx_name, int32_t entry, int32_t first_frames);
     // Stops the art decoding threads (before SDL shuts down).
     void Shutdown();
 

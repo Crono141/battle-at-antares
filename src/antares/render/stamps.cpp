@@ -206,6 +206,7 @@ namespace render {
             Request_Frame(const_cast<s_hd_frame*>(art), true);
             current_draw.waiting = true;
         }
+        Read_Ahead(asset, frame, 8);
         current_draw.source = SOURCE_ART;
         current_draw.frame = art;
         current_draw.x = x;

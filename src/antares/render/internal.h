@@ -204,6 +204,9 @@ namespace render {
     // An entry of `lbx_name` is being loaded: enters the screen that file belongs to, if any.
     void Enter_Screen_Of(const char* lbx_name);
     void Pump_Prefetch(uint64_t budget_ns);
+    // Queues the `count` frames after `frame` (wrapping) that are not decoded yet (file animations draw
+    // frame by frame without loading the entry, so nothing else reads their art ahead).
+    void Read_Ahead(s_hd_asset* asset, int32_t frame, int32_t count);
 
     // ------------------------------------------------------------ glyphs (glyphs.cpp)
 

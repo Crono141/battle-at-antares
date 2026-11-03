@@ -44,6 +44,7 @@ namespace render::twin {
         uint32_t pixels = 0;
         End_Frame_Unported(&names, &pixels);
         published_unported = names;
+        Hold_For_Late_Art();
         Replay_Late_Art();
         publish_count++;
         Evict_Over_Budget();

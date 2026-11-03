@@ -415,9 +415,16 @@ namespace DIP_SCRN {
     }
 
     void __cdecl Diplomacy_Mouse_Init(int16_t ambassador_player_id) {
+        // The screen is faded out: decode the room's first HD frames now, so it never opens on
+        // the original art (the rooms are file animations, read frame by frame when drawn).
+        render::Begin_Preload();
         diplomacy_mouse_bitmap = (uint8_t*)allocate::Allocate_First_Block(MOX::screen_seg, 0x395);
         s_animation_header* diplomat_anim = (s_animation_header*)
             farload::Far_Reload_Next("DIPLOMAT.LBX", (int)MOX::player[ambassador_player_id].race, MOX::screen_seg);
+        const int16_t room = (int16_t)((uint8_t)MOX::player[ambassador_player_id].race * 2 + 13);
+        render::Preload_Asset("DIPLOMAT.LBX", room, 1);     // the room opens on frame 0
+        render::Preload_Asset("DIPLOMAT.LBX", room + 1, 2); // the ambassador: 0 or 1
+        render::End_Preload(2000); // also the race's cursor, drawn once into a bitmap below
 
         bitmap::Clear_Mouse_Image(0);
         bitmap::Create_Blank_Bitmap(30, 30, diplomacy_mouse_bitmap);

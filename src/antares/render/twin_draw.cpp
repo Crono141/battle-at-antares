@@ -610,6 +610,9 @@ namespace render::twin {
                 }
                 late_draws.push_back({draw, generation, publish_count, target, {}});
                 record = &late_draws.back();
+                if (trace_enabled) {
+                    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd trace %llu late %s", (unsigned long long)SDL_GetTicks(), draw.frame->vfs_path.c_str());
+                }
             }
             const s_plane* image = art ? nullptr : Image_Source();
             if (plane.row_dirty.empty() && plane.width >= 40) {
@@ -857,9 +860,58 @@ namespace render::twin {
         return late_draws.size();
     }
 
+    namespace {
+        // Holding a frame for its art (Hold_For_Late_Art): a budget of LATE_HOLD_MS that refills
+        // at that much per second, so a screen that keeps streaming art never slows down by more
+        // than about 15 percent; and the stats window's total.
+        constexpr uint64_t LATE_HOLD_MS = 150;
+        uint64_t hold_budget_ns = LATE_HOLD_MS * SDL_NS_PER_MS;
+        uint64_t hold_refilled_ns;
+        uint64_t late_held_ns;
+        uint32_t late_held_frames;
+        uint32_t late_shown; // draws of a frame shown before their art (after any hold)
+    } // namespace
+
+    void Hold_For_Late_Art() {
+        const uint64_t now = SDL_GetTicksNS();
+        if (hold_refilled_ns != 0) {
+            hold_budget_ns = SDL_min(LATE_HOLD_MS * SDL_NS_PER_MS, hold_budget_ns + (now - hold_refilled_ns) * LATE_HOLD_MS / 1000);
+        }
+        hold_refilled_ns = now;
+        // Only this frame's late draws: older ones are on screen already, waiting changes nothing.
+        auto waiting = [] {
+            uint32_t count = 0;
+            for (const s_late& entry : late_draws) {
+                if (entry.published == publish_count) {
+                    const uint8_t state = entry.draw.frame->load.load(std::memory_order_acquire);
+                    count += state == LOAD_QUEUED || state == LOAD_LOADING ? 1 : 0;
+                }
+            }
+            return count;
+        };
+        if (hold_budget_ns == 0 || waiting() == 0) {
+            late_shown += waiting();
+            return;
+        }
+        uint64_t held = 0;
+        while (held < hold_budget_ns && waiting() != 0) {
+            SDL_DelayNS(2 * SDL_NS_PER_MS);
+            held = SDL_GetTicksNS() - now;
+        }
+        late_shown += waiting();
+        held = SDL_min(held, hold_budget_ns);
+        hold_budget_ns -= held;
+        hold_refilled_ns = SDL_GetTicksNS();
+        late_held_ns += held;
+        late_held_frames++;
+    }
+
     std::string Late_Stats() {
-        char text[256];
-        snprintf(text, sizeof(text), "late art: %u draws replayed (off %u, back %u, images %u; %u pixels, %u copied to the other page; %u drawn over, %u changed), %u without plane", late_replayed, late_on_off, late_on_back, late_on_image, late_upgraded, late_twins, late_drawn_over, late_changed, late_no_plane);
+        char text[320];
+        snprintf(text, sizeof(text), "late art: %u draws replayed (off %u, back %u, images %u; %u pixels, %u copied to the other page; %u drawn over, %u changed), %u without plane; held %llu ms in %u frames, %u draws shown before their art", late_replayed, late_on_off, late_on_back, late_on_image, late_upgraded, late_twins, late_drawn_over, late_changed, late_no_plane, (unsigned long long)(late_held_ns / SDL_NS_PER_MS), late_held_frames, late_shown);
+        late_held_ns = 0;
+        late_held_frames = 0;
+        late_shown = 0;
         late_replayed = late_upgraded = late_drawn_over = late_changed = late_no_plane = 0;
         late_on_off = late_on_back = late_on_image = late_twins = 0;
         return text;
