@@ -30,6 +30,10 @@ struct s_colony_combat_popup_data {
 };
 
 namespace MAINPUPS {
+    // `combat bombardment_hit_frames` (specs/config/main.json5): frames between bomb hits in the
+    // bombardment popup (Apply_Next_Bomb_Hit). Classic 5; Antares default 2.
+    extern uint8_t bombardment_hit_frames;
+
     extern char* g_msg_ptr;
 
     extern s_animation_header* anims[38];

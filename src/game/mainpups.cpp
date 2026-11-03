@@ -1461,7 +1461,10 @@ namespace MAINPUPS {
     void __cdecl Apply_Next_Bomb_Hit(s_combat_bomb_result* bomb, int16_t* state, int16_t* bomb_hits, int16_t* bio_hits) {
         s_colony* colony = &MOX::colony[bomb->colony_idx];
 
-        if (*state == 1 || *state == 3 || COLGCBT::g_ctr % 5 != 0) {
+        // One hit every `bombardment_hit_frames` frames of 55 ms (classic: 5). The hits, their
+        // order and their random placement are the same at any pace.
+        const int32_t hit_frames = bombardment_hit_frames > 0 ? bombardment_hit_frames : 1;
+        if (*state == 1 || *state == 3 || COLGCBT::g_ctr % hit_frames != 0) {
             return;
         }
 
