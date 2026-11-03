@@ -838,7 +838,11 @@ namespace MAINPUPS {
     }
 
     bool __cdecl Random_New_Officer_Popup(int16_t player_idx) {
-        int16_t star_idx = MOX::planet[ERIC::Player_Capitol_World(player_idx)].star_index;
+        // Player_Capitol_World returns a colony index: its planet's star is the capital's
+        // (indexing planet[] with the colony index anchored the popup, and the map's re-centring,
+        // on an unrelated star).
+        const int16_t capital_colony = ERIC::Player_Capitol_World(player_idx);
+        int16_t star_idx = capital_colony >= 0 ? MOX::planet[MOX::colony[capital_colony].planet].star_index : -1;
 
         s_colors colors;
         colors.colors[0] = 0x9F;
