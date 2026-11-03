@@ -66,6 +66,7 @@ namespace render {
                     continue; // already taken (queued twice) or evicted meanwhile
                 }
                 bool ok = false;
+                const uint64_t decode_start = SDL_GetTicksNS();
                 if (slow_io_ms != 0) {
                     SDL_Delay(slow_io_ms);
                 }
@@ -88,6 +89,9 @@ namespace render {
                 }
                 if (ok) {
                     decoded_bytes += Frame_Bytes(*frame);
+                }
+                if (trace_enabled) {
+                    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd trace %llu decoded %s in %.1f ms", (unsigned long long)SDL_GetTicks(), frame->vfs_path.c_str(), (double)(SDL_GetTicksNS() - decode_start) / 1e6);
                 }
                 if (art_hot_reload) {
                     frame->modified = Art_Modified(frame);
@@ -487,6 +491,38 @@ namespace render {
             const auto screen = screen_by_enter.find(lbx);
             if (screen != screen_by_enter.end()) {
                 Enter_Screen(screen->second);
+            }
+        }
+    }
+
+    void Preload_Asset(const char* lbx_name, int32_t entry, int32_t first_frames) {
+        if (!enabled) {
+            return;
+        }
+        const int32_t index = Find_Or_Create_Asset(lbx_name, entry);
+        if (index < 0) {
+            return;
+        }
+        s_hd_asset* asset = assets[index];
+        if (!asset->loaded) {
+            Load_Asset(asset);
+        }
+        asset->last_used = publish_count;
+        const bool was_preloading = preloading;
+        for (int32_t i = 0; i < asset->frame_count; ++i) {
+            // The frames waited for go ahead of everything queued; the rest follow in order.
+            preloading = was_preloading && i < first_frames;
+            Request_Frame(&asset->frames[i], i < first_frames ? PRIORITY_URGENT : PRIORITY_SCREEN);
+        }
+        preloading = was_preloading;
+    }
+
+    void Read_Ahead(s_hd_asset* asset, int32_t frame, int32_t count) {
+        // Animations loop, so the frames after the last one are the first ones again.
+        for (int32_t i = 1; i <= count && i < asset->frame_count; ++i) {
+            const s_hd_frame* ahead = Resolve_Frame(asset, (frame + i) % asset->frame_count);
+            if (ahead != nullptr && !Frame_Ready(ahead)) {
+                Request_Frame(const_cast<s_hd_frame*>(ahead), PRIORITY_SCREEN);
             }
         }
     }

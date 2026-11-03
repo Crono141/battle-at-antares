@@ -110,6 +110,9 @@ namespace render::twin {
     void End_Draw();
     // Late art: replays art draws whose frame has finished decoding (game thread, at publish).
     void Replay_Late_Art();
+    // Before publishing: waits a little (capped, see twin_draw.cpp) for the art of draws this
+    // frame made without it, so the frame is shown with its HD art instead of popping in after.
+    void Hold_For_Late_Art();
     size_t Late_Count();
     std::string Late_Stats(); // and resets the window
     void Reset_Late_Art();
