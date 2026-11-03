@@ -51,6 +51,7 @@ set(ORION2RE_DEFAULT_CONFIG_SOURCES
     src/game/tech_config.cpp
     src/game/techinit_config.cpp
     src/antares/render/render_config.cpp
+    src/game/mainpups_config.cpp
 )
 
 orion2re_test_shared_sources(ORION2RE_DEFAULT_CONFIG_OBJECTS ${ORION2RE_DEFAULT_CONFIG_SOURCES})

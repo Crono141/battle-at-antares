@@ -9764,6 +9764,22 @@
       },
     },
 
+    bombardment_hit_frames: {
+      title: "Bombardment pace",
+      description: "Sets how many animation frames pass between bomb hits when a planet is bombarded.",
+      remarks: "Each frame lasts at least one 55 ms tick. Classic MOO2 drops one bomb every 5 frames; Antares defaults to 2 (about 2.5 times as fast, so explosions overlap). The hits, their order and their random placement are the same at any pace. The host's value is used in multiplayer.",
+      examples: ["combat bombardment_hit_frames = 5;"],
+      group: "synchronized_interface",
+      namespace: "combat",
+      type: "uint8",
+      constraints: { min: 1, max: 10 },
+      default: 2,
+      bind_root: {
+        header: "game/mainpups.h",
+        symbol: "MAINPUPS::bombardment_hit_frames",
+      },
+    },
+
     art_hot_reload: {
       title: "Art hot reload",
       description: "Reloads HD art files when they change on disk, for artists working on an art pack.",
