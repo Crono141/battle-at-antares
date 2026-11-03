@@ -226,6 +226,10 @@ namespace render {
 
     // The HD pack was found (Initialize): the twin planes run.
     extern bool enabled;
+    // Developer setting `render art_hot_reload = true;` (PLAN.md section 5; local disk only):
+    // loose art folders are looked at even with an index, entries without art are looked up
+    // again, and changed art files are decoded again (hot_reload.cpp).
+    extern bool art_hot_reload;
 
     namespace twin {
 

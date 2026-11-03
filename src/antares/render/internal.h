@@ -47,16 +47,38 @@ namespace render {
         uint8_t* index;
         uint8_t* alpha;
         uint8_t* rgb;     // full-colour art (RGB per pixel) instead of index, or null
-        bool full_colour; // the PNG is RGBA (sprite.json "format": "rgba")
+        uint8_t* mask;    // full-colour art: its mask image (D20, art::Mask_Meaning), or null
+        bool full_colour; // RGBA art: sprite.json "format": "rgba", or the file's own format
+        // The file as sprite.json describes it: its size in its own pixels and its scale. 0 when
+        // inferred (no sprite.json): the scale comes from the 1x frame size (base_width x
+        // base_height) at decode. Decoded art is resampled to scale S; `width` and `height` above
+        // are that size (set at decode for inferred frames).
+        int32_t file_width;
+        int32_t file_height;
+        int32_t file_scale;
+        int32_t base_width;
+        int32_t base_height;
         std::atomic<uint8_t> load;
         uint8_t queued_priority;     // e_priority of the queue it was last put in (game thread)
         std::string vfs_path;        // hd/<LBX>/<EEE>/<FFF>.png
         std::string disk_path;       // the same file on disk when it is not inside a zip
         std::vector<uint8_t> packed; // PNG bytes read on the game thread (zipped packs)
+        std::string mask_vfs_path;   // <FFF>.mask.png beside it (may not exist)
+        std::string mask_disk_path;
+        std::vector<uint8_t> packed_mask;
+        int64_t modified; // hot reload: the file's modification time when it was decoded
     };
 
     struct s_hd_asset {
-        std::string directory;
+        std::string key;       // "<LBX>/<EEE>"
+        std::string directory; // "art/<key>" or "hd/<key>" (the alias, PLAN.md section 5)
+        // No sprite.json (section 5): one frame file per frame of the LBX entry, the scale
+        // inferred from the 1x size, origin 0,0. Needs the entry's header (frame count, size),
+        // so it is completed when the game loads the entry (Register_Load).
+        bool inferred;
+        std::string extension; // ".png" or ".webp" (inferred assets)
+        int32_t base_width;
+        int32_t base_height;
         bool loaded;
         bool has_source_hash;
         uint32_t source_hash; // FNV-1a of the LBX entry the art was made from
@@ -142,12 +164,21 @@ namespace render {
     extern std::unordered_map<const void*, s_registration> registrations;
 
     bool Read_Vfs_File(const char* path, std::vector<uint8_t>* bytes);
-    bool Decode_Frame_Bytes(const uint8_t* bytes, size_t size, const std::string& name, s_hd_frame* frame);
+    bool Decode_Frame_Bytes(const uint8_t* bytes, size_t size, const std::string& name, s_hd_frame* frame, const uint8_t* mask_bytes = nullptr, size_t mask_size = 0);
     bool Load_Frame_Png(const std::string& path, s_hd_frame* frame);
     void Load_Index();
-    void Load_Asset(s_hd_asset* asset);
+    // Reads an asset's frames list (sprite.json, the index, or inferred from `header`, the LBX
+    // entry's s_animation_header, when it has no sprite.json).
+    void Load_Asset(s_hd_asset* asset, const uint8_t* header = nullptr);
+    // Hot reload (hot_reload.cpp; the setting is in render.h): at publish, decodes changed art
+    // files again; `Art_Modified` is a frame's file time (with its mask's), -1 off disk.
+    void Poll_Hot_Reload();
+    int64_t Art_Modified(const s_hd_frame* frame);
     const s_hd_frame* Resolve_Frame(const s_hd_asset* asset, int32_t frame_number);
     int32_t Find_Or_Create_Asset(const char* lbx_name, int32_t entry);
+    // Looks for an entry's art in loose folders (art/, then hd/); sets the asset's directory and
+    // whether it is inferred (no sprite.json).
+    bool Find_Loose_Art(const std::string& key, s_hd_asset* asset);
     // An asset listed by screens.json: its sprite.json is known to exist.
     int32_t Find_Or_Create_Known_Asset(const char* key);
 
@@ -164,6 +195,7 @@ namespace render {
     int32_t Queue_Length();
     bool Frame_Ready(const s_hd_frame* frame);
     void Prefetch_Asset(s_hd_asset* asset);
+    void Free_Frame(s_hd_frame& frame); // a decoded frame's pixels (game thread)
     void Free_Asset_Frames(s_hd_asset* asset);
     void Evict_Over_Budget();
     void Load_Screen_Map();

@@ -36,10 +36,17 @@ namespace render {
             }
             int32_t slot = -1;
             std::string file_key(key, strchr(key, '/') - key);
-            if (glyph_font_count < HD_MAX_GLYPH_FONTS &&
-                vfs::File_Exists(("hd/" + file_key + "/font.json").c_str()) != 0) {
+            // art/ first, then its alias hd/ (PLAN.md section 5).
+            const char* root = nullptr;
+            for (const char* candidate : {"art", "hd"}) {
+                if (root == nullptr && glyph_font_count < HD_MAX_GLYPH_FONTS &&
+                    vfs::File_Exists((std::string(candidate) + "/" + file_key + "/font.json").c_str()) != 0) {
+                    root = candidate;
+                }
+            }
+            if (root != nullptr) {
                 s_hd_glyph_font* font = new s_hd_glyph_font();
-                font->directory = std::string("hd/") + key;
+                font->directory = std::string(root) + "/" + key;
                 font->present = true;
                 glyph_fonts[glyph_font_count] = font;
                 slot = glyph_font_count++;
