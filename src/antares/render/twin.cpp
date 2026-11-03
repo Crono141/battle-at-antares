@@ -36,6 +36,7 @@ namespace render {
                 int32_t y1;
                 std::vector<uint8_t> before; // the rectangle's 1x pixels when opened
                 uint64_t opened_ns;          // ANTARES_HD_STATS: when it was opened
+                const s_animation_header* anim; // a sprite draw's sprite (named in the stats)
             };
             std::vector<s_open> open_scopes;
             int32_t depth;
@@ -339,6 +340,7 @@ namespace render {
             entry.x1 = x1;
             entry.y1 = y1;
             entry.opened_ns = stats_enabled && depth == 0 ? SDL_GetTicksNS() : 0;
+            entry.anim = nullptr;
             entry.before.resize((size_t)(x1 - x0) * (y1 - y0));
             for (int32_t row = y0; row < y1; ++row) {
                 memcpy(&entry.before[(size_t)(row - y0) * (x1 - x0)], pixels + (size_t)row * target_width + x0, (size_t)(x1 - x0));
@@ -352,9 +354,12 @@ namespace render {
             }
             if ((anim->flags & ANIMATION_FLAG_DRAW_MODE_MASK) == ANIMATION_DRAW_MODE_SCREEN_BACKGROUND) {
                 Open(op, target, 0, 0, 0, 0);
-                return;
+            } else {
+                Open(op, target, x, y, anim->width, anim->height);
             }
-            Open(op, target, x, y, anim->width, anim->height);
+            if (slot_ >= 0) {
+                open_scopes[(size_t)slot_].anim = anim;
+            }
         }
 
         void Scope::Close() {
@@ -406,7 +411,20 @@ namespace render {
             }
             if (depth == 0 && changed != 0) {
                 unported_calls[entry.op]++;
-                window_calls[entry.op]++;
+                // The stats window names the sprite, so a player's log says what to port:
+                // "Draw(CMBTSHP.LBX#012)" or "Draw(59x60)" for one made in memory.
+                if (stats_enabled && entry.anim != nullptr) {
+                    const auto name = stats_names.find(entry.anim);
+                    char text[96];
+                    if (name != stats_names.end()) {
+                        snprintf(text, sizeof(text), "%s(%s)", entry.op, name->second.c_str());
+                    } else {
+                        snprintf(text, sizeof(text), "%s(%dx%d)", entry.op, (int)entry.anim->width, (int)entry.anim->height);
+                    }
+                    window_calls[text]++;
+                } else {
+                    window_calls[entry.op]++;
+                }
             }
             unported_pixels += changed;
             window_pixels += changed;
