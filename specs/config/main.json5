@@ -38,7 +38,7 @@
     interface_and_presentation: {
       title: "Interface and presentation",
       description: "Local controls, display options, and presentation behavior.",
-      namespaces: ["interface"],
+      namespaces: ["interface", "render"],
     },
     new_game_and_races: {
       title: "New game and races",
@@ -9761,6 +9761,21 @@
       bind_root: {
         header: "game/map_scale.h",
         symbol: "MAP_SCALE::maximum_galaxy_zoom_mode",
+      },
+    },
+
+    art_hot_reload: {
+      title: "Art hot reload",
+      description: "Reloads HD art files when they change on disk, for artists working on an art pack.",
+      remarks: "A developer setting for art packs in loose folders on a local disk: art folders are looked at even when the pack has an index, sprites that had no art are looked up again, and changed frame and mask files are decoded again and show on the next draw. Polling many files over a network drive is slow, so leave it off for play. Not saved or synchronized.",
+      examples: ["render art_hot_reload = true;"],
+      group: "interface",
+      namespace: "render",
+      type: "bool",
+      default: false,
+      bind_root: {
+        header: "antares/render/render.h",
+        symbol: "render::art_hot_reload",
       },
     },
 

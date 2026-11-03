@@ -79,7 +79,10 @@ namespace render {
             return;
         }
         initialized = true;
-        enabled = vfs::File_Exists("hd/pack.json") != 0;
+        // An art pack: art/ (format v2) or its alias hd/, marked by pack.json or an index.
+        for (const char* marker : {"art/pack.json", "hd/pack.json", "art/index.json", "hd/index.json"}) {
+            enabled = enabled || vfs::File_Exists(marker) != 0;
+        }
         const char* stats = antares::Get_Env("HD_STATS");
         stats_enabled = enabled && stats != nullptr;
         trace_enabled = enabled && antares::Get_Env("HD_TRACE") != nullptr;

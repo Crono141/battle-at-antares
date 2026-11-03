@@ -48,6 +48,7 @@ namespace render::twin {
         publish_count++;
         Evict_Over_Budget();
         Pump_Prefetch(PREFETCH_BUDGET_NS);
+        Poll_Hot_Reload();
         Copy_Dirty_Rows(plane_off, plane_published);
         // `none` pixels follow screen fades: compare the shown palette with the base palette.
         uint64_t base = 0;

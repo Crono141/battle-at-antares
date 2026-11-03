@@ -50,6 +50,7 @@ set(ORION2RE_DEFAULT_CONFIG_SOURCES
     src/game/spy_config.cpp
     src/game/tech_config.cpp
     src/game/techinit_config.cpp
+    src/antares/render/render_config.cpp
 )
 
 orion2re_test_shared_sources(ORION2RE_DEFAULT_CONFIG_OBJECTS ${ORION2RE_DEFAULT_CONFIG_SOURCES})
@@ -513,6 +514,13 @@ orion2re_add_unit_test(test_config_lifecycle
         tests/fakes/fake_arena_runtime.cpp
         tests/fakes/fake_config_runtime.cpp
     LINK_SDL
+)
+
+orion2re_add_unit_test(test_art_format
+    SOURCES
+        tests/unit/art_format_test.cpp
+    PRODUCTION_SOURCES
+        src/antares/render/art_format.cpp
 )
 
 orion2re_add_unit_test(test_startup_options

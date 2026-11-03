@@ -81,7 +81,8 @@ namespace render {
             }
             s_hd_asset* asset = assets[found->second.asset];
             if (!asset->loaded) {
-                Load_Asset(asset);
+                Load_Asset(asset, found->second.header);
+                Prefetch_Asset(asset);
             }
             if (asset->has_source_hash && asset->source_hash != found->second.data_hash) {
                 if (stats_enabled) {

@@ -33,7 +33,7 @@ namespace render {
         bool workers_started;
 
         int64_t Frame_Bytes(const s_hd_frame& frame) {
-            return (int64_t)frame.width * frame.height * (frame.full_colour ? 4 : 2);
+            return (int64_t)frame.width * frame.height * ((frame.full_colour ? 4 : 2) + (frame.mask != nullptr ? 1 : 0));
         }
 
         size_t Queued_Count() {
@@ -72,16 +72,25 @@ namespace render {
                 if (!frame->disk_path.empty()) {
                     size_t size = 0;
                     void* bytes = SDL_LoadFile(frame->disk_path.c_str(), &size);
+                    size_t mask_size = 0;
+                    // The mask image may not exist: a failed open is the answer.
+                    void* mask = !frame->mask_disk_path.empty() ? SDL_LoadFile(frame->mask_disk_path.c_str(), &mask_size) : nullptr;
                     if (bytes != nullptr) {
-                        ok = Decode_Frame_Bytes((const uint8_t*)bytes, size, frame->disk_path, frame);
+                        ok = Decode_Frame_Bytes((const uint8_t*)bytes, size, frame->disk_path, frame, (const uint8_t*)mask, mask_size);
                         SDL_free(bytes);
                     }
+                    SDL_free(mask);
                 } else {
-                    ok = !frame->packed.empty() && Decode_Frame_Bytes(frame->packed.data(), frame->packed.size(), frame->vfs_path, frame);
+                    ok = !frame->packed.empty() && Decode_Frame_Bytes(frame->packed.data(), frame->packed.size(), frame->vfs_path, frame,
+                                                       frame->packed_mask.empty() ? nullptr : frame->packed_mask.data(), frame->packed_mask.size());
                     std::vector<uint8_t>().swap(frame->packed);
+                    std::vector<uint8_t>().swap(frame->packed_mask);
                 }
                 if (ok) {
                     decoded_bytes += Frame_Bytes(*frame);
+                }
+                if (art_hot_reload) {
+                    frame->modified = Art_Modified(frame);
                 }
                 frame->load.store(ok ? LOAD_READY : LOAD_FAILED, std::memory_order_release);
             }
@@ -134,6 +143,9 @@ namespace render {
         if (frame == nullptr || frame->state != FRAME_ART) {
             return;
         }
+        if (frame->file_scale <= 0 && frame->base_width <= 0) {
+            return; // inferred art needs the 1x size first (Register_Load)
+        }
         if (preloading) {
             preload_frames.push_back(frame);
         }
@@ -153,6 +165,9 @@ namespace render {
         }
         if (frame->disk_path.empty() && frame->packed.empty()) {
             (void)Read_Vfs_File(frame->vfs_path.c_str(), &frame->packed);
+            if (!frame->mask_vfs_path.empty() && vfs::File_Exists(frame->mask_vfs_path.c_str()) != 0) {
+                (void)Read_Vfs_File(frame->mask_vfs_path.c_str(), &frame->packed_mask);
+            }
         }
         std::lock_guard<std::mutex> lock(queue_mutex);
         if (priority == PRIORITY_URGENT) {
@@ -189,18 +204,22 @@ namespace render {
         }
     }
 
+    void Free_Frame(s_hd_frame& frame) {
+        if (frame.load.load(std::memory_order_acquire) != LOAD_READY) {
+            return;
+        }
+        decoded_bytes -= Frame_Bytes(frame);
+        free(frame.index);
+        free(frame.alpha);
+        free(frame.rgb);
+        free(frame.mask);
+        frame.index = frame.alpha = frame.rgb = frame.mask = nullptr;
+        frame.load.store(LOAD_NONE, std::memory_order_release);
+    }
+
     void Free_Asset_Frames(s_hd_asset* asset) {
         for (int32_t i = 0; i < asset->frame_count; ++i) {
-            s_hd_frame& frame = asset->frames[i];
-            if (frame.load.load(std::memory_order_acquire) != LOAD_READY) {
-                continue;
-            }
-            free(frame.index);
-            free(frame.alpha);
-            free(frame.rgb);
-            frame.index = frame.alpha = frame.rgb = nullptr;
-            decoded_bytes -= Frame_Bytes(frame);
-            frame.load.store(LOAD_NONE, std::memory_order_release);
+            Free_Frame(asset->frames[i]);
         }
     }
 
@@ -278,14 +297,14 @@ namespace render {
 
     void Load_Screen_Map() {
         std::vector<uint8_t> json;
-        if (!Read_Vfs_File("hd/screens.json", &json)) {
+        if (!Read_Vfs_File("art/screens.json", &json) && !Read_Vfs_File("hd/screens.json", &json)) {
             return;
         }
         yyjson_doc* document = yyjson_read((const char*)json.data(), json.size(), 0);
         yyjson_val* root = document != nullptr ? yyjson_doc_get_root(document) : nullptr;
         yyjson_val* list = root != nullptr ? yyjson_obj_get(root, "screens") : nullptr;
         if (!yyjson_is_arr(list)) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "hd: invalid hd/screens.json");
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "hd: invalid screens.json");
             yyjson_doc_free(document);
             return;
         }

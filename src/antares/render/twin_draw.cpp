@@ -2,6 +2,7 @@
 
 #include "antares/render/internal.h"
 #include "antares/render/twin_internal.h"
+#include "antares/render/art_format.h"
 #include "antares/identity.h"
 
 #include <algorithm>
@@ -170,6 +171,19 @@ namespace render::twin {
             return out;
         }
 
+        // A full-colour pixel painted as index `painted` (its mask), shown as index `target`: the
+        // target's colour at the pixel's brightness relative to the painted index's colour.
+        uint32_t Shade_Index(uint32_t rgb, uint8_t painted, uint8_t target) {
+            const uint32_t through = Base_Rgb(target);
+            const uint32_t base_luma = SDL_max(Luma(Base_Rgb(painted)), 1u);
+            const uint32_t ratio = SDL_clamp(Luma(rgb) * 256u / base_luma, 64u, 768u);
+            uint32_t out = 0;
+            for (int32_t shift = 0; shift <= 16; shift += 8) {
+                out |= SDL_min(255u, ((through >> shift) & 0xFF) * ratio / 256u) << shift;
+            }
+            return out;
+        }
+
         // Glass of level `level` over `dest`: index-bound pixels go through the game's own glass
         // table (exactly what the 1x pixel gets); full-colour pixels are tinted in true colour.
         // The D20 `glass` kind (WP1.4) refines partial coverage.
@@ -227,6 +241,22 @@ namespace render::twin {
             }
             if (frame->rgb != nullptr) {
                 uint32_t rgb = ((uint32_t)frame->rgb[i * 3] << 16) | ((uint32_t)frame->rgb[i * 3 + 1] << 8) | frame->rgb[i * 3 + 2];
+                if (frame->mask != nullptr && frame->mask[i] != 0) {
+                    // D20 mask image (art::Mask_Meaning): glass tints what is under it, as the
+                    // game's glass does; a shade follows its index through the draw's remap
+                    // (player colours, recolours) and keeps the art's detail as brightness
+                    // relative to that index's colour. Resolved here, at draw time: later palette
+                    // changes reach it as whole-screen fades only.
+                    const art::s_mask_meaning meaning = art::Mask_Meaning(frame->mask[i], draw.glassed);
+                    if (meaning.kind == art::MASK_GLASS) {
+                        if (alpha < 128 || fringe || replaying) {
+                            return dest;
+                        }
+                        return in_image ? Index_Px((uint8_t)(0xF0 + meaning.value)) : Glass_Over(dest, meaning.value);
+                    }
+                    const uint8_t target = draw.remapped ? draw.remap[meaning.value] : meaning.value;
+                    rgb = Shade_Index(rgb, meaning.value, target);
+                }
                 if (!draw.shade.empty()) {
                     rgb = Shade(rgb, x - draw.x, y - draw.y, sx, sy);
                 }
@@ -258,7 +288,7 @@ namespace render::twin {
         bool Art_Is_Glass(int32_t x, int32_t y) {
             const s_draw& draw = current_draw;
             const s_hd_frame* frame = draw.frame;
-            if (!draw.glassed || frame->index == nullptr) {
+            if (!draw.glassed || (frame->index == nullptr && frame->mask == nullptr)) {
                 return false;
             }
             const int32_t lx = (x - draw.x - frame->origin_x) * S + S / 2;
@@ -267,7 +297,9 @@ namespace render::twin {
                 return false;
             }
             const size_t i = (size_t)ly * frame->width + lx;
-            return frame->alpha[i] != 0 && frame->index[i] >= 0xF0;
+            // Indexed art: a glass index; full-colour art: a glass value in its mask (D20).
+            const uint8_t value = frame->index != nullptr ? frame->index[i] : frame->mask[i];
+            return frame->alpha[i] != 0 && value >= 0xF0;
         }
 
         // Whether the draw's art covers any of 1x pixel (x, y).
