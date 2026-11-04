@@ -324,6 +324,17 @@ namespace config {
             const std::vector<s_mod_requirement>* required_packages,
             s_package_resolver* resolver) {
             std::vector<std::string> art_packages;
+            // Antares (WP2.4): renamed art packs listed by saves from before D18 are not needed.
+            std::vector<s_mod_requirement> still_required;
+            if (required_packages != nullptr &&
+                std::any_of(required_packages->begin(), required_packages->end(), [](const s_mod_requirement& required) { return antares::Is_Retired_Art_Package(required.id); })) {
+                for (const s_mod_requirement& required : *required_packages) {
+                    if (!antares::Is_Retired_Art_Package(required.id)) {
+                        still_required.push_back(required);
+                    }
+                }
+                required_packages = &still_required;
+            }
             if (required_packages == nullptr) {
                 for (const s_cfg_statement& statement : base_document.statements) {
                     if (statement.kind == CFG_STATEMENT_ENABLE) {

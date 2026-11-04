@@ -170,7 +170,14 @@ namespace antares {
         return art_only;
     }
 
+    bool Is_Retired_Art_Package(const std::string& package_id) {
+        return package_id == "hd_textures";
+    }
+
     bool Is_Art_Only_Package(const std::string& package_id) {
+        if (Is_Retired_Art_Package(package_id)) {
+            return true;
+        }
         s_package_source source;
         std::string manifest_text;
         if (package_id.empty() || !Find_Source_(package_id, &source) || !Read_File_(source, "mod.json5", &manifest_text)) {
