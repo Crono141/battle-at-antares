@@ -33,9 +33,11 @@ enabled pack wins per sprite, so a small pack can sit above `antares-hd` and rep
 - **Scale.** An image is drawn over the original frame at 1x, 2x or 4x its size (3x for full-colour
   art). Without a `sprite.json` the scale is the image size divided by the original frame size,
   which must come out exactly.
-- **Full colour** (RGB or RGBA PNG, or WebP) is drawn in its own colours. **Indexed** art is our
-  internal grey format: a grey (L or L+A) PNG whose grey value is the palette index. Paletted PNGs
-  from paint programs are full colour: their palette order is never trusted.
+- **Full colour** (RGB or RGBA PNG, or WebP) is the one format: drawn in its own colours, with a
+  mask (below) wherever pixels must follow the game. Paletted PNGs from paint programs are full
+  colour too: their palette order is never trusted. Packs made before this version may hold grey
+  (L or L+A) PNGs whose grey value is the palette index; the engine still reads them, and
+  `tools/artconvert.py` turns them into full colour plus masks without changing how they look.
 - **Transparency** is the alpha channel; soft edges are fine.
 
 ## Masks: keeping the game's colour effects
@@ -50,15 +52,19 @@ any of that. A **mask** tells the engine which pixels follow the game:
 | Value | Meaning |
 | --- | --- |
 | 0 | the pixel's own colour |
-| 1 - 239 | a **shade** of that palette index: the pixel shows the game's current colour for that index (after player-colour recolours and palette changes), at the brightness of your art relative to that colour, so your detail stays |
+| 1 - 239 | a **shade** of that palette index: the pixel shows the game's current colour for that index (after player-colour recolours and palette changes), lighter or darker as your art is relative to the frame's average for that value, so your detail stays |
 | 240 - 255 | **glass** of level value - 240, for sprites drawn as glass: it tints what is under it, as the game's glass does |
 
 So paint player-colour areas with light and shade only; the game supplies the hue. With a
 `sprite.json`, masks are only read when it says `"mask": true`.
 
-Masked pixels follow palette changes when the sprite is drawn, but can't take part in palette
-**cycling** (colours that pulse every frame, for example index 255 on the colony screen). Keep
-such a sprite indexed if the pulse matters.
+Masked pixels stay tied to their index until the screen is shown: palette **cycling** (colours
+that pulse every frame, for example index 255 on the colony screen) and recolours the game makes
+after drawing a sprite into a picture (the colony build screen greys its ship) reach them too.
+
+A frame whose every drawn pixel is masked, with one colour per mask value, is **indexed art**:
+each pixel is exactly its index, as in the original game. That is how the tools write art that
+was made in the palette (`artconvert.py`, `artkit.py import --indexed`).
 
 ## sprite.json
 
@@ -105,7 +111,7 @@ The Moo2Mods tools (`tools/artkit.py`) do the bookkeeping:
    ```
 
    Unchanged frames are copied from the pack exactly; edited ones are written in full colour with
-   their masks (`--indexed` writes palette indices instead). The tool writes `mod.json5`,
+   their masks (`--indexed` quantises every pixel to the palette, written with every pixel masked). The tool writes `mod.json5`,
    `config/main.cfg`, `data/art/` and the index.
 
 4. **Test** with a profile that enables your mod above the HD pack,
