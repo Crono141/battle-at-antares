@@ -98,6 +98,7 @@ nav:
           - Packages and manifests: authoring-mods/packages-and-manifests.md
           - Configuration overrides: authoring-mods/configuration-overrides.md
           - VFS and asset overrides: authoring-mods/vfs-and-assets.md
+          - HD art packs: authoring-mods/art-packs.md
           - JSON5 string overrides: authoring-mods/string-overrides.md
           - Text formatting: authoring-mods/text-formatting.md
           - Lua modding: authoring-mods/lua-modding.md
