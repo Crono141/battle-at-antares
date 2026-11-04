@@ -2657,6 +2657,41 @@ DOCTEST_TEST_SUITE("configuration include loader") {
         DOCTEST_CHECK(Read_Vfs_Text_("stream.txt") == "music");
     }
 
+    DOCTEST_TEST_CASE("antares: saves listing the retired hd_textures pack load without it") {
+        s_config_test_directory files;
+        files.Write("antares.cfg", "enable antares-hd;\n");
+        files.Write(fs::path("data") / "mods" / "antares-hd" / "mod.json5", Manifest_("antares-hd"));
+        files.Write(fs::path("data") / "mods" / "antares-hd" / "config" / "main.cfg", "");
+        files.Write(fs::path("data") / "mods" / "antares-hd" / "data" / "art" / "sprite.txt", "art");
+        files.Initialize_Vfs();
+        Set_Native_Defaults_();
+        config::s_effective_config effective;
+        config::s_cfg_diagnostic diagnostic;
+        bool loaded = false;
+        DOCTEST_REQUIRE(config::Load_Startup_Config(
+            "antares.cfg", "base_game", &effective, &loaded, &diagnostic));
+        DOCTEST_CHECK(antares::Is_Retired_Art_Package("hd_textures"));
+        DOCTEST_CHECK_FALSE(antares::Is_Retired_Art_Package("antares-hd"));
+
+        // A save from before D18 lists hd_textures, which is no longer installed.
+        config::s_config_state snapshot_state;
+        DOCTEST_REQUIRE(config::Initialize_Defaults(&snapshot_state));
+        const std::vector<config::s_mod_requirement> legacy = {{"hd_textures", "0.1.0"}};
+        const bool reapplied = config::Reapply_Config_Snapshot(
+            legacy, &config::saved_config_snapshot, &snapshot_state, &diagnostic);
+        DOCTEST_INFO(diagnostic.message);
+        DOCTEST_CHECK(reapplied);
+        DOCTEST_CHECK(Read_Vfs_Text_("art/sprite.txt") == "art");
+
+        // Its Lua snapshot entry is dropped too.
+        orion2re::lua::s_lua_save_snapshot snapshot;
+        snapshot.registry.packages_high_to_low_priority = {{"hd_textures", "0.1.0"}};
+        orion2re::lua::s_lua_registry active;
+        orion2re::lua::s_lua_save_snapshot storage;
+        const orion2re::lua::s_lua_save_snapshot* restored = antares::Without_Art_Packages(&snapshot, active, &storage);
+        DOCTEST_CHECK(restored->registry.packages_high_to_low_priority.empty());
+    }
+
     DOCTEST_TEST_CASE("antares: legacy Lua snapshots drop only art-only packages the registry lacks") {
         s_config_test_directory files;
         files.Write(fs::path("data") / "mods" / "art" / "mod.json5", Manifest_("art"));
