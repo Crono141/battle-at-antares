@@ -25,7 +25,8 @@ Battle at Antares bugs here, not to Redone.
 - **Mods.** Redone mods keep loading: `requires.engine` still checks Redone's mod API version
   (2.x). Packages that need Antares features can add `requires: { antares: ">=0.1.0" }`.
   Art-only packages (only `data/hd/` or `data/art/`, no rules) are not recorded in saves, so
-  turning an art pack on or off never stops a save from loading.
+  turning an art pack on or off never stops a save from loading. Making one (full-colour art
+  with masks for player colours and glass): [docs/content/authoring-mods/art-packs.md](docs/content/authoring-mods/art-packs.md).
 - **Online multiplayer is off by default.** Redone's community router belongs to Redone; set
   `interface router` to a router you run. Hotseat and LAN play work as before.
 
