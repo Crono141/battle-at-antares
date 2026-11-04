@@ -247,7 +247,7 @@ namespace render::twin {
                 uint32_t coverage = 0;
                 if (hd) {
                     const s_px& px = plane->px[(size_t)sy * sw + sx];
-                    if (Kind(px) == KIND_INDEX) {
+                    if (Bound(px)) {
                         // Index 0 is transparent inside images.
                         coverage = (px.mask & 0xFF) == 0 ? 0 : (px.mask & MASK_CLEAR) == 0 ? 255 : (px.mask >> 16) & 0xFF;
                     } else {
@@ -383,7 +383,7 @@ namespace render::twin {
                 // Distance to the ship in 1x pixels, from this sub-pixel's centre to the edge of
                 // the nearest solid sub-pixel.
                 if (dist2[i] >= widest_sub2) {
-                    if (Kind(px) != KIND_INDEX || (px.mask & MASK_CLEAR) == 0 || ((px.mask >> 16) & 0xFF) != 0) {
+                    if (!Bound(px) || (px.mask & MASK_CLEAR) == 0 || ((px.mask >> 16) & 0xFF) != 0) {
                         px = Clear_Px();
                         px.mask |= MASK_STROKE;
                     }

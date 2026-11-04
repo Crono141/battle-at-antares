@@ -217,7 +217,8 @@ namespace render {
         free(frame.alpha);
         free(frame.rgb);
         free(frame.mask);
-        frame.index = frame.alpha = frame.rgb = frame.mask = nullptr;
+        free(frame.shade_luma);
+        frame.index = frame.alpha = frame.rgb = frame.mask = frame.shade_luma = nullptr;
         frame.load.store(LOAD_NONE, std::memory_order_release);
     }
 

@@ -48,6 +48,7 @@ namespace render {
         uint8_t* alpha;
         uint8_t* rgb;     // full-colour art (RGB per pixel) instead of index, or null
         uint8_t* mask;    // full-colour art: its mask image (D20, art::Mask_Meaning), or null
+        uint8_t* shade_luma; // with a mask: 256 reference brightnesses (art::Shade_Reference)
         bool full_colour; // RGBA art: sprite.json "format": "rgba", or the file's own format
         // The file as sprite.json describes it: its size in its own pixels and its scale. 0 when
         // inferred (no sprite.json): the scale comes from the 1x frame size (base_width x
