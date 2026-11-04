@@ -52,4 +52,20 @@ namespace render::art {
     };
     s_mask_meaning Mask_Meaning(uint8_t value, bool glassed);
 
+    // Brightness of an RGB colour (0..255), as the twin planes weigh it.
+    inline uint32_t Luma(uint8_t r, uint8_t g, uint8_t b) {
+        return ((uint32_t)r * 77u + (uint32_t)g * 150u + (uint32_t)b * 29u) >> 8;
+    }
+
+    // WP1.10: full-colour art whose every drawn pixel is masked, with one colour per mask value,
+    // is indexed art written in the one format (the tools convert L+A art so: colour = the index's
+    // colour, mask = the index). Writes the indices (the mask, 0 where alpha is 0) to `index`,
+    // which may be `mask` itself, and returns true; false (and `index` partly written) otherwise.
+    bool Collapse_To_Index(const uint8_t* rgb, const uint8_t* alpha, const uint8_t* mask, size_t count, uint8_t* index);
+
+    // The reference brightness of each mask value (1..255) in a frame: the alpha-weighted mean
+    // Luma of its pixels masked so; 0 for values not used. A masked pixel shows its index's colour
+    // at its own brightness relative to this (KIND_SHADE).
+    void Shade_Reference(const uint8_t* rgb, const uint8_t* alpha, const uint8_t* mask, size_t count, uint8_t reference[256]);
+
 } // namespace render::art

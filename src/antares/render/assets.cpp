@@ -152,26 +152,50 @@ namespace render {
             }
             alpha[i] = rgba[i * 4 + 3];
         }
+        uint8_t* shade_luma = nullptr;
+        bool indexed = !full_colour;
         if (mask_plane != nullptr) {
             memcpy(mask_plane, mask.data(), count);
+            if (art::Collapse_To_Index(colour, alpha, mask_plane, count, mask_plane)) {
+                // WP1.10: converted indexed art: drawn exactly as its indices, in a third of the
+                // memory.
+                free(colour);
+                colour = mask_plane;
+                mask_plane = nullptr;
+                indexed = true;
+            } else {
+                shade_luma = (uint8_t*)malloc(256);
+                if (shade_luma != nullptr) {
+                    art::Shade_Reference(colour, alpha, mask_plane, count, shade_luma);
+                }
+            }
         }
         frame->width = to_width;
         frame->height = to_height;
-        frame->full_colour = full_colour;
-        frame->rgb = full_colour ? colour : nullptr;
-        frame->index = full_colour ? nullptr : colour;
+        frame->full_colour = !indexed;
+        frame->rgb = indexed ? nullptr : colour;
+        frame->index = indexed ? colour : nullptr;
         frame->alpha = alpha;
         frame->mask = mask_plane;
+        frame->shade_luma = shade_luma;
         return true;
     }
 
-    // Synchronous load through the VFS (game thread; glyphs).
+    // Synchronous load through the VFS (game thread; glyphs). Full-colour files take their mask
+    // image beside them (<name>.mask.png), looked for only then.
     bool Load_Frame_Png(const std::string& path, s_hd_frame* frame) {
         std::vector<uint8_t> bytes;
         if (!Read_Vfs_File(path.c_str(), &bytes)) {
             return false;
         }
-        return Decode_Frame_Bytes(bytes.data(), bytes.size(), path, frame);
+        std::vector<uint8_t> mask;
+        if (art::Is_Full_Colour(bytes.data(), bytes.size())) {
+            const std::string mask_path = path.substr(0, path.find_last_of('.')) + ".mask.png";
+            if (vfs::File_Exists(mask_path.c_str()) != 0) {
+                (void)Read_Vfs_File(mask_path.c_str(), &mask);
+            }
+        }
+        return Decode_Frame_Bytes(bytes.data(), bytes.size(), path, frame, mask.empty() ? nullptr : mask.data(), mask.size());
     }
 
     namespace {

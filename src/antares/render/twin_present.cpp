@@ -158,9 +158,9 @@ namespace render::twin {
                 for (size_t i = 0; i < row_size; ++i) {
                     const s_px& px = src[i];
                     uint32_t rgb;
-                    if (Kind(px) == KIND_INDEX) {
+                    if (Bound(px)) {
                         const uint32_t alpha = (px.mask >> 16) & 0xFF;
-                        rgb = colors[px.mask & 0xFF];
+                        rgb = Scale_Rgb(colors[px.mask & 0xFF], Shade_Ratio(px));
                         if (alpha < 255) {
                             rgb = Mix(rgb, (px.mask & MASK_CLEAR) != 0 ? 0u : colors[(px.mask >> 8) & 0xFF], alpha);
                         }

@@ -2,6 +2,7 @@
 
 #include "antares/render/internal.h"
 #include "antares/render/twin_internal.h"
+#include "antares/render/art_format.h"
 
 // The facade's page and image plumbing, routed to the twin planes (twin*.cpp), and the cursor
 // art. Until WP1.3b (2026-11-02) these also ran attempt 2's surfaces (planes.cpp, images.cpp,
@@ -293,9 +294,18 @@ namespace render {
             char disk[1024];
             size_t bytes_size = 0;
             void* bytes = vfs::Resolve_Read_Path_No_Zip(path, disk, sizeof(disk)) != 0 ? SDL_LoadFile(disk, &bytes_size) : nullptr;
-            const bool ok = bytes != nullptr && Decode_Frame_Bytes((const uint8_t*)bytes, bytes_size, path, frame) &&
-                frame->index != nullptr && frame->width == size * S && frame->height == size * S;
+            // Full colour (WP1.10): its mask beside it; converted indexed art decodes to indices.
+            size_t mask_size = 0;
+            void* mask = nullptr;
+            if (bytes != nullptr && art::Is_Full_Colour((const uint8_t*)bytes, bytes_size)) {
+                char mask_path[64];
+                snprintf(mask_path, sizeof(mask_path), "hd/CURSORS/%08x.mask.png", hash);
+                mask = vfs::Resolve_Read_Path_No_Zip(mask_path, disk, sizeof(disk)) != 0 ? SDL_LoadFile(disk, &mask_size) : nullptr;
+            }
+            const bool ok = bytes != nullptr && Decode_Frame_Bytes((const uint8_t*)bytes, bytes_size, path, frame, (const uint8_t*)mask, mask_size) &&
+                (frame->index != nullptr || frame->rgb != nullptr) && frame->width == size * S && frame->height == size * S;
             SDL_free(bytes);
+            SDL_free(mask);
             if (!ok) {
                 delete frame;
                 frame = nullptr;
@@ -310,8 +320,24 @@ namespace render {
             return false;
         }
         for (int32_t i = 0; i < frame->width * frame->height; ++i) {
-            const video::s_palette_color& c = palette[frame->index[i]];
-            argb[i] = ((uint32_t)frame->alpha[i] << 24) | ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | c.b;
+            uint32_t rgb;
+            if (frame->index != nullptr) {
+                const video::s_palette_color& c = palette[frame->index[i]];
+                rgb = ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | c.b;
+            } else {
+                // Painted full colour: masked pixels take their index's colour at their brightness.
+                const uint8_t* p = &frame->rgb[(size_t)i * 3];
+                rgb = ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2];
+                const uint8_t value = frame->mask != nullptr ? frame->mask[i] : 0;
+                if (value != 0 && frame->shade_luma != nullptr) {
+                    const video::s_palette_color& c = palette[value];
+                    const uint32_t luma = art::Luma(p[0], p[1], p[2]);
+                    const uint32_t reference = SDL_max((uint32_t)frame->shade_luma[value], 1u);
+                    const uint32_t ratio = luma == frame->shade_luma[value] ? 256u : SDL_clamp(luma * 256u / reference, 64u, 768u);
+                    rgb = twin::Scale_Rgb(((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | c.b, ratio);
+                }
+            }
+            argb[i] = ((uint32_t)frame->alpha[i] << 24) | rgb;
         }
         return true;
     }

@@ -103,6 +103,45 @@ namespace render::art {
         return out;
     }
 
+    bool Collapse_To_Index(const uint8_t* rgb, const uint8_t* alpha, const uint8_t* mask, size_t count, uint8_t* index) {
+        uint32_t colour_of[256];
+        bool seen[256] = {};
+        for (size_t i = 0; i < count; ++i) {
+            if (alpha[i] == 0) {
+                index[i] = 0;
+                continue;
+            }
+            const uint8_t value = mask[i];
+            if (value == 0) {
+                return false; // a pixel in the art's own colour
+            }
+            const uint32_t colour = ((uint32_t)rgb[i * 3] << 16) | ((uint32_t)rgb[i * 3 + 1] << 8) | rgb[i * 3 + 2];
+            if (!seen[value]) {
+                seen[value] = true;
+                colour_of[value] = colour;
+            } else if (colour_of[value] != colour) {
+                return false; // shaded: the brightness ratio matters
+            }
+            index[i] = value;
+        }
+        return true;
+    }
+
+    void Shade_Reference(const uint8_t* rgb, const uint8_t* alpha, const uint8_t* mask, size_t count, uint8_t reference[256]) {
+        uint64_t sum[256] = {};
+        uint64_t weight[256] = {};
+        for (size_t i = 0; i < count; ++i) {
+            if (alpha[i] == 0 || mask[i] == 0) {
+                continue;
+            }
+            sum[mask[i]] += (uint64_t)Luma(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]) * alpha[i];
+            weight[mask[i]] += alpha[i];
+        }
+        for (int32_t v = 0; v < 256; ++v) {
+            reference[v] = weight[v] != 0 ? (uint8_t)((sum[v] + weight[v] / 2) / weight[v]) : 0;
+        }
+    }
+
     s_mask_meaning Mask_Meaning(uint8_t value, bool glassed) {
         if (value == 0) {
             return {MASK_NONE, 0};

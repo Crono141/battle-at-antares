@@ -15,6 +15,10 @@ namespace render::twin {
     //   mask bits 24-27  kind
     //   mask bit  28     MASK_CLEAR: the bg is transparent (inside images)
     // `none` pixels show their base (0xAARRGGBB) and follow whole-screen fades at present.
+    // `shade` pixels (WP1.10) are bound like `index` pixels (same mask bits, so recolours, glass,
+    // tables and palette changes reach them) and show their fg index's colour at a brightness
+    // ratio held in base (8.8 fixed point, 256 = the index's own colour): full-colour art with a
+    // mask image, where the art's brightness differs from its index's.
     struct s_px {
         uint32_t base;
         uint32_t mask;
@@ -23,7 +27,7 @@ namespace render::twin {
     enum e_kind : uint32_t {
         KIND_NONE = 0,
         KIND_INDEX = 1,
-        KIND_SHADE = 2, // WP1.7
+        KIND_SHADE = 2, // WP1.10
         KIND_GLASS = 3, // WP1.4
     };
     constexpr uint32_t KIND_SHIFT = 24;
@@ -34,6 +38,29 @@ namespace render::twin {
 
     inline uint32_t Kind(const s_px& px) {
         return (px.mask >> KIND_SHIFT) & 0xF;
+    }
+
+    // Bound to a palette index: `index` and `shade` pixels.
+    inline bool Bound(const s_px& px) {
+        const uint32_t kind = Kind(px);
+        return kind == KIND_INDEX || kind == KIND_SHADE;
+    }
+
+    // A bound pixel's brightness relative to its index's colour (8.8 fixed point).
+    inline uint32_t Shade_Ratio(const s_px& px) {
+        return Kind(px) == KIND_SHADE ? (px.base & 0xFFFFu) : 256u;
+    }
+
+    inline uint32_t Scale_Rgb(uint32_t rgb, uint32_t ratio) {
+        if (ratio == 256u) {
+            return rgb;
+        }
+        uint32_t out = 0;
+        for (int32_t shift = 0; shift <= 16; shift += 8) {
+            const uint32_t c = ((rgb >> shift) & 0xFF) * ratio / 256u;
+            out |= (c > 255u ? 255u : c) << shift;
+        }
+        return out;
     }
 
     // Bound to palette index `index` at full coverage: what the stock loader and the Unported

@@ -96,3 +96,41 @@ DOCTEST_TEST_CASE("art format: mask values") {
     DOCTEST_CHECK(Mask_Meaning(0xF3, false).kind == MASK_SHADE);
     DOCTEST_CHECK(Mask_Meaning(0xF3, false).value == 0xF3);
 }
+
+DOCTEST_TEST_CASE("art format: masked art with one colour per mask value is its indices (WP1.10)") {
+    // Two drawn pixels of index 5 (same colour), one of index 0xF2, one transparent.
+    const uint8_t rgb[] = {10, 20, 30, 10, 20, 30, 200, 200, 200, 99, 99, 99};
+    const uint8_t alpha[] = {255, 128, 255, 0};
+    const uint8_t mask[] = {5, 5, 0xF2, 7};
+    uint8_t index[4] = {1, 1, 1, 1};
+    DOCTEST_CHECK(Collapse_To_Index(rgb, alpha, mask, 4, index));
+    DOCTEST_CHECK(index[0] == 5);
+    DOCTEST_CHECK(index[1] == 5);
+    DOCTEST_CHECK(index[2] == 0xF2);
+    DOCTEST_CHECK(index[3] == 0); // transparent
+    // In place, as the decoder does it.
+    uint8_t in_place[] = {5, 5, 0xF2, 7};
+    DOCTEST_CHECK(Collapse_To_Index(rgb, alpha, in_place, 4, in_place));
+    DOCTEST_CHECK(in_place[3] == 0);
+    // A drawn pixel without a mask value keeps its own colour: not indexed.
+    const uint8_t unmasked[] = {5, 5, 0, 7};
+    DOCTEST_CHECK_FALSE(Collapse_To_Index(rgb, alpha, unmasked, 4, index));
+    // Two colours under one mask value: shaded art.
+    const uint8_t shaded_rgb[] = {10, 20, 30, 11, 20, 30, 200, 200, 200, 0, 0, 0};
+    DOCTEST_CHECK_FALSE(Collapse_To_Index(shaded_rgb, alpha, mask, 4, index));
+}
+
+DOCTEST_TEST_CASE("art format: the shade reference is the alpha-weighted mean brightness per mask value") {
+    const uint8_t rgb[] = {100, 100, 100, 200, 200, 200, 50, 50, 50, 0, 0, 0};
+    const uint8_t alpha[] = {255, 255, 255, 0};
+    const uint8_t mask[] = {9, 9, 0, 9};
+    uint8_t reference[256];
+    Shade_Reference(rgb, alpha, mask, 4, reference);
+    DOCTEST_CHECK(reference[9] == Luma(150, 150, 150)); // the mean of 100 and 200
+    DOCTEST_CHECK(reference[0] == 0);
+    DOCTEST_CHECK(reference[10] == 0);
+    // One colour per value: the reference is that colour's brightness, so its ratio is exactly 1.
+    const uint8_t flat[] = {10, 80, 200, 10, 80, 200, 0, 0, 0, 0, 0, 0};
+    Shade_Reference(flat, alpha, mask, 4, reference);
+    DOCTEST_CHECK(reference[9] == Luma(10, 80, 200));
+}

@@ -65,11 +65,11 @@ namespace render::twin {
         // ---------------------------------------------------------------- pixel operations
 
         uint32_t Base_Color(const s_px& px) {
-            if (Kind(px) != KIND_INDEX) {
+            if (!Bound(px)) {
                 return px.base & 0xFFFFFFu;
             }
             const uint32_t alpha = (px.mask >> 16) & 0xFF;
-            const uint32_t fg = Base_Rgb((uint8_t)px.mask);
+            const uint32_t fg = Scale_Rgb(Base_Rgb((uint8_t)px.mask), Shade_Ratio(px));
             if (alpha >= 255) {
                 return fg;
             }
@@ -83,13 +83,33 @@ namespace render::twin {
             if (alpha >= 255) {
                 return Index_Px(index);
             }
-            if (Kind(dest) != KIND_INDEX) {
+            if (!Bound(dest)) {
                 return Literal_Px(Mix(Base_Rgb(index), dest.base & 0xFFFFFFu, alpha));
             }
             const uint32_t cover = (dest.mask >> 16) & 0xFF;
             const uint32_t under = cover >= 128 ? (dest.mask & 0xFF) : ((dest.mask >> 8) & 0xFF);
             const uint32_t clear = cover >= 128 ? 0u : (dest.mask & MASK_CLEAR);
             return {0u, index | (under << 8) | (alpha << 16) | (KIND_INDEX << KIND_SHIFT) | clear};
+        }
+
+        // Index `index` at brightness `ratio` (KIND_SHADE, WP1.10) with coverage `alpha` over
+        // `dest`, blended like Over_Index; over a full-colour pixel it becomes full colour.
+        s_px Over_Shade(const s_px& dest, uint8_t index, uint32_t ratio, uint32_t alpha) {
+            if (ratio == 256u) {
+                return Over_Index(dest, index, alpha);
+            }
+            if (alpha < 255 && !Bound(dest)) {
+                return Literal_Px(Mix(Scale_Rgb(Base_Rgb(index), ratio), dest.base & 0xFFFFFFu, alpha));
+            }
+            s_px px = Over_Index(dest, index, alpha);
+            px.base = ratio;
+            px.mask = (px.mask & ~(0xFu << KIND_SHIFT)) | (KIND_SHADE << KIND_SHIFT);
+            return px;
+        }
+
+        // A bound pixel `src` of an image, coverage `alpha`, over `dest`.
+        s_px Over_Bound(const s_px& dest, const s_px& src, uint32_t alpha) {
+            return Over_Shade(dest, (uint8_t)src.mask, Shade_Ratio(src), alpha);
         }
 
         s_px Over_Rgb(const s_px& dest, uint32_t rgb, uint32_t alpha) {
@@ -171,28 +191,28 @@ namespace render::twin {
             return out;
         }
 
-        // A full-colour pixel painted as index `painted` (its mask), shown as index `target`: the
-        // target's colour at the pixel's brightness relative to the painted index's colour.
-        uint32_t Shade_Index(uint32_t rgb, uint8_t painted, uint8_t target) {
-            const uint32_t through = Base_Rgb(target);
-            const uint32_t base_luma = SDL_max(Luma(Base_Rgb(painted)), 1u);
-            const uint32_t ratio = SDL_clamp(Luma(rgb) * 256u / base_luma, 64u, 768u);
-            uint32_t out = 0;
-            for (int32_t shift = 0; shift <= 16; shift += 8) {
-                out |= SDL_min(255u, ((through >> shift) & 0xFF) * ratio / 256u) << shift;
+        // A full-colour pixel masked as index `painted`: its brightness relative to the frame's
+        // reference brightness for that index (art::Shade_Reference: the mean of the frame's
+        // pixels masked so), 8.8 fixed point. 256 when they match, so art whose pixels of each
+        // mask value share one colour (converted indexed art) is exactly its indices.
+        uint32_t Shade_Ratio_Of(const s_hd_frame* frame, uint32_t rgb, uint8_t painted) {
+            const uint32_t luma = Luma(rgb);
+            const uint32_t reference = frame->shade_luma != nullptr ? frame->shade_luma[painted] : Luma(Base_Rgb(painted));
+            if (luma == reference) {
+                return 256u;
             }
-            return out;
+            return SDL_clamp(luma * 256u / SDL_max(reference, 1u), 64u, 768u);
         }
 
         // Glass of level `level` over `dest`: index-bound pixels go through the game's own glass
         // table (exactly what the 1x pixel gets); full-colour pixels are tinted in true colour.
         // The D20 `glass` kind (WP1.4) refines partial coverage.
         s_px Glass_Over(const s_px& dest, int32_t level) {
-            if (Kind(dest) == KIND_INDEX) {
+            if (Bound(dest)) {
                 const uint8_t* table = video::glass_remap_colors[level & 15];
                 const uint32_t fg = table[dest.mask & 0xFF];
                 const uint32_t bg = table[(dest.mask >> 8) & 0xFF];
-                return {0u, (dest.mask & ~0xFFFFu) | (bg << 8) | fg};
+                return {dest.base, (dest.mask & ~0xFFFFu) | (bg << 8) | fg};
             }
             return Literal_Px(Glass_Through_Table(dest.base & 0xFFFFFFu, level));
         }
@@ -245,8 +265,9 @@ namespace render::twin {
                     // D20 mask image (art::Mask_Meaning): glass tints what is under it, as the
                     // game's glass does; a shade follows its index through the draw's remap
                     // (player colours, recolours) and keeps the art's detail as brightness
-                    // relative to that index's colour. Resolved here, at draw time: later palette
-                    // changes reach it as whole-screen fades only.
+                    // relative to the frame's reference for that index. It stays bound to the
+                    // index (KIND_SHADE, WP1.10), also inside images, so later recolours, glass
+                    // and palette changes (colour cycling) reach it like an indexed pixel.
                     const art::s_mask_meaning meaning = art::Mask_Meaning(frame->mask[i], draw.glassed);
                     if (meaning.kind == art::MASK_GLASS) {
                         if (alpha < 128 || fringe || replaying) {
@@ -254,8 +275,19 @@ namespace render::twin {
                         }
                         return in_image ? Index_Px((uint8_t)(0xF0 + meaning.value)) : Glass_Over(dest, meaning.value);
                     }
+                    if (draw.glyph) {
+                        // Glyphs: the mask value is the colour role (1..8), as in indexed glyphs.
+                        if (meaning.value > 8) {
+                            return dest;
+                        }
+                        return Over_Shade(dest, draw.colors[meaning.value - 1], Shade_Ratio_Of(frame, rgb, meaning.value), alpha);
+                    }
                     const uint8_t target = draw.remapped ? draw.remap[meaning.value] : meaning.value;
-                    rgb = Shade_Index(rgb, meaning.value, target);
+                    const uint32_t ratio = Shade_Ratio_Of(frame, rgb, meaning.value);
+                    if (draw.shade.empty()) {
+                        return Over_Shade(dest, target, ratio, alpha);
+                    }
+                    rgb = Scale_Rgb(Base_Rgb(target), ratio); // darkened below, as full colour
                 }
                 if (!draw.shade.empty()) {
                     rgb = Shade(rgb, x - draw.x, y - draw.y, sx, sy);
@@ -365,14 +397,14 @@ namespace render::twin {
                 for (int32_t sx = 0; sx < S; ++sx) {
                     s_px px = src[sy * src_stride + sx];
                     s_px& out = block[sy * stride + sx];
-                    if (Kind(px) == KIND_INDEX) {
+                    if (Bound(px)) {
                         if (draw.remapped) {
                             px.mask = (px.mask & ~0xFFFFu) | ((uint32_t)draw.remap[(px.mask >> 8) & 0xFF] << 8) | draw.remap[px.mask & 0xFF];
                         }
                         if ((px.mask & MASK_CLEAR) != 0 && ((px.mask >> 16) & 0xFF) < 255) {
                             const uint32_t alpha = (px.mask >> 16) & 0xFF;
                             if (alpha != 0) {
-                                out = Over_Index(out, (uint8_t)px.mask, alpha);
+                                out = Over_Bound(out, px, alpha);
                             }
                             // Geometry drawn in the image (a stroke, a shield) stays geometry where
                             // it shows the page under it: parity counts it apart (D21).
@@ -409,8 +441,9 @@ namespace render::twin {
             int32_t first = -1;
             for (int32_t i = 0; i < image.width * image.height; ++i) {
                 const s_px& px = image.px[(size_t)(i / image.width) * S * image.width * S + (size_t)(i % image.width) * S];
-                const bool bound = Kind(px) == KIND_INDEX && ((px.mask >> 16) & 0xFF) >= 128 && (uint8_t)px.mask == pixels[i];
-                const bool clear = pixels[i] == 0 && Kind(px) == KIND_INDEX && ((px.mask >> 16) & 0xFF) < 128;
+                // Shade pixels come from masks painted at 4x, not the 1x pixels: not checked.
+                const bool bound = (Kind(px) == KIND_SHADE || (Kind(px) == KIND_INDEX && (uint8_t)px.mask == pixels[i])) && ((px.mask >> 16) & 0xFF) >= 128;
+                const bool clear = pixels[i] == 0 && Bound(px) && ((px.mask >> 16) & 0xFF) < 128;
                 if (!bound && !clear) {
                     mismatches++;
                     first = first < 0 ? i : first;
@@ -553,7 +586,7 @@ namespace render::twin {
                             }
                             s_px& out = block[sy * stride + sx];
                             const uint32_t alpha = (uint32_t)(cover * 255.0f + 0.5f);
-                            if ((out.mask & MASK_STROKE) != 0 && Kind(out) == KIND_INDEX) {
+                            if ((out.mask & MASK_STROKE) != 0 && Bound(out)) {
                                 // Another stroke's soft edge (a bolt's parallel strands), over the same
                                 // background: the strands meet without a dark seam.
                                 const uint32_t old_alpha = (out.mask >> 16) & 0xFF;
@@ -964,7 +997,7 @@ namespace render::twin {
                 return index != 0 && (int32_t)index >= first && (int32_t)index < first + count ? (uint32_t)map[index - first] : index;
             };
             for (s_px& px : plane->px) {
-                if (Kind(px) != KIND_INDEX) {
+                if (!Bound(px)) {
                     continue;
                 }
                 const uint32_t fg = recolor(px.mask & 0xFF);
@@ -1008,7 +1041,7 @@ namespace render::twin {
             // bitmap::Tint_Bitmap_Pixels tints the non-zero pixels through the glass table.
             const uint8_t* table = video::glass_remap_colors[level & 15];
             for (s_px& px : plane->px) {
-                if (Kind(px) == KIND_INDEX) {
+                if (Bound(px)) {
                     const uint32_t fg = px.mask & 0xFF;
                     const uint32_t bg = (px.mask >> 8) & 0xFF;
                     const uint32_t new_fg = fg != 0 ? table[fg] : 0u;
@@ -1070,7 +1103,7 @@ namespace render::twin {
             s_px* row = &plane->px[(size_t)y * S * stride];
             for (size_t i = 0; i < stride * S; ++i) {
                 s_px& px = row[i];
-                if (Kind(px) == KIND_INDEX) {
+                if (Bound(px)) {
                     const uint32_t bg = (px.mask & MASK_CLEAR) != 0 ? (px.mask >> 8) & 0xFF : table[(px.mask >> 8) & 0xFF];
                     px.mask = (px.mask & ~0xFFFFu) | (bg << 8) | table[px.mask & 0xFF];
                 } else {
@@ -1184,7 +1217,7 @@ namespace render::twin {
     namespace {
 
         bool Covered(const s_px& px) {
-            if (Kind(px) == KIND_INDEX) {
+            if (Bound(px)) {
                 return (px.mask & MASK_CLEAR) == 0 || ((px.mask >> 16) & 0xFF) >= 128;
             }
             return ((px.base >> 24) & 0xFF) >= 128;
@@ -1193,7 +1226,7 @@ namespace render::twin {
         // A plane pixel through an index table: bound indices take it (a transparent background
         // stays transparent), full-colour pixels go through their nearest index.
         s_px Px_Through_Table(const s_px& px, const uint8_t* table) {
-            if (Kind(px) == KIND_INDEX) {
+            if (Bound(px)) {
                 const uint32_t bg = (px.mask & MASK_CLEAR) != 0 ? (px.mask >> 8) & 0xFF : table[(px.mask >> 8) & 0xFF];
                 return {px.base, (px.mask & ~0xFFFFu) | (bg << 8) | table[px.mask & 0xFF]};
             }
@@ -1376,9 +1409,9 @@ namespace render::twin {
                     const int32_t fx = SDL_min(src_hw - 1, (int32_t)(((int64_t)x * 2 + 1) * src_hw / (hw * 2)));
                     s_px px = from->px[(size_t)fy * src_hw + fx];
                     const uint8_t value = row[x / S];
-                    if (Kind(px) == KIND_INDEX && (uint8_t)px.mask != value) {
+                    if (Bound(px) && (uint8_t)px.mask != value) {
                         px = value == 0 ? Clear_Px() : Index_Px(value);
-                    } else if (Kind(px) != KIND_INDEX && value == 0) {
+                    } else if (!Bound(px) && value == 0) {
                         px = Clear_Px();
                     }
                     scaled[(size_t)y * hw + x] = px;
@@ -1524,10 +1557,10 @@ namespace render::twin {
                             const int32_t hy = SDL_clamp((int32_t)SDL_floor((row + 0.5) * S), 0, height * S - 1);
                             px = image->px[(size_t)hy * image_stride + hx];
                         }
-                        if (Kind(px) == KIND_INDEX && (px.mask & MASK_CLEAR) != 0 && ((px.mask >> 16) & 0xFF) < 255) {
+                        if (Bound(px) && (px.mask & MASK_CLEAR) != 0 && ((px.mask >> 16) & 0xFF) < 255) {
                             const uint32_t alpha = (px.mask >> 16) & 0xFF;
-                            out = alpha != 0 ? Over_Index(out, (uint8_t)px.mask, alpha) : out;
-                        } else if (Kind(px) != KIND_INDEX && ((px.base >> 24) & 0xFF) < 255) {
+                            out = alpha != 0 ? Over_Bound(out, px, alpha) : out;
+                        } else if (!Bound(px) && ((px.base >> 24) & 0xFF) < 255) {
                             const uint32_t alpha = (px.base >> 24) & 0xFF;
                             out = alpha != 0 ? Over_Rgb(out, px.base & 0xFFFFFFu, alpha) : out;
                         } else {
