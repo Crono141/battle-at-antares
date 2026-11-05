@@ -19,6 +19,11 @@ namespace antares::host {
         int32_t s_dirty_first = 0;
         int32_t s_dirty_last = 0;
 
+        std::mutex s_cursor_mutex;
+        std::vector<uint32_t> s_cursor;
+        int32_t s_cursor_size = -1;
+        uint64_t s_cursor_generation = 0;
+
         std::mutex s_galaxy_mutex;
         s_galaxy s_published;
 
@@ -69,6 +74,12 @@ namespace antares::host {
         return Window() != nullptr && !platform::Game_Thread_Exited();
     }
 
+    void Window_Settings(int32_t* width, int32_t* height, bool* fullscreen) {
+        *width = platform::g_window_width;
+        *height = platform::g_window_height;
+        *fullscreen = platform::g_fullscreen != 0;
+    }
+
     bool Take_Frame(std::vector<uint32_t>* argb, int32_t* width, int32_t* height, uint64_t* generation,
         int32_t* row_first, int32_t* row_last) {
         std::lock_guard<std::mutex> lock(s_frame_mutex);
@@ -93,6 +104,31 @@ namespace antares::host {
         s_dirty_first = s_frame_height;
         s_dirty_last = 0;
         return true;
+    }
+
+    bool Take_Cursor(std::vector<uint32_t>* argb, int32_t* size, uint64_t* generation) {
+        std::lock_guard<std::mutex> lock(s_cursor_mutex);
+        if (s_cursor_generation == *generation) {
+            return false;
+        }
+        *argb = s_cursor;
+        *size = s_cursor_size;
+        *generation = s_cursor_generation;
+        return true;
+    }
+
+    void Cursor_Image(const uint32_t* argb, int32_t size) {
+        if (!s_active) {
+            return;
+        }
+        const size_t count = (size_t)size * (size_t)size;
+        std::lock_guard<std::mutex> lock(s_cursor_mutex);
+        if (size == s_cursor_size && std::equal(argb, argb + count, s_cursor.begin())) {
+            return;
+        }
+        s_cursor.assign(argb, argb + count);
+        s_cursor_size = size;
+        ++s_cursor_generation;
     }
 
     void Send_Mouse_Motion(float game_x, float game_y) {

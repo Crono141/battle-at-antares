@@ -28,11 +28,18 @@ namespace antares::host {
     /** Asks the game to quit (the platform loop ends after the game thread). */
     void Request_Quit();
     bool Game_Running();
+    /** The profile's window settings (valid once the game has loaded its configuration). */
+    void Window_Settings(int32_t* width, int32_t* height, bool* fullscreen);
 
     /** Copies the newest frame into `argb` (width*height ARGB8888, resized as needed) when one
      *  arrived since `*generation`; [row_first, row_last) are the rows that changed. */
     bool Take_Frame(std::vector<uint32_t>* argb, int32_t* width, int32_t* height, uint64_t* generation,
         int32_t* row_first, int32_t* row_last);
+
+    /** The game's cursor image, `size` x `size` ARGB8888 (24, or 96 with HD art; 0 = hidden),
+     *  drawn with its top-left corner at the pointer, 24 game pixels wide. Copies it into `argb`
+     *  when it changed since `*generation`. */
+    bool Take_Cursor(std::vector<uint32_t>* argb, int32_t* size, uint64_t* generation);
 
     // Input in game coordinates (0-639, 0-479; fractions allowed).
     void Send_Mouse_Motion(float game_x, float game_y);
@@ -68,6 +75,8 @@ namespace antares::host {
      *  SDL upload is skipped. */
     bool Frame_Resolved(const uint32_t* argb, int32_t width, int32_t height, bool changed, int32_t row_first,
         int32_t row_last);
+    /** Presenter, with each hosted frame: the current cursor image (size 0 = hidden). */
+    void Cursor_Image(const uint32_t* argb, int32_t size);
     /** Game thread, in video::Publish_Off_Page: refreshes the game-state snapshot. */
     void On_Publish();
 

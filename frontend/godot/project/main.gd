@@ -14,6 +14,7 @@ var _stats_time := 0.0
 
 func _ready() -> void:
 	game.galaxy_changed.connect(_on_galaxy_changed)
+	game.game_exited.connect(func(): get_tree().quit())
 	galaxy.star_clicked.connect(_on_star_clicked)
 	mode_button.pressed.connect(_toggle_mode)
 	$UI/StarPanel/Box/Close.pressed.connect(_close_panel)
@@ -149,6 +150,11 @@ func _smoke() -> void:
 		await get_tree().create_timer(1.5).timeout
 		await _shot(shots + "/galaxy-labels.png")
 	print("smoke: stats %s" % [game.get_stats()])
+	# The game ends on its own: Godot should close with it (game_exited).
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
+	await get_tree().create_timer(15.0).timeout
+	print("smoke: the game did not quit within 15 s")
 	get_tree().quit()
 
 

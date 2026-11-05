@@ -19,7 +19,7 @@ add_library(antares_godot SHARED
 )
 # The game's main() becomes a function the extension calls on its game-host thread.
 set_source_files_properties("${CMAKE_SOURCE_DIR}/src/main.cpp" PROPERTIES
-    COMPILE_DEFINITIONS "main=antares_hosted_main")
+    COMPILE_DEFINITIONS "main=antares_hosted_main;SDL_MAIN_HANDLED")
 target_compile_features(antares_godot PRIVATE cxx_std_20)
 target_include_directories(antares_godot PRIVATE
     "${CMAKE_SOURCE_DIR}/src"
@@ -43,4 +43,8 @@ set_target_properties(antares_godot PROPERTIES
     OUTPUT_NAME antares
     PREFIX "lib"
     LIBRARY_OUTPUT_DIRECTORY "${ANTARES_GODOT_BIN_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${ANTARES_GODOT_BIN_DIR}"
 )
+if(WIN32)
+    set_target_properties(antares_godot PROPERTIES PREFIX "")
+endif()
