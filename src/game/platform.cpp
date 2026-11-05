@@ -1027,6 +1027,11 @@ namespace platform {
                     return;
                 }
             } else {
+                if (antares::host::Frame_Resolved(g_sdl_present_pixels, video::g_screen_res_x, video::g_screen_res_y, true, 0,
+                        video::g_screen_res_y)) {
+                    Publish_Host_Cursor();
+                    return;
+                }
                 Blit_Cursor_On_Present_Surface();
                 if (!g_pending_screenshot_hd.empty()) {
                     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_hd %s FAILED (no HD pack enabled)", g_pending_screenshot_hd.c_str());
