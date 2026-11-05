@@ -1,7 +1,7 @@
 {
   id: "treeless",
   name: "Hidden Tech Tree",
-  description: "Future techs cannot be browsed in the research window.",
+  description: "Future technologies can't be browsed in the research screen.",
   version: "26.10",
 
   requires: {

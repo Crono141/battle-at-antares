@@ -77,7 +77,8 @@ namespace antares {
         // `relative` is a file path inside the package, '/'-separated.
         bool Is_Art_Path_(const std::string& relative, const std::string& config_path) {
             const std::string path = Lower_(relative);
-            return path == "mod.json5" || path == Lower_(config_path) ||
+            // README.md (WP5.5) is shown by the launcher only; the game never reads it.
+            return path == "mod.json5" || path == "readme.md" || path == Lower_(config_path) ||
                 path.rfind("data/hd/", 0) == 0 || path.rfind("data/art/", 0) == 0;
         }
 

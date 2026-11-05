@@ -98,6 +98,10 @@ namespace launcher {
         }
     } // namespace
 
+    std::string Setting_Value_Text(config::t_variable_id id, const config::s_typed_value& value) {
+        return Value_Text_(id, value);
+    }
+
     void c_launcher::Init_Settings_() {
         const std::string schema(reinterpret_cast<const char*>(k_launcher_schema_data), k_launcher_schema_size);
         std::string error;
@@ -121,7 +125,11 @@ namespace launcher {
             for (const char* name : section.names) {
                 config::t_variable_id id = config::CONFIG_NO_VARIABLE;
                 if (config::Find_Variable(name, SDL_strlen(name), &id)) {
+                    // The window toggle sits above the scaler, and a note under it when the
+                    // scaler can't show (WP5.5).
+                    if (SDL_strcmp(name, "interface.scaler") == 0) common_settings_.push_back(AUTO_WINDOW_ROW);
                     common_settings_.push_back(id);
+                    if (SDL_strcmp(name, "interface.scaler") == 0) common_settings_.push_back(SCALER_NOTE_ROW);
                 } else {
                     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "launcher: no setting '%s'", name);
                 }
@@ -162,7 +170,11 @@ namespace launcher {
             for (const auto& [rank, id] : ranked) rows.push_back(id);
             return rows;
         }
-        if (settings_page_ == "common") return common_settings_;
+        if (settings_page_ == "common") {
+            rows = common_settings_;
+            if (Scaler_Note_().empty()) rows.erase(std::remove(rows.begin(), rows.end(), SCALER_NOTE_ROW), rows.end());
+            return rows;
+        }
         if (settings_page_ == "profile") return profile_settings_;
         for (config::t_variable_id id = 0; id < config::variable_count; ++id) {
             if (setting_category_[id] == (settings_page_ == "other" ? std::string() : settings_page_)) rows.push_back(id);
@@ -170,14 +182,39 @@ namespace launcher {
         return rows;
     }
 
+    bool c_launcher::Apply_Setting(const std::string& assignment) {
+        const size_t equals = assignment.find('=');
+        const std::string name = assignment.substr(0, equals);
+        config::t_variable_id id = config::CONFIG_NO_VARIABLE;
+        if (equals == std::string::npos || !config::Find_Variable(name.c_str(), name.size(), &id) || !antares::profile::Is_Editable_Setting(id)) {
+            message_ = "No setting '" + name + "' that the launcher can change.";
+            message_is_error_ = true;
+            return false;
+        }
+        Set_Setting_(id, assignment.substr(equals + 1));
+        return !message_is_error_;
+    }
+
     void c_launcher::Set_Setting_(config::t_variable_id id, const std::string& value_text) {
+        std::vector<std::pair<config::t_variable_id, std::string>> edits = {{id, value_text}};
+        std::string note;
+        config::t_variable_id scaler = config::CONFIG_NO_VARIABLE;
+        if (auto_window_ && !value_text.empty() && config::Find_Variable("interface.scaler", SDL_strlen("interface.scaler"), &scaler) && id == scaler) {
+            for (const auto& edit : Window_Edits_For_(value_text, &note)) edits.push_back(edit);
+        }
+        Set_Settings_(edits, note);
+    }
+
+    void c_launcher::Set_Settings_(const std::vector<std::pair<config::t_variable_id, std::string>>& edits, const std::string& note) {
+        if (edits.empty()) return;
         const std::string before = profile_text_;
         const bool checked_before = check_.ok;
-        if (!Write_Profile_Text_(antares::profile::With_Setting(profile_text_, id, value_text))) {
+        std::string text = profile_text_;
+        for (const auto& [id, value_text] : edits) text = antares::profile::With_Setting(text, id, value_text);
+        if (!Write_Profile_Text_(text)) {
             return;
         }
         Run_Check_();
-        const std::string path = antares::profile::Setting_Path(id);
         if (checked_before && !check_.ok) {
             const std::string error = check_.error;
             Write_Profile_Text_(before);
@@ -186,8 +223,129 @@ namespace launcher {
             message_is_error_ = true;
             return;
         }
+        // The first edit is the one asked for; the others (the window size) are told by `note`.
+        const std::string path = antares::profile::Setting_Path(edits.front().first);
+        const std::string& value_text = edits.front().second;
         message_ = value_text.empty() ? "Removed " + path + " from the profile." : "Saved " + path + " = " + value_text + ";";
+        if (!note.empty()) message_ += " " + note;
         message_is_error_ = false;
+    }
+
+    bool c_launcher::Hd_Art_Enabled_(std::string* package_id) const {
+        for (const std::string& id : check_.package_order) {
+            const antares::s_package_info* package = Find_Package_(id);
+            if (package != nullptr && package->hd_art) {
+                if (package_id != nullptr) *package_id = id;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    namespace {
+        bool Read_Int_(const config::s_effective_config& effective, const char* name, int64_t* value) {
+            config::t_variable_id id = config::CONFIG_NO_VARIABLE;
+            config::s_typed_value typed;
+            if (!config::Find_Variable(name, SDL_strlen(name), &id) || !config::Read_State_Value(&effective.state, id, &typed)) return false;
+            *value = typed.integer_value;
+            return true;
+        }
+
+        // How many times the scaler enlarges the 640x480 picture; 0 for bilinear (any size).
+        int Scaler_Factor_(const std::string& scaler) {
+            if (scaler == "pixelart") return 1;
+            if (scaler == "hq2x" || scaler == "mmpx2") return 2;
+            if (scaler == "hq3x") return 3;
+            if (scaler == "hq4x" || scaler == "mmpx4") return 4;
+            return 0;
+        }
+    } // namespace
+
+    std::string c_launcher::Scaler_Note_() const {
+        if (!check_.ok || check_.effective == nullptr) return "";
+        std::string hd_package;
+        if (Hd_Art_Enabled_(&hd_package)) {
+            return "No effect with this profile: " + hd_package + " draws the screens in HD at the window's size, so the scaler isn't used.";
+        }
+        int64_t fullscreen = 0;
+        int64_t width = 0;
+        int64_t height = 0;
+        int64_t scaler = 0;
+        Read_Int_(*check_.effective, "interface.fullscreen", &fullscreen);
+        Read_Int_(*check_.effective, "interface.scaler", &scaler);
+        if (fullscreen == 0 && Read_Int_(*check_.effective, "interface.window_width", &width) && Read_Int_(*check_.effective, "interface.window_height", &height) &&
+            width <= 640 && height <= 480 && scaler != 0) {
+            return std::string("No visible effect in a 640x480 window: the scaled picture is shrunk back to fit. ") +
+                (auto_window_ ? "Make the window larger, turn on fullscreen, or choose the scaler again." : "Make the window larger, turn on fullscreen, or tick the box above.");
+        }
+        return "";
+    }
+
+    std::vector<std::pair<config::t_variable_id, std::string>> c_launcher::Window_Edits_For_(const std::string& scaler, std::string* note) const {
+        std::vector<std::pair<config::t_variable_id, std::string>> edits;
+        const int factor = Scaler_Factor_(scaler);
+        if (factor == 0) return edits; // bilinear stretches to any size: leave the window alone
+        if (Hd_Art_Enabled_()) {
+            *note = "Window size left alone: the HD art pack draws at the window's size.";
+            return edits;
+        }
+        int width = 640 * factor;
+        int height = 480 * factor;
+        // Keep it on the screen: the largest 4:3 size that fits the usable desktop, less a title bar.
+        SDL_Rect usable{};
+        if (SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &usable) && usable.w > 0 && usable.h > 0) {
+            const int fit_width = std::min(usable.w, (usable.h - 40) * 4 / 3) / 4 * 4;
+            if (fit_width >= 640 && fit_width < width) {
+                width = fit_width;
+                height = fit_width * 3 / 4;
+                *note = "Window set to " + std::to_string(width) + "x" + std::to_string(height) + ", the largest that fits this screen (" + scaler + " draws " +
+                    std::to_string(640 * factor) + "x" + std::to_string(480 * factor) + ").";
+            }
+        }
+        if (note->empty()) *note = "Window set to " + std::to_string(width) + "x" + std::to_string(height) + ".";
+        config::t_variable_id width_id = config::CONFIG_NO_VARIABLE;
+        config::t_variable_id height_id = config::CONFIG_NO_VARIABLE;
+        if (!config::Find_Variable("interface.window_width", SDL_strlen("interface.window_width"), &width_id) ||
+            !config::Find_Variable("interface.window_height", SDL_strlen("interface.window_height"), &height_id)) {
+            return edits;
+        }
+        edits.emplace_back(width_id, std::to_string(width));
+        edits.emplace_back(height_id, std::to_string(height));
+        return edits;
+    }
+
+    void c_launcher::Draw_Auto_Window_Row_() {
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        if (ImGui::Selectable("Automatically scale window to scaler", selected_setting_ == AUTO_WINDOW_ROW, ImGuiSelectableFlags_AllowOverlap)) {
+            selected_setting_ = AUTO_WINDOW_ROW;
+        }
+        if (ImGui::IsItemHovered() && !ImGui::IsAnyItemActive()) selected_setting_ = AUTO_WINDOW_ROW;
+        ImGui::TableNextColumn();
+        if (ImGui::Checkbox("##auto-window", &auto_window_)) {
+            Save_Settings_();
+            if (auto_window_ && check_.ok && check_.effective != nullptr) {
+                // Match the window to the scaler already chosen.
+                config::t_variable_id scaler = config::CONFIG_NO_VARIABLE;
+                config::s_typed_value value;
+                std::string note;
+                if (config::Find_Variable("interface.scaler", SDL_strlen("interface.scaler"), &scaler) &&
+                    config::Read_State_Value(&check_.effective->state, scaler, &value)) {
+                    const auto edits = Window_Edits_For_(Value_Text_(scaler, value), &note);
+                    if (edits.empty()) {
+                        message_ = note.empty() ? "Bilinear stretches to any window size, so the window is left as it is." : note;
+                        message_is_error_ = false;
+                    } else {
+                        Set_Settings_(edits, note);
+                    }
+                }
+            }
+        }
+        if (ImGui::IsItemHovered() && !ImGui::IsAnyItemActive()) selected_setting_ = AUTO_WINDOW_ROW;
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(COLOUR_DIM, "launcher");
+        ImGui::TableNextColumn();
     }
 
     void c_launcher::Draw_Settings_(float height) {
@@ -285,6 +443,20 @@ namespace launcher {
                 if (id == config::CONFIG_NO_VARIABLE) {
                     ImGui::TableNextColumn();
                     ImGui::TextColored(COLOUR_ACCENT, "%s", common_sections_[section_of[static_cast<size_t>(row)]].c_str());
+                    continue;
+                }
+                if (id == AUTO_WINDOW_ROW) {
+                    Draw_Auto_Window_Row_();
+                    continue;
+                }
+                if (id == SCALER_NOTE_ROW) {
+                    const std::string note = Scaler_Note_();
+                    ImGui::TableNextColumn();
+                    ImGui::TextColored(note.empty() ? COLOUR_DIM : COLOUR_WARN, "%s", note.empty() ? "" : "Scaler:");
+                    ImGui::TableNextColumn();
+                    ImGui::PushTextWrapPos(0.0f);
+                    ImGui::TextColored(COLOUR_WARN, "%s", note.c_str());
+                    ImGui::PopTextWrapPos();
                     continue;
                 }
                 ImGui::PushID(static_cast<int>(id));
@@ -436,6 +608,18 @@ namespace launcher {
 
     void c_launcher::Draw_Setting_Details_() {
         const config::t_variable_id id = selected_setting_;
+        if (id == AUTO_WINDOW_ROW) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted("Automatically scale window to scaler");
+            ImGui::SameLine();
+            ImGui::TextColored(COLOUR_DIM, "a launcher option, kept in launcher.json");
+            ImGui::TextUnformatted("When ticked, choosing a scaler also sets the window size to the size it draws: pixel art 640x480, "
+                                   "2x 1280x960, 3x 1920x1440, 4x 2560x1920, or the largest 4:3 size that fits the screen. Bilinear "
+                                   "stretches to any size, so it leaves the window alone, and so does a profile with an HD art pack, "
+                                   "which draws at the window's size.");
+            ImGui::PopTextWrapPos();
+            return;
+        }
         if (id == config::CONFIG_NO_VARIABLE || id >= config::variable_count) {
             ImGui::TextColored(COLOUR_DIM, "Point at a setting to read about it.");
             ImGui::PushTextWrapPos(0.0f);
@@ -455,6 +639,7 @@ namespace launcher {
         ImGui::TextColored(COLOUR_DIM, "%s", antares::profile::Setting_Path(id).c_str());
         if (!doc.description.empty()) ImGui::TextUnformatted(doc.description.c_str());
         if (!doc.remarks.empty()) ImGui::TextColored(COLOUR_DIM, "%s", doc.remarks.c_str());
+        if (name == "interface.scaler" && !Scaler_Note_().empty()) ImGui::TextColored(COLOUR_WARN, "%s", Scaler_Note_().c_str());
 
         std::string line;
         config::s_typed_value default_value;

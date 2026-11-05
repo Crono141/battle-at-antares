@@ -1,7 +1,7 @@
 {
   id: "v150i-mp",
   name: "Improved Multiplayer",
-  description: "Multiplayer race-pick, map, diplomacy, and interface overrides for 1.50 Improved.",
+  description: "Improved rules for multiplayer: multiplayer race picks, mirrored home systems, no wormholes or Orion, and no tech trading.",
   version: "26.10",
 
   requires: {

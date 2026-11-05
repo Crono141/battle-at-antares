@@ -150,6 +150,22 @@ The following sequences work on the Main, Build, and Tactical Combat screens. Ho
 | Alt+R, Alt+E | Reload the full configuration. This is not allowed during multiplayer games. |
 | Alt+R, Alt+I | Reload interface options. This is allowed during multiplayer games. |
 
+## Hidden Key Sequences
+
+These are the original game's cheat codes. Hold Alt and type the letters in order, as with the sequences above. Using a cheat marks you as a cheater, and a game in which you cheated is not entered in the Hall of Fame.
+
+| Key sequence | Screen | Action |
+| --- | --- | --- |
+| Alt + EINSTEIN | Main | Gives you every technology. |
+| Alt + MOOLA | Main | Gives you 1000 BC. |
+| Alt + MENLO | Main | Completes your current research. |
+| Alt + ISEEALL | Main | Switches Omniscience on or off: you see the whole galaxy. |
+| Alt + ALE | Main | Lets you pick any leader and assign it to your empire. |
+| Alt + ALLAI | Main | Hands your empire to the AI, so the computer plays every race. Single player only. |
+| Alt + X | Main | Switches to the next player's empire. Not in network games. |
+| Alt + SCOR | Main | Shows your current score. Not a cheat. |
+| Alt + CRUNCH | Build | Completes the current production project. |
+
 ## Hall of Fame
 
 Alt+C immediately and permanently replaces the recorded Hall of Fame scores with the default entries. Back up your Hall of Fame data before using this shortcut if you want to preserve the current scores.

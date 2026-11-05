@@ -1,7 +1,7 @@
 {
   id: "randtech",
   name: "Random Technology Tree",
-  description: "Randomizes the global technology tree before player technology setup.",
+  description: "Shuffles the technology tree at the start of every new game.",
   version: "26.10",
 
   requires: {

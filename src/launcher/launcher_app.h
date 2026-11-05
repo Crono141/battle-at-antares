@@ -2,7 +2,11 @@
 
 #include <SDL3/SDL.h>
 
+#include <memory>
+
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "antares/package_catalog.h"
@@ -26,6 +30,27 @@ namespace launcher {
         antares::s_config_check check; // loading it with the selected profile, when readable
     };
 
+    /** A setting's value in CFG syntax ("hq2x", "true", "1280"), for display. */
+    std::string Setting_Value_Text(config::t_variable_id id, const config::s_typed_value& value);
+
+    /** Draws Markdown: # headings, paragraphs, "- " bullets and pipe tables; ** and ` are
+     *  dropped. With a `filter`, only table rows containing it (any case) are drawn, under their
+     *  headings. Returns the number of table rows drawn. */
+    int Draw_Markdown(const std::string& text, const std::string& filter = "");
+
+    // Pseudo-rows of the Settings table (WP5.5), beside real variable ids.
+    constexpr config::t_variable_id AUTO_WINDOW_ROW = config::CONFIG_NO_VARIABLE - 1; // the toggle
+    constexpr config::t_variable_id SCALER_NOTE_ROW = config::CONFIG_NO_VARIABLE - 2; // why it can't show
+
+    // What a package does on its own: a dry run that enables only it (WP5.5).
+    struct s_package_preview {
+        bool ok = false;
+        std::string error;
+        std::vector<config::t_variable_id> own;            // settings the package itself decides
+        std::map<std::string, int> from_dependencies;      // settings its dependencies decide, by package
+        std::shared_ptr<const config::s_effective_config> effective;
+    };
+
     class c_launcher {
       public:
         bool Init(const std::string& game_dir, const std::string& start_profile, const std::string& select_package = "");
@@ -40,6 +65,12 @@ namespace launcher {
         void Open_Settings(const std::string& page_or_search);
         /** Opens the Saves tab with a slot selected (0: none) (the -saves option). */
         void Open_Saves(int slot);
+        /** Changes a setting in the selected profile as the Settings tab does ("interface.scaler=hq2x";
+         *  an empty value removes the line), with its message (the -set option). */
+        bool Apply_Setting(const std::string& assignment);
+        const std::string& Message() const { return message_; }
+        /** Opens the Keys tab, filtered by `filter` (the -keys option). */
+        void Open_Keys(const std::string& filter);
         /** Polls the running game, if any. */
         void Update();
 
@@ -82,6 +113,20 @@ namespace launcher {
         void Draw_Setting_Details_();
         bool Draw_Setting_Editor_(config::t_variable_id id, const config::s_typed_value& value, std::string* value_text);
         void Set_Setting_(config::t_variable_id id, const std::string& value_text);
+        /** Several setting lines in one write and one check, undone together if the game would
+         *  refuse them. `note` is added to the message. */
+        void Set_Settings_(const std::vector<std::pair<config::t_variable_id, std::string>>& edits, const std::string& note = "");
+        // The scaler and the window (WP5.5).
+        bool Hd_Art_Enabled_(std::string* package_id = nullptr) const;
+        std::string Scaler_Note_() const; // why the scaler can't show, or ""
+        /** The window size edits that match `scaler` ("hq2x"...), or none (bilinear, HD art). */
+        std::vector<std::pair<config::t_variable_id, std::string>> Window_Edits_For_(const std::string& scaler, std::string* note) const;
+        void Draw_Auto_Window_Row_();
+
+        // Package information (WP5.5, launcher_info.cpp).
+        const s_package_preview& Package_Preview_(const std::string& id);
+        void Draw_Package_Changes_(const antares::s_package_info& package);
+        void Draw_Keys_(float height);
         std::vector<config::t_variable_id> Settings_Rows_() const;
         bool Profile_Sets_(config::t_variable_id id) const;
 
@@ -103,6 +148,7 @@ namespace launcher {
         bool skip_intro_ = false;
         int load_save_ = 0; // 0: none, 1-10: SAVE<n>.GAM
         bool close_on_launch_ = false;
+        bool auto_window_ = true; // set the window size to match the scaler (WP5.5)
 
         SDL_Process* game_ = nullptr;
         bool quit_ = false;
@@ -114,7 +160,7 @@ namespace launcher {
         int selected_save_ = 0;
 
         // Settings.
-        int tab_ = 0;           // 0 packages, 1 settings, 2 saves
+        int tab_ = 0;           // 0 packages, 1 settings, 2 saves, 3 keys
         bool force_tab_ = true; // select tab_ on the first frame
         settings::c_schema_docs docs_;
         std::vector<std::string> setting_titles_;            // by variable id
@@ -126,6 +172,10 @@ namespace launcher {
         std::string settings_page_ = "common"; // "common", "profile", or a category id
         char settings_search_[128] = {};
         config::t_variable_id selected_setting_ = config::CONFIG_NO_VARIABLE;
+
+        // Package information and the Keys tab.
+        std::map<std::string, s_package_preview> previews_; // cleared when packages are read again
+        char keys_filter_[64] = {};
 
         // Profile popups.
         int popup_ = 0; // 0 none, 1 new, 2 copy, 3 rename, 4 delete
