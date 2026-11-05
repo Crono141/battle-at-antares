@@ -1,0 +1,22 @@
+<rml>
+<head>
+    <title>Galaxy (WP3.0 trial, path B)</title>
+    <link type="text/rcss" href="galaxy.rcss"/>
+</head>
+<body>
+    <!-- Star names; the scene view positions them each frame and fades the layer by zoom. -->
+    <div id="labels"></div>
+
+    <div id="bar">
+        <button id="mode">Legacy screen (Ctrl+G)</button>
+        <span id="stats"></span>
+    </div>
+
+    <div id="panel">
+        <h1 id="star-name">Star</h1>
+        <p id="star-owner">Owner</p>
+        <p id="star-class">Class</p>
+        <div class="buttons"><button id="close">Close</button></div>
+    </div>
+</body>
+</rml>

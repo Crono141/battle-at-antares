@@ -135,6 +135,8 @@ option(ANTARES_BUILD_GODOT "Build the Godot frontend library (WP3.0 trial)" OFF)
 if(ANTARES_BUILD_GODOT)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
+# WP3.0 trial path B: RmlUi and a native galaxy scene inside the SDL game (frontend/rmlui).
+option(ANTARES_BUILD_RMLUI "Build the RmlUi frontend layer into the game (WP3.0 trial)" OFF)
 
 if(ORION2RE_ENABLE_ASAN)
     if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -708,6 +710,25 @@ if(ORION2RE_BUILD_GAME)
         miniz
     )
     target_link_libraries(orion2re PRIVATE orion2re_imgui)
+    if(ANTARES_BUILD_RMLUI)
+        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+        set(RMLUI_SAMPLES OFF CACHE BOOL "" FORCE)
+        set(RMLUI_FONT_ENGINE "freetype" CACHE STRING "" FORCE)
+        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/vendors/RmlUi" "${CMAKE_CURRENT_BINARY_DIR}/vendors/RmlUi" EXCLUDE_FROM_ALL)
+        target_sources(orion2re PRIVATE
+            frontend/rmlui/rml_backend.cpp
+            frontend/rmlui/trial_ui.cpp
+            "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}/launcher_font.h"
+        )
+        target_include_directories(orion2re PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/frontend/rmlui"
+            "${ORION2RE_VENDORED_STB_DIR}"
+            "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}"
+        )
+        target_link_libraries(orion2re PRIVATE RmlUi::RmlUi)
+        # The no-op hooks in src/antares/ui_hooks.cpp step aside.
+        target_compile_definitions(orion2re_game_objects PRIVATE ANTARES_RMLUI=1)
+    endif()
     # Battle at Antares launcher (WP5.1, D23): SDL3 and Dear ImGui over the engine's config code.
     set(ANTARES_LAUNCHER_FONT_HEADER
         "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}/launcher_font.h")

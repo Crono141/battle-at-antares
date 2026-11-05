@@ -6,6 +6,7 @@
 #include "antares/input_trace.h"
 #include "antares/lbx_trace.h"
 #include "antares/script_capture.h"
+#include "antares/ui_hooks.h"
 
 #include "config/config_runtime.h"
 #include "game/scalers/scaler.h"
@@ -458,6 +459,9 @@ namespace platform {
                 Render_Cursor_Overlay();
             }
             debug_overlay::Render_Published_Frame(g_sdl_renderer, g_present_generation);
+            if (antares::ui::Render(g_sdl_renderer)) {
+                Request_Present_Refresh();
+            }
             Save_Pending_Screenshot();
             SDL_RenderPresent(g_sdl_renderer);
         }
@@ -1736,6 +1740,10 @@ namespace platform {
         Run_Input_Script();
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            if (antares::ui::Handle_Event(event, g_sdl_window)) {
+                Request_Present_Refresh();
+                continue;
+            }
             if (event.type == SDL_EVENT_QUIT ||
                 event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
                 Request_SDL_Exit();

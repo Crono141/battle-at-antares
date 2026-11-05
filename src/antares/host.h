@@ -22,6 +22,9 @@ namespace antares::host {
     /** Marks the process as hosted. Call before the game starts. */
     void Activate();
     bool Active();
+    /** Publishes the game-state snapshot without hosting frames or input (an in-process UI layer,
+     *  WP3.0 path B). */
+    void Enable_Snapshots();
 
     // The host starts the game itself, by calling the game's main() on its own thread (the Godot
     // host compiles src/main.cpp in under another name).

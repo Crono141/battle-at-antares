@@ -285,6 +285,14 @@
       }
     },
     {
+      "name": "linux-rmlui",
+      "displayName": "Linux game with the RmlUi layer (WP3.0 trial)",
+      "inherits": "linux-release",
+      "cacheVariables": {
+        "ANTARES_BUILD_RMLUI": "ON"
+      }
+    },
+    {
       "name": "linux-debug-asan",
       "displayName": "Linux Native Debug (ASan + UBSan)",
       "generator": "Ninja",
@@ -561,6 +569,13 @@
       "configurePreset": "linux-godot",
       "targets": [
         "antares_godot"
+      ]
+    },
+    {
+      "name": "linux-rmlui",
+      "configurePreset": "linux-rmlui",
+      "targets": [
+        "orion2re"
       ]
     },
     {
