@@ -68,6 +68,9 @@ namespace launcher {
         /** Changes a setting in the selected profile as the Settings tab does ("interface.scaler=hq2x";
          *  an empty value removes the line), with its message (the -set option). */
         bool Apply_Setting(const std::string& assignment);
+        /** Ticks or unticks a package as the Packages tab does, switching off what conflicts with it
+         *  (on) or still needs it (off); the message names them. False when nothing changed. */
+        bool Set_Package_Enabled(const std::string& package_id, bool on);
         const std::string& Message() const { return message_; }
         /** Opens the Keys tab, filtered by `filter` (the -keys option). */
         void Open_Keys(const std::string& filter);

@@ -50,6 +50,20 @@ namespace antares {
      *  packages the profile enables, with the save's values. `error` is what the game would say. */
     s_config_check Check_Save(const std::string& entry_path, const std::vector<config::s_mod_requirement>* required_mods, const config::s_config_state* state);
 
+    /** Turning one package on or off in a profile's enable list, with what had to change too. */
+    struct s_package_toggle {
+        std::vector<std::string> enabled;   // the new enable list, highest priority first
+        std::vector<std::string> removed;   // other packages switched off, in list order
+        std::vector<std::string> reasons;   // one line per removed package, same order
+    };
+
+    /** Switches `package_id` on (appended at the lowest priority) or off in `enabled`. On: every
+     *  enabled package that would conflict with it is switched off, comparing what each loads
+     *  (itself, its dependencies and installed optional dependencies, as the game resolves them; a
+     *  conflict declared on either side counts). Off: every enabled package that would still load
+     *  it as a dependency is switched off too, since the game would load it anyway. */
+    s_package_toggle Toggle_Package(const std::vector<s_package_info>& packages, const std::vector<std::string>& enabled, const std::string& package_id, bool on);
+
     /** "file:line:column: message", leaving out the parts that are empty or zero. */
     std::string Format_Diagnostic(const config::s_cfg_diagnostic& diagnostic);
 } // namespace antares

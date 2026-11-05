@@ -384,6 +384,72 @@ DOCTEST_TEST_CASE("launcher package info: README, HD art, and what a package cha
     DOCTEST_CHECK(broken.error.find("nowhere") != std::string::npos);
 }
 
+DOCTEST_TEST_CASE("launcher toggle: conflicts and dependents follow a package") {
+    const auto package = [](const char* id, std::vector<std::string> dependencies, std::vector<std::string> conflicts, std::vector<std::string> optional = {}) {
+        antares::s_package_info info;
+        info.id = id;
+        info.valid = true;
+        info.manifest.id = id;
+        for (const std::string& dependency : dependencies) info.manifest.dependencies.push_back({dependency, "1"});
+        for (const std::string& dependency : optional) info.manifest.optional_dependencies.push_back({dependency, "1"});
+        info.manifest.conflicts = std::move(conflicts);
+        return info;
+    };
+    // The bundled shape: three mirrors that exclude each other, and mp needing mirror_hw and base.
+    const std::vector<antares::s_package_info> packages = {
+        package("art", {}, {}),
+        package("base", {}, {"rival"}),
+        package("mirror", {}, {"mirror_hw", "mirror_exhw"}),
+        package("mirror_exhw", {}, {"mirror", "mirror_hw"}),
+        package("mirror_hw", {}, {"mirror", "mirror_exhw"}),
+        package("mp", {"mirror_hw", "base"}, {}),
+        package("rival", {}, {}),          // declares nothing: base's declaration counts
+        package("uses", {}, {}, {"rival", "absent"}),
+    };
+    using list = std::vector<std::string>;
+
+    // On: a plain add goes to the lowest priority.
+    antares::s_package_toggle toggle = antares::Toggle_Package(packages, {"art"}, "mirror", true);
+    CHECK(toggle.enabled == list{"art", "mirror"});
+    CHECK(toggle.removed.empty());
+
+    // On: a direct conflict is switched off, the rest keep their order.
+    toggle = antares::Toggle_Package(packages, {"art", "mirror", "base"}, "mirror_hw", true);
+    CHECK(toggle.enabled == list{"art", "base", "mirror_hw"});
+    CHECK(toggle.removed == list{"mirror"});
+    CHECK(toggle.reasons == list{"mirror conflicts with mirror_hw"});
+
+    // On: a conflict through a dependency (mp loads mirror_hw), and one declared only by the other side.
+    toggle = antares::Toggle_Package(packages, {"mirror", "rival", "art"}, "mp", true);
+    CHECK(toggle.enabled == list{"art", "mp"});
+    CHECK(toggle.removed == list{"mirror", "rival"});
+    CHECK(toggle.reasons == list{"mirror conflicts with mirror_hw (needed by mp)", "rival conflicts with base (needed by mp)"});
+
+    // On: enabling a mirror switches off mp too, since mp would load mirror_hw.
+    toggle = antares::Toggle_Package(packages, {"mp", "mirror_hw"}, "mirror_exhw", true);
+    CHECK(toggle.enabled == list{"mirror_exhw"});
+    CHECK(toggle.removed == list{"mp", "mirror_hw"});
+    CHECK(toggle.reasons == list{"needs mirror_hw, which conflicts with mirror_exhw", "mirror_hw conflicts with mirror_exhw"});
+
+    // On: an enabled dependency of the new package stays.
+    toggle = antares::Toggle_Package(packages, {"base"}, "mp", true);
+    CHECK(toggle.enabled == list{"base", "mp"});
+
+    // On: an installed optional dependency counts; a missing one doesn't matter.
+    toggle = antares::Toggle_Package(packages, {"base"}, "uses", true);
+    CHECK(toggle.enabled == list{"uses"});
+    CHECK(toggle.reasons == list{"base conflicts with rival (needed by uses)"});
+
+    // Off: packages that would still load it go too; others stay.
+    toggle = antares::Toggle_Package(packages, {"art", "mp", "mirror_hw", "base"}, "mirror_hw", false);
+    CHECK(toggle.enabled == list{"art", "base"});
+    CHECK(toggle.removed == list{"mp"});
+    CHECK(toggle.reasons == list{"mp needs mirror_hw"});
+    toggle = antares::Toggle_Package(packages, {"art", "mirror"}, "art", false);
+    CHECK(toggle.enabled == list{"mirror"});
+    CHECK(toggle.removed.empty());
+}
+
 namespace {
     // A save as Write_Game lays it out: header, game state (here filler), then the extension block
     // with the config snapshot and a Lua section. The filler holds a stray extension magic number.

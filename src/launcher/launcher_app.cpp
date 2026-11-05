@@ -211,6 +211,32 @@ namespace launcher {
         Run_Check_();
     }
 
+    bool c_launcher::Set_Package_Enabled(const std::string& package_id, bool on) {
+        const bool is_on = std::find(enabled_.begin(), enabled_.end(), package_id) != enabled_.end();
+        const antares::s_package_info* package = Find_Package_(package_id);
+        if (on == is_on || (on && (package == nullptr || !package->valid))) {
+            message_ = on == is_on ? package_id + " is already " + (on ? "on." : "off.") : "No valid package '" + package_id + "' to switch on.";
+            message_is_error_ = on != is_on;
+            return false;
+        }
+        // Conflicting packages, and those that would still load one being switched off, follow it.
+        const antares::s_package_toggle toggle = antares::Toggle_Package(packages_, enabled_, package_id, on);
+        std::string message;
+        for (size_t index = 0; index < toggle.removed.size(); ++index) {
+            const antares::s_package_info* removed = Find_Package_(toggle.removed[index]);
+            message += std::string(index == 0 ? "Also switched off " : "; ") +
+                (removed != nullptr && removed->valid ? removed->manifest.name : toggle.removed[index]) +
+                " (" + toggle.reasons[index] + ")";
+        }
+        Apply_Enabled_(toggle.enabled);
+        if (enabled_ != toggle.enabled) return false; // the profile couldn't be written: message_ says why
+        if (!message.empty()) {
+            message_ = message + ".";
+            message_is_error_ = false;
+        }
+        return true;
+    }
+
     void c_launcher::Run_Check_() {
         const auto start = std::chrono::steady_clock::now();
         const s_profile_entry& entry = profiles_[profile_index_];
@@ -519,6 +545,8 @@ namespace launcher {
         }
         std::vector<std::string> enabled = enabled_;
         bool changed = false;
+        std::string toggle_id;
+        bool toggle_on = false;
 
         const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY |
             ImGuiTableFlags_SizingFixedFit;
@@ -544,12 +572,8 @@ namespace launcher {
             bool checked = on;
             ImGui::BeginDisabled(!on && (package == nullptr || !package->valid));
             if (ImGui::Checkbox("##on", &checked)) {
-                if (checked) {
-                    enabled.push_back(id);
-                } else {
-                    enabled.erase(std::find(enabled.begin(), enabled.end(), id));
-                }
-                changed = true;
+                toggle_id = id; // applied after the table, with what it brings along
+                toggle_on = checked;
             }
             ImGui::EndDisabled();
 
@@ -618,7 +642,9 @@ namespace launcher {
             ImGui::PopID();
         }
         ImGui::EndTable();
-        if (changed) {
+        if (!toggle_id.empty()) {
+            Set_Package_Enabled(toggle_id, toggle_on);
+        } else if (changed) {
             Apply_Enabled_(enabled);
         }
     }
