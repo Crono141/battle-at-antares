@@ -29,3 +29,6 @@
 [submodule "vendors/libwebp"]
 	path = vendors/libwebp
 	url = https://github.com/webmproject/libwebp.git
+[submodule "vendors/godot-cpp"]
+	path = vendors/godot-cpp
+	url = https://github.com/godotengine/godot-cpp.git

@@ -277,6 +277,14 @@
       }
     },
     {
+      "name": "linux-godot",
+      "displayName": "Linux Godot frontend library (WP3.0 trial)",
+      "inherits": "linux-release",
+      "cacheVariables": {
+        "ANTARES_BUILD_GODOT": "ON"
+      }
+    },
+    {
       "name": "linux-debug-asan",
       "displayName": "Linux Native Debug (ASan + UBSan)",
       "generator": "Ninja",
@@ -547,6 +555,13 @@
       "name": "linux-release",
       "configurePreset": "linux-release",
       "configuration": "Release"
+    },
+    {
+      "name": "linux-godot",
+      "configurePreset": "linux-godot",
+      "targets": [
+        "antares_godot"
+      ]
     },
     {
       "name": "linux-debug-asan",

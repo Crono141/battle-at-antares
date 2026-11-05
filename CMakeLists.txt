@@ -129,6 +129,12 @@ option(ORION2RE_BUILD_DOCUMENTATION
        OFF)
 option(ORION2RE_ENFORCE_ORIGINAL_STRUCT_SIZES "Require structures to retain their original game sizes" OFF)
 option(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL "Exclude runtime executables from the default all target" ${ORION2RE_BUILD_TESTS})
+# Battle at Antares, WP3.0 trial path A: the engine as a Godot GDExtension library
+# (frontend/godot). The library needs position-independent code throughout.
+option(ANTARES_BUILD_GODOT "Build the Godot frontend library (WP3.0 trial)" OFF)
+if(ANTARES_BUILD_GODOT)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 if(ORION2RE_ENABLE_ASAN)
     if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -1192,4 +1198,8 @@ if(ORION2RE_BUILD_TESTS)
             endif()
         endforeach()
     endif()
+endif()
+
+if(ANTARES_BUILD_GODOT)
+    add_subdirectory(frontend/godot)
 endif()

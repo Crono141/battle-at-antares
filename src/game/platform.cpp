@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/control.h"
+#include "antares/host.h"
 #include "antares/identity.h"
 #include "antares/input_trace.h"
 #include "antares/lbx_trace.h"
@@ -976,6 +977,9 @@ namespace platform {
                     (void)SDL_SaveBMP(dump, path);
                     SDL_DestroySurface(dump);
                 }
+            }
+            if (antares::host::Frame_Resolved(g_hd_pixels, width, height, changed, row_first, row_last)) {
+                return true;
             }
             bool uploaded = true;
             if (!g_hd_frame_valid) {
