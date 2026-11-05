@@ -329,10 +329,8 @@ namespace launcher {
         const std::string executable = godot ? Godot_Executable_() : game_dir_ + "antares";
 #endif
         const std::string prefix(1, command_line::OPTION_PREFIX);
+        // Both builds take the same options in the platform's style (/config on Windows).
         std::vector<std::string> arguments = {executable};
-        if (godot) {
-            arguments.push_back("--"); // what follows is for the game, not for Godot
-        }
         if (!entry.is_base) {
             arguments.push_back(prefix + "config");
             arguments.push_back(entry.vfs_path);
