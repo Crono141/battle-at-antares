@@ -12,7 +12,7 @@
 // snapshots, and the art packages the player has enabled stay active when a save is loaded.
 namespace antares {
     /** True when the package has no rules: empty config, no Lua, no dependencies, and its files
-     *  are only mod.json5, its config file and folders data/hd/ and data/art/. */
+     *  are only mod.json5, README.md, its config file and folders data/hd/ and data/art/. */
     bool Is_Art_Only_Package(const config::s_mod_manifest& manifest, const config::s_cfg_document& document);
 
     /** Same test for a package that isn't mounted yet, read straight from data/mods/. Used on

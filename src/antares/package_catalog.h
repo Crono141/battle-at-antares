@@ -19,6 +19,8 @@ namespace antares {
         bool valid = false;    // the manifest parsed and passed the game's checks
         std::string error;     // why not, when !valid ("file:line:column: message")
         bool art_only = false; // D18: not recorded in saves
+        bool hd_art = false;   // has an HD art pack (data/art/ or data/hd/ with pack.json or index.json)
+        std::string readme;    // README.md at the package root, if any (WP5.5)
         config::s_mod_manifest manifest;
     };
 
@@ -38,6 +40,10 @@ namespace antares {
      *  "profiles/hd.cfg"): resolves packages, dependencies, conflicts and settings, then
      *  discards it all. */
     s_config_check Check_Config(const std::string& entry_path);
+
+    /** A dry run of a config that enables only `package_id`: the settings it and its dependencies
+     *  set, with `effective->provenance` naming the package of each (WP5.5). */
+    s_config_check Check_Package(const std::string& package_id);
 
     /** A dry run of loading a save's configuration with the profile `entry_path`: the packages the
      *  save recorded (all of them when `required_mods` is null: the profile's own), plus the art

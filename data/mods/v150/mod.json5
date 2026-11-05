@@ -1,7 +1,7 @@
 {
   id: "v150",
   name: "Basic",
-  description: "Basic mod",
+  description: "1.50 interface conveniences, corrected texts and a few small rule tweaks; the base for most other packages.",
   version: "26.11",
   compatible_versions: "26.10",
 

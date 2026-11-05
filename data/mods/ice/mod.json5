@@ -1,7 +1,7 @@
 {
   id: "ice",
   name: "ICE",
-  description: "More challenging Ai, modded race picks, rebalanced tech tree, improved map, and new game behavior.",
+  description: "Complete ICE 35 rule set: tougher AI, 25-pick races, reworked tech tree, map, economy, combat and Antarans.",
   version: "35",
 
   requires: {

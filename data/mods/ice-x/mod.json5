@@ -1,7 +1,7 @@
 {
   id: "ice-x",
   name: "ICE-X",
-  description: "Hardest Ai and Antarans layered on the base ICE mod.",
+  description: "Hardest AI and Antarans, layered on the ICE rule set.",
   version: "35",
 
   requires: {

@@ -342,6 +342,48 @@ DOCTEST_TEST_CASE("launcher check returns each setting's value and where it came
     DOCTEST_CHECK(value_of(mine, "combat.bombardment_hit_frames").second.package_id == "pace");
 }
 
+DOCTEST_TEST_CASE("launcher package info: README, HD art, and what a package changes on its own") {
+    s_launcher_test_directory files;
+    files.Package("base", "", "combat bombardment_hit_frames = 4;\ninterface show_exit_message = false;\n");
+    files.Package("addon", "dependencies: [{ id: \"base\", version: \">=1.0.0\" }],", "combat max_turns = 25;\n");
+    files.Write("data/mods/addon/README.md", "# Addon\n\nShort combat.\n");
+    files.Package("look");
+    files.Write("data/mods/look/README.md", "# Look\n");
+    files.Write("data/mods/look/data/art/pack.json", "{}");
+    files.Write_Zip("data/mods/zipped-look.zip", {{"mod.json5", s_launcher_test_directory::Manifest("zipped-look")},
+        {"config/main.cfg", ""}, {"README.md", "# Zipped\n"}, {"data/hd/index.json", "{}"}});
+    files.Package("broken", "dependencies: [{ id: \"nowhere\", version: \">=1.0.0\" }],");
+    files.Init_Vfs();
+
+    const std::vector<antares::s_package_info> packages = antares::Discover_Packages();
+    DOCTEST_CHECK(Find_(packages, "addon")->readme == "# Addon\n\nShort combat.\n");
+    DOCTEST_CHECK_FALSE(Find_(packages, "addon")->hd_art);
+    DOCTEST_CHECK(Find_(packages, "base")->readme.empty());
+    // A README doesn't make an art pack a rules package (D18).
+    DOCTEST_CHECK(Find_(packages, "look")->art_only);
+    DOCTEST_CHECK(Find_(packages, "look")->hd_art);
+    DOCTEST_CHECK(Find_(packages, "zipped-look")->art_only);
+    DOCTEST_CHECK(Find_(packages, "zipped-look")->hd_art);
+    DOCTEST_CHECK(Find_(packages, "zipped-look")->readme == "# Zipped\n");
+
+    // Enabling only the package: its settings carry its id, its dependency's carry theirs.
+    const antares::s_config_check addon = antares::Check_Package("addon");
+    DOCTEST_REQUIRE(addon.ok);
+    DOCTEST_CHECK(addon.package_order == std::vector<std::string>{"addon", "base"});
+    const auto from = [&](const char* name) {
+        config::t_variable_id id = config::CONFIG_NO_VARIABLE;
+        DOCTEST_REQUIRE(config::Find_Variable(name, std::strlen(name), &id));
+        return addon.effective->provenance[id].package_id;
+    };
+    DOCTEST_CHECK(from("combat.max_turns") == "addon");
+    DOCTEST_CHECK(from("combat.bombardment_hit_frames") == "base");
+    DOCTEST_CHECK(config::Get_Loaded_Mods().empty()); // a dry run
+
+    const antares::s_config_check broken = antares::Check_Package("broken");
+    DOCTEST_CHECK_FALSE(broken.ok);
+    DOCTEST_CHECK(broken.error.find("nowhere") != std::string::npos);
+}
+
 namespace {
     // A save as Write_Game lays it out: header, game state (here filler), then the extension block
     // with the config snapshot and a Lua section. The filler holds a stray extension magic number.

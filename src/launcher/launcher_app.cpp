@@ -121,6 +121,7 @@ namespace launcher {
         if (yyjson_is_str(yyjson_obj_get(root, "profile"))) last_profile_ = yyjson_get_str(yyjson_obj_get(root, "profile"));
         skip_intro_ = yyjson_get_bool(yyjson_obj_get(root, "skip_intro"));
         close_on_launch_ = yyjson_get_bool(yyjson_obj_get(root, "close_on_launch"));
+        if (yyjson_is_bool(yyjson_obj_get(root, "auto_window_size"))) auto_window_ = yyjson_get_bool(yyjson_obj_get(root, "auto_window_size"));
         load_save_ = std::clamp(static_cast<int>(yyjson_get_int(yyjson_obj_get(root, "load_save"))), 0, 10);
         yyjson_doc_free(document);
     }
@@ -134,6 +135,7 @@ namespace launcher {
         yyjson_mut_obj_add_bool(document, root, "skip_intro", skip_intro_);
         yyjson_mut_obj_add_int(document, root, "load_save", load_save_);
         yyjson_mut_obj_add_bool(document, root, "close_on_launch", close_on_launch_);
+        yyjson_mut_obj_add_bool(document, root, "auto_window_size", auto_window_);
         size_t length = 0;
         char* json = yyjson_mut_write(document, YYJSON_WRITE_PRETTY, &length);
         yyjson_mut_doc_free(document);
@@ -146,6 +148,7 @@ namespace launcher {
 
     void c_launcher::Refresh_Packages_() {
         packages_ = antares::Discover_Packages();
+        previews_.clear();
         saves_dirty_ = true;
     }
 
@@ -337,6 +340,10 @@ namespace launcher {
                 tab_ = 2;
                 ImGui::EndTabItem();
             }
+            if (ImGui::BeginTabItem("Keys", nullptr, wanted_tab == 3 ? ImGuiTabItemFlags_SetSelected : 0)) {
+                tab_ = 3;
+                ImGui::EndTabItem();
+            }
             ImGui::EndTabBar();
             force_tab_ = false;
         }
@@ -352,8 +359,10 @@ namespace launcher {
             ImGui::EndChild();
         } else if (tab_ == 1) {
             Draw_Settings_(tab_body);
-        } else {
+        } else if (tab_ == 2) {
             Draw_Saves_(tab_body);
+        } else {
+            Draw_Keys_(tab_body);
         }
 
         ImGui::Spacing();
@@ -671,6 +680,17 @@ namespace launcher {
         field("Conflicts with", Join_(manifest.conflicts));
         field("Loads after", Join_(manifest.load_after));
         ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        // WP5.5: the package's own README, then what it changes, worked out from its files.
+        if (!package->readme.empty() && ImGui::CollapsingHeader("About", ImGuiTreeNodeFlags_DefaultOpen)) {
+            Draw_Markdown(package->readme);
+            ImGui::Spacing();
+        }
+        if (ImGui::CollapsingHeader("What it changes", package->readme.empty() ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+            ImGui::PushTextWrapPos(0.0f);
+            Draw_Package_Changes_(*package);
+            ImGui::PopTextWrapPos();
+        }
     }
 
     void c_launcher::Draw_Check_() {
@@ -679,7 +699,7 @@ namespace launcher {
             ImGui::TextColored(COLOUR_OK, "Ready.");
             ImGui::SameLine();
             if (check_.package_order.empty()) {
-                ImGui::TextUnformatted("The game will start with no packages (the original rules and art).");
+                ImGui::TextUnformatted("The game will start with no packages: the original 1.31 rules (with bug fixes) and art.");
             } else {
                 ImGui::Text("The game will load, highest priority first: %s", Join_(check_.package_order).c_str());
                 std::vector<std::string> added;

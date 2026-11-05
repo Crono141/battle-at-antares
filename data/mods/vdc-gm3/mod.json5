@@ -1,7 +1,7 @@
 {
   id: "vdc-gm3",
   name: "VDC-GM3",
-  description: "Very Difficult Choice mod with rebalanced picks and technology tree.",
+  description: "Very Difficult Choice rule set for fair competitive play: mirrored galaxy, fixed research, rebalanced picks and tech tree.",
   version: "72.10",
 
   requires: {

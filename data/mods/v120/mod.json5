@@ -1,14 +1,14 @@
 {
   id: "v120",
   name: "Version 1.2 mod",
-  description: "Approximates classic version 1.2 as close as possible with current config: Creative cost lowered back to 6 picks, Psilon race design restored, original Guardian and Antaran ship designs, Plasma Cannon, Ion Cannon and Gyro Destabilizer weapon stats restored to original values. Enjoy!",
+  description: "Approximates the 1.2 rules: Creative at 6 picks, the original Psilons, Guardian and Antarans, 1.2 weapon values, no ship initiative.",
   version: "26.10",
 
   requires: {
     engine: ">=2.0.0 <3.0.0",
   },
 
-  conflicts: ["v150i", "ice", "vdc", "melee"],
+  conflicts: ["v150i", "ice", "vdc-gm3", "melee"],
 
   config: "config/main.cfg",
 }

@@ -1012,22 +1012,26 @@ namespace platform {
                 g_pending_screenshot_page.clear();
             }
 
-            if (!render::Enabled()) {
+            // Antares (WP5.5): with an HD art pack the HD frame is presented and the scaler's output
+            // would be thrown away, so the scaler only runs when the HD frame can't be shown. Its
+            // dirty-region state is reset so that a fallback frame is scaled whole.
+            if (render::Enabled()) {
+                if (Present_HD_Frame()) {
+                    scalers::Invalidate(&g_present_scaler_pipeline);
+                    return;
+                }
+            } else {
                 Blit_Cursor_On_Present_Surface();
+                if (!g_pending_screenshot_hd.empty()) {
+                    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_hd %s FAILED (no HD pack enabled)", g_pending_screenshot_hd.c_str());
+                    Note_Script_Result("screenshot_hd " + g_pending_screenshot_hd + " FAILED (no HD pack)");
+                    g_pending_screenshot_hd.clear();
+                }
             }
             if (!scalers::Process(
                     &g_present_scaler_pipeline,
                     g_sdl_present_pixels,
                     video::g_screen_res_x)) {
-                return;
-            }
-
-            if (!render::Enabled() && !g_pending_screenshot_hd.empty()) {
-                SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "input script: screenshot_hd %s FAILED (no HD pack enabled)", g_pending_screenshot_hd.c_str());
-                Note_Script_Result("screenshot_hd " + g_pending_screenshot_hd + " FAILED (no HD pack)");
-                g_pending_screenshot_hd.clear();
-            }
-            if (render::Enabled() && Present_HD_Frame()) {
                 return;
             }
 

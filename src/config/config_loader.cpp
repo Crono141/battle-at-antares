@@ -272,6 +272,26 @@ namespace config {
         return true;
     }
 
+    bool Check_Config_Text(const char* source_name, const std::string& text, const char* package_id, std::vector<std::string>* package_order, s_cfg_diagnostic* diagnostic, s_effective_config* effective) {
+        if (source_name == nullptr || package_id == nullptr || package_order == nullptr || diagnostic == nullptr) {
+            return false;
+        }
+        *diagnostic = {};
+        package_order->clear();
+        s_cfg_document document;
+        if (!Parse_Cfg(source_name, text.data(), text.size(), &document, diagnostic)) {
+            return false;
+        }
+        s_effective_config candidate;
+        if (!Stage_Config_With_Mods(document, package_id, &candidate, package_order, diagnostic, Load_Document)) {
+            return false;
+        }
+        if (effective != nullptr) {
+            *effective = std::move(candidate);
+        }
+        return true;
+    }
+
     bool Check_Save_Config_File(const char* entry_path, const char* package_id, const std::vector<s_mod_requirement>* required_mods, const s_config_state* snapshot_state, std::vector<std::string>* package_order, s_cfg_diagnostic* diagnostic) {
         if (entry_path == nullptr || package_id == nullptr || package_order == nullptr || diagnostic == nullptr) {
             return false;
