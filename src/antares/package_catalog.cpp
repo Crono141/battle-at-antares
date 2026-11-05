@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <map>
+#include <set>
 
 #include "antares/packages.h"
 #include "config/config_loader.h"
@@ -174,5 +175,86 @@ namespace antares {
             text += ": ";
         }
         return text + diagnostic.message;
+    }
+    namespace {
+        const s_package_info* Find_Info_(const std::vector<s_package_info>& packages, const std::string& id) {
+            for (const s_package_info& package : packages) {
+                if (package.id == id) return package.valid ? &package : nullptr;
+            }
+            return nullptr;
+        }
+
+        // What the game loads for one enable line: the package and its dependencies, recursively
+        // (Resolve_Package in config/mod_manager.cpp; optional ones only when installed).
+        std::set<std::string> Loads_(const std::vector<s_package_info>& packages, const std::string& id) {
+            std::set<std::string> loads;
+            std::vector<std::string> pending = {id};
+            while (!pending.empty()) {
+                const std::string next = pending.back();
+                pending.pop_back();
+                if (!loads.insert(next).second) continue;
+                const s_package_info* package = Find_Info_(packages, next);
+                if (package == nullptr) continue;
+                for (const config::s_mod_dependency& dependency : package->manifest.dependencies) pending.push_back(dependency.id);
+                for (const config::s_mod_dependency& dependency : package->manifest.optional_dependencies) {
+                    if (Find_Info_(packages, dependency.id) != nullptr) pending.push_back(dependency.id);
+                }
+            }
+            return loads;
+        }
+
+        bool Declares_Conflict_(const std::vector<s_package_info>& packages, const std::string& id, const std::string& other) {
+            const s_package_info* package = Find_Info_(packages, id);
+            if (package == nullptr) return false;
+            const std::vector<std::string>& conflicts = package->manifest.conflicts;
+            return std::find(conflicts.begin(), conflicts.end(), other) != conflicts.end();
+        }
+
+        // The first conflict between what `left_id` and `right_id` load, as a reason for switching
+        // off `right_id` ("mirror conflicts with mirror_hw", "needs mirror_hw, which conflicts
+        // with mirror"), or "".
+        std::string Conflict_(const std::vector<s_package_info>& packages, const std::string& left_id, const std::set<std::string>& left,
+            const std::string& right_id, const std::set<std::string>& right) {
+            for (const std::string& a : left) {
+                for (const std::string& b : right) {
+                    if (a == b || (!Declares_Conflict_(packages, a, b) && !Declares_Conflict_(packages, b, a))) continue;
+                    std::string reason = b == right_id ? b : "needs " + b + ", which";
+                    reason += " conflicts with " + a;
+                    if (a != left_id) reason += " (needed by " + left_id + ")";
+                    return reason;
+                }
+            }
+            return {};
+        }
+    } // namespace
+
+    s_package_toggle Toggle_Package(const std::vector<s_package_info>& packages, const std::vector<std::string>& enabled, const std::string& package_id, bool on) {
+        s_package_toggle result;
+        const auto keep = [&](const std::string& id) { result.enabled.push_back(id); };
+        if (on) {
+            const std::set<std::string> loads = Loads_(packages, package_id);
+            for (const std::string& id : enabled) {
+                if (id == package_id) continue;
+                const std::string conflict = Conflict_(packages, package_id, loads, id, Loads_(packages, id));
+                if (conflict.empty() || loads.contains(id)) {
+                    keep(id);
+                } else {
+                    result.removed.push_back(id);
+                    result.reasons.push_back(conflict);
+                }
+            }
+            keep(package_id);
+        } else {
+            for (const std::string& id : enabled) {
+                if (id == package_id) continue;
+                if (Loads_(packages, id).contains(package_id)) {
+                    result.removed.push_back(id);
+                    result.reasons.push_back(id + " needs " + package_id);
+                } else {
+                    keep(id);
+                }
+            }
+        }
+        return result;
     }
 } // namespace antares

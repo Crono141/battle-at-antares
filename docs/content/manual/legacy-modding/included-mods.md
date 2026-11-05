@@ -21,9 +21,9 @@ Dependencies must also be installed. The game reports missing dependencies and c
 
 | Package | Purpose | Requirements and compatibility | Enable line |
 | --- | --- | --- | --- |
-| Full Mirror (`mirror`) | Splits the galaxy into identical mirrored sectors so every player receives the same start. | Do not combine with a profile that declares a conflict with it. | `enable mirror;` |
-| Full Mirror except home systems (`mirror_exhw`) | Mirrors galaxy sectors while preserving each player's generated home system. | Required by `vdc-gm3`. | `enable mirror_exhw;` |
-| Only Home Systems Mirrored (`mirror_hw`) | Copies one selected player's unoccupied home-system orbits to every other home system. | Required by `v150i-mp`; conflicts with `vdc-gm3`. | `enable mirror_hw;` |
+| Full Mirror (`mirror`) | Splits the galaxy into identical mirrored sectors so every player receives the same start. | Conflicts with `mirror_exhw` and `mirror_hw`: each mirror package provides the galaxy generator, and only one may. | `enable mirror;` |
+| Full Mirror except home systems (`mirror_exhw`) | Mirrors galaxy sectors while preserving each player's generated home system. | Required by `vdc-gm3`. Conflicts with `mirror` and `mirror_hw`. | `enable mirror_exhw;` |
+| Only Home Systems Mirrored (`mirror_hw`) | Copies one selected player's unoccupied home-system orbits to every other home system. | Required by `v150i-mp`. Conflicts with `mirror`, `mirror_exhw` and `vdc-gm3`. | `enable mirror_hw;` |
 | Random Technology Tree (`randtech`) | Randomizes the global technology tree before player technologies are assigned. | Uses a script; all multiplayer participants must use a compatible copy. | `enable randtech;` |
 
 ## Optional rule packages

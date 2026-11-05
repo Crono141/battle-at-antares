@@ -28,6 +28,8 @@ namespace {
         bool keys = false;      // open the Keys tab
         std::string set;        // change a setting in the profile first ("interface.scaler=hq2x")
         std::string keys_filter;
+        std::string enable;     // tick this package first, as the Packages tab does
+        std::string disable;    // untick this package first
     };
 
     bool Parse_Options_(int argc, char** argv, s_launcher_options* options, std::string* error) {
@@ -41,6 +43,8 @@ namespace {
             {"saves", true},
             {"keys", true},
             {"set", true},
+            {"enable", true},
+            {"disable", true},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -60,6 +64,8 @@ namespace {
                     options->keys_filter = option.value == "-" ? "" : option.value;
                     break;
                 case 8: options->set = option.value; break;
+                case 9: options->enable = option.value; break;
+                case 10: options->disable = option.value; break;
                 default: break;
             }
         }
@@ -153,6 +159,15 @@ int main(int argc, char** argv) {
     if (!options.set.empty()) {
         const bool changed = app.Apply_Setting(options.set);
         SDL_Log("launcher: %s", app.Message().c_str());
+        if (!changed && options.screenshot.empty()) {
+            SDL_Quit();
+            return 1;
+        }
+    }
+    for (const auto& [id, on] : {std::pair{options.disable, false}, std::pair{options.enable, true}}) {
+        if (id.empty()) continue;
+        const bool changed = app.Set_Package_Enabled(id, on);
+        SDL_Log("launcher: %s %s: %s", on ? "enable" : "disable", id.c_str(), app.Message().c_str());
         if (!changed && options.screenshot.empty()) {
             SDL_Quit();
             return 1;

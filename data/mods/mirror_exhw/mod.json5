@@ -8,6 +8,9 @@
     engine: ">=2.0.0 <3.0.0",
   },
 
+  // Each registers the galaxy_generator service; the game allows only one provider.
+  conflicts: ["mirror", "mirror_hw"],
+
   config: "config/main.cfg",
 
   lua: {
