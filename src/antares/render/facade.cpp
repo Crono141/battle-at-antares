@@ -289,17 +289,26 @@ namespace render {
             // Small and rare: loaded synchronously on the presenter, through the VFS lock-free
             // path only when the file is on disk (the VFS is not thread safe).
             s_hd_frame* frame = new s_hd_frame();
+            // art/ first, then its alias hd/ (PLAN.md section 5; the pack moved to art/ in WP2.4).
             char path[64];
-            snprintf(path, sizeof(path), "hd/CURSORS/%08x.png", hash);
             char disk[1024];
             size_t bytes_size = 0;
-            void* bytes = vfs::Resolve_Read_Path_No_Zip(path, disk, sizeof(disk)) != 0 ? SDL_LoadFile(disk, &bytes_size) : nullptr;
+            void* bytes = nullptr;
+            const char* root = "art";
+            for (const char* candidate : {"art", "hd"}) {
+                snprintf(path, sizeof(path), "%s/CURSORS/%08x.png", candidate, hash);
+                if (vfs::Resolve_Read_Path_No_Zip(path, disk, sizeof(disk)) != 0) {
+                    bytes = SDL_LoadFile(disk, &bytes_size);
+                    root = candidate;
+                    break;
+                }
+            }
             // Full colour (WP1.10): its mask beside it; converted indexed art decodes to indices.
             size_t mask_size = 0;
             void* mask = nullptr;
             if (bytes != nullptr && art::Is_Full_Colour((const uint8_t*)bytes, bytes_size)) {
                 char mask_path[64];
-                snprintf(mask_path, sizeof(mask_path), "hd/CURSORS/%08x.mask.png", hash);
+                snprintf(mask_path, sizeof(mask_path), "%s/CURSORS/%08x.mask.png", root, hash);
                 mask = vfs::Resolve_Read_Path_No_Zip(mask_path, disk, sizeof(disk)) != 0 ? SDL_LoadFile(disk, &mask_size) : nullptr;
             }
             const bool ok = bytes != nullptr && Decode_Frame_Bytes((const uint8_t*)bytes, bytes_size, path, frame, (const uint8_t*)mask, mask_size) &&
