@@ -114,28 +114,62 @@ namespace antares::ui {
         }
     }
 
+    namespace {
+        // A file from the VFS, or (for a trial build run from another folder) from beside the
+        // executable.
+        struct s_file {
+            s_vfs_file* vfs = nullptr;
+            SDL_IOStream* io = nullptr;
+        };
+    } // namespace
+
     Rml::FileHandle File_Interface::Open(const Rml::String& path) {
-        return (Rml::FileHandle)vfs::fopen(path.c_str(), "rb");
+        s_file file;
+        file.vfs = vfs::fopen(path.c_str(), "rb");
+        if (file.vfs == nullptr) {
+            const char* base = SDL_GetBasePath();
+            if (base != nullptr) {
+                file.io = SDL_IOFromFile((std::string(base) + path).c_str(), "rb");
+            }
+        }
+        if (file.vfs == nullptr && file.io == nullptr) {
+            return 0;
+        }
+        return (Rml::FileHandle) new s_file(file);
     }
 
-    void File_Interface::Close(Rml::FileHandle file) {
-        vfs::fclose((s_vfs_file*)file);
+    void File_Interface::Close(Rml::FileHandle handle) {
+        s_file* file = (s_file*)handle;
+        if (file->vfs != nullptr) {
+            vfs::fclose(file->vfs);
+        } else {
+            SDL_CloseIO(file->io);
+        }
+        delete file;
     }
 
-    size_t File_Interface::Read(void* buffer, size_t size, Rml::FileHandle file) {
-        return vfs::fread(buffer, 1, size, (s_vfs_file*)file);
+    size_t File_Interface::Read(void* buffer, size_t size, Rml::FileHandle handle) {
+        s_file* file = (s_file*)handle;
+        return file->vfs != nullptr ? vfs::fread(buffer, 1, size, file->vfs) : SDL_ReadIO(file->io, buffer, size);
     }
 
-    bool File_Interface::Seek(Rml::FileHandle file, long offset, int origin) {
-        return vfs::fseek((s_vfs_file*)file, (int32_t)offset, origin) == 0;
+    bool File_Interface::Seek(Rml::FileHandle handle, long offset, int origin) {
+        s_file* file = (s_file*)handle;
+        if (file->vfs != nullptr) {
+            return vfs::fseek(file->vfs, (int32_t)offset, origin) == 0;
+        }
+        const SDL_IOWhence whence = origin == SEEK_SET ? SDL_IO_SEEK_SET : origin == SEEK_CUR ? SDL_IO_SEEK_CUR : SDL_IO_SEEK_END;
+        return SDL_SeekIO(file->io, offset, whence) >= 0;
     }
 
-    size_t File_Interface::Tell(Rml::FileHandle file) {
-        return (size_t)vfs::ftell((s_vfs_file*)file);
+    size_t File_Interface::Tell(Rml::FileHandle handle) {
+        s_file* file = (s_file*)handle;
+        return file->vfs != nullptr ? (size_t)vfs::ftell(file->vfs) : (size_t)SDL_TellIO(file->io);
     }
 
-    size_t File_Interface::Length(Rml::FileHandle file) {
-        return (size_t)vfs::fsize((s_vfs_file*)file);
+    size_t File_Interface::Length(Rml::FileHandle handle) {
+        s_file* file = (s_file*)handle;
+        return file->vfs != nullptr ? (size_t)vfs::fsize(file->vfs) : (size_t)SDL_GetIOSize(file->io);
     }
 
     double System_Interface::GetElapsedTime() {

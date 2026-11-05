@@ -602,7 +602,7 @@ namespace antares::ui {
         Smoke_Step();
         if (!g_galaxy) {
             g_last_ns = 0;
-            return g_smoke.on;
+            return false;
         }
         if (!g_initialized) {
             g_initialized = true;
@@ -659,7 +659,7 @@ namespace antares::ui {
         Draw_Stars();
         Place_Labels();
         if (Rml::Element* stats = Element("stats")) {
-            stats->SetInnerRML(Rml::CreateString("fps %d &nbsp; scene %.2f ms &nbsp; stars %d &nbsp; F5 reloads the UI files", g_fps,
+            stats->SetInnerRML(Rml::CreateString("presents/s %d &nbsp; scene %.2f ms &nbsp; stars %d &nbsp; F5 reloads the UI files", g_fps,
                 g_frames > 0 ? g_frame_ms_total / (double)g_frames : 0.0, (int)g_stars.size()));
         }
         g_context->Update();
@@ -688,7 +688,9 @@ namespace antares::ui {
             g_fps_frames = 0;
             g_fps_start = end;
         }
-        return true;
+        // Ask for another present only while the zoom eases; input and new game frames present
+        // anyway. (Asking every time spins the loop at about 1,000 fps without vsync.)
+        return std::fabs(g_zoom - g_target_zoom) > 0.0005f;
     }
 
 } // namespace antares::ui
