@@ -30,6 +30,7 @@ namespace {
         std::string keys_filter;
         std::string enable;     // tick this package first, as the Packages tab does
         std::string disable;    // untick this package first
+        bool confirm = false;   // answer OK to the popup listing what that switches off
     };
 
     bool Parse_Options_(int argc, char** argv, s_launcher_options* options, std::string* error) {
@@ -45,6 +46,7 @@ namespace {
             {"set", true},
             {"enable", true},
             {"disable", true},
+            {"confirm", false},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -66,6 +68,7 @@ namespace {
                 case 8: options->set = option.value; break;
                 case 9: options->enable = option.value; break;
                 case 10: options->disable = option.value; break;
+                case 11: options->confirm = true; break;
                 default: break;
             }
         }
@@ -166,9 +169,10 @@ int main(int argc, char** argv) {
     }
     for (const auto& [id, on] : {std::pair{options.disable, false}, std::pair{options.enable, true}}) {
         if (id.empty()) continue;
-        const bool changed = app.Set_Package_Enabled(id, on);
-        SDL_Log("launcher: %s %s: %s", on ? "enable" : "disable", id.c_str(), app.Message().c_str());
-        if (!changed && options.screenshot.empty()) {
+        const bool changed = app.Set_Package_Enabled(id, on, options.confirm);
+        SDL_Log("launcher: %s %s: %s", on ? "enable" : "disable", id.c_str(),
+            app.Toggle_Pending() ? "asks to confirm (use -confirm)" : app.Message().c_str());
+        if (!changed && !app.Toggle_Pending() && options.screenshot.empty()) {
             SDL_Quit();
             return 1;
         }
