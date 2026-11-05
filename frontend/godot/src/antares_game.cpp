@@ -138,7 +138,7 @@ namespace godot {
         PackedStringArray user_args;
         const PackedStringArray cmdline = OS::get_singleton()->get_cmdline_user_args();
         for (int64_t i = 0; i < cmdline.size(); ++i) {
-            if (!cmdline[i].begins_with("--smoke") && !cmdline[i].begins_with("--shots")) {
+            if (!cmdline[i].begins_with("--smoke") && !cmdline[i].begins_with("--shots") && cmdline[i] != "--no-game-cursor") {
                 user_args.push_back(cmdline[i]);
             }
         }
@@ -216,7 +216,11 @@ namespace godot {
             window_applied_ = true;
             Apply_Window_Settings();
         }
-        Apply_Cursor(false);
+        // --no-game-cursor: keep the system pointer (diagnosis).
+        static const bool game_cursor = !OS::get_singleton()->get_cmdline_user_args().has("--no-game-cursor");
+        if (game_cursor) {
+            Apply_Cursor(false);
+        }
         int32_t row_first = 0;
         int32_t row_last = 0;
         if (antares::host::Take_Frame(&frame_, &width_, &height_, &frame_generation_, &row_first, &row_last)) {
@@ -239,6 +243,8 @@ namespace godot {
         const int32_t strip_count = (height_ + k_strip_rows - 1) / k_strip_rows;
         const bool first = (int32_t)strips_[0].size() != strip_count;
         if (first) {
+            // A 640x480 frame (no HD pack) is enlarged pixel for pixel; the 4x frame is filtered.
+            set_texture_filter(width_ <= 640 ? TEXTURE_FILTER_NEAREST : TEXTURE_FILTER_LINEAR);
             strips_[0].assign((size_t)strip_count, Ref<ImageTexture>());
             strips_[1].assign((size_t)strip_count, Ref<ImageTexture>());
             strip_current_.assign((size_t)strip_count, 1);
