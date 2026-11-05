@@ -54,6 +54,9 @@ namespace render {
             current_draw.anim = anim;
             current_draw.x = x;
             current_draw.y = y;
+            // Also for pictures made at run time (bitmap::Set_Picture_Glassed): their glass is
+            // drawn from their plane (twin_draw.cpp Image_Block).
+            current_draw.glassed = (anim->flags & ANIMATION_FLAG_GLASSED) != 0;
             if (!capture_dir.empty() || probe_x >= 0 || stats_enabled) {
                 const auto name = stats_names.find(anim);
                 if (name != stats_names.end()) {

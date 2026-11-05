@@ -382,6 +382,9 @@ namespace render::twin {
 
         // An image with a plane drawn at (draw.x, draw.y): its block at (x, y), through the draw's
         // remap. Partly covered pixels over the image's transparent background blend over the page.
+        // A glassed image's glass-level pixels (index 0xF0 + level, as Apply_Art writes them into
+        // images) tint the page per sub-pixel, so glass art drawn into a picture first (the plasma
+        // web on a ship, cmbtspec.cpp Draw_Plasma_Web) keeps its HD shape.
         bool Image_Block(s_plane& plane, int32_t x, int32_t y, const s_plane& image) {
             const s_draw& draw = current_draw;
             const int32_t ix = x - draw.x;
@@ -397,6 +400,17 @@ namespace render::twin {
                 for (int32_t sx = 0; sx < S; ++sx) {
                     s_px px = src[sy * src_stride + sx];
                     s_px& out = block[sy * stride + sx];
+                    if (draw.glassed && Bound(px)) {
+                        const bool covered = (px.mask & MASK_CLEAR) == 0 || ((px.mask >> 16) & 0xFF) >= 128;
+                        const uint32_t fg = covered ? (px.mask & 0xFF) : ((px.mask >> 8) & 0xFF);
+                        if ((px.mask & MASK_CLEAR) != 0 && !covered) {
+                            continue; // transparent there: the page shows through untinted
+                        }
+                        if (fg >= 0xF0) {
+                            out = Glass_Over(out, (int32_t)fg - 0xF0);
+                            continue;
+                        }
+                    }
                     if (Bound(px)) {
                         if (draw.remapped) {
                             px.mask = (px.mask & ~0xFFFFu) | ((uint32_t)draw.remap[(px.mask >> 8) & 0xFF] << 8) | draw.remap[px.mask & 0xFF];
@@ -723,7 +737,9 @@ namespace render::twin {
                     }
                     Apply_Art_Block(plane, x, y, false);
                 } else if (touch.level >= 0) {
-                    Glass_Block(plane, x, y, touch.level);
+                    if (image == nullptr || !draw.glassed || !Image_Block(plane, x, y, *image)) {
+                        Glass_Block(plane, x, y, touch.level);
+                    }
                 } else if (image == nullptr || !Image_Block(plane, x, y, *image)) {
                     Fill_Block_Index(plane, x, y, pixels[touch.offset]);
                     Mark_Row(plane, y);
