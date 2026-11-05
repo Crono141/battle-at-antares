@@ -183,9 +183,17 @@ namespace render {
         for (const char* c = base; *c != '\0' && *c != '.'; ++c) {
             name += (char)SDL_toupper((unsigned char)*c);
         }
-        const std::string directory = "hd/VIDEO/" + name;
+        // art/ first, then its alias hd/ (PLAN.md section 5; the pack moved to art/ in WP2.4).
+        std::string directory;
         std::vector<uint8_t> json;
-        if (!Read_Vfs_File((directory + "/video.json").c_str(), &json)) {
+        for (const char* root : {"art", "hd"}) {
+            const std::string candidate = std::string(root) + "/VIDEO/" + name;
+            if (Read_Vfs_File((candidate + "/video.json").c_str(), &json)) {
+                directory = candidate;
+                break;
+            }
+        }
+        if (directory.empty()) {
             return;
         }
         yyjson_doc* document = yyjson_read((const char*)json.data(), json.size(), 0);
