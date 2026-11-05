@@ -544,7 +544,10 @@ orion2re_add_unit_test(test_antares_random
 orion2re_add_unit_test(test_config_loader
     SOURCES
         tests/unit/config_loader_test.cpp
+        tests/unit/launcher_packages_test.cpp
     PRODUCTION_SOURCES
+        src/antares/package_catalog.cpp
+        src/antares/profile_file.cpp
         src/config/config_identity.cpp
         src/game/sha256.cpp
         src/config/cfg_parser.cpp

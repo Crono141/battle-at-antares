@@ -490,6 +490,15 @@ namespace config {
         if (!Read_Vfs_File(path, &source, diagnostic)) {
             return false;
         }
+        return Parse_Mod_Manifest(package_id, source, manifest, diagnostic);
+    }
+
+    bool Parse_Mod_Manifest(const std::string& package_id, const std::string& source, s_mod_manifest* manifest, s_cfg_diagnostic* diagnostic) {
+        if (manifest == nullptr || diagnostic == nullptr || !Is_Identifier(package_id)) {
+            return false;
+        }
+        *diagnostic = {};
+        const std::string path = "mods/" + package_id + "/mod.json5";
 
         const yyjson_read_flag flags = YYJSON_READ_ALLOW_TRAILING_COMMAS |
             YYJSON_READ_ALLOW_COMMENTS |
@@ -497,7 +506,8 @@ namespace config {
             YYJSON_READ_ALLOW_SINGLE_QUOTED_STR |
             YYJSON_READ_ALLOW_UNQUOTED_KEY;
         yyjson_read_err error{};
-        yyjson_doc* document = yyjson_read_opts(source.data(), source.size(), flags, nullptr, &error);
+        yyjson_doc* document = yyjson_read_opts(const_cast<char*>(source.data()), // not modified: no INSITU flag
+            source.size(), flags, nullptr, &error);
         if (document == nullptr) {
             size_t line = 1;
             size_t column = 1;

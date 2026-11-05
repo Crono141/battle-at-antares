@@ -515,6 +515,9 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
     list(REMOVE_ITEM ORION2RE_SOURCES ${ORION2RE_SCALER_SOURCES})
     list(APPEND ORION2RE_SOURCES ${ORION2RE_CONFIG_GENERATED_FILES})
     list(REMOVE_ITEM ORION2RE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+    # Battle at Antares: the launcher (WP5.1) is its own executable.
+    list(FILTER ORION2RE_SOURCES EXCLUDE REGEX "/src/launcher/")
+    list(FILTER ORION2RE_HEADERS EXCLUDE REGEX "/src/launcher/")
 
     add_library(orion2re_game_objects OBJECT
         ${ORION2RE_SOURCES}
@@ -699,6 +702,67 @@ if(ORION2RE_BUILD_GAME)
         miniz
     )
     target_link_libraries(orion2re PRIVATE orion2re_imgui)
+    # Battle at Antares launcher (WP5.1, D23): SDL3 and Dear ImGui over the engine's config code.
+    set(ANTARES_LAUNCHER_FONT_HEADER
+        "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}/launcher_font.h")
+    add_custom_command(
+        OUTPUT "${ANTARES_LAUNCHER_FONT_HEADER}"
+        COMMAND ${CMAKE_COMMAND}
+            "-DINPUT_FILE=${ORION2RE_VENDORED_IMGUI_DIR}/misc/fonts/Roboto-Medium.ttf"
+            "-DOUTPUT_FILE=${ANTARES_LAUNCHER_FONT_HEADER}"
+            "-DSYMBOL_NAME=k_launcher_font"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+        DEPENDS
+            "${ORION2RE_VENDORED_IMGUI_DIR}/misc/fonts/Roboto-Medium.ttf"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+        VERBATIM
+    )
+    add_executable(antares-launcher
+        src/launcher/main.cpp
+        src/launcher/launcher_app.cpp
+        "${ANTARES_LAUNCHER_FONT_HEADER}"
+        "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp"
+        "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp"
+        $<TARGET_OBJECTS:orion2re_game_objects>
+        "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c"
+        "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_bitstream.c"
+        "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
+        "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"
+    )
+    if(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL)
+        set_target_properties(antares-launcher PROPERTIES EXCLUDE_FROM_ALL YES)
+    endif()
+    target_compile_features(antares-launcher PRIVATE cxx_std_20)
+    target_include_directories(antares-launcher PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${ORION2RE_VENDORED_IMGUI_DIR}/backends"
+        "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}"
+        "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
+        "${ORION2RE_VENDORED_YYJSON_DIR}/src"
+    )
+    target_precompile_headers(antares-launcher PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h>"
+    )
+    target_link_libraries(antares-launcher PRIVATE
+        SDL3::SDL3-static
+        uv_a
+        orion2re_lz4 webpdecoder
+        orion2re_stb_vorbis
+        orion2re_lua
+        orion2re_scalers
+        miniz
+        orion2re_imgui
+    )
+    if(MSVC)
+        target_compile_definitions(antares-launcher PRIVATE WIN32 _CRT_SECURE_NO_DEPRECATE _CRT_NONSTDC_NO_DEPRECATE)
+    endif()
+    if(ORION2RE_GAME_DIR)
+        add_custom_command(TARGET antares-launcher POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:antares-launcher>
+                "${ORION2RE_GAME_DIR}/$<TARGET_FILE_NAME:antares-launcher>"
+        )
+    endif()
     add_executable(config-load-benchmark EXCLUDE_FROM_ALL
         tools/config/load_benchmark.cpp
         $<TARGET_OBJECTS:orion2re_game_objects>
