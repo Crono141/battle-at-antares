@@ -211,7 +211,7 @@ namespace launcher {
         Run_Check_();
     }
 
-    bool c_launcher::Set_Package_Enabled(const std::string& package_id, bool on) {
+    bool c_launcher::Set_Package_Enabled(const std::string& package_id, bool on, bool confirmed) {
         const bool is_on = std::find(enabled_.begin(), enabled_.end(), package_id) != enabled_.end();
         const antares::s_package_info* package = Find_Package_(package_id);
         if (on == is_on || (on && (package == nullptr || !package->valid))) {
@@ -219,13 +219,16 @@ namespace launcher {
             message_is_error_ = on != is_on;
             return false;
         }
-        // Conflicting packages, and those that would still load one being switched off, follow it.
-        const antares::s_package_toggle toggle = antares::Toggle_Package(packages_, enabled_, package_id, on);
+        // Conflicting packages, and those that would still load one being switched off, follow it;
+        // the owner confirms that first (Draw_Toggle_Popup_).
+        antares::s_package_toggle toggle = antares::Toggle_Package(packages_, enabled_, package_id, on);
+        if (!toggle.removed.empty() && !confirmed) {
+            pending_toggle_ = {package_id, on, std::move(toggle)};
+            return false;
+        }
         std::string message;
         for (size_t index = 0; index < toggle.removed.size(); ++index) {
-            const antares::s_package_info* removed = Find_Package_(toggle.removed[index]);
-            message += std::string(index == 0 ? "Also switched off " : "; ") +
-                (removed != nullptr && removed->valid ? removed->manifest.name : toggle.removed[index]) +
+            message += std::string(index == 0 ? "Also switched off " : "; ") + Package_Name_(toggle.removed[index]) +
                 " (" + toggle.reasons[index] + ")";
         }
         Apply_Enabled_(toggle.enabled);
@@ -235,6 +238,57 @@ namespace launcher {
             message_is_error_ = false;
         }
         return true;
+    }
+
+    std::string c_launcher::Package_Name_(const std::string& package_id) const {
+        const antares::s_package_info* package = Find_Package_(package_id);
+        return package != nullptr && package->valid ? package->manifest.name : package_id;
+    }
+
+    void c_launcher::Draw_Toggle_Popup_() {
+        if (pending_toggle_.id.empty()) return;
+        const char* title = pending_toggle_.on ? "Conflicting packages" : "Packages that need it";
+        ImGui::OpenPopup(title);
+        const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSizeConstraints(ImVec2(ImGui::GetFontSize() * 22.0f, 0.0f), ImVec2(ImGui::GetFontSize() * 36.0f, FLT_MAX));
+        if (!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            return;
+        }
+        const std::string name = Package_Name_(pending_toggle_.id);
+        const size_t count = pending_toggle_.toggle.removed.size();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 34.0f);
+        if (pending_toggle_.on) {
+            ImGui::Text("%s conflicts with %s. %s will be disabled:", name.c_str(), count == 1 ? "this package" : "these packages", count == 1 ? "It" : "They");
+        } else {
+            ImGui::Text("%s is needed by %s. %s will be disabled too:", name.c_str(), count == 1 ? "this package" : "these packages",
+                count == 1 ? "It" : "They");
+        }
+        ImGui::Spacing();
+        for (size_t index = 0; index < count; ++index) {
+            ImGui::Bullet();
+            ImGui::TextUnformatted(Package_Name_(pending_toggle_.toggle.removed[index]).c_str());
+            ImGui::SameLine();
+            ImGui::TextColored(COLOUR_DIM, "%s", pending_toggle_.toggle.reasons[index].c_str());
+        }
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        bool close = false;
+        if (ImGui::Button("OK", ImVec2(ImGui::GetFontSize() * 7.0f, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+            const s_pending_toggle pending = pending_toggle_;
+            pending_toggle_ = {};
+            Set_Package_Enabled(pending.id, pending.on, true);
+            close = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(ImGui::GetFontSize() * 7.0f, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            close = true;
+        }
+        if (close) {
+            pending_toggle_ = {};
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     void c_launcher::Run_Check_() {
@@ -399,6 +453,7 @@ namespace launcher {
         ImGui::Separator();
         Draw_Launch_Bar_();
         Draw_Profile_Popups_();
+        Draw_Toggle_Popup_();
         ImGui::End();
         return !quit_;
     }

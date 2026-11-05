@@ -69,8 +69,11 @@ namespace launcher {
          *  an empty value removes the line), with its message (the -set option). */
         bool Apply_Setting(const std::string& assignment);
         /** Ticks or unticks a package as the Packages tab does, switching off what conflicts with it
-         *  (on) or still needs it (off); the message names them. False when nothing changed. */
-        bool Set_Package_Enabled(const std::string& package_id, bool on);
+         *  (on) or still needs it (off); the message names them. When that switches anything else
+         *  off and !confirmed, nothing changes yet: a popup asks first (Toggle_Pending). False when
+         *  nothing changed. */
+        bool Set_Package_Enabled(const std::string& package_id, bool on, bool confirmed = false);
+        bool Toggle_Pending() const { return !pending_toggle_.id.empty(); }
         const std::string& Message() const { return message_; }
         /** Opens the Keys tab, filtered by `filter` (the -keys option). */
         void Open_Keys(const std::string& filter);
@@ -92,6 +95,8 @@ namespace launcher {
 
         void Draw_Profile_Bar_();
         void Draw_Profile_Popups_();
+        void Draw_Toggle_Popup_();
+        std::string Package_Name_(const std::string& package_id) const;
         void Draw_Mods_Table_(float height);
         void Draw_Package_Details_(float height);
         void Draw_Check_();
@@ -184,5 +189,11 @@ namespace launcher {
         int popup_ = 0; // 0 none, 1 new, 2 copy, 3 rename, 4 delete
         char name_buffer_[65] = {};
         std::string popup_error_;
+        struct s_pending_toggle {
+            std::string id; // empty: no popup
+            bool on = false;
+            antares::s_package_toggle toggle;
+        };
+        s_pending_toggle pending_toggle_;
     };
 } // namespace launcher
