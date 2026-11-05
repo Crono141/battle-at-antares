@@ -35,9 +35,14 @@ Directory and ZIP packages have the same internal structure:
   content/                 Optional private Lua modules
   migrations/              Optional declared migration scripts
   data/                    Optional public asset overrides
+  README.md                Optional description shown by the launcher
 ```
 
 In a ZIP, `mod.json5` must be at archive root. Do not wrap these files in another `<id>/` directory. Public asset paths begin below `data/`; all other paths remain private to the package.
+
+## README
+
+The launcher shows `README.md` from the package root in the package's details; the game never reads it, and it does not stop an art pack from being art-only. The launcher renders headings, paragraphs, `- ` bullets and pipe tables; `**` and backticks are dropped. A `## Keys` section is shown under its own heading above the rest: use it to list what the package changes about the keys compared with playing without packages (for example a setting that removes or forces a combat key), or write that it changes none.
 
 ## Complete manifest shape
 

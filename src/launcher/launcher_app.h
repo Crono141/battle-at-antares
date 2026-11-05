@@ -75,8 +75,6 @@ namespace launcher {
         bool Set_Package_Enabled(const std::string& package_id, bool on, bool confirmed = false);
         bool Toggle_Pending() const { return !pending_toggle_.id.empty(); }
         const std::string& Message() const { return message_; }
-        /** Opens the Keys tab, filtered by `filter` (the -keys option). */
-        void Open_Keys(const std::string& filter);
         /** Polls the running game, if any. */
         void Update();
 
@@ -134,7 +132,6 @@ namespace launcher {
         // Package information (WP5.5, launcher_info.cpp).
         const s_package_preview& Package_Preview_(const std::string& id);
         void Draw_Package_Changes_(const antares::s_package_info& package);
-        void Draw_Keys_(float height);
         std::vector<config::t_variable_id> Settings_Rows_() const;
         bool Profile_Sets_(config::t_variable_id id) const;
 
@@ -168,7 +165,7 @@ namespace launcher {
         int selected_save_ = 0;
 
         // Settings.
-        int tab_ = 0;           // 0 packages, 1 settings, 2 saves, 3 keys
+        int tab_ = 0;           // 0 packages, 1 settings, 2 saves
         bool force_tab_ = true; // select tab_ on the first frame
         settings::c_schema_docs docs_;
         std::vector<std::string> setting_titles_;            // by variable id
@@ -181,9 +178,8 @@ namespace launcher {
         char settings_search_[128] = {};
         config::t_variable_id selected_setting_ = config::CONFIG_NO_VARIABLE;
 
-        // Package information and the Keys tab.
+        // Package information.
         std::map<std::string, s_package_preview> previews_; // cleared when packages are read again
-        char keys_filter_[64] = {};
 
         // Profile popups.
         int popup_ = 0; // 0 none, 1 new, 2 copy, 3 rename, 4 delete

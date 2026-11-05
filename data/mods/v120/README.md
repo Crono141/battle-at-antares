@@ -33,7 +33,11 @@ Help:
 
 ## Keys
 
-With ship initiative off, H (wait with all ships) is not available in tactical combat.
+| Key | Screen | What changes |
+|---|---|---|
+| H | Tactical combat | Not available: ship initiative is always off (the in-game Ship Initiative option can't switch it on), so there is no wait with all ships. |
+| W | Tactical combat | Works as in the classic game, without initiative. |
+| Alt+A, Alt+D | Build | Auto Design still redesigns every ship, but follows the Version 1.2 AI design rules, so the designs differ. |
 
 ## Needs and conflicts
 

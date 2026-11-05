@@ -731,21 +731,6 @@ if(ORION2RE_BUILD_GAME)
             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
         VERBATIM
     )
-    # The manual's keyboard page, shown on the launcher's Keys tab (WP5.5).
-    set(ANTARES_LAUNCHER_KEYS_HEADER
-        "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}/launcher_keys.h")
-    add_custom_command(
-        OUTPUT "${ANTARES_LAUNCHER_KEYS_HEADER}"
-        COMMAND ${CMAKE_COMMAND}
-            "-DINPUT_FILE=${CMAKE_CURRENT_SOURCE_DIR}/docs/content/manual/reference/keyboard-shortcuts.md"
-            "-DOUTPUT_FILE=${ANTARES_LAUNCHER_KEYS_HEADER}"
-            "-DSYMBOL_NAME=k_launcher_keys"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
-        DEPENDS
-            "${CMAKE_CURRENT_SOURCE_DIR}/docs/content/manual/reference/keyboard-shortcuts.md"
-            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
-        VERBATIM
-    )
     add_executable(antares-launcher
         src/launcher/main.cpp
         src/launcher/launcher_app.cpp
@@ -754,7 +739,6 @@ if(ORION2RE_BUILD_GAME)
         src/launcher/launcher_info.cpp
         "${ANTARES_LAUNCHER_FONT_HEADER}"
         "${ANTARES_LAUNCHER_SCHEMA_HEADER}"
-        "${ANTARES_LAUNCHER_KEYS_HEADER}"
         "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp"
         "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp"
         $<TARGET_OBJECTS:orion2re_game_objects>

@@ -14,6 +14,10 @@ Changes no other rules. It can be combined with rule packages and rearranges the
 - The hyper-advanced fields stay at the end of each category, and the four advanced governments stay together in one field.
 - All players share the same shuffled tree. It is decided once, when the game is created.
 
+## Keys
+
+No changes: every key works as it does without packages.
+
 ## Needs and conflicts
 
 No dependencies or conflicts. Uses a script: in multiplayer every player needs the same package set, and the script must match on all machines.

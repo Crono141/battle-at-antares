@@ -72,11 +72,12 @@ Without packages the game plays the 1.31 rules. ICE is layered on the Basic 1.50
 
 ## Keys
 
-| Key | Effect under ICE |
-|---|---|
-| W | Waits with the active ship; each ship can wait only once per round, and waiting ships act last in reverse initiative order. |
-| H | Waits with all your ships. ICE always turns ship initiative on, so this works in every battle. |
-| Alt+M, E, N, L, O | The cheat grants 100,000 research points instead of 1,000,000. |
+| Key | Screen | What changes |
+|---|---|---|
+| W | Tactical combat | Each ship can wait only once per combat turn. Ships that waited act afterwards, in reverse initiative order, and W is not available during that second pass. |
+| H | Tactical combat | Waits with all your ships. Ship initiative is always on (the in-game Ship Initiative option can't switch it off), so H is there in every battle until the waiting ships start their second pass. |
+| Alt+A, Alt+D | Build | Auto Design still redesigns every ship, but follows ICE's AI design rules, so the designs differ. |
+| Alt + MENLO | Main | The research cheat grants 100,000 research points instead of 1,000,000. |
 
 ## Needs and conflicts
 

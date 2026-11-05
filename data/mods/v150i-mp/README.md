@@ -27,7 +27,13 @@ Interface:
 
 ## Keys
 
-Same as Improved: W lets each ship wait once per combat turn, and H (wait with all ships) is available in every battle.
+Inherited from Improved (this package changes no keys itself):
+
+| Key | Screen | What changes |
+|---|---|---|
+| W | Tactical combat | Each ship can wait only once per combat turn. Ships that waited act afterwards, in reverse initiative order, and W is not available during that second pass. |
+| H | Tactical combat | Waits with all your ships. Ship initiative is always on (the in-game Ship Initiative option can't switch it off), so H is there in every battle until the waiting ships start their second pass. |
+| Alt+A, Alt+D | Build | Auto Design still redesigns every ship, but follows Improved's AI design rules, so the designs differ. |
 
 ## Needs and conflicts
 

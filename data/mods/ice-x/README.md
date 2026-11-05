@@ -19,6 +19,17 @@ ICE-X changes nothing about races, the map, the economy or combat rules; all of 
 - Antaran battleships and titans carry more Particle Beams and Death Rays.
 - The Antaran Star Fortress gets more weapon space (2500 instead of 2000) and adds a Sub-Space Teleporter and an Achilles Targeting Unit.
 
+## Keys
+
+Inherited from ICE (this package changes no keys itself):
+
+| Key | Screen | What changes |
+|---|---|---|
+| W | Tactical combat | Each ship can wait only once per combat turn. Ships that waited act afterwards, in reverse initiative order, and W is not available during that second pass. |
+| H | Tactical combat | Waits with all your ships. Ship initiative is always on (the in-game Ship Initiative option can't switch it off), so H is there in every battle until the waiting ships start their second pass. |
+| Alt+A, Alt+D | Build | Auto Design still redesigns every ship, but follows ICE's AI design rules, so the designs differ. |
+| Alt + MENLO | Main | The research cheat grants 100,000 research points instead of 1,000,000. |
+
 ## Needs and conflicts
 
 - Requires ICE 35 and loads after it; ICE and Basic 1.50 (v150) are enabled automatically.

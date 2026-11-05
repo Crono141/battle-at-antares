@@ -25,9 +25,7 @@ namespace {
         bool play = false;      // start the game with the profile and options, then quit
         std::string settings;   // open the Settings tab on this page or search
         int saves = -1;         // open the Saves tab with this slot selected (0: none)
-        bool keys = false;      // open the Keys tab
         std::string set;        // change a setting in the profile first ("interface.scaler=hq2x")
-        std::string keys_filter;
         std::string enable;     // tick this package first, as the Packages tab does
         std::string disable;    // untick this package first
         bool confirm = false;   // answer OK to the popup listing what that switches off
@@ -42,7 +40,6 @@ namespace {
             {"play", false},
             {"settings", true},
             {"saves", true},
-            {"keys", true},
             {"set", true},
             {"enable", true},
             {"disable", true},
@@ -61,14 +58,10 @@ namespace {
                 case 4: options->play = true; break;
                 case 5: options->settings = option.value; break;
                 case 6: options->saves = SDL_atoi(option.value.c_str()); break;
-                case 7:
-                    options->keys = true;
-                    options->keys_filter = option.value == "-" ? "" : option.value;
-                    break;
-                case 8: options->set = option.value; break;
-                case 9: options->enable = option.value; break;
-                case 10: options->disable = option.value; break;
-                case 11: options->confirm = true; break;
+                case 7: options->set = option.value; break;
+                case 8: options->enable = option.value; break;
+                case 9: options->disable = option.value; break;
+                case 10: options->confirm = true; break;
                 default: break;
             }
         }
@@ -176,9 +169,6 @@ int main(int argc, char** argv) {
             SDL_Quit();
             return 1;
         }
-    }
-    if (options.keys) {
-        app.Open_Keys(options.keys_filter);
     }
     if (options.play) {
         // A shortcut: no window, the launcher only starts the game.
