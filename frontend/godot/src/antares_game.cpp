@@ -8,17 +8,28 @@
 #include <godot_cpp/classes/input_event_mouse_button.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
 #include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/display_server.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/input.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <string>
+#if defined(_WIN32)
+#include <direct.h>
+#define chdir _chdir
+#else
 #include <unistd.h>
+#endif
 
 int antares_hosted_main(int argc, char** argv);
 
@@ -80,6 +91,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("get_galaxy_generation"), &AntaresGame::get_galaxy_generation);
         ClassDB::bind_method(D_METHOD("get_stats"), &AntaresGame::get_stats);
         ClassDB::bind_method(D_METHOD("send_key", "godot_keycode", "shift", "alt", "ctrl"), &AntaresGame::send_key);
+        ClassDB::bind_method(D_METHOD("request_game_quit"), &AntaresGame::request_game_quit);
         ADD_PROPERTY(PropertyInfo(Variant::STRING, "game_dir", PROPERTY_HINT_GLOBAL_DIR), "set_game_dir", "get_game_dir");
         ADD_PROPERTY(PropertyInfo(Variant::PACKED_STRING_ARRAY, "args"), "set_args", "get_args");
         ADD_PROPERTY(PropertyInfo(Variant::BOOL, "autostart"), "set_autostart", "get_autostart");
@@ -109,6 +121,10 @@ namespace godot {
         if (dir.is_empty()) {
             dir = OS::get_singleton()->get_environment("ANTARES_GAME_DIR");
         }
+        // An exported build lives in the game folder, beside antares.
+        if (dir.is_empty() && OS::get_singleton()->has_feature("template")) {
+            dir = OS::get_singleton()->get_executable_path().get_base_dir();
+        }
         if (dir.begins_with("res://") || dir.begins_with("user://")) {
             dir = ProjectSettings::get_singleton()->globalize_path(dir);
         }
@@ -116,9 +132,22 @@ namespace godot {
             UtilityFunctions::push_error("AntaresGame: set game_dir or ANTARES_GAME_DIR to a folder with the game data");
             return false;
         }
+        // Game options after "--" on Godot's command line (as the launcher passes them) replace
+        // the scene's; the trial's own --smoke and --shots are not game options.
+        PackedStringArray game_args = args_;
+        PackedStringArray user_args;
+        const PackedStringArray cmdline = OS::get_singleton()->get_cmdline_user_args();
+        for (int64_t i = 0; i < cmdline.size(); ++i) {
+            if (!cmdline[i].begins_with("--smoke") && !cmdline[i].begins_with("--shots")) {
+                user_args.push_back(cmdline[i]);
+            }
+        }
+        if (!user_args.is_empty()) {
+            game_args = user_args;
+        }
         std::vector<std::string> args = {"antares"};
-        for (int64_t i = 0; i < args_.size(); ++i) {
-            args.push_back(args_[i].utf8().get_data());
+        for (int64_t i = 0; i < game_args.size(); ++i) {
+            args.push_back(game_args[i].utf8().get_data());
         }
         const std::string game_dir = dir.utf8().get_data();
 
@@ -126,8 +155,10 @@ namespace godot {
         // The game's platform loop keeps its SDL window, but nobody sees it.
         SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
         started_ = true;
-        thread_ = std::thread([game_dir, args]() {
+        game_finished_ = false;
+        thread_ = std::thread([this, game_dir, args]() {
             if (chdir(game_dir.c_str()) != 0) {
+                game_finished_ = true;
                 return;
             }
             std::vector<char*> argv;
@@ -136,6 +167,7 @@ namespace godot {
             }
             argv.push_back(nullptr);
             antares_hosted_main((int)args.size(), argv.data());
+            game_finished_ = true;
         });
         set_process(true);
         grab_focus();
@@ -150,11 +182,11 @@ namespace godot {
         // The game thread notices the request at its next input poll; don't hang Godot's exit if
         // it doesn't.
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (antares::host::Game_Running() && std::chrono::steady_clock::now() < deadline) {
+        while (!game_finished_ && std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         if (thread_.joinable()) {
-            if (antares::host::Game_Running()) {
+            if (!game_finished_) {
                 thread_.detach();
             } else {
                 thread_.join();
@@ -164,13 +196,27 @@ namespace godot {
     }
 
     bool AntaresGame::is_running() const {
-        return started_ && antares::host::Game_Running();
+        return started_ && !game_finished_;
     }
 
     void AntaresGame::_process(double) {
         if (!started_) {
             return;
         }
+        // The game quit (its own menu, Alt+Q, a fatal error): close the frontend with it.
+        if (game_finished_ && !exit_signalled_) {
+            exit_signalled_ = true;
+            if (thread_.joinable()) {
+                thread_.join();
+            }
+            emit_signal("game_exited");
+            return;
+        }
+        if (!window_applied_ && antares::host::Game_Running()) {
+            window_applied_ = true;
+            Apply_Window_Settings();
+        }
+        Apply_Cursor(false);
         int32_t row_first = 0;
         int32_t row_last = 0;
         if (antares::host::Take_Frame(&frame_, &width_, &height_, &frame_generation_, &row_first, &row_last)) {
@@ -191,9 +237,11 @@ namespace godot {
         }
         const auto start = std::chrono::steady_clock::now();
         const int32_t strip_count = (height_ + k_strip_rows - 1) / k_strip_rows;
-        const bool first = (int32_t)strips_.size() != strip_count;
+        const bool first = (int32_t)strips_[0].size() != strip_count;
         if (first) {
-            strips_.assign((size_t)strip_count, Ref<ImageTexture>());
+            strips_[0].assign((size_t)strip_count, Ref<ImageTexture>());
+            strips_[1].assign((size_t)strip_count, Ref<ImageTexture>());
+            strip_current_.assign((size_t)strip_count, 1);
             row_first = 0;
             row_last = height_;
         }
@@ -207,11 +255,14 @@ namespace godot {
             // ARGB8888 words are B, G, R, A in memory; the material swaps red and blue.
             memcpy(strip_bytes_.ptrw(), frame_.data() + (size_t)y0 * (size_t)width_, (size_t)bytes);
             Ref<Image> image = Image::create_from_data(width_, rows, false, Image::FORMAT_RGBA8, strip_bytes_);
-            if (strips_[(size_t)strip].is_null()) {
-                strips_[(size_t)strip] = ImageTexture::create_from_image(image);
+            const uint8_t next = (uint8_t)(1 - strip_current_[(size_t)strip]);
+            Ref<ImageTexture>& texture = strips_[next][(size_t)strip];
+            if (texture.is_null()) {
+                texture = ImageTexture::create_from_image(image);
             } else {
-                strips_[(size_t)strip]->update(image);
+                texture->update(image);
             }
+            strip_current_[(size_t)strip] = next;
             ++strips_uploaded_;
         }
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -242,19 +293,20 @@ namespace godot {
     }
 
     void AntaresGame::_draw() {
-        if (strips_.empty() || height_ <= 0) {
+        if (strip_current_.empty() || height_ <= 0) {
             return;
         }
         const Rect2 rect = Frame_Rect();
-        for (size_t i = 0; i < strips_.size(); ++i) {
-            if (strips_[i].is_null()) {
+        for (size_t i = 0; i < strip_current_.size(); ++i) {
+            const Ref<ImageTexture>& strip = strips_[strip_current_[i]][i];
+            if (strip.is_null()) {
                 continue;
             }
             const int32_t y0 = (int32_t)i * k_strip_rows;
             const int32_t rows = std::min(k_strip_rows, height_ - y0);
             const Rect2 area(rect.position.x, rect.position.y + rect.size.y * (float)y0 / (float)height_, rect.size.x,
                 rect.size.y * (float)rows / (float)height_);
-            draw_texture_rect(strips_[i], area, false);
+            draw_texture_rect(strip, area, false);
         }
     }
 
@@ -298,6 +350,15 @@ namespace godot {
             return;
         }
         Ref<InputEventKey> key = event;
+        if (key.is_valid() && key->is_pressed() && !key->is_echo() && key->is_alt_pressed() &&
+            (key->get_keycode() == KEY_ENTER || key->get_keycode() == KEY_KP_ENTER)) {
+            // Alt+Enter switches fullscreen, as in the SDL build.
+            DisplayServer* display = DisplayServer::get_singleton();
+            const bool full = display->window_get_mode() == DisplayServer::WINDOW_MODE_FULLSCREEN;
+            display->window_set_mode(full ? DisplayServer::WINDOW_MODE_WINDOWED : DisplayServer::WINDOW_MODE_FULLSCREEN);
+            accept_event();
+            return;
+        }
         if (key.is_valid() && !key->is_echo()) {
             const uint32_t sdl_key = To_Sdl_Key(key->get_keycode());
             if (sdl_key != 0) {
@@ -306,6 +367,73 @@ namespace godot {
                 accept_event();
             }
         }
+    }
+
+    void AntaresGame::Apply_Window_Settings() {
+        if (Engine::get_singleton()->is_editor_hint() || OS::get_singleton()->get_cmdline_user_args().has("--smoke")) {
+            return;
+        }
+        int32_t width = 0;
+        int32_t height = 0;
+        bool fullscreen = false;
+        antares::host::Window_Settings(&width, &height, &fullscreen);
+        DisplayServer* display = DisplayServer::get_singleton();
+        display->window_set_title("Battle at Antares");
+        if (fullscreen) {
+            display->window_set_mode(DisplayServer::WINDOW_MODE_FULLSCREEN);
+        } else if (width > 0 && height > 0) {
+            const Vector2i size(width, height);
+            const Rect2i screen = display->screen_get_usable_rect(display->window_get_current_screen());
+            display->window_set_size(size.min(screen.size));
+            display->window_set_position(screen.position + (screen.size - size.min(screen.size)) / 2);
+        }
+    }
+
+    void AntaresGame::Apply_Cursor(bool force) {
+        Input* input = Input::get_singleton();
+        const bool changed = antares::host::Take_Cursor(&cursor_argb_, &cursor_size_, &cursor_generation_);
+        const float scale = Frame_Rect().size.x / 640.0f;
+        if (!is_visible_in_tree()) {
+            if (cursor_custom_) {
+                input->set_custom_mouse_cursor(Ref<Resource>());
+                cursor_custom_ = false;
+            }
+            return;
+        }
+        if (!changed && !force && std::fabs(scale - cursor_scale_) < 0.01f) {
+            return;
+        }
+        cursor_scale_ = scale;
+        // Hidden: a transparent pixel; otherwise the game's image at the frame's scale
+        // (24 game pixels wide), its top-left corner at the pointer.
+        PackedByteArray bytes;
+        int32_t size = cursor_size_ > 0 ? cursor_size_ : 1;
+        bytes.resize((int64_t)size * size * 4);
+        uint8_t* out = bytes.ptrw();
+        for (int64_t i = 0; i < (int64_t)size * size; ++i) {
+            const uint32_t px = cursor_size_ > 0 ? cursor_argb_[(size_t)i] : 0u;
+            out[i * 4 + 0] = (uint8_t)(px >> 16);
+            out[i * 4 + 1] = (uint8_t)(px >> 8);
+            out[i * 4 + 2] = (uint8_t)px;
+            out[i * 4 + 3] = (uint8_t)(px >> 24);
+        }
+        Ref<Image> image = Image::create_from_data(size, size, false, Image::FORMAT_RGBA8, bytes);
+        if (cursor_size_ > 0) {
+            const int32_t shown = std::clamp((int32_t)std::lround(24.0f * scale), 8, 256);
+            image->resize(shown, shown, cursor_size_ > 24 ? Image::INTERPOLATE_LANCZOS : Image::INTERPOLATE_NEAREST);
+        }
+        input->set_custom_mouse_cursor(image, Input::CURSOR_ARROW, Vector2());
+        cursor_custom_ = true;
+    }
+
+    void AntaresGame::_notification(int what) {
+        if (what == NOTIFICATION_VISIBILITY_CHANGED || what == NOTIFICATION_RESIZED) {
+            Apply_Cursor(true);
+        }
+    }
+
+    void AntaresGame::request_game_quit() {
+        antares::host::Request_Quit();
     }
 
     void AntaresGame::send_key(int64_t godot_keycode, bool shift, bool alt, bool ctrl) {
@@ -354,6 +482,7 @@ namespace godot {
         d["upload_ms_max"] = upload_ms_max_;
         d["full_uploads"] = (int64_t)full_uploads_;
         d["full_upload_ms_avg"] = full_uploads_ > 0 ? full_upload_ms_total_ / (double)full_uploads_ : 0.0;
+        d["cursor_size"] = cursor_size_;
         d["width"] = width_;
         d["height"] = height_;
         return d;

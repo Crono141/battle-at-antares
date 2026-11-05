@@ -89,6 +89,7 @@ namespace platform {
         void Save_Pending_Screenshot();
         void Render_Cursor_Overlay();
         void Apply_Pending_Cursor_State();
+        void Publish_Host_Cursor();
         void Blit_Cursor_On_Present_Surface();
         void Sync_Mouse_State_From_SDL();
         void Enqueue_Mouse_Input_Event(int16_t mouse_x, int16_t mouse_y, uint16_t mouse_buttons);
@@ -979,6 +980,7 @@ namespace platform {
                 }
             }
             if (antares::host::Frame_Resolved(g_hd_pixels, width, height, changed, row_first, row_last)) {
+                Publish_Host_Cursor();
                 return true;
             }
             bool uploaded = true;
@@ -1108,6 +1110,27 @@ namespace platform {
                 (float)SDL_GetAtomicInt(&g_present_mouse_y), (float)k_cursor_dimension, (float)k_cursor_dimension};
             SDL_RenderTexture(g_sdl_renderer, cursor, nullptr, &destination);
             SDL_DestroyTexture(cursor);
+        }
+
+        // Antares (WP3.1a): a hosting frontend draws the cursor itself; it gets the current image
+        // (HD art when there is some) with each presented frame.
+        void Publish_Host_Cursor() {
+            Apply_Pending_Cursor_State();
+            const s_present_cursor_state& cursor_state = g_active_cursor_state;
+            static uint32_t argb[k_cursor_dimension * render::SCALE * k_cursor_dimension * render::SCALE];
+            int32_t size = 0;
+            if (cursor_state.pixels != nullptr && cursor_state.enabled != 0 && cursor_state.shape > 0) {
+                if (render::Enabled() && render::Cursor_Art(cursor_state.pixels, k_cursor_dimension, g_present_palette_entries, argb)) {
+                    size = k_cursor_dimension * render::SCALE;
+                } else {
+                    size = k_cursor_dimension;
+                    for (int32_t i = 0; i < k_cursor_pixel_count; ++i) {
+                        const video::s_palette_color& c = g_present_palette_entries[cursor_state.pixels[i]];
+                        argb[i] = cursor_state.pixels[i] == 0 ? 0u : (0xFF000000u | ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | c.b);
+                    }
+                }
+            }
+            antares::host::Cursor_Image(argb, size);
         }
 
         void Blit_Cursor_On_Present_Surface() {

@@ -121,6 +121,7 @@ namespace launcher {
         if (yyjson_is_str(yyjson_obj_get(root, "profile"))) last_profile_ = yyjson_get_str(yyjson_obj_get(root, "profile"));
         skip_intro_ = yyjson_get_bool(yyjson_obj_get(root, "skip_intro"));
         close_on_launch_ = yyjson_get_bool(yyjson_obj_get(root, "close_on_launch"));
+        use_godot_ = yyjson_get_bool(yyjson_obj_get(root, "godot_frontend"));
         if (yyjson_is_bool(yyjson_obj_get(root, "auto_window_size"))) auto_window_ = yyjson_get_bool(yyjson_obj_get(root, "auto_window_size"));
         load_save_ = std::clamp(static_cast<int>(yyjson_get_int(yyjson_obj_get(root, "load_save"))), 0, 10);
         yyjson_doc_free(document);
@@ -135,6 +136,7 @@ namespace launcher {
         yyjson_mut_obj_add_bool(document, root, "skip_intro", skip_intro_);
         yyjson_mut_obj_add_int(document, root, "load_save", load_save_);
         yyjson_mut_obj_add_bool(document, root, "close_on_launch", close_on_launch_);
+        yyjson_mut_obj_add_bool(document, root, "godot_frontend", use_godot_);
         yyjson_mut_obj_add_bool(document, root, "auto_window_size", auto_window_);
         size_t length = 0;
         char* json = yyjson_mut_write(document, YYJSON_WRITE_PRETTY, &length);
@@ -305,15 +307,32 @@ namespace launcher {
         check_ms_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     }
 
+    std::string c_launcher::Godot_Executable_() const {
+#if defined(_WIN32)
+        return game_dir_ + "antares-godot.exe";
+#else
+        return game_dir_ + "antares-godot";
+#endif
+    }
+
+    bool c_launcher::Godot_Available_() const {
+        SDL_PathInfo info;
+        return SDL_GetPathInfo(Godot_Executable_().c_str(), &info) && info.type == SDL_PATHTYPE_FILE;
+    }
+
     void c_launcher::Launch_(int load_save) {
         const s_profile_entry& entry = profiles_[profile_index_];
+        const bool godot = use_godot_ && Godot_Available_();
 #if defined(_WIN32)
-        const std::string executable = game_dir_ + "antares.exe";
+        const std::string executable = godot ? Godot_Executable_() : game_dir_ + "antares.exe";
 #else
-        const std::string executable = game_dir_ + "antares";
+        const std::string executable = godot ? Godot_Executable_() : game_dir_ + "antares";
 #endif
         const std::string prefix(1, command_line::OPTION_PREFIX);
         std::vector<std::string> arguments = {executable};
+        if (godot) {
+            arguments.push_back("--"); // what follows is for the game, not for Godot
+        }
         if (!entry.is_base) {
             arguments.push_back(prefix + "config");
             arguments.push_back(entry.vfs_path);
@@ -341,8 +360,9 @@ namespace launcher {
             message_is_error_ = true;
             return;
         }
-        SDL_Log("launcher: started antares%s", command.c_str());
-        message_ = "Game running: antares" + command;
+        const char* name = godot ? "antares-godot" : "antares";
+        SDL_Log("launcher: started %s%s", name, command.c_str());
+        message_ = std::string("Game running: ") + name + command;
         message_is_error_ = false;
         Save_Settings_();
         if (close_on_launch_) {
@@ -832,6 +852,12 @@ namespace launcher {
                      "shows what each one needs. Slot 10 is the autosave.");
         ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
         ImGui::Checkbox("Close launcher", &close_on_launch_);
+        if (Godot_Available_()) {
+            ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
+            ImGui::Checkbox("Godot frontend", &use_godot_);
+            Help_Marker_("Starts antares-godot, the game inside the Godot frontend (Phase 3), with the same "
+                         "profile and save. Ctrl+G shows the new galaxy view.");
+        }
 
         const float button_width = ImGui::GetFontSize() * 8.0f;
         ImGui::SameLine(ImGui::GetContentRegionMax().x - button_width);

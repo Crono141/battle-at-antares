@@ -8,3 +8,5 @@ reloadable = false
 
 linux.debug.x86_64 = "res://bin/libantares.so"
 linux.release.x86_64 = "res://bin/libantares.so"
+windows.debug.x86_64 = "res://bin/antares.dll"
+windows.release.x86_64 = "res://bin/antares.dll"

@@ -9,6 +9,7 @@
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <thread>
 #include <vector>
@@ -26,6 +27,7 @@ namespace godot {
         void _process(double delta) override;
         void _draw() override;
         void _gui_input(const Ref<InputEvent>& event) override;
+        void _notification(int what);
 
         bool start();
         void stop();
@@ -43,6 +45,8 @@ namespace godot {
         Dictionary get_stats() const;
         // Sends a key as the game's SDL path would see it (for buttons that stand for hotkeys).
         void send_key(int64_t godot_keycode, bool shift, bool alt, bool ctrl);
+        // Asks the game to exit as its own quit does (game_exited follows).
+        void request_game_quit();
 
     protected:
         static void _bind_methods();
@@ -51,12 +55,24 @@ namespace godot {
         Rect2 Frame_Rect() const;
         bool To_Game(const Vector2& local, Vector2* game) const;
         void Upload_Rows(int32_t row_first, int32_t row_last);
+        void Apply_Cursor(bool force);
+        void Apply_Window_Settings();
 
         String game_dir_;
         PackedStringArray args_;
         bool autostart_ = true;
         std::thread thread_;
         bool started_ = false;
+        std::atomic<bool> game_finished_{false};
+        bool exit_signalled_ = false;
+        bool window_applied_ = false;
+
+        // The game's cursor, shown as Godot's hardware cursor over this control.
+        std::vector<uint32_t> cursor_argb_;
+        int32_t cursor_size_ = -1;
+        uint64_t cursor_generation_ = 0;
+        float cursor_scale_ = 0.0f;
+        bool cursor_custom_ = false;
 
         std::vector<uint32_t> frame_;
         int32_t width_ = 0;
@@ -67,7 +83,10 @@ namespace godot {
         // The frame in horizontal strips, so a frame that changed in a few rows uploads only those
         // strips.
         static constexpr int32_t k_strip_rows = 120;
-        std::vector<Ref<ImageTexture>> strips_;
+        // Two textures per strip, written alternately, so an update never waits for the GPU to
+        // finish drawing the copy shown last frame.
+        std::vector<Ref<ImageTexture>> strips_[2];
+        std::vector<uint8_t> strip_current_;
         PackedByteArray strip_bytes_;
 
         // Measurements for frontend-trial.md.
