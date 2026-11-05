@@ -145,3 +145,7 @@ namespace exitm {
         throw std::runtime_error(message != nullptr ? message : "");
     }
 } // namespace exitm
+
+namespace platform {
+    void __cdecl Reset_Exit() {}
+} // namespace platform

@@ -39,6 +39,11 @@ namespace antares {
      *  discards it all. */
     s_config_check Check_Config(const std::string& entry_path);
 
+    /** A dry run of loading a save's configuration with the profile `entry_path`: the packages the
+     *  save recorded (all of them when `required_mods` is null: the profile's own), plus the art
+     *  packages the profile enables, with the save's values. `error` is what the game would say. */
+    s_config_check Check_Save(const std::string& entry_path, const std::vector<config::s_mod_requirement>* required_mods, const config::s_config_state* state);
+
     /** "file:line:column: message", leaving out the parts that are empty or zero. */
     std::string Format_Diagnostic(const config::s_cfg_diagnostic& diagnostic);
 } // namespace antares

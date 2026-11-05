@@ -734,6 +734,7 @@ if(ORION2RE_BUILD_GAME)
     add_executable(antares-launcher
         src/launcher/main.cpp
         src/launcher/launcher_app.cpp
+        src/launcher/launcher_saves.cpp
         src/launcher/launcher_settings.cpp
         "${ANTARES_LAUNCHER_FONT_HEADER}"
         "${ANTARES_LAUNCHER_SCHEMA_HEADER}"

@@ -821,6 +821,11 @@ namespace config {
         return transaction == nullptr ? nullptr : &transaction->lua_registry;
     }
 
+    const std::vector<std::string>* Get_Staged_Package_Order(
+        const s_config_with_mods_transaction* transaction) {
+        return transaction == nullptr ? nullptr : &transaction->package_order;
+    }
+
     bool Restore_Lua_Save_To_Config_Transaction(
         s_config_with_mods_transaction* transaction,
         const orion2re::lua::s_lua_save_snapshot* snapshot,

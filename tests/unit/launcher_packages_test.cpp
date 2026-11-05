@@ -2,13 +2,18 @@
 
 #include "antares/package_catalog.h"
 #include "antares/profile_file.h"
+#include "antares/save_summary.h"
 #include "antares/settings_docs.h"
 #include "config/cfg_parser.h"
 #include "config/config_decode.h"
 #include "config/config_runtime.h"
 #include "config/config_loader.h"
+#include "config/config_snapshot.h"
 #include "config/mod_manager.h"
 #include "doctest/doctest.h"
+#include "game/save_sections.h"
+#include "game/savegame.h"
+#include "game/serialization.h"
 #include "game/vfs.h"
 #include "lua/lua_mod_runtime.h"
 #include "lua/lua_registry.h"
@@ -335,4 +340,137 @@ DOCTEST_TEST_CASE("launcher check returns each setting's value and where it came
     DOCTEST_REQUIRE(mine.ok);
     DOCTEST_CHECK(value_of(mine, "combat.bombardment_hit_frames").first.integer_value == 4);
     DOCTEST_CHECK(value_of(mine, "combat.bombardment_hit_frames").second.package_id == "pace");
+}
+
+namespace {
+    // A save as Write_Game lays it out: header, game state (here filler), then the extension block
+    // with the config snapshot and a Lua section. The filler holds a stray extension magic number.
+    std::vector<uint8_t> Make_Save_(const std::vector<config::s_mod_requirement>* required, const char* description = "My \x03" "game",
+        uint16_t version = SAVEGAME::CURRENT_VERSION) {
+        config::s_config_state state;
+        DOCTEST_REQUIRE(config::Initialize_Tracked_Defaults(&state));
+        config::s_prepared_config_snapshot snapshot;
+        DOCTEST_REQUIRE(config::Prepare_Config_Snapshot(&config::saved_config_snapshot, &state, required, &snapshot));
+        const std::string lua = "lua section bytes";
+        std::vector<uint8_t> bytes(256 * 1024);
+        SERIAL::Writer_ writer(bytes.data(), static_cast<uint32_t>(bytes.size()), "test save overflow");
+        writer.Write_Uint32(SAVEGAME::VERSIONED_HEADER);
+        char name[37] = {};
+        std::strncpy(name, description, sizeof(name) - 1);
+        writer.Write_Bytes(name, sizeof(name));
+        writer.Write_Int32(35004);
+        writer.Write_Int8(0);
+        writer.Write_Uint16(version);
+        for (int index = 0; index < 4000; ++index) writer.Write_Uint8(static_cast<uint8_t>(index * 7));
+        writer.Write_Uint32(SAVEGAME::EXTENSION_MAGIC); // a decoy
+        writer.Write_Uint32(1);
+        const uint32_t payload = static_cast<uint32_t>(snapshot.bytes.size() + lua.size());
+        SAVEGAME::Write_Extension_Header(&writer, payload, 2);
+        SAVEGAME::Write_Section_Header(&writer, SAVEGAME::SECTION_TYPE_CONFIG, SAVEGAME::SECTION_FORMAT_VERSION, SAVEGAME::SECTION_FLAG_REQUIRED, static_cast<uint32_t>(snapshot.bytes.size()));
+        config::Write_Prepared_Config_Snapshot(&writer, &snapshot);
+        SAVEGAME::Write_Section_Header(&writer, SAVEGAME::SECTION_TYPE_LUA, SAVEGAME::SECTION_FORMAT_VERSION, SAVEGAME::SECTION_FLAG_REQUIRED, static_cast<uint32_t>(lua.size()));
+        writer.Write_Bytes(lua.data(), lua.size());
+        bytes.resize(writer.Length());
+        return bytes;
+    }
+} // namespace
+
+DOCTEST_TEST_CASE("launcher saves: the header and the recorded packages are read without loading") {
+    const std::vector<config::s_mod_requirement> required = {{"addon", "1.2.0"}, {"base", "1.2.0"}};
+    const std::vector<uint8_t> bytes = Make_Save_(&required);
+    antares::saves::s_save_summary summary;
+    DOCTEST_REQUIRE(antares::saves::Read_Save_Summary(bytes.data(), bytes.size(), &summary));
+    DOCTEST_CHECK(summary.description == "My game"); // colour codes removed
+    DOCTEST_CHECK(antares::saves::Format_Stardate(summary.stardate) == "3500.4");
+    DOCTEST_CHECK(summary.version == SAVEGAME::CURRENT_VERSION);
+    DOCTEST_CHECK(summary.records_packages);
+    DOCTEST_CHECK(summary.packages == required);
+    DOCTEST_CHECK(summary.state != nullptr);
+
+    // No packages: recorded as an empty list.
+    const std::vector<config::s_mod_requirement> none;
+    const std::vector<uint8_t> plain = Make_Save_(&none);
+    DOCTEST_REQUIRE(antares::saves::Read_Save_Summary(plain.data(), plain.size(), &summary));
+    DOCTEST_CHECK(summary.records_packages);
+    DOCTEST_CHECK(summary.packages.empty());
+
+    // The original game's saves have no settings: default rules, no packages.
+    std::vector<uint8_t> classic(5000, 0);
+    classic[0] = 0xE0;
+    DOCTEST_REQUIRE(antares::saves::Read_Save_Summary(classic.data(), classic.size(), &summary));
+    DOCTEST_CHECK(summary.version == 0);
+    DOCTEST_CHECK(summary.records_packages);
+    DOCTEST_CHECK(summary.packages.empty());
+
+    // Damage is reported, not fatal: a cut-off end, a damaged snapshot, a newer format, not a save.
+    std::vector<uint8_t> cut(bytes.begin(), bytes.end() - 3);
+    DOCTEST_CHECK_FALSE(antares::saves::Read_Save_Summary(cut.data(), cut.size(), &summary));
+    DOCTEST_CHECK(summary.error.find("damaged") == 0);
+    std::vector<uint8_t> corrupt = bytes;
+    const size_t snapshot_start = corrupt.size() - 17 - 12 - 1;
+    for (size_t index = bytes.size() - 400; index < snapshot_start; ++index) corrupt[index] ^= 0x5A;
+    DOCTEST_CHECK_FALSE(antares::saves::Read_Save_Summary(corrupt.data(), corrupt.size(), &summary));
+    const std::vector<uint8_t> newer = Make_Save_(&required, "x", SAVEGAME::CURRENT_VERSION + 1);
+    DOCTEST_CHECK_FALSE(antares::saves::Read_Save_Summary(newer.data(), newer.size(), &summary));
+    DOCTEST_CHECK(summary.error.find("newer") != std::string::npos);
+    const std::string text = "hello, this is not a save at all, honestly not";
+    DOCTEST_CHECK_FALSE(antares::saves::Read_Save_Summary(reinterpret_cast<const uint8_t*>(text.data()), text.size(), &summary));
+}
+
+DOCTEST_TEST_CASE("launcher saves: the check stages the save's packages like the game's load") {
+    s_launcher_test_directory files;
+    files.Package("base", "", "combat bombardment_hit_frames = 4;\n");
+    files.Package("addon", "dependencies: [{ id: \"base\", version: \">=1.0.0\" }],", "combat max_turns = 60;\n");
+    files.Package("look"); // art only: no settings, no data
+    files.Write("data/antares.cfg", "");
+    files.Write("data/profiles/p.cfg", "enable look;\n");
+    files.Init_Vfs();
+    // A version 4 save: the config snapshot, without a package list, ends the file.
+    config::s_config_state values;
+    DOCTEST_REQUIRE(config::Initialize_Tracked_Defaults(&values));
+    config::s_prepared_config_snapshot snapshot;
+    DOCTEST_REQUIRE(config::Prepare_Config_Snapshot(&config::saved_config_snapshot, &values, nullptr, &snapshot));
+    std::string bytes = "\xE1" + std::string(3, '\0') + std::string(37, 'n') + std::string(5, '\0') + std::string("\x04\0", 2) + std::string(3000, '\x11');
+    bytes.append(snapshot.bytes.begin(), snapshot.bytes.end());
+    files.Write("SAVE3.GAM", bytes);
+    files.Write("save7.gam", std::string(Make_Save_(nullptr).size(), 'x')); // any case, as the game opens it
+
+    const antares::saves::s_save_summary missing = antares::saves::Load_Save_Summary(4);
+    DOCTEST_CHECK_FALSE(missing.exists);
+    const antares::saves::s_save_summary found = antares::saves::Load_Save_Summary(3);
+    DOCTEST_CHECK(found.exists);
+    DOCTEST_CHECK(found.readable);
+    DOCTEST_CHECK_FALSE(found.records_packages); // values only: it loads with the profile's packages
+    DOCTEST_CHECK(found.modified != 0);
+    DOCTEST_CHECK(found.version == 4);
+    const antares::saves::s_save_summary lower = antares::saves::Load_Save_Summary(7);
+    DOCTEST_CHECK(lower.exists);
+    DOCTEST_CHECK_FALSE(lower.readable);
+    // A version 7 save must list its packages; the game refuses one that doesn't.
+    const std::vector<uint8_t> unlisted = Make_Save_(nullptr);
+    antares::saves::s_save_summary refused;
+    DOCTEST_CHECK_FALSE(antares::saves::Read_Save_Summary(unlisted.data(), unlisted.size(), &refused));
+
+    config::s_config_state state;
+    DOCTEST_REQUIRE(config::Initialize_Tracked_Defaults(&state));
+    const std::vector<config::s_mod_requirement> good = {{"addon", "1.2.0"}, {"base", "1.2.0"}};
+    const antares::s_config_check ok = antares::Check_Save("profiles/p.cfg", &good, &state);
+    DOCTEST_CHECK_MESSAGE(ok.ok, ok.error);
+    // The save's packages, and the art package the profile enables.
+    DOCTEST_CHECK(ok.package_order == std::vector<std::string>{"addon", "base", "look"});
+    DOCTEST_CHECK(config::Get_Loaded_Mods().empty()); // a dry run
+
+    const std::vector<config::s_mod_requirement> gone = {{"gone", "1.0.0"}};
+    DOCTEST_CHECK(antares::Check_Save("profiles/p.cfg", &gone, &state).error.find("package not found: 'gone'") != std::string::npos);
+    const std::vector<config::s_mod_requirement> older = {{"addon", "1.2.0"}, {"base", "2.0.0"}};
+    DOCTEST_CHECK(antares::Check_Save("profiles/p.cfg", &older, &state).error ==
+        "mods/base/mod.json5: installed package 'base' version 1.2.0 is not compatible with required version 2.0.0");
+    // A dependency the save didn't have (the package changed since): the game refuses it too.
+    const std::vector<config::s_mod_requirement> partial = {{"addon", "1.2.0"}};
+    DOCTEST_CHECK(antares::Check_Save("profiles/p.cfg", &partial, &state).error ==
+        "configuration snapshot: configuration snapshot package order does not match installed dependencies");
+    // Without a package list the profile's own packages load.
+    const antares::s_config_check own = antares::Check_Save("profiles/p.cfg", nullptr, &state);
+    DOCTEST_CHECK(own.ok);
+    DOCTEST_CHECK(own.package_order == std::vector<std::string>{"look"});
 }

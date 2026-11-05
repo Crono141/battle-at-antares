@@ -548,7 +548,9 @@ orion2re_add_unit_test(test_config_loader
     PRODUCTION_SOURCES
         src/antares/package_catalog.cpp
         src/antares/profile_file.cpp
+        src/antares/save_summary.cpp
         src/antares/settings_docs.cpp
+        src/game/save_sections.cpp
         src/config/config_identity.cpp
         src/game/sha256.cpp
         src/config/cfg_parser.cpp
