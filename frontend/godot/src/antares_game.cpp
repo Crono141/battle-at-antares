@@ -1,6 +1,7 @@
 #include "antares_game.h"
 
 #include "antares/host.h"
+#include "command_line.h"
 
 #include <godot_cpp/classes/global_constants.hpp>
 #include <godot_cpp/classes/image.hpp>
@@ -132,18 +133,30 @@ namespace godot {
             UtilityFunctions::push_error("AntaresGame: set game_dir or ANTARES_GAME_DIR to a folder with the game data");
             return false;
         }
-        // Game options after "--" on Godot's command line (as the launcher passes them) replace
-        // the scene's; the trial's own --smoke and --shots are not game options.
+        // The game's options replace the scene's. They are given exactly as to antares
+        // (/config x on Windows, -config x elsewhere; Godot ignores options it doesn't know but
+        // reports them), or after "--". The trial's --smoke, --shots and --no-game-cursor are not
+        // game options.
         PackedStringArray game_args = args_;
-        PackedStringArray user_args;
-        const PackedStringArray cmdline = OS::get_singleton()->get_cmdline_user_args();
-        for (int64_t i = 0; i < cmdline.size(); ++i) {
-            if (!cmdline[i].begins_with("--smoke") && !cmdline[i].begins_with("--shots") && cmdline[i] != "--no-game-cursor") {
-                user_args.push_back(cmdline[i]);
+        PackedStringArray found;
+        const String prefix = String::chr(command_line::OPTION_PREFIX);
+        const PackedStringArray engine_args = OS::get_singleton()->get_cmdline_args();
+        const PackedStringArray user_args = OS::get_singleton()->get_cmdline_user_args();
+        PackedStringArray all = engine_args;
+        all.append_array(user_args);
+        for (int64_t i = 0; i < all.size(); ++i) {
+            const String& arg = all[i];
+            if (arg == prefix + String("skip-intro")) {
+                found.push_back(arg);
+            } else if ((arg == prefix + String("config") || arg == prefix + String("load-save")) && i + 1 < all.size()) {
+                found.push_back(arg);
+                found.push_back(all[++i]);
+            } else if (arg.begins_with(prefix + String("config=")) || arg.begins_with(prefix + String("load-save="))) {
+                found.push_back(arg);
             }
         }
-        if (!user_args.is_empty()) {
-            game_args = user_args;
+        if (!found.is_empty()) {
+            game_args = found;
         }
         std::vector<std::string> args = {"antares"};
         for (int64_t i = 0; i < game_args.size(); ++i) {
