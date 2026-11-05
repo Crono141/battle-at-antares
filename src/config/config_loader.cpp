@@ -246,6 +246,26 @@ namespace config {
         return Apply_Config_With_Mods(document, package_id, effective, diagnostic, Load_Document);
     }
 
+    bool Check_Config_File(const char* entry_path, const char* package_id, std::vector<std::string>* package_order, s_cfg_diagnostic* diagnostic) {
+        if (entry_path == nullptr || package_id == nullptr || package_order == nullptr || diagnostic == nullptr) {
+            return false;
+        }
+        *diagnostic = {};
+        package_order->clear();
+        std::string normalized_entry;
+        if (!Canonicalize_Path(entry_path, &normalized_entry)) {
+            diagnostic->location.source = entry_path;
+            diagnostic->message = "invalid configuration entry path";
+            return false;
+        }
+        s_cfg_document document;
+        if (!Load_Document(normalized_entry, &document, diagnostic)) {
+            return false;
+        }
+        s_effective_config candidate;
+        return Stage_Config_With_Mods(document, package_id, &candidate, package_order, diagnostic, Load_Document);
+    }
+
     bool Load_Startup_Config(const char* entry_path, const char* package_id, s_effective_config* effective, bool* loaded, s_cfg_diagnostic* diagnostic, bool require_file) {
         s_config_profile profile("startup");
         if (entry_path == nullptr || package_id == nullptr || effective == nullptr ||

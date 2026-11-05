@@ -56,5 +56,8 @@ namespace config {
     bool Semantic_Version_Matches(const s_semantic_version& version,
         const std::string& range);
     bool Load_Mod_Manifest(const std::string& package_id, s_mod_manifest* manifest, s_cfg_diagnostic* diagnostic);
+    // Antares (WP5.1): the same checks on manifest text read elsewhere (the launcher reads packages
+    // that aren't mounted).
+    bool Parse_Mod_Manifest(const std::string& package_id, const std::string& source, s_mod_manifest* manifest, s_cfg_diagnostic* diagnostic);
 
 } // namespace config
