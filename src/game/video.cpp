@@ -2,6 +2,7 @@
 
 #include "video_scan_bounds.h"
 
+#include "antares/host.h"
 #include "antares/stall_trace.h"
 
 namespace video {
@@ -173,6 +174,7 @@ namespace video {
         }
         g_off_page_state = OFF_PAGE_PUBLISHED;
         ++g_off_page_generation;
+        antares::host::On_Publish();
         debug_overlay::Publish_Game_Frame(g_off_page_generation);
         SDL_UnlockMutex(g_off_page_mutex);
     }
