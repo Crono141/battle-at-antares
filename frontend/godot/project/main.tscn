@@ -39,7 +39,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-args = PackedStringArray("-skip-intro", "-config", "profiles/hd.cfg", "-load-save", "10")
+args = PackedStringArray("-skip-intro", "-config", "profiles/godot-trial.cfg", "-load-save", "10")
 
 [node name="Bar" type="HBoxContainer" parent="UI"]
 offset_left = 8.0

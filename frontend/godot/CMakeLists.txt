@@ -37,8 +37,10 @@ target_link_libraries(antares_godot PRIVATE
     miniz
     orion2re_imgui
 )
+set(ANTARES_GODOT_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/project/bin" CACHE PATH
+    "Where libantares.so goes (the trial project's bin/ by default)")
 set_target_properties(antares_godot PROPERTIES
     OUTPUT_NAME antares
     PREFIX "lib"
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/project/bin"
+    LIBRARY_OUTPUT_DIRECTORY "${ANTARES_GODOT_BIN_DIR}"
 )
