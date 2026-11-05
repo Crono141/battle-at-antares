@@ -11,6 +11,10 @@ Changes no game rules on its own; combine it with any rule set (1.31 without pac
 - The research category buttons can no longer be used to browse technology fields beyond your next research choice.
 - This is the 1.50 option that blocked peeking at future technologies.
 
+## Keys
+
+No changes: every key works as it does without packages.
+
 ## Needs and conflicts
 
 No dependencies or conflicts. In multiplayer every player needs the same package set.

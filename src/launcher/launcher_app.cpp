@@ -420,10 +420,6 @@ namespace launcher {
                 tab_ = 2;
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Keys", nullptr, wanted_tab == 3 ? ImGuiTabItemFlags_SetSelected : 0)) {
-                tab_ = 3;
-                ImGui::EndTabItem();
-            }
             ImGui::EndTabBar();
             force_tab_ = false;
         }
@@ -439,10 +435,8 @@ namespace launcher {
             ImGui::EndChild();
         } else if (tab_ == 1) {
             Draw_Settings_(tab_body);
-        } else if (tab_ == 2) {
-            Draw_Saves_(tab_body);
         } else {
-            Draw_Keys_(tab_body);
+            Draw_Saves_(tab_body);
         }
 
         ImGui::Spacing();
@@ -763,8 +757,23 @@ namespace launcher {
         ImGui::PopTextWrapPos();
         ImGui::Spacing();
         // WP5.5: the package's own README, then what it changes, worked out from its files.
-        if (!package->readme.empty() && ImGui::CollapsingHeader("About", ImGuiTreeNodeFlags_DefaultOpen)) {
-            Draw_Markdown(package->readme);
+        // The README's "## Keys" section (what the package changes about the keys, compared with no
+        // packages) gets its own header, so it isn't buried at the end of a long README.
+        std::string about = package->readme;
+        std::string keys;
+        const size_t keys_at = about.find("\n## Keys\n");
+        if (keys_at != std::string::npos) {
+            const size_t body = keys_at + SDL_strlen("\n## Keys\n");
+            const size_t end = std::min(about.find("\n## ", body), about.size());
+            keys = about.substr(body, end - body);
+            about.erase(keys_at + 1, end - keys_at - 1);
+        }
+        if (!keys.empty() && ImGui::CollapsingHeader("Keys", ImGuiTreeNodeFlags_DefaultOpen)) {
+            Draw_Markdown(keys);
+            ImGui::Spacing();
+        }
+        if (!about.empty() && ImGui::CollapsingHeader("About", ImGuiTreeNodeFlags_DefaultOpen)) {
+            Draw_Markdown(about);
             ImGui::Spacing();
         }
         if (ImGui::CollapsingHeader("What it changes", package->readme.empty() ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {

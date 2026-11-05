@@ -71,10 +71,11 @@ Without packages the game plays the 1.31 rules. VDC-GM3 is layered on the Basic 
 
 ## Keys
 
-| Key | Effect under VDC-GM3 |
-|---|---|
-| W | Waits with the active ship. Ship initiative is forced on, so this is always available. |
-| H | Waits with all your ships; usable in every battle because initiative is forced on. |
+| Key | Screen | What changes |
+|---|---|---|
+| H | Tactical combat | Waits with all your ships. Classic ship initiative is always on (the in-game Ship Initiative option can't switch it off), so H is there in every battle. |
+| `+` / `-` | Galaxy map | Zoom further on small and medium galaxies: small maps get one zoom level (none without packages), medium maps two (one without packages). |
+| Alt+A, Alt+D | Build | Auto Design still redesigns every ship, but follows VDC-GM3's AI design rules, so the designs differ. |
 
 ## Needs and conflicts
 

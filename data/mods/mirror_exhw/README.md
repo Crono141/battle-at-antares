@@ -16,6 +16,10 @@ Changes only how the galaxy is generated; combine it with any rule set.
 - A marooned hero in the template is copied as a different hero in each copy.
 - Nebulas are moved to symmetric positions.
 
+## Keys
+
+No changes: every key works as it does without packages.
+
 ## Needs and conflicts
 
 Required by VDC-GM3. Can't be combined with Full Mirror, Home Systems Mirrored or Improved Multiplayer: only one package may generate the galaxy. Uses a script: in multiplayer the host generates the galaxy, every player needs the same package set, and the script must match on all machines.

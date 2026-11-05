@@ -34,6 +34,10 @@ Texts and graphics:
 - Matching message fixes for the French, German, Italian and Spanish versions.
 - Some race-selection and pop-up graphics are replaced with corrected versions.
 
+## Keys
+
+No changes: every key works as it does without packages.
+
 ## Needs and conflicts
 
 No dependencies or conflicts. Improved (v150i), and through it Improved Multiplayer (v150i-mp), require Basic and enable it automatically. In multiplayer every player needs the same package set.

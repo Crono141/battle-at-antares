@@ -8,9 +8,8 @@
 
 #include "antares/profile_file.h"
 #include "launcher/launcher_app.h"
-#include "launcher_keys.h"
 
-// Package information and the Keys tab (WP5.5): a package's README.md, the settings it changes
+// Package information (WP5.5): a package's README.md, the settings it changes
 // (a dry run that enables only it), and the manual's keyboard page.
 namespace launcher {
     namespace {
@@ -310,26 +309,5 @@ namespace launcher {
             }
             ImGui::TreePop();
         }
-    }
-
-    void c_launcher::Open_Keys(const std::string& filter) {
-        tab_ = 3;
-        SDL_strlcpy(keys_filter_, filter.c_str(), sizeof(keys_filter_));
-    }
-
-    void c_launcher::Draw_Keys_(float height) {
-        ImGui::BeginChild("keys", ImVec2(0.0f, height), ImGuiChildFlags_Borders);
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
-        ImGui::InputTextWithHint("##keys-filter", "Search keys and actions", keys_filter_, sizeof(keys_filter_));
-        ImGui::SameLine();
-        ImGui::TextColored(COLOUR_DIM, "Keys work the same with or without packages.");
-        ImGui::Separator();
-        ImGui::BeginChild("keys-text");
-        static const std::string manual(reinterpret_cast<const char*>(k_launcher_keys_data), k_launcher_keys_size);
-        if (Draw_Markdown(manual, keys_filter_) == 0 && keys_filter_[0] != '\0') {
-            ImGui::TextColored(COLOUR_DIM, "No keys match.");
-        }
-        ImGui::EndChild();
-        ImGui::EndChild();
     }
 } // namespace launcher
