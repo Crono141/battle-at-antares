@@ -101,7 +101,11 @@ namespace antares {
     s_config_check Check_Config(const std::string& entry_path) {
         s_config_check check;
         config::s_cfg_diagnostic diagnostic;
-        check.ok = config::Check_Config_File(entry_path.c_str(), "base_game", &check.package_order, &diagnostic);
+        auto effective = std::make_shared<config::s_effective_config>();
+        check.ok = config::Check_Config_File(entry_path.c_str(), "base_game", &check.package_order, &diagnostic, effective.get());
+        if (check.ok) {
+            check.effective = std::move(effective);
+        }
         if (!check.ok) {
             check.error = Format_Diagnostic(diagnostic);
             if (check.error.empty()) {

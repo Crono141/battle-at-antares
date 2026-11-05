@@ -98,6 +98,7 @@ namespace launcher {
         }
         data_dir_ = game_dir_ + "data/";
         Load_Settings_();
+        Init_Settings_();
         if (!start_profile.empty()) {
             last_profile_ = start_profile;
         }
@@ -197,6 +198,7 @@ namespace launcher {
             profile_text_.clear(); // a missing base config is fine: the game uses defaults
         }
         enabled_ = antares::profile::Enabled_Packages(profile_text_);
+        profile_settings_ = antares::profile::Profile_Settings(profile_text_);
         Run_Check_();
     }
 
@@ -208,6 +210,7 @@ namespace launcher {
             return false;
         }
         profile_text_ = text;
+        profile_settings_ = antares::profile::Profile_Settings(profile_text_);
         return true;
     }
 
@@ -320,14 +323,32 @@ namespace launcher {
         // Below the table: the check (one or two lines, plus a message line) and the launch bar.
         const float bottom = ImGui::GetFrameHeightWithSpacing() + ImGui::GetTextLineHeightWithSpacing() * 3.0f + style.ItemSpacing.y * 3.0f;
         const float body = std::max(120.0f, ImGui::GetContentRegionAvail().y - bottom);
-        const float table_width = ImGui::GetContentRegionAvail().x * 0.60f;
-        ImGui::BeginChild("mods", ImVec2(table_width, body));
-        Draw_Mods_Table_(body);
-        ImGui::EndChild();
-        ImGui::SameLine();
-        ImGui::BeginChild("details", ImVec2(0.0f, body), ImGuiChildFlags_Borders);
-        Draw_Package_Details_(body);
-        ImGui::EndChild();
+        const int wanted_tab = force_tab_ ? tab_ : -1;
+        if (ImGui::BeginTabBar("tabs")) {
+            if (ImGui::BeginTabItem("Packages", nullptr, wanted_tab == 0 ? ImGuiTabItemFlags_SetSelected : 0)) {
+                tab_ = 0;
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Settings", nullptr, wanted_tab == 1 ? ImGuiTabItemFlags_SetSelected : 0)) {
+                tab_ = 1;
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+            force_tab_ = false;
+        }
+        const float tab_body = std::max(120.0f, body - ImGui::GetFrameHeightWithSpacing());
+        if (tab_ == 0) {
+            const float table_width = ImGui::GetContentRegionAvail().x * 0.60f;
+            ImGui::BeginChild("mods", ImVec2(table_width, tab_body));
+            Draw_Mods_Table_(tab_body);
+            ImGui::EndChild();
+            ImGui::SameLine();
+            ImGui::BeginChild("details", ImVec2(0.0f, tab_body), ImGuiChildFlags_Borders);
+            Draw_Package_Details_(tab_body);
+            ImGui::EndChild();
+        } else {
+            Draw_Settings_(tab_body);
+        }
 
         ImGui::Spacing();
         Draw_Check_();

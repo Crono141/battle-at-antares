@@ -548,6 +548,7 @@ orion2re_add_unit_test(test_config_loader
     PRODUCTION_SOURCES
         src/antares/package_catalog.cpp
         src/antares/profile_file.cpp
+        src/antares/settings_docs.cpp
         src/config/config_identity.cpp
         src/game/sha256.cpp
         src/config/cfg_parser.cpp
@@ -616,6 +617,7 @@ target_include_directories(test_config_loader PRIVATE
 )
 target_compile_definitions(test_config_loader PRIVATE
     LUA_SOURCE_PACKAGE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/mods"
+    ANTARES_CONFIG_SCHEMA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/specs/config/main.json5"
 )
 
 orion2re_add_unit_test(test_config_snapshot

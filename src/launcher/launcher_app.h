@@ -6,10 +6,13 @@
 #include <vector>
 
 #include "antares/package_catalog.h"
+#include "antares/settings_docs.h"
+#include "config/config_runtime.h"
 
 // The Battle at Antares launcher (WP5.1, D23): pick a profile, choose and order its packages,
 // check it with the game's own resolver, and start the game.
 namespace launcher {
+    namespace settings = antares::settings;
     struct s_profile_entry {
         std::string label;    // what the list shows
         std::string vfs_path; // "antares.cfg" or "profiles/<name>.cfg"
@@ -26,6 +29,9 @@ namespace launcher {
         /** Checks the selected profile and starts the game with it (the -play option). Logs and
          *  returns false when the profile doesn't pass the check or the game can't start. */
         bool Play();
+        /** Opens the Settings tab on a page ("common", "profile", a category id) or, when the text
+         *  isn't a page, on a search for it (the -settings option). */
+        void Open_Settings(const std::string& page_or_search);
         /** Polls the running game, if any. */
         void Update();
 
@@ -49,6 +55,17 @@ namespace launcher {
         void Draw_Check_();
         void Draw_Launch_Bar_();
 
+        // Settings tab (WP5.2, launcher_settings.cpp).
+        void Init_Settings_();
+        void Draw_Settings_(float height);
+        void Draw_Settings_Pages_();
+        void Draw_Settings_Table_(const std::vector<config::t_variable_id>& rows, float height);
+        void Draw_Setting_Details_();
+        bool Draw_Setting_Editor_(config::t_variable_id id, const config::s_typed_value& value, std::string* value_text);
+        void Set_Setting_(config::t_variable_id id, const std::string& value_text);
+        std::vector<config::t_variable_id> Settings_Rows_() const;
+        bool Profile_Sets_(config::t_variable_id id) const;
+
         std::string game_dir_;
         std::string data_dir_;
         std::vector<antares::s_package_info> packages_;
@@ -70,6 +87,20 @@ namespace launcher {
 
         SDL_Process* game_ = nullptr;
         bool quit_ = false;
+
+        // Settings.
+        int tab_ = 0;           // 0 packages, 1 settings
+        bool force_tab_ = true; // select tab_ on the first frame
+        settings::c_schema_docs docs_;
+        std::vector<std::string> setting_titles_;            // by variable id
+        std::vector<std::string> setting_search_;            // lowercase title, path and description
+        std::vector<std::string> setting_category_;          // category id by variable id ("" for other)
+        std::vector<config::t_variable_id> common_settings_; // CONFIG_NO_VARIABLE marks a section break
+        std::vector<std::string> common_sections_;
+        std::vector<config::t_variable_id> profile_settings_;
+        std::string settings_page_ = "common"; // "common", "profile", or a category id
+        char settings_search_[128] = {};
+        config::t_variable_id selected_setting_ = config::CONFIG_NO_VARIABLE;
 
         // Profile popups.
         int popup_ = 0; // 0 none, 1 new, 2 copy, 3 rename, 4 delete

@@ -1,7 +1,10 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
+
+#include "config/config_lifecycle.h"
 
 #include "config/mod_manifest.h"
 
@@ -27,6 +30,8 @@ namespace antares {
         bool ok = false;
         std::vector<std::string> package_order; // highest priority first
         std::string error;                      // "file:line:column: message" when !ok
+        // Every setting's value and where it came from, when ok (WP5.2).
+        std::shared_ptr<const config::s_effective_config> effective;
     };
 
     /** A dry run of the game's own load of `entry_path` (a VFS path such as

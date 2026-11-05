@@ -246,7 +246,7 @@ namespace config {
         return Apply_Config_With_Mods(document, package_id, effective, diagnostic, Load_Document);
     }
 
-    bool Check_Config_File(const char* entry_path, const char* package_id, std::vector<std::string>* package_order, s_cfg_diagnostic* diagnostic) {
+    bool Check_Config_File(const char* entry_path, const char* package_id, std::vector<std::string>* package_order, s_cfg_diagnostic* diagnostic, s_effective_config* effective) {
         if (entry_path == nullptr || package_id == nullptr || package_order == nullptr || diagnostic == nullptr) {
             return false;
         }
@@ -263,7 +263,13 @@ namespace config {
             return false;
         }
         s_effective_config candidate;
-        return Stage_Config_With_Mods(document, package_id, &candidate, package_order, diagnostic, Load_Document);
+        if (!Stage_Config_With_Mods(document, package_id, &candidate, package_order, diagnostic, Load_Document)) {
+            return false;
+        }
+        if (effective != nullptr) {
+            *effective = std::move(candidate);
+        }
+        return true;
     }
 
     bool Load_Startup_Config(const char* entry_path, const char* package_id, s_effective_config* effective, bool* loaded, s_cfg_diagnostic* diagnostic, bool require_file) {

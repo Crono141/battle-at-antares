@@ -27,7 +27,8 @@ namespace config {
     bool Load_Config_File(const char* entry_path, const char* package_id, s_effective_config* effective, s_cfg_diagnostic* diagnostic);
     // Antares (WP5.1): a dry run of a full load for the launcher. Resolves and validates the file
     // and its packages like Load_Config_File, then discards everything; nothing becomes active.
-    bool Check_Config_File(const char* entry_path, const char* package_id, std::vector<std::string>* package_order, s_cfg_diagnostic* diagnostic);
+    // `effective`, when given, receives the values the load would produce, with their provenance.
+    bool Check_Config_File(const char* entry_path, const char* package_id, std::vector<std::string>* package_order, s_cfg_diagnostic* diagnostic, s_effective_config* effective = nullptr);
     bool Load_Startup_Config(const char* entry_path, const char* package_id, s_effective_config* effective, bool* loaded, s_cfg_diagnostic* diagnostic, bool require_file = false);
     bool Commit_Active_Config_Writes(const s_config_write_set* writes,
         s_cfg_diagnostic* diagnostic);
