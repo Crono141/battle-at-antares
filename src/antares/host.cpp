@@ -9,7 +9,6 @@
 namespace antares::host {
     namespace {
         std::atomic<bool> s_active{false};
-        std::atomic<bool> s_snapshots{false};
 
         // The newest resolved frame and the rows changed since the host last took it.
         std::mutex s_frame_mutex;
@@ -60,10 +59,6 @@ namespace antares::host {
 
     bool Active() {
         return s_active;
-    }
-
-    void Enable_Snapshots() {
-        s_snapshots = true;
     }
 
     void Request_Quit() {
@@ -174,7 +169,7 @@ namespace antares::host {
     }
 
     void On_Publish() {
-        if (!s_active && !s_snapshots) {
+        if (!s_active) {
             return;
         }
         s_galaxy next;
