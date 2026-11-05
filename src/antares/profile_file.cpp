@@ -2,7 +2,12 @@
 
 #include "antares/profile_file.h"
 
+#include <algorithm>
 #include <cctype>
+
+#include "config/cfg_parser.h"
+#include "config/config_decode.h"
+#include "config/text_encoding.h"
 
 namespace antares::profile {
     namespace {
@@ -150,5 +155,187 @@ namespace antares::profile {
             }
         }
         return true;
+    }
+    bool Is_Editable_Setting(config::t_variable_id variable_id) {
+        if (variable_id >= config::variable_count) return false;
+        const config::s_runtime_variable_descriptor& variable = config::runtime_variables[variable_id];
+        if (variable.aggregate || variable.vector || config::Get_Variable_Type(variable_id) == nullptr) return false;
+        // Entries of implicit lists (a list ended by a terminator) can only be assigned as the
+        // whole list, not one by one.
+        const config::s_runtime_schema* schema = config::Get_Runtime_Schema();
+        const config::s_schema_node_descriptor* node = config::Get_Variable_Node(schema, variable_id);
+        while (node != nullptr) {
+            if (node->kind == config::CONFIG_NODE_ARRAY && node->implicit_terminator) return false;
+            node = node->parent == config::CONFIG_NO_NODE || node->parent >= schema->node_count ? nullptr : &schema->nodes[node->parent];
+        }
+        return true;
+    }
+
+    namespace {
+        // Flags whose bits make up `value` exactly, joined with ','; false if any bit is left over.
+        template <typename t_flag, typename t_test>
+        bool Join_Flags_(const t_flag* flags, size_t count, t_test contains, std::string* text) {
+            std::string joined;
+            for (size_t index = 0; index < count; ++index) {
+                if (contains(flags[index])) {
+                    if (!joined.empty()) joined += ',';
+                    joined += flags[index].name;
+                }
+            }
+            *text = joined;
+            return !joined.empty();
+        }
+    } // namespace
+
+    std::string Quote_Cfg_String(const std::string& utf8) {
+        std::string quoted = "\"";
+        for (const char character : utf8) {
+            if (character == '"' || character == '\\') {
+                quoted += '\\';
+                quoted += character;
+            } else if (static_cast<unsigned char>(character) < 0x20) {
+                char escape[8];
+                SDL_snprintf(escape, sizeof(escape), "\\u%04x", static_cast<unsigned char>(character));
+                quoted += escape;
+            } else {
+                quoted += character;
+            }
+        }
+        return quoted + "\"";
+    }
+
+    bool Format_Setting_Value(config::t_variable_id variable_id, const config::s_typed_value& value, std::string* text) {
+        const config::s_type_descriptor* type = config::Get_Variable_Type(variable_id);
+        if (type == nullptr || text == nullptr || !Is_Editable_Setting(variable_id)) return false;
+        switch (value.type) {
+            case config::CONFIG_VALUE_BOOL: *text = value.bool_value ? "true" : "false"; return true;
+            case config::CONFIG_VALUE_RATIO:
+                *text = std::to_string(value.ratio_numerator);
+                if (value.ratio_denominator != 1) *text += "/" + std::to_string(value.ratio_denominator);
+                return true;
+            case config::CONFIG_VALUE_STRING: {
+                std::string utf8;
+                config::Decode_Cp850_To_Utf8(value.string_value.data(), value.string_value.size(), &utf8);
+                *text = Quote_Cfg_String(utf8);
+                return true;
+            }
+            case config::CONFIG_VALUE_BITMAP: {
+                const size_t bytes = value.bitmap_value.size();
+                for (size_t index = 0; index < type->bitmap_value_count; ++index) {
+                    if (std::equal(value.bitmap_value.begin(), value.bitmap_value.end(), type->bitmap_values[index].value)) {
+                        *text = type->bitmap_values[index].name;
+                        return true;
+                    }
+                }
+                std::vector<uint8_t> covered(bytes, 0);
+                const bool joined = Join_Flags_(type->bitmap_flags, type->bitmap_flag_count, [&](const config::s_bitmap_symbol_descriptor& flag) {
+                        for (size_t byte = 0; byte < bytes; ++byte) {
+                            if ((flag.value[byte] & ~value.bitmap_value[byte]) != 0) return false;
+                        }
+                        for (size_t byte = 0; byte < bytes; ++byte) covered[byte] |= flag.value[byte];
+                        return true; }, text);
+                return joined && std::equal(covered.begin(), covered.end(), value.bitmap_value.begin());
+            }
+            default: break;
+        }
+        const int64_t integer = value.integer_value;
+        if (type->scalar_kind == config::CONFIG_SCALAR_ENUM || type->scalar_kind == config::CONFIG_SCALAR_MASK) {
+            for (size_t index = 0; index < type->value_count; ++index) {
+                if (type->values[index].value == integer) {
+                    *text = type->values[index].name;
+                    return true;
+                }
+            }
+        }
+        if (type->scalar_kind == config::CONFIG_SCALAR_MASK && integer != 0) {
+            uint64_t covered = 0;
+            const bool joined = Join_Flags_(type->flags, type->flag_count, [&](const config::s_symbol_descriptor& flag) {
+                    const uint64_t bits = static_cast<uint64_t>(flag.value);
+                    if (bits == 0 || (bits & static_cast<uint64_t>(integer)) != bits) return false;
+                    covered |= bits;
+                    return true; }, text);
+            if (joined && covered == static_cast<uint64_t>(integer)) return true;
+        }
+        if (type->scalar_kind != config::CONFIG_SCALAR_PRIMITIVE && !type->allow_numeric) {
+            return false;
+        }
+        *text = std::to_string(integer);
+        return true;
+    }
+
+    std::string Setting_Path(config::t_variable_id variable_id) {
+        std::string name;
+        if (!config::Get_Variable_Name(variable_id, &name)) return "";
+        for (char& character : name) {
+            if (character == '.') character = ' ';
+        }
+        return name;
+    }
+
+    config::t_variable_id Setting_Line_Variable(const std::string& line) {
+        config::s_cfg_document document;
+        config::s_cfg_diagnostic diagnostic;
+        if (line.find('=') == std::string::npos ||
+            !config::Parse_Cfg("profile", line.data(), line.size(), &document, &diagnostic) ||
+            document.statements.size() != 1 || document.statements[0].kind != config::CFG_STATEMENT_ASSIGNMENT) {
+            return config::CONFIG_NO_VARIABLE;
+        }
+        config::s_config_write_set writes;
+        if (!config::Decode_Assignment(&document.statements[0], &writes, &diagnostic) || writes.writes.size() != 1 ||
+            writes.writes[0].leaf_index != 0 || !Is_Editable_Setting(writes.writes[0].variable_id)) {
+            return config::CONFIG_NO_VARIABLE;
+        }
+        return writes.writes[0].variable_id;
+    }
+
+    std::vector<config::t_variable_id> Profile_Settings(const std::string& text) {
+        std::vector<config::t_variable_id> settings;
+        for (const s_line& line : Split_(text)) {
+            const config::t_variable_id variable_id = Setting_Line_Variable(line.text);
+            if (variable_id != config::CONFIG_NO_VARIABLE &&
+                std::find(settings.begin(), settings.end(), variable_id) == settings.end()) {
+                settings.push_back(variable_id);
+            }
+        }
+        return settings;
+    }
+
+    std::string With_Setting(const std::string& text, config::t_variable_id variable_id, const std::string& value_text) {
+        const std::vector<s_line> lines = Split_(text);
+        std::string ending = "\n";
+        for (const s_line& line : lines) {
+            if (!line.ending.empty()) {
+                ending = line.ending;
+                break;
+            }
+        }
+        const std::string statement = value_text.empty() ? "" : Setting_Path(variable_id) + " = " + value_text + ";";
+        std::string output;
+        bool written = false;
+        for (size_t index = 0; index < lines.size(); ++index) {
+            const s_line& line = lines[index];
+            if (Setting_Line_Variable(line.text) != variable_id) {
+                output += line.text + (line.ending.empty() && index + 1 == lines.size() && !written && !statement.empty() ? ending : line.ending);
+                continue;
+            }
+            if (written || statement.empty()) {
+                continue;
+            }
+            // Keep the line's comment: the text after the last ';' when it starts with '#'.
+            std::string comment;
+            const size_t semicolon = line.text.rfind(';');
+            if (semicolon != std::string::npos) {
+                const size_t start = line.text.find_first_not_of(" \t", semicolon + 1);
+                if (start != std::string::npos && line.text[start] == '#') {
+                    comment = line.text.substr(semicolon + 1);
+                }
+            }
+            output += statement + comment + (line.ending.empty() ? ending : line.ending);
+            written = true;
+        }
+        if (!written && !statement.empty()) {
+            output += statement + ending;
+        }
+        return output;
     }
 } // namespace antares::profile

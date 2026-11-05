@@ -23,6 +23,7 @@ namespace {
         std::string screenshot; // render one frame to this PNG and quit (headless review)
         std::string select;     // package whose details to show at start
         bool play = false;      // start the game with the profile and options, then quit
+        std::string settings;   // open the Settings tab on this page or search
     };
 
     bool Parse_Options_(int argc, char** argv, s_launcher_options* options, std::string* error) {
@@ -32,6 +33,7 @@ namespace {
             {"screenshot", true},
             {"select", true},
             {"play", false},
+            {"settings", true},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -44,6 +46,7 @@ namespace {
                 case 2: options->screenshot = option.value; break;
                 case 3: options->select = option.value; break;
                 case 4: options->play = true; break;
+                case 5: options->settings = option.value; break;
                 default: break;
             }
         }
@@ -128,6 +131,9 @@ int main(int argc, char** argv) {
 
     launcher::c_launcher app;
     app.Init(options.game_dir, options.profile, options.select);
+    if (!options.settings.empty()) {
+        app.Open_Settings(options.settings);
+    }
     if (options.play) {
         // A shortcut: no window, the launcher only starts the game.
         const bool started = app.Play();
@@ -143,7 +149,7 @@ int main(int argc, char** argv) {
     float scale = headless ? 1.0f : SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
     if (scale <= 0.0f) scale = 1.0f;
     const std::string title = std::string(antares::PRODUCT_NAME) + " launcher";
-    SDL_Window* window = SDL_CreateWindow(title.c_str(), static_cast<int>(1040 * scale), static_cast<int>(680 * scale), SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (headless ? SDL_WINDOW_HIDDEN : 0));
+    SDL_Window* window = SDL_CreateWindow(title.c_str(), static_cast<int>(1120 * scale), static_cast<int>(760 * scale), SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (headless ? SDL_WINDOW_HIDDEN : 0));
     SDL_Renderer* renderer = window != nullptr ? SDL_CreateRenderer(window, headless ? "software" : nullptr) : nullptr;
     if (renderer == nullptr) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: unable to create a window: %s", SDL_GetError());
