@@ -115,6 +115,19 @@ namespace antares {
         return check;
     }
 
+    s_config_check Check_Save(const std::string& entry_path, const std::vector<config::s_mod_requirement>* required_mods, const config::s_config_state* state) {
+        s_config_check check;
+        config::s_cfg_diagnostic diagnostic;
+        check.ok = config::Check_Save_Config_File(entry_path.c_str(), "base_game", required_mods, state, &check.package_order, &diagnostic);
+        if (!check.ok) {
+            check.error = Format_Diagnostic(diagnostic);
+            if (check.error.empty()) {
+                check.error = "unable to load the save's configuration";
+            }
+        }
+        return check;
+    }
+
     std::string Format_Diagnostic(const config::s_cfg_diagnostic& diagnostic) {
         const config::s_source_location& location = diagnostic.location;
         std::string text;

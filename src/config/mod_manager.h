@@ -61,6 +61,9 @@ namespace config {
         const s_effective_config* prepared_base = nullptr);
     const orion2re::lua::s_lua_registry* Get_Staged_Config_Registry(
         const s_config_with_mods_transaction* transaction);
+    // Antares (WP5.3): the staged packages, highest priority first.
+    const std::vector<std::string>* Get_Staged_Package_Order(
+        const s_config_with_mods_transaction* transaction);
     bool Restore_Lua_Save_To_Config_Transaction(
         s_config_with_mods_transaction* transaction,
         const orion2re::lua::s_lua_save_snapshot* snapshot,

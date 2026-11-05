@@ -272,6 +272,33 @@ namespace config {
         return true;
     }
 
+    bool Check_Save_Config_File(const char* entry_path, const char* package_id, const std::vector<s_mod_requirement>* required_mods, const s_config_state* snapshot_state, std::vector<std::string>* package_order, s_cfg_diagnostic* diagnostic) {
+        if (entry_path == nullptr || package_id == nullptr || package_order == nullptr || diagnostic == nullptr) {
+            return false;
+        }
+        *diagnostic = {};
+        package_order->clear();
+        std::string normalized_entry;
+        if (!Canonicalize_Path(entry_path, &normalized_entry)) {
+            diagnostic->location.source = entry_path;
+            diagnostic->message = "invalid configuration entry path";
+            return false;
+        }
+        s_cfg_document document;
+        if (vfs::File_Exists(normalized_entry.c_str()) != 0 && !Load_Document(normalized_entry, &document, diagnostic)) {
+            return false;
+        }
+        s_config_with_mods_transaction* transaction = nullptr;
+        if (!Stage_Config_With_Mods_Transaction(document, package_id, diagnostic, Load_Document, required_mods, snapshot_state != nullptr ? &saved_config_snapshot : nullptr, snapshot_state, &transaction)) {
+            return false;
+        }
+        if (const std::vector<std::string>* order = Get_Staged_Package_Order(transaction)) {
+            *package_order = *order;
+        }
+        Discard_Config_With_Mods_Transaction(&transaction);
+        return true;
+    }
+
     bool Load_Startup_Config(const char* entry_path, const char* package_id, s_effective_config* effective, bool* loaded, s_cfg_diagnostic* diagnostic, bool require_file) {
         s_config_profile profile("startup");
         if (entry_path == nullptr || package_id == nullptr || effective == nullptr ||

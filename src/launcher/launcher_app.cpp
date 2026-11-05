@@ -55,20 +55,6 @@ namespace launcher {
             return true;
         }
 
-        std::string Save_Label_(const std::string& game_dir, int slot) {
-            const std::string path = game_dir + "SAVE" + std::to_string(slot) + ".GAM";
-            std::error_code code;
-            const auto time = std::filesystem::last_write_time(path, code);
-            if (code) {
-                return "";
-            }
-            const auto system_time = std::chrono::clock_cast<std::chrono::system_clock>(time);
-            const std::time_t seconds = std::chrono::system_clock::to_time_t(system_time);
-            char date[64];
-            std::strftime(date, sizeof(date), "%Y-%m-%d %H:%M", std::localtime(&seconds));
-            return "Save " + std::to_string(slot) + "  (" + date + ")";
-        }
-
         void Help_Marker_(const char* text) {
             ImGui::SameLine();
             ImGui::TextDisabled("(?)");
@@ -160,6 +146,7 @@ namespace launcher {
 
     void c_launcher::Refresh_Packages_() {
         packages_ = antares::Discover_Packages();
+        saves_dirty_ = true;
     }
 
     void c_launcher::Refresh_Profiles_() {
@@ -231,10 +218,11 @@ namespace launcher {
         } else {
             check_ = antares::Check_Config(entry.vfs_path);
         }
+        saves_dirty_ = true; // saves load with the profile's art packages and settings
         check_ms_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     }
 
-    void c_launcher::Launch_() {
+    void c_launcher::Launch_(int load_save) {
         const s_profile_entry& entry = profiles_[profile_index_];
 #if defined(_WIN32)
         const std::string executable = game_dir_ + "antares.exe";
@@ -250,9 +238,9 @@ namespace launcher {
         if (skip_intro_) {
             arguments.push_back(prefix + "skip-intro");
         }
-        if (load_save_ > 0) {
+        if (load_save > 0) {
             arguments.push_back(prefix + "load-save");
-            arguments.push_back(std::to_string(load_save_));
+            arguments.push_back(std::to_string(load_save));
         }
         std::vector<const char*> argv;
         for (const std::string& argument : arguments) argv.push_back(argument.c_str());
@@ -285,7 +273,18 @@ namespace launcher {
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Battle at Antares launcher", check_.error.c_str(), nullptr);
             return false;
         }
-        Launch_();
+        if (load_save_ > 0) {
+            Refresh_Saves_();
+            const s_save_row* row = Find_Save_(load_save_);
+            const std::string problem = row != nullptr ? Save_Problem_(*row) : "no such save";
+            if (!problem.empty()) {
+                const std::string text = "Save " + std::to_string(load_save_) + " won't load: " + problem;
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: %s", text.c_str());
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Battle at Antares launcher", text.c_str(), nullptr);
+                return false;
+            }
+        }
+        Launch_(load_save_);
         if (game_ == nullptr) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: %s", message_.c_str());
             return false;
@@ -302,6 +301,7 @@ namespace launcher {
             message_ = exit_code == 0 ? "The game closed." : "The game exited with code " + std::to_string(exit_code) + ".";
             message_is_error_ = exit_code != 0;
             Refresh_Profiles_(); // the game doesn't write profiles, but a player may have
+            saves_dirty_ = true; // it may have saved
         }
     }
 
@@ -333,6 +333,10 @@ namespace launcher {
                 tab_ = 1;
                 ImGui::EndTabItem();
             }
+            if (ImGui::BeginTabItem("Saves", nullptr, wanted_tab == 2 ? ImGuiTabItemFlags_SetSelected : 0)) {
+                tab_ = 2;
+                ImGui::EndTabItem();
+            }
             ImGui::EndTabBar();
             force_tab_ = false;
         }
@@ -346,8 +350,10 @@ namespace launcher {
             ImGui::BeginChild("details", ImVec2(0.0f, tab_body), ImGuiChildFlags_Borders);
             Draw_Package_Details_(tab_body);
             ImGui::EndChild();
-        } else {
+        } else if (tab_ == 1) {
             Draw_Settings_(tab_body);
+        } else {
+            Draw_Saves_(tab_body);
         }
 
         ImGui::Spacing();
@@ -689,6 +695,15 @@ namespace launcher {
             ImGui::SameLine();
             ImGui::TextUnformatted(check_.error.c_str());
         }
+        if (load_save_ > 0) {
+            const s_save_row* row = Find_Save_(load_save_);
+            const std::string problem = row != nullptr ? Save_Problem_(*row) : "";
+            if (!problem.empty()) {
+                ImGui::TextColored(COLOUR_ERROR, "Save %d won't load:", load_save_);
+                ImGui::SameLine();
+                ImGui::TextUnformatted(problem.c_str());
+            }
+        }
         ImGui::PopTextWrapPos();
         if (!message_.empty()) {
             ImGui::TextColored(message_is_error_ ? COLOUR_ERROR : COLOUR_DIM, "%s", message_.c_str());
@@ -701,31 +716,23 @@ namespace launcher {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Continue");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 13.0f);
-        std::string current = load_save_ == 0 ? "Main menu" : Save_Label_(game_dir_, load_save_);
-        if (current.empty()) {
-            current = "Save " + std::to_string(load_save_) + " (missing)";
-        }
-        if (ImGui::BeginCombo("##continue", current.c_str())) {
-            if (ImGui::Selectable("Main menu", load_save_ == 0)) load_save_ = 0;
-            for (int slot = 1; slot <= 10; ++slot) {
-                const std::string label = Save_Label_(game_dir_, slot);
-                if (!label.empty() && ImGui::Selectable(label.c_str(), load_save_ == slot)) load_save_ = slot;
-            }
-            ImGui::EndCombo();
-        }
-        Help_Marker_("Main menu starts normally. A save loads it straight away (-load-save). Slot 10 is the autosave.");
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20.0f);
+        Draw_Continue_Combo_();
+        Help_Marker_("Main menu starts normally. A save loads it straight away (-load-save); the Saves tab "
+                     "shows what each one needs. Slot 10 is the autosave.");
         ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
         ImGui::Checkbox("Close launcher", &close_on_launch_);
 
         const float button_width = ImGui::GetFontSize() * 8.0f;
         ImGui::SameLine(ImGui::GetContentRegionMax().x - button_width);
-        ImGui::BeginDisabled(!check_.ok || game_ != nullptr);
+        const s_save_row* save = Find_Save_(load_save_);
+        const bool save_fails = load_save_ > 0 && (save == nullptr || !Save_Problem_(*save).empty());
+        ImGui::BeginDisabled(!check_.ok || save_fails || game_ != nullptr);
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.45f, 0.25f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.55f, 0.30f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.62f, 0.35f, 1.0f));
         if (ImGui::Button(game_ != nullptr ? "Running" : "Play", ImVec2(button_width, 0.0f))) {
-            Launch_();
+            Launch_(load_save_);
         }
         ImGui::PopStyleColor(3);
         ImGui::EndDisabled();

@@ -24,6 +24,7 @@ namespace {
         std::string select;     // package whose details to show at start
         bool play = false;      // start the game with the profile and options, then quit
         std::string settings;   // open the Settings tab on this page or search
+        int saves = -1;         // open the Saves tab with this slot selected (0: none)
     };
 
     bool Parse_Options_(int argc, char** argv, s_launcher_options* options, std::string* error) {
@@ -34,6 +35,7 @@ namespace {
             {"select", true},
             {"play", false},
             {"settings", true},
+            {"saves", true},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -47,6 +49,7 @@ namespace {
                 case 3: options->select = option.value; break;
                 case 4: options->play = true; break;
                 case 5: options->settings = option.value; break;
+                case 6: options->saves = SDL_atoi(option.value.c_str()); break;
                 default: break;
             }
         }
@@ -133,6 +136,9 @@ int main(int argc, char** argv) {
     app.Init(options.game_dir, options.profile, options.select);
     if (!options.settings.empty()) {
         app.Open_Settings(options.settings);
+    }
+    if (options.saves >= 0) {
+        app.Open_Saves(options.saves);
     }
     if (options.play) {
         // A shortcut: no window, the launcher only starts the game.

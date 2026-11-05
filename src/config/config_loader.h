@@ -29,6 +29,10 @@ namespace config {
     // and its packages like Load_Config_File, then discards everything; nothing becomes active.
     // `effective`, when given, receives the values the load would produce, with their provenance.
     bool Check_Config_File(const char* entry_path, const char* package_id, std::vector<std::string>* package_order, s_cfg_diagnostic* diagnostic, s_effective_config* effective = nullptr);
+    // Antares (WP5.3): a dry run of loading a save's configuration for the launcher. Stages the
+    // packages the save recorded (`required_mods`; null means the file's own enable lines, as for a
+    // save without a package list) with the save's values, like the game's load, then discards it.
+    bool Check_Save_Config_File(const char* entry_path, const char* package_id, const std::vector<s_mod_requirement>* required_mods, const s_config_state* snapshot_state, std::vector<std::string>* package_order, s_cfg_diagnostic* diagnostic);
     bool Load_Startup_Config(const char* entry_path, const char* package_id, s_effective_config* effective, bool* loaded, s_cfg_diagnostic* diagnostic, bool require_file = false);
     bool Commit_Active_Config_Writes(const s_config_write_set* writes,
         s_cfg_diagnostic* diagnostic);

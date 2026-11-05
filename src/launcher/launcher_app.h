@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "antares/package_catalog.h"
+#include "antares/save_summary.h"
 #include "antares/settings_docs.h"
 #include "config/config_runtime.h"
 
@@ -20,6 +21,11 @@ namespace launcher {
         bool is_base = false; // data/antares.cfg, launched without -config
     };
 
+    struct s_save_row {
+        antares::saves::s_save_summary summary;
+        antares::s_config_check check; // loading it with the selected profile, when readable
+    };
+
     class c_launcher {
       public:
         bool Init(const std::string& game_dir, const std::string& start_profile, const std::string& select_package = "");
@@ -32,6 +38,8 @@ namespace launcher {
         /** Opens the Settings tab on a page ("common", "profile", a category id) or, when the text
          *  isn't a page, on a search for it (the -settings option). */
         void Open_Settings(const std::string& page_or_search);
+        /** Opens the Saves tab with a slot selected (0: none) (the -saves option). */
+        void Open_Saves(int slot);
         /** Polls the running game, if any. */
         void Update();
 
@@ -44,7 +52,7 @@ namespace launcher {
         bool Write_Profile_Text_(const std::string& text);
         void Apply_Enabled_(const std::vector<std::string>& enabled);
         void Run_Check_();
-        void Launch_();
+        void Launch_(int load_save); // 0: main menu, 1-10: -load-save
         std::string Profile_File_Path_(const s_profile_entry& entry) const;
         const antares::s_package_info* Find_Package_(const std::string& id) const;
 
@@ -54,6 +62,17 @@ namespace launcher {
         void Draw_Package_Details_(float height);
         void Draw_Check_();
         void Draw_Launch_Bar_();
+
+        // Saves tab (WP5.3, launcher_saves.cpp).
+        void Refresh_Saves_();
+        const s_save_row* Find_Save_(int slot) const;
+        std::string Save_Label_(int slot) const;
+        std::string Save_Problem_(const s_save_row& row) const; // "" when the save loads
+        std::string Short_Problem_(const s_save_row& row, const std::string& problem) const;
+        void Draw_Saves_(float height);
+        void Draw_Save_Details_(const s_save_row& row);
+        void Draw_Save_Needs_(const std::vector<config::s_mod_requirement>& needs, bool loads);
+        void Draw_Continue_Combo_();
 
         // Settings tab (WP5.2, launcher_settings.cpp).
         void Init_Settings_();
@@ -88,8 +107,14 @@ namespace launcher {
         SDL_Process* game_ = nullptr;
         bool quit_ = false;
 
+        // Saves: read and checked again when the profile, its packages or the files change.
+        std::vector<s_save_row> saves_; // slots 1-10 in order
+        bool saves_dirty_ = true;
+        double saves_ms_ = 0.0;
+        int selected_save_ = 0;
+
         // Settings.
-        int tab_ = 0;           // 0 packages, 1 settings
+        int tab_ = 0;           // 0 packages, 1 settings, 2 saves
         bool force_tab_ = true; // select tab_ on the first frame
         settings::c_schema_docs docs_;
         std::vector<std::string> setting_titles_;            // by variable id
