@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/native.h"
+
 namespace TEXTBOX {
     int16_t bottom_y;
     uint8_t* textbox_seg;
@@ -172,6 +174,7 @@ namespace TEXTBOX {
     }
 
     void __cdecl Do_Text_Box(const char* title, const char* text, uint16_t input_ticks) {
+        if (antares::native::Message(title, text, input_ticks)) return; // Antares (WP3.2b): a frontend answers
         s_colors primary_colors;
         s_animation_header* anim;
         s_colors secondary_colors;

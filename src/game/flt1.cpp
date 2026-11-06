@@ -971,16 +971,13 @@ namespace FLT1 {
         }
     }
 
-    /** Sums the BC value of all selected ships on the fleet screen. */
-    int32_t __cdecl Get_Scrap_Ship_Value() {
+    /** Sums the BC value of the ships being scrapped. Antares (D25 argument form, WP3.2b): it took
+     *  the fleet screen's selected big icons, the same ships Build_Scrap_List passes. */
+    int32_t __cdecl Get_Scrap_Ship_Value(const int16_t* ship_indices, int16_t num_ships) {
         int32_t total_value = 0;
 
-        if (MOX::n_fltscrn_big_icons > 0) {
-            for (int16_t i = 0; i < MOX::n_fltscrn_big_icons; ++i) {
-                if (MOX::fltscrn_big_icon[i].selected != 0) {
-                    total_value += maintain::Ship_Scrap_Value(&MOX::ship[MOX::fltscrn_big_icon[i].ship_idx]);
-                }
-            }
+        for (int16_t i = 0; i < num_ships; ++i) {
+            total_value += maintain::Ship_Scrap_Value(&MOX::ship[ship_indices[i]]);
         }
 
         return total_value;
@@ -1568,7 +1565,7 @@ namespace FLT1 {
             }
         }
 
-        int32_t scrap_value = Get_Scrap_Ship_Value();
+        int32_t scrap_value = Get_Scrap_Ship_Value(ship_indices, num_ships);
 
         if (interactive != 0 && scrap_value > 0) {
             int16_t msg_id = (num_ships == 1) ? 128 /* 0x80 */ : 129 /* 0x81 */;

@@ -539,6 +539,7 @@ orion2re_add_unit_test(test_native_bridge
         tests/unit/native_test.cpp
     PRODUCTION_SOURCES
         src/antares/native.cpp
+        src/antares/commands.cpp
         src/config/text_encoding.cpp
         vendors/yyjson/src/yyjson.c
     FAKE_SOURCES
@@ -2073,6 +2074,7 @@ orion2re_add_unit_test(test_fields
     FAKE_SOURCES
         tests/fakes/fake_animate.cpp
         tests/fakes/fake_fields_runtime.cpp
+        tests/fakes/fake_native_requests.cpp
         tests/fakes/fake_input.cpp
         tests/fakes/fake_memory.cpp
         tests/fakes/fake_mmio.cpp

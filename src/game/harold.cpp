@@ -1,6 +1,5 @@
 #include "pch.h"
 #include "string_overrides.h"
-#include "antares/native.h"
 #include <cstring>
 #include <vector>
 
@@ -1175,12 +1174,6 @@ namespace HAROLD {
     int16_t __cdecl User_Box(uint8_t* refresh_flag, const char* message, int16_t type) {
         char buffer[100];
         int16_t result = -1;
-
-        // Antares (WP3.1b): a frontend may answer the box itself.
-        if (antares::native::User_Box(type, message, &result)) {
-            *refresh_flag = 1;
-            return result;
-        }
 
         switch (type) {
             case 1:

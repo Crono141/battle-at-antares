@@ -2,6 +2,7 @@
 
 #include "antares/native.h"
 
+#include "antares/commands.h"
 #include "antares/host.h"
 #include "config/text_encoding.h"
 #include "miniz.h"
@@ -15,7 +16,8 @@
 namespace antares::native {
     namespace {
         std::atomic<uint64_t> s_claimed_screens{0}; // bit n: SCREEN_* n
-        std::atomic<bool> s_requests_claimed{false};
+        std::atomic<uint32_t> s_claimed_kinds{0};   // bits: e_request_kind
+        std::atomic<bool> s_control_attached{false};
         std::atomic<int16_t> s_native_screen{-1};
         std::atomic<uint64_t> s_native_visit{0};
         std::atomic<uint64_t> s_leave_frame{0};
@@ -35,9 +37,34 @@ namespace antares::native {
         int32_t s_answer = 0;
         std::vector<std::string> s_packs;
         uint64_t s_packs_generation = 0;
+        std::deque<std::string> s_snapshots;
 
         // Game thread only.
         std::string s_packages_key;
+        struct s_watch {
+            std::string what;
+            std::string last; // the last posted answer
+        };
+        std::vector<s_watch> s_watches;
+        uint64_t s_snapshot_seq = 0;
+
+        enum e_request_kind : uint32_t { KIND_MESSAGE = 1,
+            KIND_CONFIRM = 2,
+            KIND_WARNING = 4,
+            KIND_CHOOSE = 8 };
+
+        uint32_t Kind_Bit(const std::string& kind) {
+            return kind == "message" ? KIND_MESSAGE
+                : kind == "confirm"  ? KIND_CONFIRM
+                : kind == "warning"  ? KIND_WARNING
+                : kind == "choose"   ? KIND_CHOOSE
+                                     : 0;
+        }
+
+        // A frontend is attached: the Godot host, or the control channel in the SDL build.
+        bool Frontend() {
+            return host::Active() || s_control_attached;
+        }
 
         bool Claimed(int16_t screen) {
             return screen >= 0 && screen < 64 && ((s_claimed_screens.load() >> screen) & 1u) != 0;
@@ -75,169 +102,107 @@ namespace antares::native {
             fields::Clear_Mouse_Buffer();
         }
 
-        // ---- Results ----
-
-        struct s_writer {
-            yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
-            yyjson_mut_val* root = nullptr;
-
-            explicit s_writer(uint64_t id, bool ok) {
-                root = yyjson_mut_obj(doc);
-                yyjson_mut_doc_set_root(doc, root);
-                yyjson_mut_obj_add_uint(doc, root, "id", id);
-                yyjson_mut_obj_add_bool(doc, root, "ok", ok);
-            }
-            ~s_writer() {
-                yyjson_mut_doc_free(doc);
-            }
-            s_writer(const s_writer&) = delete;
-            s_writer& operator=(const s_writer&) = delete;
-
-            void Int(const char* key, int64_t value) {
-                yyjson_mut_obj_add_int(doc, root, key, value);
-            }
-            void Str(const char* key, const std::string& value) {
-                yyjson_mut_obj_add_strncpy(doc, root, key, value.data(), value.size());
-            }
-            std::string Text() const {
-                size_t length = 0;
-                char* text = yyjson_mut_write(doc, 0, &length);
-                std::string out = text != nullptr ? std::string(text, length) : std::string("{}");
-                free(text);
-                return out;
-            }
-        };
-
-        std::string Error(uint64_t id, const char* message) {
-            s_writer out(id, false);
-            out.Str("error", message);
-            return out.Text();
-        }
-
         // ---- Commands ----
 
-        // The screens the native galaxy may open through the legacy fallback, with the setup the
-        // legacy galaxy does before it leaves for them (mainscr_main.cpp, Main_Screen).
-        bool Open_Screen(int16_t from, int16_t screen) {
-            switch (screen) {
-                case SCREEN_COLONY_SUMMARY:
-                case SCREEN_INFO:
-                case SCREEN_RACE:
-                case SCREEN_PLANET_SUMMARY:
-                case SCREEN_SHOW_COMMAND_POINTS:
-                    break;
-                case SCREEN_FLEET:
-                    MAINSCR::officer_screen_return_screen = SCREEN_FLEET;
-                    break;
-                case SCREEN_GAME:
-                    MOX::screen_data = 0;
-                    break;
-                case SCREEN_TECH_CHANGE:
-                    // Tech_Change draws over the page it finds: put the galaxy there, as the legacy
-                    // galaxy's research field does (Main_Screen, research_window_field).
-                    MOX::dont_draw_main_screen_to_back = 1;
-                    fields::Clear_Fields();
-                    MAINSCR::Clear_Main_Screen_Fields();
-                    video::Set_Page_Off();
-                    MAINSCR::Draw_Mini_Main_Screen();
-                    video::Copy_Off_To_Back();
-                    RUSS::Mox_Sync_Update();
-                    video::Set_Refresh_Stencil();
-                    MAINSCR::clear_fleet_fields = 0;
-                    break;
-                case SCREEN_OFFICERS:
-                    MOX::temp_star_handle = MOX::officer_scrn_type == LEADER_TYPE_SHIP
-                        ? MAINSCR::Get_Ship_Stack_For_Officers_Screen()
-                        : MAINSCR::Get_Star_Id_For_Officers_Screen();
-                    MAINSCR::officer_screen_return_screen = (int8_t)from;
-                    break;
-                default:
-                    return false;
-            }
-            MOX::return_screen = from;
-            MOX::current_screen = screen;
-            return true;
+        std::string Json_Quote(const std::string& text) {
+            yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
+            yyjson_mut_doc_set_root(doc, yyjson_mut_strncpy(doc, text.data(), text.size()));
+            size_t length = 0;
+            char* out = yyjson_mut_write(doc, 0, &length);
+            std::string quoted = out != nullptr ? std::string(out, length) : std::string("\"\"");
+            free(out);
+            yyjson_mut_doc_free(doc);
+            return quoted;
         }
 
-        // What the legacy galaxy does when the turn button is pressed (Main_Screen, next_button).
-        void End_Turn() {
-            RUSS::Assert_Settings();
-            MOX::auto_turn_exit = 0;
-            MAINSCR::next_turn_hit = 1;
-            MOX::global_exit_field = -1000;
-            int16_t exit_flag = 0;
-            MAINSCR::Do_Next_Turn(&exit_flag, 0);
+        std::string Bridge_Result(uint64_t id, bool ok, const char* error = nullptr) {
+            std::string out = "{\"id\":" + std::to_string(id) + ",\"ok\":" + (ok ? "true" : "false");
+            if (error != nullptr) {
+                out += ",\"error\":" + Json_Quote(error);
+            }
+            return out + "}";
         }
 
-        std::string Query(uint64_t id, const std::string& what) {
-            if (MOX::player == nullptr || MOX::PLAYER_NUM < 0 || MOX::PLAYER_NUM >= MOX::NUM_PLAYERS) {
-                return Error(id, "no game");
-            }
-            s_player& player = MOX::player[MOX::PLAYER_NUM];
-            if (what == "empire") {
-                s_writer out(id, true);
-                out.Int("stardate", MOX::stardate);
-                out.Int("player", MOX::PLAYER_NUM);
-                out.Str("race", Utf8(player.race_name));
-                out.Int("color", player.color);
-                out.Int("bc", player.bc);
-                out.Int("bc_produced", player.bc_produced);
-                out.Int("research_produced", player.research_produced);
-                out.Int("surplus_food", player.surplus_food);
-                out.Int("freighters", player.n_freighters);
-                out.Int("command_points", player.command_points);
-                out.Int("command_points_used", player.command_points_used);
-                out.Int("tax_rate", player.tax_rate);
-                return out.Text();
-            }
-            if (what == "command_points") {
-                // The same call the legacy screen makes (COLCALC::Show_Command_Points), which
-                // also refreshes the player's command point totals.
-                char text[3000];
-                STRBUILD::s_builder builder = STRBUILD::Init(text, sizeof(text));
-                COLCALC::Compute_Player_Maintenance(&player, &builder);
-                s_writer out(id, true);
-                out.Str("title", Utf8(COLCALC::command_summary_msg));
-                out.Str("text", Utf8(text));
-                out.Int("command_points", player.command_points);
-                out.Int("command_points_used", player.command_points_used);
-                return out.Text();
-            }
-            return Error(id, "unknown query");
-        }
-
+        // The bridge verbs (watch, unwatch) and then the shared table (antares/commands.h).
         std::string Run_Command(int16_t screen, uint64_t id, const std::string& json) {
             yyjson_doc* doc = yyjson_read(json.data(), json.size(), 0);
-            if (doc == nullptr) {
-                return Error(id, "bad json");
-            }
-            yyjson_val* root = yyjson_doc_get_root(doc);
-            const char* verb_text = yyjson_get_str(yyjson_obj_get(root, "verb"));
-            const std::string verb = verb_text != nullptr ? verb_text : "";
+            yyjson_val* root = doc != nullptr ? yyjson_doc_get_root(doc) : nullptr;
+            const char* verb = yyjson_get_str(yyjson_obj_get(root, "verb"));
+            const char* what = yyjson_get_str(yyjson_obj_get(root, "what"));
             std::string result;
-            if (verb == "query") {
-                const char* what = yyjson_get_str(yyjson_obj_get(root, "what"));
-                result = Query(id, what != nullptr ? what : "");
-            } else if (verb == "end_turn") {
-                if (screen != SCREEN_MAIN) {
-                    result = Error(id, "end_turn needs the galaxy");
+            if (verb != nullptr && (strcmp(verb, "watch") == 0 || strcmp(verb, "unwatch") == 0)) {
+                const bool watch = strcmp(verb, "watch") == 0;
+                const std::string name = what != nullptr ? what : "";
+                const auto it = std::find_if(s_watches.begin(), s_watches.end(), [&](const s_watch& w) { return w.what == name; });
+                if (watch && commands::Run_Query(screen, name).empty()) {
+                    result = Bridge_Result(id, false, "unknown_query");
                 } else {
-                    End_Turn();
-                    result = s_writer(id, true).Text();
+                    if (watch && it == s_watches.end()) {
+                        s_watches.push_back({name, {}});
+                    } else if (watch) {
+                        it->last.clear(); // post the current answer again
+                    } else if (it != s_watches.end()) {
+                        s_watches.erase(it);
+                    }
+                    result = Bridge_Result(id, true);
                 }
-            } else if (verb == "open") {
-                yyjson_val* target = yyjson_obj_get(root, "screen");
-                const int16_t next = yyjson_is_int(target) ? (int16_t)yyjson_get_int(target) : SCREEN_UNKNOWN;
-                result = Open_Screen(screen, next) ? s_writer(id, true).Text()
-                                                   : Error(id, "screen can't be opened from here");
-            } else if (verb == "close") {
-                MOX::current_screen = MOX::return_screen;
-                result = s_writer(id, true).Text();
             } else {
-                result = Error(id, "unknown verb");
+                result = commands::Run(screen, id, json);
             }
             yyjson_doc_free(doc);
             return result;
+        }
+
+        // Re-runs the watched queries and posts the ones whose answer changed.
+        void Refresh_Snapshots(int16_t screen) {
+            for (s_watch& watch : s_watches) {
+                std::string answer = commands::Run_Query(screen, watch.what);
+                if (answer.empty() || answer == watch.last) {
+                    continue;
+                }
+                watch.last = answer;
+                std::string snapshot = "{\"snapshot\":" + Json_Quote(watch.what) + ",\"seq\":" +
+                    std::to_string(++s_snapshot_seq) + ",\"result\":" + answer + "}";
+                std::lock_guard<std::mutex> lock(s_mutex);
+                s_snapshots.push_back(std::move(snapshot));
+            }
+        }
+
+        // ---- Requests ----
+
+        // Posts a request (the fields after "id" and "kind", as JSON text without braces) and
+        // waits on the game thread for its answer, keeping sound, network and exit checks alive.
+        int32_t Ask(const char* kind, const char* text, const std::string& fields) {
+            uint64_t id = 0;
+            {
+                std::lock_guard<std::mutex> lock(s_mutex);
+                id = s_next_id++;
+                s_waiting_request = id;
+                s_answered = false;
+                const std::string utf8 = Utf8(text);
+                std::string json = "{\"id\":" + std::to_string(id) + ",\"kind\":\"" + kind + "\",\"text\":" +
+                    Json_Quote(utf8) + (fields.empty() ? "" : ",") + fields + "}";
+                s_requests.push_back({id, kind, utf8, std::move(json)});
+            }
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: request %llu (%s)", (unsigned long long)id, kind);
+            int32_t answer = 0;
+            while (true) {
+                {
+                    std::lock_guard<std::mutex> lock(s_mutex);
+                    if (s_answered) {
+                        s_waiting_request = 0;
+                        answer = s_answer;
+                        break;
+                    }
+                }
+                Tick();
+            }
+            Drop_Legacy_Input();
+            return answer;
+        }
+
+        bool Claimed_Kind(uint32_t bit) {
+            return Frontend() && (s_claimed_kinds.load() & bit) != 0;
         }
 
         // The native galaxy is offered only where the legacy one does nothing more than wait for
@@ -256,16 +221,16 @@ namespace antares::native {
         }
 
         // What Main_Screen does on entry that isn't drawing (mainscr_main.cpp, Main_Screen): star
-        // owners for the map, the fade flags the next screens read, and the message about a
+        // owners and fleet icons for the map, the fade flags the next screens read, and the message about a
         // loaded save's packages, which becomes a request.
         void Enter_Galaxy() {
             MAINSCR::Update_Star_Owners();
+            // The fleet icons, as Main_Screen builds them on entry: Fleets reuses them.
+            SHIPS::Build_Ship_Icons();
+            SHIPS::Set_Ship_Icon_XYs();
             const std::string message = SAVEGAME::Consume_Loaded_Config_Message();
             if (!message.empty()) {
-                int16_t ignored = -1;
-                if (!User_Box(0, message.c_str(), &ignored)) {
-                    GENDRAW::Message_Box(message.c_str());
-                }
+                GENDRAW::Message_Box(message.c_str()); // a "message" request when claimed
             }
             MAINSCR2::main_screen_fade_in_flag = 1;
             MOX::at_least_one_tactical_combat = 0;
@@ -359,8 +324,30 @@ namespace antares::native {
         }
     }
 
-    void Claim_Requests(bool claimed) {
-        s_requests_claimed = claimed;
+    void Claim_Requests(const std::vector<std::string>& kinds) {
+        uint32_t bits = 0;
+        for (const std::string& kind : kinds) {
+            bits |= Kind_Bit(kind);
+        }
+        s_claimed_kinds = bits;
+    }
+
+    void Attach_Control(bool attached) {
+        s_control_attached = attached;
+    }
+
+    bool Control_Attached() {
+        return s_control_attached;
+    }
+
+    bool Take_Snapshot(std::string* json) {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (s_snapshots.empty()) {
+            return false;
+        }
+        *json = std::move(s_snapshots.front());
+        s_snapshots.pop_front();
+        return true;
     }
 
     uint64_t Send_Command(const std::string& json) {
@@ -461,7 +448,7 @@ namespace antares::native {
     }
 
     bool Run_Screen(int16_t screen) {
-        if (!host::Active()) {
+        if (!Frontend()) {
             return false;
         }
         if (!Claimed(screen) || !Native_Allowed(screen)) {
@@ -474,6 +461,7 @@ namespace antares::native {
         host::On_Publish();
         ++s_native_visit;
         s_native_screen = screen;
+        Refresh_Snapshots(screen);
         uint32_t ticks = 0;
         // Commands that arrived for an earlier native screen still run: they were sent while the
         // frontend showed a native view, and each checks the screen it needs.
@@ -502,6 +490,9 @@ namespace antares::native {
             }
             if (changed || ++ticks % 20 == 0) {
                 host::On_Publish();
+                if (MOX::current_screen == screen) {
+                    Refresh_Snapshots(screen);
+                }
             }
         }
         if (screen == SCREEN_MAIN) {
@@ -510,45 +501,82 @@ namespace antares::native {
         Drop_Legacy_Input();
         s_leave_frame = host::Frame_Generation(); // before the screen, so the frontend never misses it
         s_native_screen = -1;
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: screen %d leaves for %d", (int)screen,
-            (int)MOX::current_screen);
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: screen %d leaves for %d", (int)screen, (int)MOX::current_screen);
         return true;
     }
 
     bool Wants_Screen(int16_t screen) {
-        return host::Active() && Claimed(screen) && Native_Allowed(screen);
+        return Frontend() && Claimed(screen) && Native_Allowed(screen);
     }
 
-    bool User_Box(int16_t type, const char* message, int16_t* result) {
-        if (!host::Active() || !s_requests_claimed) {
+    bool Message(const char* title, const char* text, uint16_t timeout_ticks) {
+        if (!Claimed_Kind(KIND_MESSAGE)) {
             return false;
         }
-        const char* kind = type == 0 ? "message" : type == 1 ? "confirm" : type == 3 ? "warning" : nullptr;
-        if (kind == nullptr) {
-            return false; // text boxes with a title and timed boxes stay legacy for now
+        std::string fields;
+        if (title != nullptr) {
+            fields += "\"title\":" + Json_Quote(Utf8(title));
         }
-        uint64_t id = 0;
-        {
-            std::lock_guard<std::mutex> lock(s_mutex);
-            id = s_next_id++;
-            s_waiting_request = id;
-            s_answered = false;
-            s_requests.push_back({id, kind, Utf8(message)});
+        if (timeout_ticks != 0) {
+            fields += std::string(fields.empty() ? "" : ",") + "\"timeout_ticks\":" + std::to_string(timeout_ticks);
         }
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: request %llu (%s)", (unsigned long long)id, kind);
-        while (true) {
-            {
-                std::lock_guard<std::mutex> lock(s_mutex);
-                if (s_answered) {
-                    s_waiting_request = 0;
-                    *result = type == 1 ? (int16_t)(s_answer != 0 ? 1 : 0) : (int16_t)-1;
-                    break;
-                }
-            }
-            Tick();
-        }
-        Drop_Legacy_Input();
+        (void)Ask("message", text, fields);
+        MOX::FULL_DRAW_SCREEN_FLAG = 1; // as Do_Text_Box leaves it
         return true;
+    }
+
+    bool Confirm(const char* text, int16_t* answer) {
+        if (!Claimed_Kind(KIND_CONFIRM)) {
+            return false;
+        }
+        *answer = Ask("confirm", text, "") != 0 ? 1 : 0;
+        MOX::FULL_DRAW_SCREEN_FLAG = 1; // as Confirmation_Box leaves it
+        return true;
+    }
+
+    bool Warning(const char* text) {
+        if (!Claimed_Kind(KIND_WARNING)) {
+            return false;
+        }
+        (void)Ask("warning", text, "");
+        return true;
+    }
+
+    bool Choose(const char* title, const char* list, int32_t item_size, const uint8_t* flags, int8_t* selected, int16_t* answer) {
+        if (!Claimed_Kind(KIND_CHOOSE) || list == nullptr || item_size <= 0) {
+            return false;
+        }
+        std::string options;
+        int16_t count = 0;
+        for (const char* item = list; *item != '\0'; item += item_size, ++count) {
+            const bool enabled = flags == nullptr || flags[count] != 0;
+            options += std::string(count == 0 ? "" : ",") + "{\"text\":" +
+                Json_Quote(Utf8(std::string(item, strnlen(item, (size_t)item_size)).c_str())) +
+                ",\"enabled\":" + (enabled ? "true" : "false") + "}";
+        }
+        std::string fields = "\"options\":[" + options + "]";
+        if (selected != nullptr) {
+            fields += ",\"selected\":" + std::to_string(*selected);
+        }
+        while (true) {
+            const int32_t value = Ask("choose", title, fields);
+            // The legacy list ignores clicks on disabled items: ask again.
+            if (value < 0 || value >= count) {
+                *answer = -1;
+                return true;
+            }
+            if (flags == nullptr || flags[value] != 0) {
+                *answer = (int16_t)value;
+                if (selected != nullptr) {
+                    *selected = (int8_t)value;
+                }
+                return true;
+            }
+        }
+    }
+
+    void Refresh_Snapshots_For_Test(int16_t screen) {
+        Refresh_Snapshots(screen);
     }
 
     std::string Run_Command_For_Test(int16_t screen, const std::string& json) {

@@ -30,27 +30,6 @@ namespace antares::rules_trace {
             return s_enabled == 1;
         }
 
-        // FNV-1a over the save the game would write now, with the seed zeroed (it's logged on its
-        // own) and a fixed description.
-        uint64_t State_Hash(std::string* error) {
-            uint8_t* buffer = static_cast<uint8_t*>(malloc(SAVEGAME::BUFFER_CAPACITY));
-            if (buffer == nullptr) {
-                *error = "out of memory";
-                return 0;
-            }
-            SERIAL::Writer_ writer(buffer, SAVEGAME::BUFFER_CAPACITY, "rules trace buffer overflow");
-            char description[sizeof(SAVEGAME::s_metadata::description)] = "rules-trace";
-            uint64_t hash = 0;
-            if (SAVEGAME::Write_Game(&writer, description, 0, error)) {
-                hash = 0xCBF29CE484222325ull;
-                for (uint32_t i = 0; i < writer.Length(); ++i) {
-                    hash = (hash ^ buffer[i]) * 0x100000001B3ull;
-                }
-            }
-            free(buffer);
-            return hash;
-        }
-
         // The caller's offset in its module, so addr2line can name it on a PIE build.
         uintptr_t Module_Offset(const void* address) {
 #if defined(__linux__)
@@ -62,6 +41,27 @@ namespace antares::rules_trace {
             return reinterpret_cast<uintptr_t>(address);
         }
     } // namespace
+
+    // FNV-1a over the save the game would write now, with the seed zeroed (it's logged on its
+    // own) and a fixed description.
+    uint64_t State_Hash(std::string* error) {
+        uint8_t* buffer = static_cast<uint8_t*>(malloc(SAVEGAME::BUFFER_CAPACITY));
+        if (buffer == nullptr) {
+            *error = "out of memory";
+            return 0;
+        }
+        SERIAL::Writer_ writer(buffer, SAVEGAME::BUFFER_CAPACITY, "rules trace buffer overflow");
+        char description[sizeof(SAVEGAME::s_metadata::description)] = "rules-trace";
+        uint64_t hash = 0;
+        if (SAVEGAME::Write_Game(&writer, description, 0, error)) {
+            hash = 0xCBF29CE484222325ull;
+            for (uint32_t i = 0; i < writer.Length(); ++i) {
+                hash = (hash ^ buffer[i]) * 0x100000001B3ull;
+            }
+        }
+        free(buffer);
+        return hash;
+    }
 
     void Mark(const char* where) {
         if (!Enabled()) {

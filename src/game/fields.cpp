@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/identity.h"
+#include "antares/native.h"
 #include "antares/input_trace.h"
 
 namespace fields {
@@ -1510,6 +1511,7 @@ namespace fields {
 
     int16_t __cdecl Get_List_Field(
         int16_t x, int16_t y, int16_t width, const char* help, const char* list_ptr, int32_t item_size, int8_t* selected_index, uint8_t* item_flags, int16_t gradient_mode, uint8_t* gradient_palette, int32_t gradient_extra, s_animation_header* gradient_pic, int32_t unused_param_13, const char* unused_param_14) {
+        if (int16_t pick = -1; antares::native::Choose(help, list_ptr, item_size, item_flags, selected_index, &pick)) return pick; // Antares (WP3.2b)
         list_field_on = 1;
         Set_Input_Delay(1);
         Clear_Fields();

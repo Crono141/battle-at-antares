@@ -29,6 +29,7 @@ func _ready() -> void:
 	game.native_screen_changed.connect(_on_native_screen)
 	game.command_result.connect(_on_result)
 	game.request.connect(_on_request)
+	game.snapshot.connect(_on_snapshot)
 	game.resource_packs_changed.connect(_load_packs)
 	galaxy.star_clicked.connect(_on_star_clicked)
 	mode_button.pressed.connect(func(): _set_native(not native))
@@ -66,7 +67,10 @@ func _set_native(on: bool) -> void:
 	native = on
 	for screen in [Screens.MAIN, Screens.SHOW_COMMAND_POINTS]:
 		game.claim_screen(screen, on)
-	game.claim_requests(on)
+	# The request kinds the native dialog answers; the rest ("choose") keep the legacy popup.
+	game.claim_requests(PackedStringArray(["message", "confirm", "warning"]) if on else PackedStringArray())
+	if on:
+		_send({"verb": "watch", "what": "empire"})
 	mode_button.text = "Legacy galaxy (Ctrl+G)" if on else "Native galaxy (Ctrl+G)"
 
 
@@ -86,7 +90,6 @@ func _on_native_screen(screen: int) -> void:
 	points.visible = screen == Screens.SHOW_COMMAND_POINTS
 	if screen == Screens.MAIN:
 		galaxy.camera.make_current()
-		_send({"verb": "query", "what": "empire"}, bar.show_empire)
 	elif screen == Screens.SHOW_COMMAND_POINTS:
 		_send({"verb": "query", "what": "command_points"}, points.show_result)
 	else:
@@ -123,7 +126,13 @@ func _on_result(id: int, result: Dictionary) -> void:
 		on_result.call(result)
 
 
-func _on_request(id: int, kind: String, text: String) -> void:
+## Snapshots of watched queries: the galaxy bar follows the empire.
+func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
+	if snapshot_name == "empire":
+		_view("galaxy_bar").show_empire(result)
+
+
+func _on_request(id: int, kind: String, request: Dictionary) -> void:
 	var dialog: Control = _views.get("dialog")
 	if dialog == null:
 		dialog = load("res://views/dialog.tscn").instantiate()
@@ -131,7 +140,7 @@ func _on_request(id: int, kind: String, text: String) -> void:
 		$Overlay.add_child(dialog)
 		_views["dialog"] = dialog
 	overlay.show()
-	dialog.ask(id, kind, text)
+	dialog.ask(id, kind, request)
 
 
 func _on_answered(id: int, value: int) -> void:
