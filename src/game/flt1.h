@@ -107,7 +107,9 @@ namespace FLT1 {
      */
     int8_t __cdecl Scrap_Ships(int16_t player_idx, int16_t* ship_indices, int16_t num_ships, int8_t interactive);
 
-    int32_t __cdecl Get_Scrap_Ship_Value();
+    /** Sums the BC value of the listed ships (Antares, D25 argument form: it read the fleet screen's
+     *  selection). */
+    int32_t __cdecl Get_Scrap_Ship_Value(const int16_t* ship_indices, int16_t num_ships);
 
     /** Attempts to award technology recovered from a scrapped ship.
      * @param ship Scrapped ship to inspect.

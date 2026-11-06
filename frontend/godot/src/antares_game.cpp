@@ -98,7 +98,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("send_key", "godot_keycode", "shift", "alt", "ctrl"), &AntaresGame::send_key);
         ClassDB::bind_method(D_METHOD("request_game_quit"), &AntaresGame::request_game_quit);
         ClassDB::bind_method(D_METHOD("claim_screen", "screen", "claimed"), &AntaresGame::claim_screen);
-        ClassDB::bind_method(D_METHOD("claim_requests", "claimed"), &AntaresGame::claim_requests);
+        ClassDB::bind_method(D_METHOD("claim_requests", "kinds"), &AntaresGame::claim_requests);
         ClassDB::bind_method(D_METHOD("send_command", "command"), &AntaresGame::send_command);
         ClassDB::bind_method(D_METHOD("get_native_screen"), &AntaresGame::get_native_screen);
         ClassDB::bind_method(D_METHOD("get_native_visit"), &AntaresGame::get_native_visit);
@@ -112,16 +112,29 @@ namespace godot {
         ADD_SIGNAL(MethodInfo("game_exited"));
         ADD_SIGNAL(MethodInfo("native_screen_changed", PropertyInfo(Variant::INT, "screen")));
         ADD_SIGNAL(MethodInfo("command_result", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::DICTIONARY, "result")));
-        ADD_SIGNAL(MethodInfo("request", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::STRING, "kind"), PropertyInfo(Variant::STRING, "text")));
+        ADD_SIGNAL(MethodInfo("request", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::STRING, "kind"), PropertyInfo(Variant::DICTIONARY, "request")));
+        ADD_SIGNAL(MethodInfo("snapshot", PropertyInfo(Variant::STRING, "name"), PropertyInfo(Variant::DICTIONARY, "result")));
         ADD_SIGNAL(MethodInfo("resource_packs_changed"));
     }
 
-    void AntaresGame::set_game_dir(const String& dir) { game_dir_ = dir; }
-    String AntaresGame::get_game_dir() const { return game_dir_; }
-    void AntaresGame::set_args(const PackedStringArray& args) { args_ = args; }
-    PackedStringArray AntaresGame::get_args() const { return args_; }
-    void AntaresGame::set_autostart(bool value) { autostart_ = value; }
-    bool AntaresGame::get_autostart() const { return autostart_; }
+    void AntaresGame::set_game_dir(const String& dir) {
+        game_dir_ = dir;
+    }
+    String AntaresGame::get_game_dir() const {
+        return game_dir_;
+    }
+    void AntaresGame::set_args(const PackedStringArray& args) {
+        args_ = args;
+    }
+    PackedStringArray AntaresGame::get_args() const {
+        return args_;
+    }
+    void AntaresGame::set_autostart(bool value) {
+        autostart_ = value;
+    }
+    bool AntaresGame::get_autostart() const {
+        return autostart_;
+    }
 
     void AntaresGame::_ready() {
         set_focus_mode(FOCUS_ALL);
@@ -288,8 +301,7 @@ namespace godot {
                 get_viewport()->set_disable_input(true);
             }
             // A request (a message box) means the legacy side waits for an answer: stop holding.
-            hold = frame_generation_ <= antares::native::Leave_Frame_Generation()
-                && now - legacy_wait_start_ms_ < kLegacyWaitMs && !antares::native::Request_Pending();
+            hold = frame_generation_ <= antares::native::Leave_Frame_Generation() && now - legacy_wait_start_ms_ < kLegacyWaitMs && !antares::native::Request_Pending();
         }
         if (!hold && legacy_wait_start_ms_ >= 0) {
             legacy_wait_start_ms_ = -1;
@@ -308,7 +320,14 @@ namespace godot {
         }
         antares::native::s_request request;
         while (antares::native::Take_Request(&request)) {
-            emit_signal("request", (int64_t)request.id, String(request.kind.c_str()), String::utf8(request.text.c_str()));
+            const Variant parsed = JSON::parse_string(String::utf8(request.json.c_str()));
+            const Dictionary fields = parsed.get_type() == Variant::DICTIONARY ? Dictionary(parsed) : Dictionary();
+            emit_signal("request", (int64_t)request.id, String(request.kind.c_str()), fields);
+        }
+        while (antares::native::Take_Snapshot(&json)) {
+            const Variant parsed = JSON::parse_string(String::utf8(json.c_str()));
+            const Dictionary snapshot = parsed.get_type() == Variant::DICTIONARY ? Dictionary(parsed) : Dictionary();
+            emit_signal("snapshot", snapshot.get("snapshot", ""), snapshot.get("result", Dictionary()));
         }
     }
 
@@ -316,8 +335,13 @@ namespace godot {
         antares::native::Claim_Screen((int16_t)screen, claimed);
     }
 
-    void AntaresGame::claim_requests(bool claimed) {
-        antares::native::Claim_Requests(claimed);
+    void AntaresGame::claim_requests(const PackedStringArray& kinds) {
+        std::vector<std::string> list;
+        for (int64_t i = 0; i < kinds.size(); ++i) {
+            const CharString kind = kinds[i].utf8();
+            list.emplace_back(kind.get_data(), (size_t)kind.length());
+        }
+        antares::native::Claim_Requests(list);
     }
 
     int64_t AntaresGame::send_command(const Dictionary& command) {
@@ -437,8 +461,7 @@ namespace godot {
             }
             const int32_t y0 = (int32_t)i * k_strip_rows;
             const int32_t rows = std::min(k_strip_rows, height_ - y0);
-            const Rect2 area(rect.position.x, rect.position.y + rect.size.y * (float)y0 / (float)height_, rect.size.x,
-                rect.size.y * (float)rows / (float)height_);
+            const Rect2 area(rect.position.x, rect.position.y + rect.size.y * (float)y0 / (float)height_, rect.size.x, rect.size.y * (float)rows / (float)height_);
             draw_texture_rect(strip, area, false);
         }
     }
@@ -496,7 +519,8 @@ namespace godot {
             const uint32_t sdl_key = To_Sdl_Key(key->get_keycode());
             if (sdl_key != 0) {
                 antares::host::Send_Key(sdl_key,
-                    To_Sdl_Mod(key->is_shift_pressed(), key->is_alt_pressed(), key->is_ctrl_pressed()), key->is_pressed());
+                    To_Sdl_Mod(key->is_shift_pressed(), key->is_alt_pressed(), key->is_ctrl_pressed()),
+                    key->is_pressed());
                 accept_event();
             }
         }

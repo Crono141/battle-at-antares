@@ -154,3 +154,16 @@ DOCTEST_TEST_CASE("scrap plunder stores every accepted candidate safely") {
     DOCTEST_CHECK(TEST_FLEET_SUMMARY::Candidate_Count_() == SCRAP_TECH_CANDIDATE_CAPACITY);
     DOCTEST_CHECK(TEST_FLEET_SUMMARY::Grant_Count_() == SCRAP_TECH_ACQUIRED_CAPACITY);
 }
+DOCTEST_TEST_CASE("scrap value sums the listed ships (D25 argument form)") {
+    // It used to sum the fleet screen's selected big icons; the native scrap command has no
+    // screen, so it takes the same ships Scrap_Ships was given.
+    s_ship_data ships[4] = {};
+    for (int i = 0; i < 4; ++i) {
+        ships[i].d.cost = (int16_t)(1 << i);
+    }
+    MOX::ship = ships;
+    const int16_t list[] = {3, 1};
+    DOCTEST_CHECK(FLT1::Get_Scrap_Ship_Value(list, 2) == 10);
+    DOCTEST_CHECK(FLT1::Get_Scrap_Ship_Value(list, 0) == 0);
+    MOX::ship = nullptr;
+}

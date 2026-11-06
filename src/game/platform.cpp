@@ -5,6 +5,7 @@
 #include "antares/identity.h"
 #include "antares/input_trace.h"
 #include "antares/lbx_trace.h"
+#include "antares/native_script.h"
 #include "antares/script_capture.h"
 
 #include "config/config_runtime.h"
@@ -921,6 +922,22 @@ namespace platform {
             }
         }
 
+        // Antares (WP3.2b): native commands from scripts and the control channel.
+        std::vector<std::string> g_native_notes;
+        void Note_Native_Script() {
+            antares::native_script::Poll(&g_native_notes);
+            for (const std::string& note : g_native_notes) {
+                Note_Script_Result(note);
+            }
+            g_native_notes.clear();
+        }
+        template <typename T>
+        antares::native_script::e_step Native_Script_Step(const T& step, uint64_t now) {
+            const auto result = antares::native_script::Step(step.command, step.text, step.a, step.b, now, &g_native_notes);
+            Note_Native_Script();
+            return result;
+        }
+
         uint64_t g_presented_frames;
 
         // HD presentation: the 4x HD surface of the presented page, coloured with its palette.
@@ -1528,9 +1545,14 @@ namespace platform {
                 return false;
             }
             s_script_step step = {command, 0, 0, {}};
-            if (step.command == "move" || step.command == "click" || step.command == "rclick") {
+            if (step.command == "native" || step.command == "native_send") { // the rest is JSON (antares/native_script.h)
+                const size_t at = line.find(step.command) + step.command.size();
+                step.text = line.size() > at ? line.substr(at + 1) : std::string();
+            } else if (step.command == "move" || step.command == "click" || step.command == "rclick" ||
+                step.command == "native_claim") {
                 (void)sscanf(line.c_str(), "%*s %d %d", &a, &b);
-            } else if (step.command == "wait" || step.command == "wheel" || step.command == "wait_frames") {
+            } else if (step.command == "wait" || step.command == "wheel" || step.command == "wait_frames" ||
+                step.command == "native_answer") {
                 (void)sscanf(line.c_str(), "%*s %d", &a);
             } else if (step.command == "wait_input") {
                 a = 10;
@@ -1626,6 +1648,7 @@ namespace platform {
             }
             Poll_Control();
             const uint64_t now = SDL_GetTicks();
+            Note_Native_Script(); // results, requests and snapshots that arrived
             if (!g_expect_lbx.empty()) {
                 const bool loaded = antares::lbx_trace::Last_Load(g_expect_lbx.c_str()) > g_last_input_serial;
                 if (!loaded && now < g_expect_deadline_ms) {
@@ -1726,6 +1749,11 @@ namespace platform {
                                                                : SDL_EVENT_WINDOW_EXPOSED;
                     event.window.windowID = g_sdl_window != nullptr ? SDL_GetWindowID(g_sdl_window) : 0;
                     (void)SDL_PushEvent(&event);
+                } else if (const auto native = Native_Script_Step(step, now); native != antares::native_script::e_step::not_mine) {
+                    if (native == antares::native_script::e_step::wait) {
+                        --g_script_position;
+                        break;
+                    }
                 } else if (step.command == "screenshot") {
                     g_pending_screenshot = step.text;
                     Request_Present_Refresh();

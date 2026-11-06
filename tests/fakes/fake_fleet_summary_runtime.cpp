@@ -28,7 +28,14 @@ namespace MOX {
     s_player* player = s_players;
     char temp_string[512];
     uint8_t draw_fleet_screen_to_back;
-}
+    s_ship_data* ship;
+} // namespace MOX
+
+namespace maintain {
+    int16_t __cdecl Ship_Scrap_Value(s_ship_data* ship) {
+        return ship->d.cost;
+    }
+} // namespace maintain
 
 namespace TECHDATA {
     s_tech_armor_data armor[ARMOR_COUNT];

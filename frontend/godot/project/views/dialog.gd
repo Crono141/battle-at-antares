@@ -1,6 +1,6 @@
 extends PanelContainer
-## Native answer to the game's message boxes (HAROLD::User_Box, WP3.1b): "message" and "warning"
-## have OK, "confirm" has Yes and No. The game thread waits until answered.
+## Native answer to the game's dialogs (requests, WP3.1b and WP3.2b): "message" (with an optional
+## title) and "warning" have OK, "confirm" has Yes and No. The game thread waits until answered.
 
 signal answered(id: int, value: int)
 
@@ -12,10 +12,13 @@ func _ready() -> void:
 	$Box/Buttons/No.pressed.connect(func(): _answer(0))
 
 
-func ask(id: int, kind: String, text: String) -> void:
+func ask(id: int, kind: String, request: Dictionary) -> void:
 	request_id = id
-	$Box/Text.text = text
-	$Box/Title.text = "Warning" if kind == "warning" else ("Confirm" if kind == "confirm" else "")
+	$Box/Text.text = request.get("text", "")
+	var title: String = request.get("title", "")
+	if title == "":
+		title = "Warning" if kind == "warning" else ("Confirm" if kind == "confirm" else "")
+	$Box/Title.text = title
 	$Box/Title.visible = $Box/Title.text != ""
 	$Box/Buttons/Yes.text = "  Yes  " if kind == "confirm" else "  OK  "
 	$Box/Buttons/No.visible = kind == "confirm"

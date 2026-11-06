@@ -51,7 +51,7 @@ namespace godot {
 
         // WP3.1b native screens (src/antares/native.h).
         void claim_screen(int64_t screen, bool claimed);
-        void claim_requests(bool claimed);
+        void claim_requests(const PackedStringArray& kinds);
         // Queues a command (a Dictionary with "verb"); command_result(id, result) follows.
         int64_t send_command(const Dictionary& command);
         int64_t get_native_screen() const;
