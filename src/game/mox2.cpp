@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/identity.h"
+#include "antares/native.h"
 
 #include <exception>
 #include "config/config_loader.h"
@@ -53,6 +54,14 @@ namespace MOX2 {
             }
             if (current_screen != SCREEN_EXIT) {
                 CONFIG_REFRESH::Reload_Resources_Between_Screens();
+            }
+            // Antares (WP3.1b, G5): a frontend may run this screen natively.
+            if (current_screen != SCREEN_EXIT) {
+                antares::native::Update_Packages();
+                if (antares::native::Run_Screen(current_screen)) {
+                    MOX::previous_screen = current_screen;
+                    continue;
+                }
             }
 
             switch (current_screen) {

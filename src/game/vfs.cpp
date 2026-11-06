@@ -32,6 +32,15 @@ namespace vfs {
         return false;
     }
 
+    std::vector<s_package_source> Package_Sources() {
+        std::vector<s_package_source> sources;
+        if (!vfs_detail::g_vfs_state.initialized) return sources;
+        for (const auto& layer : vfs_detail::g_vfs_state.package_layers) {
+            sources.push_back({layer.package_id, layer.source_path, layer.is_archive});
+        }
+        return sources;
+    }
+
     int8_t Init(const char* base_path) {
         char clean_base_path[vfs_detail::VFS_MAX_PATH];
 

@@ -35,10 +35,25 @@ Directory and ZIP packages have the same internal structure:
   content/                 Optional private Lua modules
   migrations/              Optional declared migration scripts
   data/                    Optional public asset overrides
+  godot/                   Optional Godot resource packs for the Godot frontend
   README.md                Optional description shown by the launcher
 ```
 
 In a ZIP, `mod.json5` must be at archive root. Do not wrap these files in another `<id>/` directory. Public asset paths begin below `data/`; all other paths remain private to the package.
+
+## Godot resource packs
+
+The Godot frontend (`antares-godot`) builds its native views from scenes and scripts under
+`res://views/` in its project. A package changes them with Godot resource packs in `godot/`:
+`.pck` files exported by Godot, or `.zip` files whose paths are relative to `res://` (for example
+`views/command_points.tscn`). The SDL build ignores `godot/`.
+
+Packs load in package priority order, lowest first, so where two packages replace the same file
+the higher-priority package wins. Packs in a ZIP package are extracted to `cache/godot/<id>/` in
+the game folder first, because Godot loads packs from files. Packs load once the game has
+mounted its packages; a pack can't be unloaded, so changing packages takes a restart of the
+frontend to remove one. A package with only `godot/` and no `config` or Lua is art-only and does
+not bind saves.
 
 ## README
 

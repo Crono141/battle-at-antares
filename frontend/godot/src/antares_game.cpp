@@ -1,6 +1,7 @@
 #include "antares_game.h"
 
 #include "antares/host.h"
+#include "antares/native.h"
 #include "command_line.h"
 
 #include <godot_cpp/classes/global_constants.hpp>
@@ -12,6 +13,7 @@
 #include <godot_cpp/classes/display_server.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/input.hpp>
+#include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
@@ -93,11 +95,23 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("get_stats"), &AntaresGame::get_stats);
         ClassDB::bind_method(D_METHOD("send_key", "godot_keycode", "shift", "alt", "ctrl"), &AntaresGame::send_key);
         ClassDB::bind_method(D_METHOD("request_game_quit"), &AntaresGame::request_game_quit);
+        ClassDB::bind_method(D_METHOD("claim_screen", "screen", "claimed"), &AntaresGame::claim_screen);
+        ClassDB::bind_method(D_METHOD("claim_requests", "claimed"), &AntaresGame::claim_requests);
+        ClassDB::bind_method(D_METHOD("send_command", "command"), &AntaresGame::send_command);
+        ClassDB::bind_method(D_METHOD("get_native_screen"), &AntaresGame::get_native_screen);
+        ClassDB::bind_method(D_METHOD("get_native_visit"), &AntaresGame::get_native_visit);
+        ClassDB::bind_method(D_METHOD("answer_request", "id", "value"), &AntaresGame::answer_request);
+        ClassDB::bind_method(D_METHOD("get_resource_packs"), &AntaresGame::get_resource_packs);
+        ClassDB::bind_method(D_METHOD("get_frame_image"), &AntaresGame::get_frame_image);
         ADD_PROPERTY(PropertyInfo(Variant::STRING, "game_dir", PROPERTY_HINT_GLOBAL_DIR), "set_game_dir", "get_game_dir");
         ADD_PROPERTY(PropertyInfo(Variant::PACKED_STRING_ARRAY, "args"), "set_args", "get_args");
         ADD_PROPERTY(PropertyInfo(Variant::BOOL, "autostart"), "set_autostart", "get_autostart");
         ADD_SIGNAL(MethodInfo("galaxy_changed"));
         ADD_SIGNAL(MethodInfo("game_exited"));
+        ADD_SIGNAL(MethodInfo("native_screen_changed", PropertyInfo(Variant::INT, "screen")));
+        ADD_SIGNAL(MethodInfo("command_result", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::DICTIONARY, "result")));
+        ADD_SIGNAL(MethodInfo("request", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::STRING, "kind"), PropertyInfo(Variant::STRING, "text")));
+        ADD_SIGNAL(MethodInfo("resource_packs_changed"));
     }
 
     void AntaresGame::set_game_dir(const String& dir) { game_dir_ = dir; }
@@ -246,6 +260,84 @@ namespace godot {
             galaxy_generation_ = galaxy;
             emit_signal("galaxy_changed");
         }
+        Poll_Native();
+    }
+
+    void AntaresGame::Poll_Native() {
+        uint64_t packs = 0;
+        (void)antares::native::Resource_Packs(&packs);
+        if (packs != packs_generation_) {
+            packs_generation_ = packs;
+            emit_signal("resource_packs_changed");
+        }
+        // Read the visit first: a screen entered after it is caught on the next frame.
+        const uint64_t visit = antares::native::Native_Visit();
+        const int64_t screen = antares::native::Native_Screen();
+        if (screen != native_screen_ || (screen >= 0 && visit != native_visit_)) {
+            native_screen_ = screen;
+            native_visit_ = visit;
+            emit_signal("native_screen_changed", screen);
+        }
+        std::string json;
+        while (antares::native::Take_Result(&json)) {
+            const Variant parsed = JSON::parse_string(String::utf8(json.c_str()));
+            const Dictionary result = parsed.get_type() == Variant::DICTIONARY ? Dictionary(parsed) : Dictionary();
+            emit_signal("command_result", result.get("id", 0), result);
+        }
+        antares::native::s_request request;
+        while (antares::native::Take_Request(&request)) {
+            emit_signal("request", (int64_t)request.id, String(request.kind.c_str()), String::utf8(request.text.c_str()));
+        }
+    }
+
+    void AntaresGame::claim_screen(int64_t screen, bool claimed) {
+        antares::native::Claim_Screen((int16_t)screen, claimed);
+    }
+
+    void AntaresGame::claim_requests(bool claimed) {
+        antares::native::Claim_Requests(claimed);
+    }
+
+    int64_t AntaresGame::send_command(const Dictionary& command) {
+        const CharString json = JSON::stringify(command).utf8();
+        return (int64_t)antares::native::Send_Command(std::string(json.get_data(), (size_t)json.length()));
+    }
+
+    int64_t AntaresGame::get_native_screen() const {
+        return native_screen_;
+    }
+
+    int64_t AntaresGame::get_native_visit() const {
+        return (int64_t)native_visit_;
+    }
+
+    void AntaresGame::answer_request(int64_t id, int64_t value) {
+        antares::native::Answer_Request((uint64_t)id, (int32_t)value);
+    }
+
+    Ref<Image> AntaresGame::get_frame_image() const {
+        if (width_ <= 0 || height_ <= 0 || frame_.size() < (size_t)width_ * (size_t)height_) {
+            return Ref<Image>();
+        }
+        PackedByteArray bytes;
+        bytes.resize((int64_t)width_ * height_ * 4);
+        uint8_t* out = bytes.ptrw();
+        for (size_t i = 0; i < (size_t)width_ * (size_t)height_; ++i) {
+            const uint32_t argb = frame_[i];
+            out[i * 4 + 0] = (uint8_t)(argb >> 16);
+            out[i * 4 + 1] = (uint8_t)(argb >> 8);
+            out[i * 4 + 2] = (uint8_t)argb;
+            out[i * 4 + 3] = 255;
+        }
+        return Image::create_from_data(width_, height_, false, Image::FORMAT_RGBA8, bytes);
+    }
+
+    PackedStringArray AntaresGame::get_resource_packs() const {
+        PackedStringArray out;
+        for (const std::string& path : antares::native::Resource_Packs(nullptr)) {
+            out.push_back(String::utf8(path.c_str()));
+        }
+        return out;
     }
 
     void AntaresGame::Upload_Rows(int32_t row_first, int32_t row_last) {

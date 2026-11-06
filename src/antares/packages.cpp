@@ -78,12 +78,14 @@ namespace antares {
         bool Is_Art_Path_(const std::string& relative, const std::string& config_path) {
             const std::string path = Lower_(relative);
             // README.md (WP5.5) is shown by the launcher only; the game never reads it.
+            // godot/ holds the Godot frontend's resource packs (WP3.1b): views, not rules.
             return path == "mod.json5" || path == "readme.md" || path == Lower_(config_path) ||
-                path.rfind("data/hd/", 0) == 0 || path.rfind("data/art/", 0) == 0;
+                path.rfind("data/hd/", 0) == 0 || path.rfind("data/art/", 0) == 0 || path.rfind("godot/", 0) == 0;
         }
 
         // Folders that may hold files: the package root, the config file's folder and data/.
-        // data/hd/ and data/art/ themselves are never descended into (they hold thousands of files).
+        // data/hd/, data/art/ and godot/ themselves are never descended into (they hold only art,
+        // often thousands of files).
         bool Is_Allowed_Folder_(const std::string& relative, const std::string& config_path) {
             const std::string path = Lower_(relative);
             const std::string config = Lower_(config_path);
@@ -99,7 +101,7 @@ namespace antares {
                 const std::string child = relative.empty() ? name : relative + "/" + name;
                 if (entry->is_directory(error)) {
                     const std::string path = Lower_(child);
-                    if (path != "data/hd" && path != "data/art" &&
+                    if (path != "data/hd" && path != "data/art" && path != "godot" &&
                         !(Is_Allowed_Folder_(child, config_path) && Directory_Is_Art_Only_(root, child, config_path))) {
                         return false;
                     }

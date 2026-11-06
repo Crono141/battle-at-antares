@@ -5,6 +5,7 @@
 // publishes with each frame (src/antares/host.h).
 
 #include <godot_cpp/classes/control.hpp>
+#include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
@@ -48,6 +49,18 @@ namespace godot {
         // Asks the game to exit as its own quit does (game_exited follows).
         void request_game_quit();
 
+        // WP3.1b native screens (src/antares/native.h).
+        void claim_screen(int64_t screen, bool claimed);
+        void claim_requests(bool claimed);
+        // Queues a command (a Dictionary with "verb"); command_result(id, result) follows.
+        int64_t send_command(const Dictionary& command);
+        int64_t get_native_screen() const;
+        int64_t get_native_visit() const;
+        void answer_request(int64_t id, int64_t value);
+        PackedStringArray get_resource_packs() const;
+        // The last legacy frame as an image (tests: works headless).
+        Ref<Image> get_frame_image() const;
+
     protected:
         static void _bind_methods();
 
@@ -57,6 +70,7 @@ namespace godot {
         void Upload_Rows(int32_t row_first, int32_t row_last);
         void Apply_Cursor(bool force);
         void Apply_Window_Settings();
+        void Poll_Native();
 
         String game_dir_;
         PackedStringArray args_;
@@ -79,6 +93,9 @@ namespace godot {
         int32_t height_ = 0;
         uint64_t frame_generation_ = 0;
         int64_t galaxy_generation_ = -1;
+        int64_t native_screen_ = -1;
+        uint64_t native_visit_ = 0;
+        uint64_t packs_generation_ = 0;
 
         // The frame in horizontal strips, so a frame that changed in a few rows uploads only those
         // strips.

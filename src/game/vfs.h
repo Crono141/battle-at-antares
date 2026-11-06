@@ -45,4 +45,13 @@ namespace vfs {
     int8_t Resolve_Read_Path_No_Zip(const char* path, char* resolved_path, size_t resolved_path_size);
     int8_t File_Exists(const char* path);
     bool Get_Package_Source_Stamp(const char* package_id, std::string* stamp);
+
+    // Antares (WP3.1b): the mounted packages, highest priority first. A directory's source path
+    // ends with '/'; an archive's is the .zip file.
+    struct s_package_source {
+        std::string package_id;
+        std::string source_path;
+        bool is_archive = false;
+    };
+    std::vector<s_package_source> Package_Sources();
 } // namespace vfs
