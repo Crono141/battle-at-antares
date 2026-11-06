@@ -22,7 +22,11 @@ Battle at Antares bugs here, not to Redone.
 
 - **HD art.** The drawing library works at two resolutions: the original 640x480 palette screen
   stays authoritative for game logic, and every draw also renders into a 4x screen with HD art
-  where a pack provides it. Later, screens are rebuilt natively with a camera on the galaxy map.
+  where a pack provides it. The HD art itself is on the
+  [battle-at-antares-hd releases page](https://github.com/Crono141/battle-at-antares-hd/releases).
+- **A launcher** (`antares-launcher`): tick packages, keep named profiles, see which mods a save
+  needs, change settings, and play.
+- **Mouse wheel** scrolls every list; **Ogg Vorbis** music works in mods.
 - **Identity.** The binary is `antares`, the config file is `data/antares.cfg` (an existing
   `orion2re.cfg` is read on first run), and environment knobs are `ANTARES_*` (`ORION2RE_*` still
   works for now).
