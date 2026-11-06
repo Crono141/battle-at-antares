@@ -133,6 +133,16 @@ namespace antares::native {
                     MOX::screen_data = 0;
                     break;
                 case SCREEN_TECH_CHANGE:
+                    // Tech_Change draws over the page it finds: put the galaxy there, as the legacy
+                    // galaxy's research field does (Main_Screen, research_window_field).
+                    MOX::dont_draw_main_screen_to_back = 1;
+                    fields::Clear_Fields();
+                    MAINSCR::Clear_Main_Screen_Fields();
+                    video::Set_Page_Off();
+                    MAINSCR::Draw_Mini_Main_Screen();
+                    video::Copy_Off_To_Back();
+                    RUSS::Mox_Sync_Update();
+                    video::Set_Refresh_Stencil();
                     MAINSCR::clear_fleet_fields = 0;
                     break;
                 case SCREEN_OFFICERS:
@@ -259,6 +269,10 @@ namespace antares::native {
             }
             MAINSCR2::main_screen_fade_in_flag = 1;
             MOX::at_least_one_tactical_combat = 0;
+            // The galaxy palette, as Main_Screen loads it on entry: the popups that open over the
+            // galaxy (research, the game menu) draw with whatever palette is loaded, and without
+            // this they kept the last legacy screen's (owner, 2026-11-06: research came up dark).
+            fonts::Load_Palette(0, 0, 0xad);
         }
 
         // What Main_Screen resets when it leaves, so legacy screens find the galaxy state they

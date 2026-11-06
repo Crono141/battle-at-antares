@@ -232,6 +232,24 @@ func _smoke_native() -> void:
 	if native_screen != Screens.MAIN:
 		await _smoke_fail("colonies did not close back to the native galaxy")
 		return
+	# Research is a popup over the galaxy: after another legacy screen it must still get the
+	# galaxy palette and backdrop (owner, 2026-11-06: it came up dark over the colonies list).
+	_send({"verb": "open", "screen": Screens.TECH_CHANGE})
+	t_open = Time.get_ticks_msec()
+	while native_screen != Screens.LEGACY and Time.get_ticks_msec() - t_open < 10000:
+		await get_tree().process_frame
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		game.get_frame_image().save_png(shots + "/legacy-research.png")
+	closing = 0.0
+	while native_screen != Screens.MAIN and closing < 20.0:
+		game.send_key(KEY_ESCAPE, false, false, false)
+		await get_tree().create_timer(1.0).timeout
+		closing += 1.0
+	if native_screen != Screens.MAIN:
+		await _smoke_fail("research did not close back to the native galaxy")
+		return
+	print("smoke: research opened and closed")
 	var turns := 1
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--turns="):

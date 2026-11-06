@@ -26,6 +26,7 @@ namespace MOX {
     int16_t animated_star;
     uint8_t draw_main_screen_to_back;
     uint8_t at_least_one_tactical_combat;
+    uint8_t dont_draw_main_screen_to_back;
 } // namespace MOX
 
 namespace MAINSCR {
@@ -37,6 +38,8 @@ namespace MAINSCR {
     void __cdecl Do_Next_Turn(int16_t* exit_flag, int8_t) { *exit_flag = 1; }
     void __cdecl Update_Star_Owners() {}
     void __cdecl Set_Reload_Fleet_Box_Palette_Flag() {}
+    void __cdecl Clear_Main_Screen_Fields() {}
+    void __cdecl Draw_Mini_Main_Screen() {}
 } // namespace MAINSCR
 
 namespace MAINSCR2 {
@@ -46,6 +49,7 @@ namespace MAINSCR2 {
 namespace RUSS {
     void __cdecl Mox_Update() {}
     void __cdecl Assert_Settings() {}
+    void __cdecl Mox_Sync_Update() {}
 } // namespace RUSS
 
 namespace COLCALC {
@@ -90,3 +94,17 @@ namespace antares::host {
     void On_Publish() {}
     uint64_t Frame_Generation() { return 0; }
 } // namespace antares::host
+
+namespace fonts {
+    void __cdecl Load_Palette(int16_t, int16_t, int16_t) {}
+} // namespace fonts
+
+namespace fields {
+    void __cdecl Clear_Fields() {}
+} // namespace fields
+
+namespace video {
+    void __cdecl Set_Page_Off() {}
+    void __cdecl Copy_Off_To_Back() {}
+    void __cdecl Set_Refresh_Stencil() {}
+} // namespace video

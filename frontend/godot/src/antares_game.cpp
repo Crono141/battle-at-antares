@@ -281,7 +281,7 @@ namespace godot {
             // took over (owner, 2026-11-06: Colonies and Planets flashed the old galaxy, longest the
             // first time while the screen's art loads). Keep the native view, without input, until the
             // legacy screen presents.
-            constexpr int64_t kLegacyWaitMs = 2000;
+            constexpr int64_t kLegacyWaitMs = 10000;
             const int64_t now = (int64_t)Time::get_singleton()->get_ticks_msec();
             if (legacy_wait_start_ms_ < 0) {
                 legacy_wait_start_ms_ = now;
