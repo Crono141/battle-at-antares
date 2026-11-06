@@ -210,6 +210,28 @@ func _smoke_native() -> void:
 	if not await _wait_screen(Screens.MAIN, 10.0):
 		await _smoke_fail("command points did not close")
 		return
+	# A legacy screen from the native galaxy: the legacy view must not show the stale frame from
+	# before the native view (owner, 2026-11-06: Colonies flashed the old galaxy).
+	var stale: Image = game.get_frame_image()
+	_send({"verb": "open", "screen": Screens.COLONY_SUMMARY})
+	var t_open := Time.get_ticks_msec()
+	while native_screen != Screens.LEGACY and Time.get_ticks_msec() - t_open < 10000:
+		await get_tree().process_frame
+	var shown: Image = game.get_frame_image()
+	if native_screen != Screens.LEGACY or (stale and shown and stale.get_data() == shown.get_data()):
+		await _smoke_fail("colonies showed the stale legacy frame")
+		return
+	print("smoke: colonies shown after %d ms with a new frame" % (Time.get_ticks_msec() - t_open))
+	if shots != "":
+		await _shot(shots + "/legacy-colonies.png")
+	var closing := 0.0
+	while native_screen != Screens.MAIN and closing < 20.0:
+		game.send_key(KEY_ESCAPE, false, false, false)
+		await get_tree().create_timer(1.0).timeout
+		closing += 1.0
+	if native_screen != Screens.MAIN:
+		await _smoke_fail("colonies did not close back to the native galaxy")
+		return
 	var turns := 1
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--turns="):

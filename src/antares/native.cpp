@@ -18,6 +18,7 @@ namespace antares::native {
         std::atomic<bool> s_requests_claimed{false};
         std::atomic<int16_t> s_native_screen{-1};
         std::atomic<uint64_t> s_native_visit{0};
+        std::atomic<uint64_t> s_leave_frame{0};
 
         struct s_command {
             uint64_t id = 0;
@@ -373,6 +374,15 @@ namespace antares::native {
         return s_native_visit;
     }
 
+    bool Request_Pending() {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        return s_waiting_request != 0;
+    }
+
+    uint64_t Leave_Frame_Generation() {
+        return s_leave_frame;
+    }
+
     bool Take_Request(s_request* request) {
         std::lock_guard<std::mutex> lock(s_mutex);
         if (s_requests.empty()) {
@@ -484,6 +494,7 @@ namespace antares::native {
             Leave_Galaxy();
         }
         Drop_Legacy_Input();
+        s_leave_frame = host::Frame_Generation(); // before the screen, so the frontend never misses it
         s_native_screen = -1;
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: screen %d leaves for %d", (int)screen,
             (int)MOX::current_screen);

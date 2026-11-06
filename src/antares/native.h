@@ -45,6 +45,10 @@ namespace antares::native {
     // happened between two of its frames (a quiet turn leaves the galaxy and comes back in
     // under one frame).
     uint64_t Native_Visit();
+    // The legacy frame generation (host::Frame_Generation) when the native loop last handed over to
+    // a legacy screen. Until a newer frame arrives, the legacy frame still shows what was on screen
+    // before the native view took over (the old galaxy), so the frontend keeps its native view up.
+    uint64_t Leave_Frame_Generation();
 
     struct s_request {
         uint64_t id = 0;
@@ -52,6 +56,8 @@ namespace antares::native {
         std::string text; // UTF-8
     };
     bool Take_Request(s_request* request);
+    // True while the game thread waits for the answer to a request.
+    bool Request_Pending();
     // value: 1 for OK or Yes, 0 for No.
     void Answer_Request(uint64_t id, int32_t value);
 

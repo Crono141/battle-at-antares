@@ -88,4 +88,5 @@ namespace vfs {
 namespace antares::host {
     bool Active() { return false; }
     void On_Publish() {}
+    uint64_t Frame_Generation() { return 0; }
 } // namespace antares::host

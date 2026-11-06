@@ -95,6 +95,9 @@ namespace godot {
         int64_t galaxy_generation_ = -1;
         int64_t native_screen_ = -1;
         uint64_t native_visit_ = 0;
+        // Leaving a native view for a legacy screen waits for that screen's first frame (or
+        // kLegacyWaitMs), so the stale frame from before the native view never shows.
+        int64_t legacy_wait_start_ms_ = -1;
         uint64_t packs_generation_ = 0;
 
         // The frame in horizontal strips, so a frame that changed in a few rows uploads only those

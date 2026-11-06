@@ -15,6 +15,8 @@
 #include <godot_cpp/classes/input.hpp>
 #include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/time.hpp>
+#include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -273,7 +275,27 @@ namespace godot {
         // Read the visit first: a screen entered after it is caught on the next frame.
         const uint64_t visit = antares::native::Native_Visit();
         const int64_t screen = antares::native::Native_Screen();
-        if (screen != native_screen_ || (screen >= 0 && visit != native_visit_)) {
+        bool hold = false;
+        if (screen < 0 && native_screen_ >= 0) {
+            // Native to legacy: the frame shown last is still the screen from before the native view
+            // took over (owner, 2026-11-06: Colonies and Planets flashed the old galaxy, longest the
+            // first time while the screen's art loads). Keep the native view, without input, until the
+            // legacy screen presents.
+            constexpr int64_t kLegacyWaitMs = 2000;
+            const int64_t now = (int64_t)Time::get_singleton()->get_ticks_msec();
+            if (legacy_wait_start_ms_ < 0) {
+                legacy_wait_start_ms_ = now;
+                get_viewport()->set_disable_input(true);
+            }
+            // A request (a message box) means the legacy side waits for an answer: stop holding.
+            hold = frame_generation_ <= antares::native::Leave_Frame_Generation()
+                && now - legacy_wait_start_ms_ < kLegacyWaitMs && !antares::native::Request_Pending();
+        }
+        if (!hold && legacy_wait_start_ms_ >= 0) {
+            legacy_wait_start_ms_ = -1;
+            get_viewport()->set_disable_input(false);
+        }
+        if (!hold && (screen != native_screen_ || (screen >= 0 && visit != native_visit_))) {
             native_screen_ = screen;
             native_visit_ = visit;
             emit_signal("native_screen_changed", screen);
