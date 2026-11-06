@@ -33,6 +33,8 @@ namespace antares::host {
 
     /** Copies the newest frame into `argb` (width*height ARGB8888, resized as needed) when one
      *  arrived since `*generation`; [row_first, row_last) are the rows that changed. */
+    /** The generation of the newest published frame (Take_Frame hands out the same numbers). */
+    uint64_t Frame_Generation();
     bool Take_Frame(std::vector<uint32_t>* argb, int32_t* width, int32_t* height, uint64_t* generation,
         int32_t* row_first, int32_t* row_last);
 

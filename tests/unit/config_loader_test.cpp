@@ -2611,10 +2611,13 @@ DOCTEST_TEST_SUITE("configuration include loader") {
         files.Write(fs::path("data") / "mods" / "art" / "mod.json5", Manifest_("art"));
         files.Write(fs::path("data") / "mods" / "art" / "config" / "main.cfg", "# HD sprites\n");
         files.Write(fs::path("data") / "mods" / "art" / "data" / "hd" / "sprite.txt", "hd");
+        // Godot resource packs (WP3.1b) change the frontend's views only: still art-only.
+        files.Write(fs::path("data") / "mods" / "art" / "godot" / "views.pck", "pck");
         files.Write_Zip(fs::path("data") / "mods" / "zipart.zip", {
                                                                     {"mod.json5", Manifest_("zipart")},
                                                                     {"config/main.cfg", ""},
                                                                     {"data/art/glyph.txt", "art"},
+                                                                    {"godot/views.zip", "zip"},
                                                                 });
         // Not art-only: it replaces a data file outside data/hd and data/art.
         files.Write(fs::path("data") / "mods" / "music" / "mod.json5", Manifest_("music"));

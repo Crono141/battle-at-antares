@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/native.h"
+
 #include "game/config_refresh.h"
 
 namespace MAINSCR {
@@ -392,8 +394,10 @@ namespace MAINSCR {
             }
         }
 
+        // Antares (WP3.1b): leaves when a frontend takes the galaxy over (the dispatcher then runs
+        // the native galaxy).
         while (exit_flag == 0 && MOX::global_esc == 0 &&
-            !CONFIG_REFRESH::Resource_Reload_Pending()) {
+            !CONFIG_REFRESH::Resource_Reload_Pending() && !antares::native::Wants_Screen(SCREEN_MAIN)) {
             if (MOX::game_type == 2 || MOX::game_type == 3) {
                 if (MAINSCR::Check_For_Diplomacy_Request() == 1) {
                     fields::Assign_Auto_Function(MAINSCR::Draw_Main_Screen, 1);

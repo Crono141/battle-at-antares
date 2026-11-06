@@ -80,6 +80,11 @@ namespace antares::host {
         *fullscreen = platform::g_fullscreen != 0;
     }
 
+    uint64_t Frame_Generation() {
+        std::lock_guard<std::mutex> lock(s_frame_mutex);
+        return s_frame_generation;
+    }
+
     bool Take_Frame(std::vector<uint32_t>* argb, int32_t* width, int32_t* height, uint64_t* generation,
         int32_t* row_first, int32_t* row_last) {
         std::lock_guard<std::mutex> lock(s_frame_mutex);

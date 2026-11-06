@@ -534,6 +534,21 @@ orion2re_add_unit_test(test_startup_options
         src/startup_options.cpp
 )
 
+orion2re_add_unit_test(test_native_bridge
+    SOURCES
+        tests/unit/native_test.cpp
+    PRODUCTION_SOURCES
+        src/antares/native.cpp
+        src/config/text_encoding.cpp
+        vendors/yyjson/src/yyjson.c
+    FAKE_SOURCES
+        tests/fakes/fake_native_runtime.cpp
+    LIBRARIES
+        miniz
+    LINK_SDL
+)
+target_include_directories(test_native_bridge PRIVATE "${ORION2RE_VENDORED_YYJSON_DIR}/src")
+
 orion2re_add_unit_test(test_antares_random
     SOURCES
         tests/unit/antares_random_test.cpp

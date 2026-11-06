@@ -1,0 +1,85 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://views/galaxy_bar.gd" id="1"]
+
+[node name="GalaxyBar" type="PanelContainer"]
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -56.0
+grow_horizontal = 2
+grow_vertical = 0
+script = ExtResource("1")
+
+[node name="Row" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Empire" type="Label" parent="Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Empire"
+
+[node name="Screens" type="HBoxContainer" parent="Row"]
+layout_mode = 2
+
+[node name="Colonies" type="Button" parent="Row/Screens"]
+layout_mode = 2
+focus_mode = 0
+text = "Colonies"
+metadata/screen = 20
+
+[node name="Planets" type="Button" parent="Row/Screens"]
+layout_mode = 2
+focus_mode = 0
+text = "Planets"
+metadata/screen = 32
+
+[node name="Fleets" type="Button" parent="Row/Screens"]
+layout_mode = 2
+focus_mode = 0
+text = "Fleets"
+metadata/screen = 4
+
+[node name="Leaders" type="Button" parent="Row/Screens"]
+layout_mode = 2
+focus_mode = 0
+text = "Leaders"
+metadata/screen = 29
+
+[node name="Races" type="Button" parent="Row/Screens"]
+layout_mode = 2
+focus_mode = 0
+text = "Races"
+metadata/screen = 6
+
+[node name="Info" type="Button" parent="Row/Screens"]
+layout_mode = 2
+focus_mode = 0
+text = "Info"
+metadata/screen = 9
+
+[node name="Research" type="Button" parent="Row/Screens"]
+layout_mode = 2
+focus_mode = 0
+text = "Research"
+metadata/screen = 36
+
+[node name="Command" type="Button" parent="Row/Screens"]
+layout_mode = 2
+focus_mode = 0
+text = "Command points"
+metadata/screen = 43
+
+[node name="Game" type="Button" parent="Row/Screens"]
+layout_mode = 2
+focus_mode = 0
+text = "Game"
+metadata/screen = 8
+
+[node name="Turn" type="Button" parent="Row"]
+layout_mode = 2
+focus_mode = 0
+theme_override_font_sizes/font_size = 20
+text = "  Turn  "
