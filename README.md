@@ -4,7 +4,11 @@
 [Orion2 Redone (orion2re)](https://github.com/orion2re/orion2re), the faithful restoration of the
 Master of Orion II engine, in the way [Augustus](https://github.com/Keriew/augustus) is to Julius.
 
-Version 0.1.0 (early development; nothing is released yet).
+Version 0.1.0, the first public release: Linux and Windows builds on the
+[releases page](https://github.com/Crono141/battle-at-antares/releases), HD art from
+[battle-at-antares-hd](https://github.com/Crono141/battle-at-antares-hd/releases). You need your own
+Master of Orion II 1.31 (GOG or Steam); `INSTALL.txt` in the download says how to set it up.
+Development continues on `main` (a native user interface in Godot); fixes to 0.1 go to `release/0.1`.
 
 ## Credits
 
