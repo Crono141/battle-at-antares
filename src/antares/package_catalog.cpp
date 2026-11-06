@@ -9,6 +9,7 @@
 
 #include "antares/packages.h"
 #include "config/config_loader.h"
+#include "game/vfs.h"
 #include "game/vfs_detail.h"
 
 namespace antares {
@@ -74,6 +75,27 @@ namespace antares {
             Read_Package_File_(package->source_path, package->archive, "README.md", &package->readme);
         }
     } // namespace
+
+    std::vector<s_package_file> Read_Mounted_Package_Files(const char* relative) {
+        std::vector<s_package_file> files;
+        const std::string path = relative;
+        const size_t slash = path.find_last_of('/');
+        for (const vfs::s_package_source& source : vfs::Package_Sources()) {
+            s_package_file file;
+            if (!Read_Package_File_(source.source_path, source.is_archive, relative, &file.bytes)) {
+                continue;
+            }
+            file.package_id = source.package_id;
+            if (!source.is_archive) {
+                file.disk_directory = source.source_path + (slash == std::string::npos ? std::string() : path.substr(0, slash));
+                while (!file.disk_directory.empty() && (file.disk_directory.back() == '/' || file.disk_directory.back() == '\\')) {
+                    file.disk_directory.pop_back();
+                }
+            }
+            files.push_back(std::move(file));
+        }
+        return files;
+    }
 
     std::vector<s_package_info> Discover_Packages() {
         std::vector<s_package_info> packages;

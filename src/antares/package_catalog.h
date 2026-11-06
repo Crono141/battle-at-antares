@@ -28,6 +28,20 @@ namespace antares {
      *  exists both as a folder and as a zip is listed once, with the game's error. */
     std::vector<s_package_info> Discover_Packages();
 
+    /** One mounted package's copy of a file. */
+    struct s_package_file {
+        std::string package_id;
+        std::string bytes;
+        std::string disk_directory; // the file's folder on disk ('/'-separated, no trailing '/'); empty in a zip
+    };
+
+    /** `relative` (a '/'-separated path inside a package, e.g. "data/art/index.json") from every
+     *  mounted package that has it, highest priority first. Unlike a VFS read, which gives only
+     *  the highest-priority copy, this lets files that several packages each carry be merged:
+     *  the art index, so an art pack split over several packages (or two art packs from
+     *  different authors) all show (release 0.1). Needs the packages mounted. */
+    std::vector<s_package_file> Read_Mounted_Package_Files(const char* relative);
+
     struct s_config_check {
         bool ok = false;
         std::vector<std::string> package_order; // highest priority first

@@ -582,3 +582,37 @@ DOCTEST_TEST_CASE("launcher saves: the check stages the save's packages like the
     DOCTEST_CHECK(own.ok);
     DOCTEST_CHECK(own.package_order == std::vector<std::string>{"look"});
 }
+
+// Release 0.1: the HD pack ships as three packages, each with its own art index. A VFS read gives
+// only the highest-priority package's index, which hid the other packages' art.
+DOCTEST_TEST_CASE("mounted package files: every package's copy, highest priority first") {
+    s_launcher_test_directory files;
+    files.Package("core");
+    files.Write("data/mods/core/data/art/index.json", "core");
+    files.Package("rooms");
+    files.Write("data/mods/rooms/data/art/index.json", "rooms");
+    files.Package("rules"); // no art index
+    files.Write_Zip("data/mods/films.zip", {{"mod.json5", s_launcher_test_directory::Manifest("films")},
+        {"config/main.cfg", ""}, {"data/art/index.json", "films"}});
+    files.Init_Vfs();
+    DOCTEST_CHECK(antares::Read_Mounted_Package_Files("data/art/index.json").empty()); // nothing mounted yet
+
+    auto* transaction = vfs::Begin_Mount_Transaction();
+    std::string diagnostic;
+    for (const char* id : {"core", "films", "rules", "rooms"}) {
+        DOCTEST_REQUIRE(vfs::Stage_Package_Mount(transaction, id, &diagnostic));
+    }
+    DOCTEST_REQUIRE(vfs::Order_Package_Mounts(transaction, {"rooms", "rules", "films", "core"}, &diagnostic));
+    DOCTEST_REQUIRE(vfs::Commit_Mount_Transaction(transaction));
+
+    const std::vector<antares::s_package_file> found = antares::Read_Mounted_Package_Files("data/art/index.json");
+    DOCTEST_REQUIRE(found.size() == 3);
+    DOCTEST_CHECK(found[0].package_id == "rooms");
+    DOCTEST_CHECK(found[0].bytes == "rooms");
+    DOCTEST_CHECK(found[1].package_id == "films");
+    DOCTEST_CHECK(found[1].bytes == "films");
+    DOCTEST_CHECK(found[1].disk_directory.empty()); // inside a zip
+    DOCTEST_CHECK(found[2].package_id == "core");
+    DOCTEST_CHECK(fs::path(found[2].disk_directory).filename() == "art");
+    DOCTEST_CHECK(fs::exists(fs::path(found[2].disk_directory) / "index.json"));
+}

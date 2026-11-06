@@ -3,6 +3,7 @@
 #include "antares/render/internal.h"
 #include "antares/render/twin_internal.h"
 #include "antares/render/art_format.h"
+#include "antares/package_catalog.h"
 
 #include "webp/decode.h"
 #include "yyjson.h"
@@ -220,11 +221,18 @@ namespace render {
         // each folder's highest-priority file). An entry is looked up in art/'s first.
         struct s_index_entry {
             yyjson_val* meta;
-            int32_t root; // into ART_ROOTS
+            int32_t root;     // into ART_ROOTS
+            int32_t document; // into index_documents
         };
-        std::vector<yyjson_doc*> index_documents;
+        // Every mounted package's index (release 0.1: an art pack may be split over several
+        // packages, and art packs from different authors each bring their own index). The VFS
+        // would give only the highest-priority package's copy, hiding the others' art.
+        struct s_index_document {
+            yyjson_doc* document;
+            std::string disk_root; // the index's folder on disk, empty when inside a zip
+        };
+        std::vector<s_index_document> index_documents;
         std::unordered_map<std::string, s_index_entry> index_entries;
-        std::string index_disk_roots[2]; // each index's folder on disk, when not inside a zip
 
         // The art folders, in the order looked at (PLAN.md section 5: hd/ is an alias of art/).
         const char* const ART_ROOTS[] = {"art", "hd"};
@@ -234,34 +242,46 @@ namespace render {
     void Load_Index() {
         for (int32_t root = 0; root < 2; ++root) {
             const std::string path = std::string(ART_ROOTS[root]) + "/index.json";
-            std::vector<uint8_t> json;
-            if (!Read_Vfs_File(path.c_str(), &json)) {
-                continue;
+            // Highest priority first, so the first index to list an entry wins it.
+            std::vector<antares::s_package_file> files = antares::Read_Mounted_Package_Files(("data/" + path).c_str());
+            if (files.empty()) {
+                // Not in a package (data/overrides, a loose game folder): the VFS's copy.
+                std::vector<uint8_t> json;
+                if (!Read_Vfs_File(path.c_str(), &json)) {
+                    continue;
+                }
+                antares::s_package_file file;
+                file.bytes.assign(json.begin(), json.end());
+                char disk[1024];
+                if (vfs::Resolve_Read_Path_No_Zip(path.c_str(), disk, sizeof(disk)) != 0) {
+                    file.disk_directory = disk;
+                    const size_t slash = file.disk_directory.find_last_of("/\\");
+                    file.disk_directory = slash == std::string::npos ? std::string() : file.disk_directory.substr(0, slash);
+                }
+                files.push_back(std::move(file));
             }
-            yyjson_doc* document = yyjson_read((const char*)json.data(), json.size(), 0);
-            yyjson_val* top = document != nullptr ? yyjson_doc_get_root(document) : nullptr;
-            yyjson_val* sprites = top != nullptr ? yyjson_obj_get(top, "sprites") : nullptr;
-            if (!yyjson_is_obj(sprites)) {
-                SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "hd: invalid %s", path.c_str());
-                yyjson_doc_free(document);
-                continue;
+            for (const antares::s_package_file& file : files) {
+                const std::string where = file.package_id.empty() ? path : file.package_id + ":" + path;
+                yyjson_doc* document = yyjson_read(file.bytes.data(), file.bytes.size(), 0);
+                yyjson_val* top = document != nullptr ? yyjson_doc_get_root(document) : nullptr;
+                yyjson_val* sprites = top != nullptr ? yyjson_obj_get(top, "sprites") : nullptr;
+                if (!yyjson_is_obj(sprites)) {
+                    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "hd: invalid %s", where.c_str());
+                    yyjson_doc_free(document);
+                    continue;
+                }
+                const int32_t document_index = (int32_t)index_documents.size();
+                index_documents.push_back(s_index_document{document, file.disk_directory});
+                size_t index = 0;
+                size_t max = 0;
+                yyjson_val* key = nullptr;
+                yyjson_val* value = nullptr;
+                size_t added = 0;
+                yyjson_obj_foreach(sprites, index, max, key, value) {
+                    added += index_entries.emplace(yyjson_get_str(key), s_index_entry{value, root, document_index}).second ? 1 : 0;
+                }
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %s lists %zu sprites", where.c_str(), added);
             }
-            index_documents.push_back(document);
-            size_t index = 0;
-            size_t max = 0;
-            yyjson_val* key = nullptr;
-            yyjson_val* value = nullptr;
-            size_t added = 0;
-            yyjson_obj_foreach(sprites, index, max, key, value) {
-                added += index_entries.emplace(yyjson_get_str(key), s_index_entry{value, root}).second ? 1 : 0;
-            }
-            char disk[1024];
-            if (vfs::Resolve_Read_Path_No_Zip(path.c_str(), disk, sizeof(disk)) != 0) {
-                std::string directory = disk;
-                const size_t slash = directory.find_last_of("/\\");
-                index_disk_roots[root] = slash == std::string::npos ? std::string() : directory.substr(0, slash);
-            }
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %s lists %zu sprites", path.c_str(), added);
         }
     }
 
@@ -390,8 +410,9 @@ namespace render {
             // frame file (each lookup touches the file system, slow on network drives).
             std::string disk_directory;
             if (from_index) {
-                if (!index_disk_roots[listed->second.root].empty()) {
-                    disk_directory = index_disk_roots[listed->second.root] + "/" + asset->key;
+                const std::string& disk_root = index_documents[(size_t)listed->second.document].disk_root;
+                if (!disk_root.empty()) {
+                    disk_directory = disk_root + "/" + asset->key;
                 }
             } else {
                 disk_directory = Disk_Directory(meta_path);
