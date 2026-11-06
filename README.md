@@ -4,7 +4,11 @@
 [Orion2 Redone (orion2re)](https://github.com/orion2re/orion2re), the faithful restoration of the
 Master of Orion II engine, in the way [Augustus](https://github.com/Keriew/augustus) is to Julius.
 
-Version 0.1.0 (early development; nothing is released yet).
+Version 0.1.0, the first public release: Linux and Windows builds on the
+[releases page](https://github.com/Crono141/battle-at-antares/releases), HD art from
+[battle-at-antares-hd](https://github.com/Crono141/battle-at-antares-hd/releases). You need your own
+Master of Orion II 1.31 (GOG or Steam); `INSTALL.txt` in the download says how to set it up.
+Development continues on `main` (a native user interface in Godot); fixes to 0.1 go to `release/0.1`.
 
 ## Credits
 
@@ -18,7 +22,11 @@ Battle at Antares bugs here, not to Redone.
 
 - **HD art.** The drawing library works at two resolutions: the original 640x480 palette screen
   stays authoritative for game logic, and every draw also renders into a 4x screen with HD art
-  where a pack provides it. Later, screens are rebuilt natively with a camera on the galaxy map.
+  where a pack provides it. The HD art itself is on the
+  [battle-at-antares-hd releases page](https://github.com/Crono141/battle-at-antares-hd/releases).
+- **A launcher** (`antares-launcher`): tick packages, keep named profiles, see which mods a save
+  needs, change settings, and play.
+- **Mouse wheel** scrolls every list; **Ogg Vorbis** music works in mods.
 - **Identity.** The binary is `antares`, the config file is `data/antares.cfg` (an existing
   `orion2re.cfg` is read on first run), and environment knobs are `ANTARES_*` (`ORION2RE_*` still
   works for now).
