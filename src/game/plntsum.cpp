@@ -2087,7 +2087,9 @@ namespace PLNTSUM {
                         send_choice = -1;
                     } else {
                         draw_colony_button_status = 2;
-                        draw_outpost_button_status = 1;
+                        if (draw_outpost_button_status != 0) { // no outpost ship: stays grey
+                            draw_outpost_button_status = 1;
+                        }
                         send_choice = 0;
                     }
                 }
@@ -2105,7 +2107,9 @@ namespace PLNTSUM {
                         send_choice = -1;
                     } else {
                         draw_outpost_button_status = 2;
-                        draw_colony_button_status = 1;
+                        if (draw_colony_button_status != 0) { // no colony ship: stays grey
+                            draw_colony_button_status = 1;
+                        }
                         send_choice = 1;
                     }
                 }
