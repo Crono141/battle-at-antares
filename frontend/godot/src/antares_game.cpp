@@ -105,6 +105,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("answer_request", "id", "value"), &AntaresGame::answer_request);
         ClassDB::bind_method(D_METHOD("get_resource_packs"), &AntaresGame::get_resource_packs);
         ClassDB::bind_method(D_METHOD("get_frame_image"), &AntaresGame::get_frame_image);
+        ClassDB::bind_method(D_METHOD("request_sprite", "lbx", "entry"), &AntaresGame::request_sprite);
         ADD_PROPERTY(PropertyInfo(Variant::STRING, "game_dir", PROPERTY_HINT_GLOBAL_DIR), "set_game_dir", "get_game_dir");
         ADD_PROPERTY(PropertyInfo(Variant::PACKED_STRING_ARRAY, "args"), "set_args", "get_args");
         ADD_PROPERTY(PropertyInfo(Variant::BOOL, "autostart"), "set_autostart", "get_autostart");
@@ -115,6 +116,7 @@ namespace godot {
         ADD_SIGNAL(MethodInfo("request", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::STRING, "kind"), PropertyInfo(Variant::DICTIONARY, "request")));
         ADD_SIGNAL(MethodInfo("snapshot", PropertyInfo(Variant::STRING, "name"), PropertyInfo(Variant::DICTIONARY, "result")));
         ADD_SIGNAL(MethodInfo("resource_packs_changed"));
+        ADD_SIGNAL(MethodInfo("sprite_ready", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::DICTIONARY, "sprite")));
     }
 
     void AntaresGame::set_game_dir(const String& dir) {
@@ -329,6 +331,37 @@ namespace godot {
             const Dictionary snapshot = parsed.get_type() == Variant::DICTIONARY ? Dictionary(parsed) : Dictionary();
             emit_signal("snapshot", snapshot.get("snapshot", ""), snapshot.get("result", Dictionary()));
         }
+        uint64_t sprite_id = 0;
+        antares::sprites::s_sprite sprite;
+        while (antares::native::Take_Sprite(&sprite_id, &sprite)) {
+            Dictionary out;
+            out["lbx"] = String(sprite.lbx.c_str());
+            out["entry"] = sprite.entry;
+            out["width"] = sprite.width;
+            out["height"] = sprite.height;
+            out["scale"] = sprite.scale;
+            out["hd"] = sprite.hd;
+            out["error"] = String(sprite.error.c_str());
+            Array frames;
+            for (antares::sprites::s_frame& frame : sprite.frames) {
+                PackedByteArray bytes;
+                bytes.resize((int64_t)frame.rgba.size());
+                if (!frame.rgba.empty()) {
+                    memcpy(bytes.ptrw(), frame.rgba.data(), frame.rgba.size());
+                }
+                Dictionary item;
+                item["image"] = Image::create_from_data(frame.width, frame.height, false, Image::FORMAT_RGBA8, bytes);
+                item["origin"] = Vector2i(frame.origin_x, frame.origin_y);
+                frames.push_back(item);
+            }
+            out["frames"] = frames;
+            emit_signal("sprite_ready", (int64_t)sprite_id, out);
+        }
+    }
+
+    int64_t AntaresGame::request_sprite(const String& lbx, int64_t entry) {
+        const CharString name = lbx.utf8();
+        return (int64_t)antares::native::Request_Sprite(std::string(name.get_data(), (size_t)name.length()), (int32_t)entry);
     }
 
     void AntaresGame::claim_screen(int64_t screen, bool claimed) {

@@ -1,8 +1,15 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1_main"]
 [ext_resource type="Script" path="res://galaxy.gd" id="2_galaxy"]
-[ext_resource type="Script" path="res://labels.gd" id="3_labels"]
+[ext_resource type="Script" path="res://galaxy/labels.gd" id="3_labels"]
+[ext_resource type="Script" path="res://art.gd" id="5_art"]
+[ext_resource type="Script" path="res://galaxy/influence.gd" id="6_influence"]
+[ext_resource type="Script" path="res://galaxy/nebulae.gd" id="7_nebulae"]
+[ext_resource type="Script" path="res://galaxy/links.gd" id="8_links"]
+[ext_resource type="Script" path="res://galaxy/stars.gd" id="9_stars"]
+[ext_resource type="Script" path="res://galaxy/fleets.gd" id="10_fleets"]
+[ext_resource type="Script" path="res://galaxy/backdrop.gd" id="11_backdrop"]
 [ext_resource type="Shader" path="res://legacy.gdshader" id="4_legacy"]
 
 [sub_resource type="ShaderMaterial" id="legacy_material"]
@@ -11,11 +18,43 @@ shader = ExtResource("4_legacy")
 [node name="Main" type="Node"]
 script = ExtResource("1_main")
 
+[node name="Art" type="Node" parent="."]
+script = ExtResource("5_art")
+
+[node name="Backdrop" type="CanvasLayer" parent="."]
+layer = -1
+
+[node name="Starfield" type="Control" parent="Backdrop"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("11_backdrop")
+galaxy_path = NodePath("../../Galaxy")
+
 [node name="Galaxy" type="Node2D" parent="."]
 script = ExtResource("2_galaxy")
 
 [node name="Camera" type="Camera2D" parent="Galaxy"]
 zoom = Vector2(2, 2)
+
+[node name="Nebulae" type="Node2D" parent="Galaxy"]
+script = ExtResource("7_nebulae")
+
+[node name="Influence" type="Node2D" parent="Galaxy"]
+script = ExtResource("6_influence")
+
+[node name="Links" type="Node2D" parent="Galaxy"]
+script = ExtResource("8_links")
+
+[node name="Stars" type="Node2D" parent="Galaxy"]
+script = ExtResource("9_stars")
+
+[node name="Fleets" type="Node2D" parent="Galaxy"]
+script = ExtResource("10_fleets")
 
 [node name="Labels" type="Node2D" parent="Galaxy"]
 script = ExtResource("3_labels")
@@ -67,39 +106,6 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-
-[node name="StarPanel" type="PanelContainer" parent="UI"]
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -300.0
-offset_top = 56.0
-offset_right = -16.0
-offset_bottom = 220.0
-grow_horizontal = 0
-
-[node name="Box" type="VBoxContainer" parent="UI/StarPanel"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="Name" type="Label" parent="UI/StarPanel/Box"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 24
-text = "Star"
-
-[node name="Owner" type="Label" parent="UI/StarPanel/Box"]
-layout_mode = 2
-text = "Owner"
-
-[node name="Class" type="Label" parent="UI/StarPanel/Box"]
-layout_mode = 2
-text = "Class"
-
-[node name="Close" type="Button" parent="UI/StarPanel/Box"]
-layout_mode = 2
-size_flags_horizontal = 8
-focus_mode = 0
-text = "Close"
 
 [node name="Overlay" type="CanvasLayer" parent="."]
 layer = 2

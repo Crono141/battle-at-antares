@@ -42,6 +42,23 @@ namespace antares::rules_trace {
         }
     } // namespace
 
+    namespace {
+        // ANTARES_RULES_TRACE_DUMP=<dir>: each mark also writes the hashed bytes to
+        // <dir>/<mark>-<stardate>.sav, so two runs whose hashes differ can be compared byte by byte.
+        void Dump(const char* where, const uint8_t* bytes, uint32_t length) {
+            const char* dir = antares::Get_Env("RULES_TRACE_DUMP");
+            if (dir == nullptr || dir[0] == '\0') {
+                return;
+            }
+            const std::string path = std::string(dir) + "/" + where + "-" + std::to_string((int)MOX::stardate) + ".sav";
+            if (FILE* file = fopen(path.c_str(), "wb")) {
+                fwrite(bytes, 1, length, file);
+                fclose(file);
+            }
+        }
+        const char* s_dump_mark = nullptr; // set by Mark around its State_Hash
+    } // namespace
+
     // FNV-1a over the save the game would write now, with the seed zeroed (it's logged on its
     // own) and a fixed description.
     uint64_t State_Hash(std::string* error) {
@@ -58,6 +75,9 @@ namespace antares::rules_trace {
             for (uint32_t i = 0; i < writer.Length(); ++i) {
                 hash = (hash ^ buffer[i]) * 0x100000001B3ull;
             }
+            if (s_dump_mark != nullptr) {
+                Dump(s_dump_mark, buffer, writer.Length());
+            }
         }
         free(buffer);
         return hash;
@@ -68,7 +88,9 @@ namespace antares::rules_trace {
             return;
         }
         std::string error;
+        s_dump_mark = where;
         const uint64_t hash = State_Hash(&error);
+        s_dump_mark = nullptr;
         const uint64_t calls = rng_trace::g_calls - s_calls_at_last_mark;
         s_calls_at_last_mark = rng_trace::g_calls;
         SDL_Log("rules-trace: %s stardate=%d seed=%08x calls=%llu state=%016llx%s%s",

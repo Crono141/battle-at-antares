@@ -1,0 +1,100 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://views/system_panel.gd" id="1_panel"]
+
+[sub_resource type="StyleBoxFlat" id="info_box"]
+bg_color = Color(0, 0, 0, 0.75)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.45, 0.6, 0.75, 0.8)
+content_margin_left = 8.0
+content_margin_top = 4.0
+content_margin_right = 8.0
+content_margin_bottom = 4.0
+
+[sub_resource type="LabelSettings" id="title_text"]
+font_color = Color(0.86, 0.9, 0.62, 1)
+outline_size = 4
+outline_color = Color(0, 0, 0, 0.8)
+
+[node name="SystemPanel" type="Control"]
+custom_minimum_size = Vector2(347, 273)
+layout_mode = 3
+anchors_preset = 0
+offset_right = 347.0
+offset_bottom = 273.0
+script = ExtResource("1_panel")
+
+[node name="Title" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 23.0
+grow_horizontal = 2
+mouse_filter = 2
+text = "Star System"
+label_settings = SubResource("title_text")
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Description" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 30.0
+offset_top = 50.0
+offset_right = -30.0
+offset_bottom = -40.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+text = "What is known about an unvisited star."
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 3
+
+[node name="Wormhole" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -260.0
+offset_top = -52.0
+offset_right = -16.0
+offset_bottom = -36.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.75, 0.6, 1, 1)
+text = "Wormhole to ..."
+horizontal_alignment = 2
+
+[node name="Info" type="PanelContainer" parent="."]
+layout_mode = 0
+offset_left = 8.0
+offset_top = 26.0
+offset_right = 120.0
+offset_bottom = 60.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("info_box")
+
+[node name="Text" type="Label" parent="Info"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.85, 0.95, 1)
+text = "Planet details"
+
+[node name="Close" type="Button" parent="."]
+layout_mode = 0
+offset_left = 265.0
+offset_top = 239.0
+offset_right = 331.0
+offset_bottom = 257.0
+tooltip_text = "Close (Esc)"
+focus_mode = 0
+mouse_default_cursor_shape = 2
+flat = true

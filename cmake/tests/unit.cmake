@@ -537,13 +537,16 @@ orion2re_add_unit_test(test_startup_options
 orion2re_add_unit_test(test_native_bridge
     SOURCES
         tests/unit/native_test.cpp
+        tests/unit/galaxy_queries_test.cpp
     PRODUCTION_SOURCES
         src/antares/native.cpp
         src/antares/commands.cpp
+        src/antares/galaxy_queries.cpp
         src/config/text_encoding.cpp
         vendors/yyjson/src/yyjson.c
     FAKE_SOURCES
         tests/fakes/fake_native_runtime.cpp
+        tests/fakes/fake_galaxy_runtime.cpp
     LIBRARIES
         miniz
     LINK_SDL

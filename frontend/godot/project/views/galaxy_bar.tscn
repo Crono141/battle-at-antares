@@ -29,36 +29,42 @@ layout_mode = 2
 focus_mode = 0
 text = "Colonies"
 metadata/screen = 20
+metadata/key = "C"
 
 [node name="Planets" type="Button" parent="Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Planets"
 metadata/screen = 32
+metadata/key = "P"
 
 [node name="Fleets" type="Button" parent="Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Fleets"
 metadata/screen = 4
+metadata/key = "F"
 
 [node name="Leaders" type="Button" parent="Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Leaders"
 metadata/screen = 29
+metadata/key = "L"
 
 [node name="Races" type="Button" parent="Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Races"
 metadata/screen = 6
+metadata/key = "R"
 
 [node name="Info" type="Button" parent="Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Info"
 metadata/screen = 9
+metadata/key = "I"
 
 [node name="Research" type="Button" parent="Row/Screens"]
 layout_mode = 2
@@ -77,9 +83,11 @@ layout_mode = 2
 focus_mode = 0
 text = "Game"
 metadata/screen = 8
+metadata/key = "G"
 
 [node name="Turn" type="Button" parent="Row"]
 layout_mode = 2
 focus_mode = 0
 theme_override_font_sizes/font_size = 20
 text = "  Turn  "
+metadata/key = "T"

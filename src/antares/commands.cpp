@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands.h"
+#include "antares/commands_internal.h"
 
 #include "antares/identity.h"
 #include "antares/rng_trace.h"
@@ -94,9 +95,7 @@ namespace antares::commands {
         Str("message", message);
     }
 
-    namespace {
-
-        // ---- Helpers ----
+    namespace internal {
 
         std::string Utf8(const char* text, size_t max_length) {
             std::string decoded;
@@ -121,6 +120,11 @@ namespace antares::commands {
             }
             return true;
         }
+    } // namespace internal
+
+    namespace {
+        using internal::Have_Game;
+        using internal::Utf8;
 
         bool Ship_Alive(int16_t ship) {
             return MOX::ship[ship].status < 5;
@@ -152,6 +156,7 @@ namespace antares::commands {
                 case SCREEN_RACE:
                 case SCREEN_PLANET_SUMMARY:
                 case SCREEN_SHOW_COMMAND_POINTS:
+                case SCREEN_DISTANCE_BETWEEN_STARS: // F9
                     break;
                 case SCREEN_FLEET:
                     MAINSCR::officer_screen_return_screen = SCREEN_FLEET;
@@ -319,6 +324,8 @@ namespace antares::commands {
                 {"command_points", e_kind::query, ANY_SCREEN, 1, "", Query_Command_Points},
                 {"ships", e_kind::query, ANY_SCREEN, 1, "star: star id (optional)", Query_Ships},
             };
+            static const bool galaxy_added = (internal::Add_Galaxy_Entries(&table), true);
+            (void)galaxy_added;
             return table;
         }
 

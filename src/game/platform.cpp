@@ -1734,7 +1734,15 @@ namespace platform {
                 } else if (step.command == "key") {
                     SDL_Event event = {};
                     event.type = SDL_EVENT_KEY_DOWN;
-                    event.key.key = SDL_GetKeyFromName(step.text.c_str());
+                    // "alt+f7", "ctrl+g", "shift+a": modifiers held for the key.
+                    std::string name = step.text;
+                    for (const auto& [prefix, mod] : {std::pair{"alt+", SDL_KMOD_LALT}, std::pair{"ctrl+", SDL_KMOD_LCTRL}, std::pair{"shift+", SDL_KMOD_LSHIFT}}) {
+                        if (name.size() > strlen(prefix) && SDL_strncasecmp(name.c_str(), prefix, strlen(prefix)) == 0) {
+                            event.key.mod |= mod;
+                            name.erase(0, strlen(prefix));
+                        }
+                    }
+                    event.key.key = SDL_GetKeyFromName(name.c_str());
                     event.key.scancode = SDL_GetScancodeFromKey(event.key.key, nullptr);
                     event.key.down = true;
                     (void)SDL_PushEvent(&event);

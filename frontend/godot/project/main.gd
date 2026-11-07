@@ -4,11 +4,13 @@ extends Node
 ## or `-- --native`), the galaxy (SCREEN_MAIN), the command points summary and the game's message
 ## boxes are native (WP3.1b): buttons send commands, the game thread runs them with the same rules
 ## calls as the legacy screens, and every screen not yet native opens through the legacy fallback.
+## The galaxy is the home view (WP3.3a): the game's own art, its stars, fleets and lines from
+## watched queries, and the star system panel.
 
 @onready var game: AntaresGame = $UI/Legacy/Game
 @onready var legacy: Control = $UI/Legacy
 @onready var galaxy: Node2D = $Galaxy
-@onready var panel: PanelContainer = $UI/StarPanel
+@onready var art: Node = $Art
 @onready var mode_button: Button = $UI/Bar/Mode
 @onready var stats_label: Label = $UI/Bar/Stats
 @onready var native_layer: Control = $UI/Native
@@ -21,10 +23,12 @@ var _views := {} # scene name -> instance
 var _pending := {} # command id -> Callable(result)
 var _loaded_packs := {}
 var _stats_time := 0.0
+var _panel_star := -1 # the star whose system panel is open (reopened after legacy screens)
 
 
 func _ready() -> void:
-	game.galaxy_changed.connect(_on_galaxy_changed)
+	art.setup(game)
+	galaxy.art = art
 	game.game_exited.connect(func(): get_tree().quit())
 	game.native_screen_changed.connect(_on_native_screen)
 	game.command_result.connect(_on_result)
@@ -33,8 +37,6 @@ func _ready() -> void:
 	game.resource_packs_changed.connect(_load_packs)
 	galaxy.star_clicked.connect(_on_star_clicked)
 	mode_button.pressed.connect(func(): _set_native(not native))
-	$UI/StarPanel/Box/Close.pressed.connect(_close_panel)
-	panel.hide()
 	overlay.hide()
 	_set_native("--native" in OS.get_cmdline_user_args())
 	if "--smoke" in OS.get_cmdline_user_args():
@@ -51,16 +53,6 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-func _process(delta: float) -> void:
-	_stats_time += delta
-	if _stats_time < 1.0:
-		return
-	_stats_time = 0.0
-	var s: Dictionary = game.get_stats()
-	stats_label.text = "fps %d   frames %d   upload avg %.2f ms (whole frame %.1f ms)   screen %d" % [
-		Engine.get_frames_per_second(), s.frames, s.upload_ms_avg, s.full_upload_ms_avg, native_screen]
-
-
 ## Native views on or off. The game switches at its next safe point: the legacy galaxy hands over
 ## between inputs, and the native loop hands back at once.
 func _set_native(on: bool) -> void:
@@ -70,7 +62,8 @@ func _set_native(on: bool) -> void:
 	# The request kinds the native dialog answers; the rest ("choose") keep the legacy popup.
 	game.claim_requests(PackedStringArray(["message", "confirm", "warning"]) if on else PackedStringArray())
 	if on:
-		_send({"verb": "watch", "what": "empire"})
+		for what in ["empire", "galaxy", "fleets", "options"]:
+			_send({"verb": "watch", "what": what})
 	mode_button.text = "Legacy galaxy (Ctrl+G)" if on else "Native galaxy (Ctrl+G)"
 
 
@@ -86,14 +79,20 @@ func _on_native_screen(screen: int) -> void:
 	galaxy.set_process_unhandled_input(screen == Screens.MAIN)
 	var bar := _view("galaxy_bar")
 	bar.visible = screen == Screens.MAIN
+	var controls := _view("map_controls")
+	controls.visible = screen == Screens.MAIN
 	var points := _view("command_points")
 	points.visible = screen == Screens.SHOW_COMMAND_POINTS
+	var system_panel := _view("system_panel")
 	if screen == Screens.MAIN:
 		galaxy.camera.make_current()
-	elif screen == Screens.SHOW_COMMAND_POINTS:
-		_send({"verb": "query", "what": "command_points"}, points.show_result)
+		_send({"verb": "query", "what": "view"}, galaxy.place_view)
+		if _panel_star >= 0:
+			_open_system(_panel_star) # refreshed: a colony screen may have changed it
 	else:
-		_close_panel()
+		system_panel.hide()
+		if screen == Screens.SHOW_COMMAND_POINTS:
+			_send({"verb": "query", "what": "command_points"}, points.show_result)
 	if screen == Screens.LEGACY:
 		game.grab_focus()
 
@@ -105,10 +104,49 @@ func _view(scene_name: String) -> Control:
 		var view: Control = load("res://views/%s.tscn" % scene_name).instantiate()
 		view.visible = false
 		if view.has_signal("command"):
-			view.command.connect(func(dict: Dictionary): _send(dict))
+			view.command.connect(_on_view_command.bind(view))
+		if "art" in view:
+			view.art = art
+		if view.has_signal("closed"):
+			view.closed.connect(_on_view_closed.bind(scene_name))
+		if view.has_signal("action"):
+			view.action.connect(_on_view_action)
 		native_layer.add_child(view)
 		_views[scene_name] = view
 	return _views[scene_name]
+
+
+## A view's command; one with "_reply_to" gets its result back through that method of the view
+## (the system panel's colony information).
+func _on_view_command(dict: Dictionary, view: Control) -> void:
+	if dict.has("_reply_to"):
+		var method: String = dict["_reply_to"]
+		dict.erase("_reply_to")
+		_send(dict, Callable(view, method))
+	else:
+		_send(dict)
+
+
+## The map controls' view-only actions.
+func _on_view_action(action_name: String) -> void:
+	var center := get_viewport().get_visible_rect().size * 0.5
+	match action_name:
+		"zoom_in":
+			galaxy.zoom_by(1.5, center)
+		"zoom_out":
+			galaxy.zoom_by(1.0 / 1.5, center)
+		"colony_next", "colony_previous":
+			_send({"verb": "cycle_colony_star", "dir": 0 if action_name == "colony_next" else 1}, _on_star_selected)
+		"influence":
+			$Galaxy/Influence.cycle()
+			_view("map_controls").show_influence(galaxy.influence_mode)
+
+
+func _on_view_closed(scene_name: String) -> void:
+	if scene_name == "system_panel":
+		_panel_star = -1
+		galaxy.selected = -1
+		galaxy.redraw()
 
 
 func _send(command: Dictionary, on_result: Callable = Callable()) -> void:
@@ -128,8 +166,15 @@ func _on_result(id: int, result: Dictionary) -> void:
 
 ## Snapshots of watched queries: the galaxy bar follows the empire.
 func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
-	if snapshot_name == "empire":
-		_view("galaxy_bar").show_empire(result)
+	match snapshot_name:
+		"empire":
+			_view("galaxy_bar").show_empire(result)
+		"galaxy":
+			galaxy.set_galaxy(result)
+		"fleets":
+			galaxy.set_fleets(result)
+		"options":
+			_view("map_controls").show_options(result)
 
 
 func _on_request(id: int, kind: String, request: Dictionary) -> void:
@@ -156,34 +201,49 @@ func _load_packs() -> void:
 			continue
 		_loaded_packs[path] = ProjectSettings.load_resource_pack(path, true)
 		print("frontend: resource pack %s: %s" % [path, "loaded" if _loaded_packs[path] else "FAILED"])
-	# Views made before the packs arrived are rebuilt from the new files.
+	# Views made before the packs arrived are rebuilt from the new files, and art is asked again.
+	art.clear()
 	for scene_name in _views.keys():
 		if scene_name != "dialog":
 			_views[scene_name].queue_free()
 			_views.erase(scene_name)
 
 
-func _on_galaxy_changed() -> void:
-	galaxy.set_stars(game.get_stars())
+## A star click: the game decides, as the legacy map does, whether it opens the player's colony
+## there (a legacy screen for now) or the system panel.
+func _on_star_clicked(star_id: int) -> void:
+	_send({"verb": "select_star", "star": star_id}, _on_star_selected)
 
 
-func _on_star_clicked(star: Dictionary) -> void:
-	$UI/StarPanel/Box/Name.text = star.name
-	var owner_text := "Unclaimed"
-	if star.owner >= 0:
-		owner_text = "Owner: %s" % star.owner_name
-		$UI/StarPanel/Box/Owner.add_theme_color_override("font_color", galaxy.PLAYER_COLORS[star.owner_color % 8])
-	else:
-		$UI/StarPanel/Box/Owner.remove_theme_color_override("font_color")
-	$UI/StarPanel/Box/Owner.text = owner_text
-	$UI/StarPanel/Box/Class.text = "Star class: %s" % galaxy.SPECTRAL_NAMES[clampi(star.spectral_class, 0, 6)]
-	panel.show()
+func _on_star_selected(result: Dictionary) -> void:
+	if result.get("ok", false) and result.get("opened", "") == "system":
+		_open_system(int(result.star))
+		if not galaxy.get_viewport_rect().has_point(galaxy.get_global_transform_with_canvas() * galaxy.star_position(int(result.star))):
+			galaxy.focus(int(result.star))
 
 
-func _close_panel() -> void:
-	panel.hide()
-	galaxy.selected = -1
-	galaxy.queue_redraw()
+func _open_system(star_id: int) -> void:
+	_send({"verb": "query", "what": "system", "star": star_id}, func(result: Dictionary):
+		if not result.get("ok", false) or native_screen != Screens.MAIN:
+			return
+		_panel_star = star_id
+		galaxy.selected = star_id
+		galaxy.redraw()
+		var system_panel := _view("system_panel")
+		var was_visible := system_panel.visible
+		system_panel.show_system(result, galaxy.legacy_pixel() * 0.85)
+		if not was_visible:
+			_place_panel(system_panel, star_id))
+
+
+## Beside the star, on the side of the window away from it (the legacy box takes the quadrant away
+## from the star).
+func _place_panel(system_panel: Control, star_id: int) -> void:
+	var view := get_viewport().get_visible_rect().size
+	var star_screen: Vector2 = galaxy.get_global_transform_with_canvas() * galaxy.star_position(star_id)
+	var x := view.x - system_panel.size.x - 24.0 if star_screen.x < view.x * 0.5 else 24.0
+	var y := clampf(star_screen.y - system_panel.size.y * 0.5, 56.0, view.y - system_panel.size.y - 80.0)
+	system_panel.position = Vector2(x, y)
 
 
 ## Headless check of the native bridge (`-- --smoke --native`): the save opens in the native
@@ -201,9 +261,8 @@ func _smoke_native() -> void:
 	print("smoke: native galaxy after %.1f s, packs %s" % [(Time.get_ticks_msec() - t0) / 1000.0, _loaded_packs])
 	var empire: Dictionary = await _query("empire")
 	print("smoke: empire %s" % empire)
-	if shots != "":
-		await get_tree().create_timer(1.0).timeout
-		await _shot(shots + "/native-galaxy.png")
+	if not await _smoke_galaxy(shots):
+		return
 	_send({"verb": "open", "screen": Screens.SHOW_COMMAND_POINTS})
 	if not await _wait_screen(Screens.SHOW_COMMAND_POINTS, 10.0):
 		await _smoke_fail("command points did not open")
@@ -296,6 +355,89 @@ func _smoke_native() -> void:
 	get_tree().quit()
 
 
+## The galaxy view (WP3.3a): data and art arrive, the view zooms, a star opens its system panel,
+## a right click shows colony information, F5 cycles to a colony.
+func _smoke_galaxy(shots: String) -> bool:
+	var waited := 0.0
+	while (galaxy.stars.is_empty() or galaxy.fleets.is_empty()) and waited < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if galaxy.stars.is_empty():
+		await _smoke_fail("no galaxy snapshot")
+		return false
+	await get_tree().create_timer(3.0).timeout # art for the stars in view
+	var hd := 0
+	var loaded := 0
+	for key: String in art._sprites:
+		if not art._sprites[key].is_empty():
+			loaded += 1
+			hd += 1 if art._sprites[key].scale > 1.0 else 0
+	print("smoke: galaxy %d stars, %d nebulae, %d fleets, %d influence; %d sprites loaded (%d HD), legacy scale %.1f" % [
+		galaxy.stars.size(), galaxy.data.nebulae.size(), galaxy.fleets.size(), galaxy.data.influence.size(),
+		loaded, hd, galaxy.legacy_scale()])
+	if loaded == 0:
+		await _smoke_fail("no art arrived")
+		return false
+	if shots != "":
+		await _shot(shots + "/native-galaxy.png")
+	# The player's first visited colony star with something to show.
+	var star := -1
+	for s: Dictionary in galaxy.stars:
+		if int(s.owner) == int(galaxy.data.player) and s.visited:
+			star = int(s.id)
+			break
+	if star < 0:
+		await _smoke_fail("no colony star")
+		return false
+	galaxy.focus(star)
+	galaxy.zoom_by(3.0, get_viewport().get_visible_rect().size * 0.5)
+	_on_view_action("influence")
+	await get_tree().create_timer(1.5).timeout
+	if shots != "":
+		await _shot(shots + "/native-galaxy-zoomed.png")
+	_on_star_clicked(star)
+	var system_panel := _view("system_panel")
+	waited = 0.0
+	while not system_panel.visible and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if not system_panel.visible:
+		await _smoke_fail("star %d did not open its system panel" % star)
+		return false
+	print("smoke: system panel '%s', %d planets, %d fleets" % [system_panel.title.text,
+		system_panel.system.get("planets", []).size(), system_panel.system.get("fleets", []).size()])
+	await get_tree().create_timer(1.5).timeout
+	# Hover the first planet with a picture, then right-click it for its colony information.
+	for planet: Dictionary in system_panel.system.get("planets", []):
+		if int(planet.sprite) >= 0 and planet.type != "gas_giant":
+			var u: float = system_panel._unit()
+			var at: Vector2 = (Vector2(float(planet.box_x), float(planet.box_y)) + Vector2.ONE * float(planet.dimension) * 0.5) * u
+			system_panel._set_hover(system_panel._hit(at))
+			print("smoke: hover '%s'" % system_panel.info_text.text.replace("\n", " | "))
+			_send({"verb": "query", "what": "potential_colony", "planet": int(planet.planet)}, system_panel.show_potential)
+			break
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: colony info '%s'" % system_panel.info_text.text.replace("\n", " | "))
+	if shots != "":
+		await _shot(shots + "/native-system-panel.png")
+	system_panel.close()
+	_on_view_action("influence")
+	_on_view_action("influence")
+	# F5: the next colony system; with auto-select colony off it opens the panel.
+	var before: int = galaxy.selected
+	var key := InputEventKey.new()
+	key.keycode = KEY_F5
+	key.pressed = true
+	Input.parse_input_event(key)
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: F5 from %d: panel %s, star %d, screen %d" % [before, system_panel.visible, galaxy.selected, native_screen])
+	system_panel.close()
+	galaxy._view_placed = false
+	_send({"verb": "query", "what": "view"}, galaxy.place_view)
+	await get_tree().create_timer(0.5).timeout
+	return true
+
+
 func _click_game(at: Vector2) -> void:
 	for pressed in [true, false]:
 		var click := InputEventMouseButton.new()
@@ -341,77 +483,31 @@ func _smoke_fail(why: String) -> void:
 	get_tree().quit(1)
 
 
-## Headless check (`-- --smoke`): the game boots, frames arrive, the galaxy snapshot fills, a star
-## can be picked; optional screenshots with `--shots=<dir>` (needs a display).
+## Headless check (`-- --smoke`): the game boots, frames arrive, input reaches the legacy screen;
+## optional screenshots with `--shots=<dir>` (needs a display).
 func _smoke() -> void:
 	var shots := ""
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shots="):
 			shots = arg.substr(8)
 	var waited := 0.0
-	while galaxy.stars.is_empty() and waited < 120.0:
+	while game.get_stats().frames < 10 and waited < 120.0:
 		await get_tree().create_timer(0.5).timeout
 		waited += 0.5
 	await get_tree().create_timer(3.0).timeout
-	print("smoke: stars %d after %.1f s, stats %s" % [galaxy.stars.size(), waited, game.get_stats()])
+	print("smoke: %d frames after %.1f s, stats %s" % [game.get_stats().frames, waited, game.get_stats()])
 	if shots != "":
 		await _shot(shots + "/legacy.png")
 	# Input path: click the load message's CLOSE button (game 273,253) through Godot's input.
-	var at := _game_to_screen(Vector2(273, 253))
-	for pressed in [true, false]:
-		var click := InputEventMouseButton.new()
-		click.button_index = MOUSE_BUTTON_LEFT
-		click.pressed = pressed
-		click.position = at
-		Input.parse_input_event(click)
-		await get_tree().create_timer(0.15).timeout
+	await _click_game(Vector2(273, 253))
 	await get_tree().create_timer(1.0).timeout
 	if shots != "":
 		await _shot(shots + "/legacy-after-click.png")
 	# A hotkey: P opens the Planets screen.
-	var key := InputEventKey.new()
-	key.keycode = KEY_P
-	key.pressed = true
-	Input.parse_input_event(key)
-	await get_tree().create_timer(0.1).timeout
-	key = key.duplicate()
-	key.pressed = false
-	Input.parse_input_event(key)
+	game.send_key(KEY_P, false, false, false)
 	await get_tree().create_timer(1.5).timeout
 	if shots != "":
 		await _shot(shots + "/legacy-after-key.png")
-	legacy.visible = false
-	galaxy.visible = true
-	galaxy.camera.make_current()
-	await get_tree().create_timer(0.5).timeout
-	var owned := -1
-	for i in galaxy.stars.size():
-		if galaxy.stars[i].owner >= 0:
-			owned = i
-			break
-	if owned >= 0:
-		var s: Dictionary = galaxy.stars[owned]
-		print("smoke: first owned star %s" % s)
-		galaxy.camera.position = Vector2(s.x, s.y)
-		galaxy._target_zoom = 4.0
-		galaxy._anchor_world = galaxy.camera.position
-		galaxy._anchor_screen = get_viewport().get_visible_rect().size * 0.5
-		await get_tree().create_timer(1.0).timeout
-		galaxy._pick(get_viewport().get_visible_rect().size * 0.5)
-		print("smoke: picked %d, panel %s: %s / %s" % [galaxy.selected, panel.visible,
-			$UI/StarPanel/Box/Name.text, $UI/StarPanel/Box/Owner.text])
-	if shots != "":
-		await _shot(shots + "/galaxy.png")
-		_close_panel()
-		galaxy._fitted = false
-		galaxy._fit()
-		await get_tree().create_timer(0.5).timeout
-		await _shot(shots + "/galaxy-overview.png")
-		galaxy._target_zoom = 2.6
-		galaxy._anchor_world = galaxy.camera.position
-		galaxy._anchor_screen = get_viewport().get_visible_rect().size * 0.5
-		await get_tree().create_timer(1.5).timeout
-		await _shot(shots + "/galaxy-labels.png")
 	print("smoke: stats %s" % [game.get_stats()])
 	# The game ends on its own: Godot should close with it (game_exited).
 	game.request_game_quit()

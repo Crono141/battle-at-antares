@@ -1,0 +1,82 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://views/map_controls.gd" id="1"]
+
+[node name="MapControls" type="PanelContainer"]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -196.0
+offset_top = 48.0
+offset_right = -12.0
+offset_bottom = 60.0
+grow_horizontal = 0
+script = ExtResource("1")
+
+[node name="Box" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Zoom" type="HBoxContainer" parent="Box"]
+layout_mode = 2
+
+[node name="ZoomOut" type="Button" parent="Box/Zoom"]
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Zoom out"
+focus_mode = 0
+text = "−"
+metadata/key = "Minus"
+metadata/action = "zoom_out"
+
+[node name="ZoomIn" type="Button" parent="Box/Zoom"]
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Zoom in"
+focus_mode = 0
+text = "+"
+metadata/key = "Equal"
+metadata/action = "zoom_in"
+
+[node name="Colonies" type="HBoxContainer" parent="Box"]
+layout_mode = 2
+
+[node name="Previous" type="Button" parent="Box/Colonies"]
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Previous colony system"
+focus_mode = 0
+text = "◀ Colony"
+metadata/key = "F6"
+metadata/action = "colony_previous"
+
+[node name="Next" type="Button" parent="Box/Colonies"]
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Next colony system"
+focus_mode = 0
+text = "Colony ▶"
+metadata/key = "F5"
+metadata/action = "colony_next"
+
+[node name="Influence" type="Button" parent="Box"]
+layout_mode = 2
+tooltip_text = "Show empires' influence: off, filled, borders"
+focus_mode = 0
+text = "Influence: off"
+metadata/key = "Alt+V"
+metadata/action = "influence"
+
+[node name="Distances" type="Button" parent="Box"]
+layout_mode = 2
+tooltip_text = "Distances between stars"
+focus_mode = 0
+text = "Distances"
+metadata/key = "F9"
+
+[node name="Options" type="MenuButton" parent="Box"]
+layout_mode = 2
+tooltip_text = "Game options (Alt+F1 to Alt+F8)"
+focus_mode = 0
+text = "Options"
+flat = false
