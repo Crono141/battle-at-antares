@@ -45,7 +45,7 @@ func draw(item: CanvasItem, lbx: String, entry: int, frame: int, top_left: Vecto
 	var s := sprite(lbx, entry)
 	if s.is_empty():
 		return false
-	var i := clampi(frame, 0, s.frames.size() - 1)
+	var i := posmod(frame, s.frames.size()) # animations loop (black holes: 16 frames)
 	var tex: Texture2D = s.frames[i]
 	var at: Vector2 = top_left + s.origins[i] * scale
 	item.draw_texture_rect(tex, Rect2(at, Vector2(tex.get_width(), tex.get_height()) / s.scale * scale), false, modulate)

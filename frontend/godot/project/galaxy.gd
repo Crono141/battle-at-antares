@@ -21,9 +21,12 @@ const LEGACY_SCALES := [10.0, 15.0, 20.0, 30.0]
 ## Star picture sizes by zoom level + star size (MOX::star_fields_dim), black holes by zoom level.
 const STAR_DIMS := [33.0, 29.0, 25.0, 23.0, 21.0, 17.0]
 const BLACK_HOLE_DIMS := [39.0, 33.0, 33.0, 24.0]
-## How far the native view zooms, in the same units: closer and further than the legacy map.
+## How far the native view zooms, in the same units: closer and further than the legacy map. Zooming
+## out also stops once the whole galaxy fits the window with a small margin (owner, 2026-11-07:
+## the furthest zoom showed mostly empty space).
 const MIN_SCALE := 4.0
 const MAX_SCALE := 70.0
+const FIT_MARGIN := 1.08
 const PICK_PIXELS := 10.0
 
 @onready var camera: Camera2D = $Camera
@@ -67,10 +70,10 @@ func place_view(view: Dictionary) -> void:
 	if _view_placed or not view.get("ok", false):
 		return
 	_view_placed = true
-	var scale := clampf(float(view.scale), MIN_SCALE, MAX_SCALE)
+	var scale := float(view.scale)
 	# The legacy map window is 506 x 400 pixels from (x, y), at `scale` map units per 10 pixels.
 	camera.position = Vector2(float(view.x), float(view.y)) + Vector2(253.0, 200.0) * scale / 10.0
-	_target_zoom = zoom_for_scale(scale)
+	_target_zoom = clampf(zoom_for_scale(scale), furthest_zoom(), zoom_for_scale(MIN_SCALE))
 	camera.zoom = Vector2.ONE * _target_zoom
 	_anchor_world = camera.position
 	_anchor_screen = get_viewport_rect().size * 0.5
@@ -175,7 +178,17 @@ func _clamp_camera() -> void:
 func zoom_by(factor: float, at_screen: Vector2) -> void:
 	_anchor_screen = at_screen
 	_anchor_world = _screen_to_world(at_screen)
-	_target_zoom = clampf(_target_zoom * factor, zoom_for_scale(MAX_SCALE), zoom_for_scale(MIN_SCALE))
+	_target_zoom = clampf(_target_zoom * factor, furthest_zoom(), zoom_for_scale(MIN_SCALE))
+
+
+## The furthest zoom out: MAX_SCALE, or closer once the whole galaxy fits the window.
+func furthest_zoom() -> float:
+	var furthest := zoom_for_scale(MAX_SCALE)
+	if data.is_empty():
+		return furthest
+	var window := get_viewport_rect().size
+	var fit := minf(window.x / (float(data.width) * FIT_MARGIN), window.y / (float(data.height) * FIT_MARGIN))
+	return maxf(furthest, fit)
 
 
 func _unhandled_input(event: InputEvent) -> void:
