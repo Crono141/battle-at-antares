@@ -813,6 +813,11 @@ namespace PLNTSUM {
         allocate::Get_Remaining_Block_Space(MOX::screen_seg);
     }
 
+    // A button is available (1) while the player has a free ship of its kind, and armed (2) only
+    // when the player chose it. The recovered code armed one by itself, on entry and after every send
+    // or recall (switching to colony ships once the last outpost ship was sent), so a click on a
+    // planet could send a ship the player never chose to send (owner playtest 2026-11-07). The
+    // player's choice now stays armed while it has a ship; otherwise nothing is armed.
     void __cdecl Determine_Button_Status() {
         Build_Ship_Summary();
 
@@ -820,37 +825,28 @@ namespace PLNTSUM {
         draw_outpost_button_status = 0;
 
         if (MOX::scroll_bar->total_rows > 0 && EVENTS::Event_Check_Hyperspace_Flux() == 0) {
-            if (Send_Outpost_Button_Selectable()) {
-                if (Send_Colony_Button_Selectable()) {
-                    draw_colony_button_status = 2;
-                    send_choice = 0;
-
-                    if (!Send_Outpost_Button_Selectable()) {
-                        return;
-                    }
-
-                    draw_outpost_button_status = 1;
-                    return;
-                }
-            }
-
             if (Send_Colony_Button_Selectable()) {
-                if (!Send_Outpost_Button_Selectable()) {
-                    draw_colony_button_status = 2;
-                    send_choice = 0;
-                    return;
-                }
+                draw_colony_button_status = 1;
             }
-
-            if (!Send_Colony_Button_Selectable() && Send_Outpost_Button_Selectable()) {
-                draw_outpost_button_status = 2;
-                send_choice = 1;
+            if (Send_Outpost_Button_Selectable()) {
+                draw_outpost_button_status = 1;
             }
+        }
+        if (send_choice == 0 && draw_colony_button_status != 0) {
+            draw_colony_button_status = 2;
+        } else if (send_choice == 1 && draw_outpost_button_status != 0) {
+            draw_outpost_button_status = 2;
+        } else {
+            send_choice = -1;
         }
     }
 
     void __cdecl Check_For_Colony_And_Outpost_Ships() {
         bool stop_searching = false;
+        // Fresh for this visit: the send buttons' fields are added from these flags
+        // (Add_Plntsum_Fields), before Build_Ship_Summary runs.
+        found_colony_ship = 0;
+        found_outpost_ship = 0;
 
         if (MOX::ship_stack_count <= 0) {
             return;
@@ -885,9 +881,10 @@ namespace PLNTSUM {
                     if (can_order && ship->status != 1) {
                         if (Ship_Is_Not_Colonizing(ship)) {
                             draw_outpost_button_status = 1;
-                            // The original binary sets the colony-found flag here as well,
-                            // and the early-exit check depends on preserving that behavior.
-                            found_colony_ship = 1;
+                            // The recovered code set found_colony_ship here and never
+                            // found_outpost_ship, so the outpost button got no field and couldn't
+                            // be clicked or reached with O (owner playtest 2026-11-07).
+                            found_outpost_ship = 1;
                         }
                     }
                 }
@@ -1992,17 +1989,7 @@ namespace PLNTSUM {
         p_rotating_planet = (s_animation_header**)allocate::Allocate_Next_Block_Aligned(
             MOX::screen_seg, sizeof(*p_rotating_planet) * PLANET_PICTURE_COUNT, alignof(s_animation_header*));
         Load_Planet_Pictures();
-        Determine_Button_Status();
-        // Open with nothing armed: Determine_Button_Status arms the send button it prefers, which
-        // suits its calls after a send or recall, but on entry a click on a planet would then send a
-        // ship the player never chose to send.
-        if (draw_colony_button_status == 2) {
-            draw_colony_button_status = 1;
-        }
-        if (draw_outpost_button_status == 2) {
-            draw_outpost_button_status = 1;
-        }
-        send_choice = -1;
+        Determine_Button_Status(); // send_choice is -1 here: the screen opens with nothing armed
 
         do {
             int16_t prev_sort_choice = sort_choice;
