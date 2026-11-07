@@ -701,13 +701,14 @@ namespace PLNTSUM {
         screen->buttons[7] = fields::Add_Radio_Button_Field(441, 358, "", screen->pics[8], &filter_out_planets_out_of_range, "5", 41);
 
         if (Send_Colony_Button_Selectable()) {
-            screen->buttons[8] = fields::Add_Hidden_Field(386, 408, 609, 413, "C", 41);
+            // The drawn buttons (PLNTSUM.LBX 9 and 10, 156x23 and 157x25 at 454,386 and 454,413).
+            screen->buttons[8] = fields::Add_Hidden_Field(454, 386, 609, 408, "C", 41);
         } else {
             screen->buttons[8] = -1000;
         }
 
         if (Send_Outpost_Button_Selectable()) {
-            screen->buttons[9] = fields::Add_Hidden_Field(413, 437, 610, 442, "O", 41);
+            screen->buttons[9] = fields::Add_Hidden_Field(454, 413, 610, 437, "O", 41);
         } else {
             screen->buttons[9] = -1000;
         }
