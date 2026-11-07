@@ -1993,6 +1993,16 @@ namespace PLNTSUM {
             MOX::screen_seg, sizeof(*p_rotating_planet) * PLANET_PICTURE_COUNT, alignof(s_animation_header*));
         Load_Planet_Pictures();
         Determine_Button_Status();
+        // Open with nothing armed: Determine_Button_Status arms the send button it prefers, which
+        // suits its calls after a send or recall, but on entry a click on a planet would then send a
+        // ship the player never chose to send.
+        if (draw_colony_button_status == 2) {
+            draw_colony_button_status = 1;
+        }
+        if (draw_outpost_button_status == 2) {
+            draw_outpost_button_status = 1;
+        }
+        send_choice = -1;
 
         do {
             int16_t prev_sort_choice = sort_choice;
