@@ -300,10 +300,23 @@ namespace godot {
             const int64_t now = (int64_t)Time::get_singleton()->get_ticks_msec();
             if (legacy_wait_start_ms_ < 0) {
                 legacy_wait_start_ms_ = now;
+                legacy_ready_generation_ = 0;
                 get_viewport()->set_disable_input(true);
             }
+            // The first frames after the handover can still be the previous legacy screen: the page
+            // the new screen inherits, presented while it fades and loads its palette, so in the
+            // wrong colours (owner, 2026-11-07: a one-frame flash when cycling the bar's screens).
+            // So wait until the screen has drawn: it polls input at the top of its loop, so after
+            // two polls one pass has drawn and presented. Then show the frame current at that point.
+            if (legacy_ready_generation_ == 0 && antares::native::Polls() >= antares::native::Leave_Polls() + 2) {
+                legacy_ready_generation_ = std::max<uint64_t>(antares::host::Frame_Generation(), 1);
+            }
+            const bool drawn = legacy_ready_generation_ != 0 && frame_generation_ >= legacy_ready_generation_;
+            // A screen that presents without polling (a movie) shows once its frames keep coming.
+            constexpr uint64_t kRunningFrames = 8;
+            const bool running = frame_generation_ >= antares::native::Leave_Frame_Generation() + kRunningFrames;
             // A request (a message box) means the legacy side waits for an answer: stop holding.
-            hold = frame_generation_ <= antares::native::Leave_Frame_Generation() && now - legacy_wait_start_ms_ < kLegacyWaitMs && !antares::native::Request_Pending();
+            hold = !drawn && !running && now - legacy_wait_start_ms_ < kLegacyWaitMs && !antares::native::Request_Pending();
         }
         if (!hold && legacy_wait_start_ms_ >= 0) {
             legacy_wait_start_ms_ = -1;

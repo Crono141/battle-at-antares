@@ -57,6 +57,10 @@ namespace antares::native {
     // a legacy screen. Until a newer frame arrives, the legacy frame still shows what was on screen
     // before the native view took over (the old galaxy), so the frontend keeps its native view up.
     uint64_t Leave_Frame_Generation();
+    // Input polls (antares::input_trace) counted when the native view handed over, and now. The
+    // legacy screen has drawn and presented once it has polled twice since.
+    uint64_t Leave_Polls();
+    uint64_t Polls();
 
     struct s_request {
         uint64_t id = 0;

@@ -259,6 +259,10 @@ func _smoke_native() -> void:
 		await _smoke_fail("never reached the native galaxy")
 		return
 	print("smoke: native galaxy after %.1f s, packs %s" % [(Time.get_ticks_msec() - t0) / 1000.0, _loaded_packs])
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--flash="):
+			await _smoke_flash(arg.substr(8))
+			return
 	var empire: Dictionary = await _query("empire")
 	print("smoke: empire %s" % empire)
 	if not await _smoke_galaxy(shots):
@@ -481,6 +485,42 @@ func _smoke_fail(why: String) -> void:
 	game.request_game_quit()
 	await get_tree().create_timer(15.0).timeout
 	get_tree().quit(1)
+
+
+## The subscreen flash (owner, 2026-11-07): `-- --smoke --native --flash=<dir>` opens each of the
+## bar's legacy screens from the native galaxy, twice round, and saves every legacy frame shown in
+## the first 1.5 s after the switch (`<dir>/<round>-<screen>-<n>.png`), so a frame of the previous
+## screen shows up as file 0.
+func _smoke_flash(dir: String) -> void:
+	DirAccess.make_dir_recursive_absolute(dir)
+	for pass_i in 2:
+		for screen in [Screens.COLONY_SUMMARY, 32, 4, 29, 6, 9]:
+			_send({"verb": "open", "screen": screen})
+			var t_open := Time.get_ticks_msec()
+			while native_screen != Screens.LEGACY and Time.get_ticks_msec() - t_open < 10000:
+				await get_tree().process_frame
+			var t_shown := Time.get_ticks_msec()
+			var last_frames := -1
+			var n := 0
+			while Time.get_ticks_msec() - t_shown < 1500 and n < 12:
+				var frames: int = game.get_stats().frames
+				if frames != last_frames:
+					last_frames = frames
+					game.get_frame_image().save_png("%s/%d-%02d-%02d.png" % [dir, pass_i, screen, n])
+					n += 1
+				await get_tree().process_frame
+			print("smoke: flash round %d screen %d: %d frames saved" % [pass_i, screen, n])
+			var closing := 0.0
+			while native_screen != Screens.MAIN and closing < 20.0:
+				game.send_key(KEY_ESCAPE, false, false, false)
+				await get_tree().create_timer(1.0).timeout
+				closing += 1.0
+			if native_screen != Screens.MAIN:
+				await _smoke_fail("screen %d did not close back to the native galaxy" % screen)
+				return
+	game.request_game_quit()
+	await get_tree().create_timer(15.0).timeout
+	get_tree().quit()
 
 
 ## Headless check (`-- --smoke`): the game boots, frames arrive, input reaches the legacy screen;
