@@ -18,6 +18,8 @@ jobs:
     env:
       CC: /usr/bin/clang
       CXX: /usr/bin/clang++
+      # The runner's own macOS otherwise; 11 (Big Sur) is the first release for Apple Silicon.
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -42,6 +44,7 @@ jobs:
             fi
             codesign --verify --verbose "$B"
             vtool -show-build "$B" | grep -E 'minos|platform'
+            vtool -show-build "$B" | grep -qE 'minos 11\.0$' || { echo "$B needs a newer macOS than 11" >&2; exit 1; }
           done
       - name: Stage
         run: |
