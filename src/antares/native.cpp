@@ -38,6 +38,7 @@ namespace antares::native {
         bool s_answered = false;
         int32_t s_answer = 0;
         std::vector<std::string> s_packs;
+        std::vector<std::string> s_package_ids; // highest priority first
         uint64_t s_packs_generation = 0;
         std::deque<std::string> s_snapshots;
         struct s_sprite_request {
@@ -472,6 +473,11 @@ namespace antares::native {
         return s_packs;
     }
 
+    std::vector<std::string> Packages() {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        return s_package_ids;
+    }
+
     void Update_Packages() {
         if (!host::Active()) {
             return;
@@ -502,9 +508,14 @@ namespace antares::native {
             }
             packs.insert(packs.end(), found.begin(), found.end());
         }
+        std::vector<std::string> ids;
+        for (const auto& source : sources) {
+            ids.push_back(source.package_id);
+        }
         std::lock_guard<std::mutex> lock(s_mutex);
-        if (packs != s_packs || s_packs_generation == 0) {
+        if (packs != s_packs || ids != s_package_ids || s_packs_generation == 0) {
             s_packs = std::move(packs);
+            s_package_ids = std::move(ids);
             ++s_packs_generation;
         }
     }

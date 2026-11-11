@@ -3,7 +3,7 @@ extends Node2D
 ## gives one disc per known colony star, its radius from the owner's ship range; each empire's
 ## discs go into their own CanvasGroup, whose shader draws the union as a fill and a border.
 
-const SHADER := preload("res://galaxy/influence.gdshader")
+const SHADER := preload("influence.gdshader")
 const FILL := 0.12
 
 @onready var galaxy: Node2D = get_parent()

@@ -18,7 +18,7 @@ const ETA_LEGACY_PIXELS := 6.0
 const PREVIEW_OK := Color(0.35, 1.0, 0.35, 1.0)
 const PREVIEW_BLOCKED := Color(1.0, 0.25, 0.2, 1.0)
 const SELECTED_FRAME := Color(1.0, 1.0, 1.0, 0.9)
-const Links := preload("res://galaxy/links.gd")
+const Links := preload("links.gd")
 
 @onready var galaxy: Node2D = get_parent()
 

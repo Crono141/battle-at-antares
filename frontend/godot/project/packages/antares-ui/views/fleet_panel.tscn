@@ -1,6 +1,6 @@
 [gd_scene load_steps=5 format=3]
 
-[ext_resource type="Script" path="res://views/fleet_panel.gd" id="1_panel"]
+[ext_resource type="Script" path="res://packages/antares-ui/views/fleet_panel.gd" id="1_panel"]
 
 [sub_resource type="StyleBoxFlat" id="panel_box"]
 bg_color = Color(0.03, 0.05, 0.09, 0.92)

@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://views/dialog.gd" id="1"]
+[ext_resource type="Script" path="res://packages/antares-ui/views/dialog.gd" id="1"]
 
 [node name="Dialog" type="PanelContainer"]
 custom_minimum_size = Vector2(460, 0)

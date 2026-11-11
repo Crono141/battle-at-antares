@@ -12,6 +12,7 @@ This is separate from [Using mods](../manual/legacy-modding/index.md), which exp
 | Change individual strings in supported LBX resources | [JSON5 string overrides](string-overrides.md) |
 | Replace graphics, sound, video, a complete text asset or LBX file, or one LBX entry | [VFS asset overrides](vfs-and-assets.md) |
 | Show high-resolution art in place of sprites (Battle at Antares) | [HD art packs](art-packs.md) |
+| Replace screens with your own views in the Godot build (Battle at Antares) | [UI packages](ui-packages.md) |
 | Edit a text resource that uses inline layout, substitution, or style commands | [Text formatting](text-formatting.md) |
 | React to a supported game event or change a supported calculation | [Lua events and rules](events-and-api.md) |
 | Transform the generated galaxy through the supported topology API | Lua `galaxy_generator` service |

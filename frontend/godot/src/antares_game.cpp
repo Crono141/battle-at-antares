@@ -104,6 +104,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("get_native_visit"), &AntaresGame::get_native_visit);
         ClassDB::bind_method(D_METHOD("answer_request", "id", "value"), &AntaresGame::answer_request);
         ClassDB::bind_method(D_METHOD("get_resource_packs"), &AntaresGame::get_resource_packs);
+        ClassDB::bind_method(D_METHOD("get_packages"), &AntaresGame::get_packages);
         ClassDB::bind_method(D_METHOD("get_frame_image"), &AntaresGame::get_frame_image);
         ClassDB::bind_method(D_METHOD("request_sprite", "lbx", "entry"), &AntaresGame::request_sprite);
         ADD_PROPERTY(PropertyInfo(Variant::STRING, "game_dir", PROPERTY_HINT_GLOBAL_DIR), "set_game_dir", "get_game_dir");
@@ -428,6 +429,14 @@ namespace godot {
         PackedStringArray out;
         for (const std::string& path : antares::native::Resource_Packs(nullptr)) {
             out.push_back(String::utf8(path.c_str()));
+        }
+        return out;
+    }
+
+    PackedStringArray AntaresGame::get_packages() const {
+        PackedStringArray out;
+        for (const std::string& id : antares::native::Packages()) {
+            out.push_back(String::utf8(id.c_str()));
         }
         return out;
     }

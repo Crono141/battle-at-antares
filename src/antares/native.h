@@ -88,6 +88,10 @@ namespace antares::native {
     // changes when the package set changes.
     std::vector<std::string> Resource_Packs(uint64_t* generation);
 
+    // The enabled packages' ids, highest priority first (D26: the frontend looks for a frontend
+    // package among them). Changes with the same generation as Resource_Packs.
+    std::vector<std::string> Packages();
+
     // ---- Game side (game thread) ----
 
     // Called by Screen_Control before a screen's handler. Returns true when the screen ran
