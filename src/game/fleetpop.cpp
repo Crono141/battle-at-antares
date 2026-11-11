@@ -1371,7 +1371,7 @@ namespace FLEETPOP {
 
     bool __cdecl Check_For_Colonization_Button() {
         const uint8_t colonize_button_flag =
-            FLEETPOP::Set_Colonize_Button_Flag(MOX::fleet_box.count);
+            FLEETPOP::Set_Colonize_Button_Flag(MOX::fleet_box_ship_stack, MOX::fleet_box.count);
 
         MOX::fleet_box.colonize_btn_active =
             static_cast<int8_t>(colonize_button_flag);
@@ -1381,7 +1381,7 @@ namespace FLEETPOP {
 
     bool __cdecl Check_For_Transport_Troops_Button(void) {
         const uint8_t transport_button_state =
-            FLEETPOP::Set_Transport_Troops_Flag(MOX::fleet_box.count);
+            FLEETPOP::Set_Transport_Troops_Flag(MOX::fleet_box_ship_stack, MOX::fleet_box.count);
 
         MOX::fleet_box.transport_btn_active =
             static_cast<int8_t>(transport_button_state);
@@ -1391,7 +1391,7 @@ namespace FLEETPOP {
 
     bool __cdecl Check_For_Build_Outpost_Button() {
         const uint8_t outpost_button_flag =
-            FLEETPOP::Set_Build_Outpost_Button_Flag(MOX::fleet_box.count);
+            FLEETPOP::Set_Build_Outpost_Button_Flag(MOX::fleet_box_ship_stack, MOX::fleet_box.count);
 
         MOX::fleet_box.outpost_btn_active =
             static_cast<int8_t>(outpost_button_flag);
@@ -1401,7 +1401,7 @@ namespace FLEETPOP {
 
     bool __cdecl Check_For_Engage_Enemy_Forces_Button(void) {
         const uint8_t engage_btn_active =
-            FLEETPOP::Set_Engage_Enemy_Forces_Flag(MOX::fleet_box.count);
+            FLEETPOP::Set_Engage_Enemy_Forces_Flag(MOX::fleet_box_ship_stack, MOX::fleet_box.count);
 
         MOX::fleet_box.engage_btn_active =
             static_cast<int8_t>(engage_btn_active);
@@ -1410,7 +1410,7 @@ namespace FLEETPOP {
     }
 
     bool __cdecl Check_For_Attack_Antares_Button() {
-        const uint8_t attack_btn_active = FLEETPOP::Set_Attack_Antares_Button_Flag();
+        const uint8_t attack_btn_active = FLEETPOP::Set_Attack_Antares_Button_Flag(MOX::fleet_box_ship_stack);
         MOX::fleet_box.attack_btn_active = static_cast<int8_t>(attack_btn_active);
         return attack_btn_active != 0;
     }
@@ -1452,12 +1452,12 @@ namespace FLEETPOP {
         *info_type = 2;
     }
 
-    uint8_t __cdecl Set_Build_Outpost_Button_Flag(int16_t ship_count) {
-        if (MOX::fleet_box_ship_stack == -1) {
+    uint8_t __cdecl Set_Build_Outpost_Button_Flag(int16_t stack, int16_t ship_count) {
+        if (stack == -1) {
             return 0;
         }
 
-        int16_t current_node = MOX::ship_stack_start[MOX::fleet_box_ship_stack];
+        int16_t current_node = MOX::ship_stack_start[stack];
         int16_t ship_idx = MOX::ship_node[current_node].ship_idx;
         int16_t ship_owner = HACCESS::Ship_Owner(ship_idx);
         uint8_t can_build_outpost = 0;
@@ -1511,12 +1511,12 @@ namespace FLEETPOP {
         return can_build_outpost;
     }
 
-    int8_t __cdecl Set_Transport_Troops_Flag(int16_t ship_count) {
-        if (MOX::fleet_box_ship_stack == -1) {
+    int8_t __cdecl Set_Transport_Troops_Flag(int16_t stack, int16_t ship_count) {
+        if (stack == -1) {
             return 0;
         }
 
-        int16_t current_node = MOX::ship_stack_start[MOX::fleet_box_ship_stack];
+        int16_t current_node = MOX::ship_stack_start[stack];
         int16_t first_ship_idx = MOX::ship_node[current_node].ship_idx;
         int16_t first_ship_owner = HACCESS::Ship_Owner(first_ship_idx);
         int8_t transport_troops_flag = 0;
@@ -1574,13 +1574,13 @@ namespace FLEETPOP {
         return transport_troops_flag;
     }
 
-    bool __cdecl Set_Attack_Antares_Button_Flag(void) {
+    bool __cdecl Set_Attack_Antares_Button_Flag(int16_t stack) {
         bool found_matching_ship = false;
         bool has_dimensional_portal = false;
 
-        if (MOX::fleet_box_ship_stack != -1) {
+        if (stack != -1) {
             const int16_t selected_ship_idx =
-                MOX::ship_node[MOX::ship_stack_start[MOX::fleet_box_ship_stack]].ship_idx;
+                MOX::ship_node[MOX::ship_stack_start[stack]].ship_idx;
             const int16_t star_idx =
                 HAROLD::XY_To_Star_Id(MOX::ship[selected_ship_idx].x, MOX::ship[selected_ship_idx].y);
 
@@ -1619,12 +1619,12 @@ namespace FLEETPOP {
         return has_dimensional_portal;
     }
 
-    int8_t __cdecl Set_Colonize_Button_Flag(int16_t ship_count) {
-        if (MOX::fleet_box_ship_stack == -1) {
+    int8_t __cdecl Set_Colonize_Button_Flag(int16_t stack, int16_t ship_count) {
+        if (stack == -1) {
             return 0;
         }
 
-        int16_t current_node_index = MOX::ship_stack_start[MOX::fleet_box_ship_stack];
+        int16_t current_node_index = MOX::ship_stack_start[stack];
         int16_t ship_idx = MOX::ship_node[current_node_index].ship_idx;
         int16_t ship_owner = HACCESS::Ship_Owner(ship_idx);
         int8_t colonize_button_flag = 0;
@@ -1715,15 +1715,15 @@ namespace FLEETPOP {
         return is_colonizable;
     }
 
-    int8_t __cdecl Set_Engage_Enemy_Forces_Flag(int16_t ship_count) {
+    int8_t __cdecl Set_Engage_Enemy_Forces_Flag(int16_t stack, int16_t ship_count) {
         bool has_owned_combat_ship = false;
 
-        if (MOX::fleet_box_ship_stack == -1) {
+        if (stack == -1) {
             return 0;
         }
 
         int8_t engage_enemy_forces = 0;
-        int16_t stack_node_idx = MOX::ship_stack_start[MOX::fleet_box_ship_stack];
+        int16_t stack_node_idx = MOX::ship_stack_start[stack];
         int16_t primary_ship_idx = MOX::ship_node[stack_node_idx].ship_idx;
         int16_t primary_owner = HACCESS::Ship_Owner(primary_ship_idx);
         int16_t star_idx = MOX::ship[primary_ship_idx].location;

@@ -151,4 +151,5 @@ namespace SHIPS {
 
     /** Sends all currently selected ships in the fleet box to attack Antares. */
     int16_t __cdecl Deploy_Ships_To_Attack_Antares();
+    void __cdecl Deploy_Ships_To_Attack_Antares(int16_t* ship_list);
 } // namespace SHIPS

@@ -12,7 +12,7 @@ DOCTEST_TEST_CASE("fleet at last active star exposes build outpost button") {
     TEST_FLEETPOP::Reset_();
     MOX::ship[0].location = static_cast<int16_t>(MOX::NUM_STARS - 1);
 
-    DOCTEST_CHECK(FLEETPOP::Set_Build_Outpost_Button_Flag(1) == 1);
+    DOCTEST_CHECK(FLEETPOP::Set_Build_Outpost_Button_Flag(MOX::fleet_box_ship_stack, 1) == 1);
 }
 
 DOCTEST_TEST_CASE("build outpost button rejects invalid direct-star boundaries") {
@@ -29,7 +29,7 @@ DOCTEST_TEST_CASE("build outpost button rejects invalid direct-star boundaries")
         MOX::ship[0].location = location;
 
         DOCTEST_CAPTURE(location);
-        DOCTEST_CHECK(FLEETPOP::Set_Build_Outpost_Button_Flag(1) == 0);
+        DOCTEST_CHECK(FLEETPOP::Set_Build_Outpost_Button_Flag(MOX::fleet_box_ship_stack, 1) == 0);
     }
 }
 
@@ -38,7 +38,7 @@ DOCTEST_TEST_CASE("fleet en route does not expose build outpost button") {
     MOX::ship[0].location =
         static_cast<int16_t>(SHIP_LOCATION_WORMHOLE_OFFSET + 1);
 
-    DOCTEST_CHECK(FLEETPOP::Set_Build_Outpost_Button_Flag(1) == 0);
+    DOCTEST_CHECK(FLEETPOP::Set_Build_Outpost_Button_Flag(MOX::fleet_box_ship_stack, 1) == 0);
 }
 
 DOCTEST_TEST_CASE("fleet navigation is a no-op without ship stacks") {

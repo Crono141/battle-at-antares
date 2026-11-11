@@ -16,5 +16,7 @@ namespace antares::commands::internal {
 
     // WP3.3a: the galaxy's queries and commands (galaxy_queries.cpp).
     void Add_Galaxy_Entries(std::vector<s_entry>* table);
+    // WP3.3c: the fleet box and fleet orders (fleet_orders.cpp).
+    void Add_Fleet_Entries(std::vector<s_entry>* table);
 
 } // namespace antares::commands::internal

@@ -1,0 +1,140 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://views/fleet_panel.gd" id="1_panel"]
+
+[sub_resource type="StyleBoxFlat" id="panel_box"]
+bg_color = Color(0.03, 0.05, 0.09, 0.92)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.45, 0.52, 0.6, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+content_margin_left = 8.0
+content_margin_top = 6.0
+content_margin_right = 8.0
+content_margin_bottom = 8.0
+
+[sub_resource type="LabelSettings" id="title_text"]
+font_size = 18
+font_color = Color(0.45, 0.95, 0.45, 1)
+outline_size = 4
+outline_color = Color(0, 0, 0, 0.8)
+
+[sub_resource type="StyleBoxFlat" id="selected_ship"]
+bg_color = Color(0.1, 0.25, 0.75, 0.9)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.55, 0.75, 1, 1)
+
+[node name="FleetPanel" type="PanelContainer"]
+custom_minimum_size = Vector2(220, 0)
+offset_right = 220.0
+offset_bottom = 260.0
+theme_override_styles/panel = SubResource("panel_box")
+script = ExtResource("1_panel")
+
+[node name="Box" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="Box"]
+layout_mode = 2
+mouse_filter = 0
+mouse_default_cursor_shape = 13
+tooltip_text = "Drag to move"
+text = "Fleet"
+label_settings = SubResource("title_text")
+horizontal_alignment = 1
+
+[node name="Ships" type="ScrollContainer" parent="Box"]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Grid" type="GridContainer" parent="Box/Ships"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 4
+columns = 3
+
+[node name="ShipTemplate" type="Button" parent="Box"]
+visible = false
+custom_minimum_size = Vector2(64, 56)
+layout_mode = 2
+tooltip_text = "Ship: click to select it for orders"
+focus_mode = 0
+theme_override_styles/pressed = SubResource("selected_ship")
+theme_override_styles/hover_pressed = SubResource("selected_ship")
+toggle_mode = true
+icon_alignment = 1
+expand_icon = true
+
+[node name="Line" type="HBoxContainer" parent="Box"]
+layout_mode = 2
+
+[node name="All" type="Button" parent="Box/Line"]
+layout_mode = 2
+tooltip_text = "Select all the ships that can take orders, or none"
+focus_mode = 0
+text = "ALL"
+
+[node name="Status" type="Label" parent="Box/Line"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.45, 0.95, 0.45, 1)
+text = "Orbiting ..."
+horizontal_alignment = 1
+text_overrun_behavior = 3
+
+[node name="Orders" type="VBoxContainer" parent="Box"]
+layout_mode = 2
+
+[node name="Colonize" type="Button" parent="Box/Orders"]
+layout_mode = 2
+tooltip_text = "Found a colony with one of this fleet's colony ships"
+focus_mode = 0
+text = "Colonize planet"
+
+[node name="Outpost" type="Button" parent="Box/Orders"]
+layout_mode = 2
+tooltip_text = "Build an outpost with one of this fleet's outpost ships"
+focus_mode = 0
+text = "Build outpost"
+
+[node name="LandTroops" type="Button" parent="Box/Orders"]
+layout_mode = 2
+tooltip_text = "Land the selected transports' troops on a colony of yours here"
+focus_mode = 0
+text = "Land troops"
+
+[node name="Engage" type="Button" parent="Box/Orders"]
+layout_mode = 2
+tooltip_text = "Fight the enemy ships here next turn"
+focus_mode = 0
+text = "Engage"
+
+[node name="AttackAntares" type="Button" parent="Box/Orders"]
+layout_mode = 2
+tooltip_text = "Send the selected ships through the dimensional portal to Antares"
+focus_mode = 0
+text = "Attack Antares"
+
+[node name="Close" type="Button" parent="Box/Orders"]
+layout_mode = 2
+tooltip_text = "Close (Esc)"
+focus_mode = 0
+text = "Close"
+
+[node name="Planets" type="PopupMenu" parent="."]
+
+[node name="ConfirmColony" type="ConfirmationDialog" parent="."]
+title = "Colonize"
+ok_button_text = "Yes"
+cancel_button_text = "No"

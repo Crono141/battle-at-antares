@@ -748,7 +748,6 @@ namespace SHIPS {
 
     int16_t __cdecl Deploy_Ships_To_Attack_Antares(void) {
         int16_t selected_ship_indices[MAX_SHIPS];
-        s_ship_move_info move_info;
         int16_t selected_ship_count = 0;
 
         memset(selected_ship_indices, 0xFF, sizeof(selected_ship_indices));
@@ -762,9 +761,16 @@ namespace SHIPS {
             current_node = MOX::ship_node[current_node].next_node;
         }
 
-        SHIPMOVE::Ships_Try_To_Move_To(selected_ship_indices, MOX::NUM_STARS, &move_info);
-        SHIPMOVE::Make_Ships_Move_To(selected_ship_indices, MOX::NUM_STARS, &move_info);
+        Deploy_Ships_To_Attack_Antares(selected_ship_indices);
         return selected_ship_count;
+    }
+
+    // D25 argument form (WP3.3c): the ships by id, a -1-terminated list. The legacy form above
+    // passes the fleet box's selected ships in stack order, as it always collected them.
+    void __cdecl Deploy_Ships_To_Attack_Antares(int16_t* ship_list) {
+        s_ship_move_info move_info;
+        SHIPMOVE::Ships_Try_To_Move_To(ship_list, MOX::NUM_STARS, &move_info);
+        SHIPMOVE::Make_Ships_Move_To(ship_list, MOX::NUM_STARS, &move_info);
     }
 
 } // namespace SHIPS

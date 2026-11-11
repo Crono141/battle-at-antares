@@ -6,17 +6,17 @@ struct s_fleet_box;
 namespace FLEETPOP {
     void __cdecl Fleet_Movement_Scroll_Callback();
 
-    bool __cdecl Set_Attack_Antares_Button_Flag(void);
+    bool __cdecl Set_Attack_Antares_Button_Flag(int16_t stack);
 
-    int8_t __cdecl Set_Transport_Troops_Flag(int16_t ship_count);
+    int8_t __cdecl Set_Transport_Troops_Flag(int16_t stack, int16_t ship_count);
 
-    int8_t __cdecl Set_Colonize_Button_Flag(int16_t ship_count);
+    int8_t __cdecl Set_Colonize_Button_Flag(int16_t stack, int16_t ship_count);
 
-    uint8_t __cdecl Set_Build_Outpost_Button_Flag(int16_t ship_count);
+    uint8_t __cdecl Set_Build_Outpost_Button_Flag(int16_t stack, int16_t ship_count);
 
     uint8_t __cdecl Can_Build_Outpost(int16_t planet_idx);
 
-    int8_t __cdecl Set_Engage_Enemy_Forces_Flag(int16_t ship_count);
+    int8_t __cdecl Set_Engage_Enemy_Forces_Flag(int16_t stack, int16_t ship_count);
 
     int8_t __cdecl Planet_Is_Colonizable(int16_t planet_idx);
 

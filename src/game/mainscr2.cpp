@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/fleet_orders.h"
 
 namespace MAINSCR2 {
     s_mouse_list mouse_list_from[5] = {
@@ -348,7 +349,7 @@ namespace MAINSCR2 {
 
             if (found_outpost_ship) {
                 COLONIZE::Make_New_Outpost(new_outpost_star_id, MOX::PLAYER_NUM);
-                MOX::ship[outpost_ship_id].status = 5;
+                antares::fleet::Consume_Ship(outpost_ship_id); // Antares: the shared consume step (WP3.3c)
                 COLCALC::Update_Player_Stats(&MOX::player[MOX::PLAYER_NUM]);
 
                 if (MOX::fleet_box.count == 1) {
@@ -431,7 +432,7 @@ namespace MAINSCR2 {
                 }
 
                 COLONIZE::Make_New_Colony(planet_idx, MOX::PLAYER_NUM);
-                MOX::ship[ship_idx].status = 5;
+                antares::fleet::Consume_Ship(ship_idx); // Antares: the shared consume step (WP3.3c)
                 COLCALC::Update_Player_Stats(&MOX::player[MOX::PLAYER_NUM]);
 
                 if (MOX::fleet_box.count == 1) {

@@ -2,7 +2,9 @@ extends Node2D
 ## Fleets on the map (the `fleets` query): one icon per stack in its owner's colours, beside its
 ## star in the slot the legacy map gives it (the first empire right of the star, the second left,
 ## more below) or at its place in space; moving fleets the player can see draw a moving dashed line
-## to their destination (green for the player's, red for others) and their ETA in turns.
+## to their destination (green for the player's, red for others) and their ETA in turns. The
+## fleet whose panel is open is framed, with the route preview to the hovered star (WP3.3c: green
+## when the ships can go, red when something blocks them, as MAINSCR::Draw_ETA_Destination_Line).
 
 const OWN_LINE := Color(0.35, 0.95, 0.35, 0.9)
 const ENEMY_LINE := Color(1.0, 0.3, 0.25, 0.9)
@@ -13,6 +15,9 @@ const ICON_WIDTHS := {
 	"antaran": [16.0, 14.0, 9.0, 7.0],
 }
 const ETA_LEGACY_PIXELS := 6.0
+const PREVIEW_OK := Color(0.35, 1.0, 0.35, 1.0)
+const PREVIEW_BLOCKED := Color(1.0, 0.25, 0.2, 1.0)
+const SELECTED_FRAME := Color(1.0, 1.0, 1.0, 0.9)
 const Links := preload("res://galaxy/links.gd")
 
 @onready var galaxy: Node2D = get_parent()
@@ -40,6 +45,16 @@ func _draw() -> void:
 			var rect: Rect2 = placed[i]
 			Links.dashed_line(self, rect.get_center(), galaxy.star_position(int(fleet.destination)),
 				OWN_LINE if fleet.line == "own" else ENEMY_LINE, px, _time)
+	for i in galaxy.fleets.size():
+		var fleet: Dictionary = galaxy.fleets[i]
+		if int(fleet.ship) != galaxy.selected_fleet:
+			continue
+		var rect: Rect2 = placed[i]
+		draw_rect(rect.grow(2.0 * px), SELECTED_FRAME, false, 1.5 * px)
+		var preview: Dictionary = galaxy.preview
+		if not preview.is_empty() and preview.get("line", "") != "":
+			draw_line(rect.get_center(), galaxy.star_position(int(preview.star)),
+				PREVIEW_OK if preview.line == "ok" else PREVIEW_BLOCKED, 1.5 * px, true)
 	var font := ThemeDB.fallback_font
 	var font_size := int(round(ETA_LEGACY_PIXELS * galaxy.legacy_pixel()))
 	for i in galaxy.fleets.size():
@@ -55,6 +70,11 @@ func _draw() -> void:
 			draw_string_outline(font, Vector2(-width, font_size), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 4, Color(0, 0, 0, 0.8))
 			draw_string(font, Vector2(-width, font_size), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, galaxy.player_color(int(fleet.color)))
 			draw_set_transform(Vector2.ZERO)
+
+
+## The icon's rectangle in world units, for picking (galaxy.gd).
+func icon_rect(fleet: Dictionary) -> Rect2:
+	return _place(fleet)
 
 
 ## The icon's rectangle in world units (SHIPS::Get_XYs_For_Orbiting_Ships, simplified).

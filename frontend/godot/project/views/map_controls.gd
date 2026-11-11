@@ -1,8 +1,9 @@
 extends PanelContainer
 ## The galaxy's own controls (WP3.3a), each one a legacy key made visible (owner, 2026-11-05: every
 ## hidden key gets a control, its key in the tooltip): zoom (+ / -), the previous and next colony
-## systems (F6 / F5), the influence view (Alt+V), the distance tool (F9) and the game options
-## (Alt+F1..F8). A button's key is its shortcut, set from its "key" metadata ("F5", "Alt+V").
+## systems (F6 / F5), the previous and next fleets (F1 / F2, WP3.3c), merging relocations (F4),
+## the influence view (Alt+V), the distance tool (F9) and the game options (Alt+F1..F8). A
+## button's key is its shortcut, set from its "key" metadata ("F5", "Alt+V").
 ## View-only actions go to main.gd as `action`; the rest are commands to the game.
 
 signal command(dict: Dictionary)

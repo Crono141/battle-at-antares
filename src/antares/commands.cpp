@@ -324,7 +324,7 @@ namespace antares::commands {
                 {"command_points", e_kind::query, ANY_SCREEN, 1, "", Query_Command_Points},
                 {"ships", e_kind::query, ANY_SCREEN, 1, "star: star id (optional)", Query_Ships},
             };
-            static const bool galaxy_added = (internal::Add_Galaxy_Entries(&table), true);
+            static const bool galaxy_added = (internal::Add_Galaxy_Entries(&table), internal::Add_Fleet_Entries(&table), true);
             (void)galaxy_added;
             return table;
         }
