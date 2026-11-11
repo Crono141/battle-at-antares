@@ -5,7 +5,8 @@ extends Node
 ## boxes are native (WP3.1b): buttons send commands, the game thread runs them with the same rules
 ## calls as the legacy screens, and every screen not yet native opens through the legacy fallback.
 ## The galaxy is the home view (WP3.3a): the game's own art, its stars, fleets and lines from
-## watched queries, and the star system panel.
+## watched queries, and the star system panel. Fleets open the fleet panel (WP3.3c): selected
+## ships preview their route on the hovered star and move on a star click.
 
 @onready var game: AntaresGame = $UI/Legacy/Game
 @onready var legacy: Control = $UI/Legacy
@@ -24,6 +25,8 @@ var _pending := {} # command id -> Callable(result)
 var _loaded_packs := {}
 var _stats_time := 0.0
 var _panel_star := -1 # the star whose system panel is open (reopened after legacy screens)
+var _fleet_ship := -1 # the first ship of the fleet whose panel is open (reopened likewise)
+var _hovered_star := -1
 
 
 func _ready() -> void:
@@ -36,6 +39,9 @@ func _ready() -> void:
 	game.snapshot.connect(_on_snapshot)
 	game.resource_packs_changed.connect(_load_packs)
 	galaxy.star_clicked.connect(_on_star_clicked)
+	galaxy.fleet_clicked.connect(_open_fleet)
+	galaxy.star_hovered.connect(_on_star_hovered)
+	galaxy.right_clicked.connect(_end_relocating)
 	mode_button.pressed.connect(func(): _set_native(not native))
 	overlay.hide()
 	_set_native("--native" in OS.get_cmdline_user_args())
@@ -84,13 +90,18 @@ func _on_native_screen(screen: int) -> void:
 	var points := _view("command_points")
 	points.visible = screen == Screens.SHOW_COMMAND_POINTS
 	var system_panel := _view("system_panel")
+	var fleet_panel := _view("fleet_panel")
 	if screen == Screens.MAIN:
 		galaxy.camera.make_current()
 		_send({"verb": "query", "what": "view"}, galaxy.place_view)
 		if _panel_star >= 0:
 			_open_system(_panel_star) # refreshed: a colony screen may have changed it
+		if _fleet_ship >= 0:
+			_refresh_fleet()
 	else:
 		system_panel.hide()
+		fleet_panel.hide()
+		_end_relocating()
 		if screen == Screens.SHOW_COMMAND_POINTS:
 			_send({"verb": "query", "what": "command_points"}, points.show_result)
 	if screen == Screens.LEGACY:
@@ -111,6 +122,10 @@ func _view(scene_name: String) -> Control:
 			view.closed.connect(_on_view_closed.bind(scene_name))
 		if view.has_signal("action"):
 			view.action.connect(_on_view_action)
+		if view.has_signal("fleet_chosen"):
+			view.fleet_chosen.connect(_open_fleet)
+		if view.has_signal("selection_changed"):
+			view.selection_changed.connect(func(): _on_star_hovered(_hovered_star))
 		native_layer.add_child(view)
 		_views[scene_name] = view
 	return _views[scene_name]
@@ -140,12 +155,27 @@ func _on_view_action(action_name: String) -> void:
 		"influence":
 			$Galaxy/Influence.cycle()
 			_view("map_controls").show_influence(galaxy.influence_mode)
+		"fleet_next", "fleet_previous":
+			_cycle_fleet(0 if action_name == "fleet_next" else 1)
+		"merge_relocations":
+			if galaxy.relocating:
+				_end_relocating()
+			else:
+				_send({"verb": "merge_relocations"}, func(result: Dictionary):
+					galaxy.relocating = result.get("ready", false)
+					if galaxy.relocating:
+						Input.set_default_cursor_shape(Input.CURSOR_CROSS))
 
 
 func _on_view_closed(scene_name: String) -> void:
 	if scene_name == "system_panel":
 		_panel_star = -1
 		galaxy.selected = -1
+		galaxy.redraw()
+	elif scene_name == "fleet_panel":
+		_fleet_ship = -1
+		galaxy.selected_fleet = -1
+		galaxy.preview = {}
 		galaxy.redraw()
 
 
@@ -173,6 +203,8 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 			galaxy.set_galaxy(result)
 		"fleets":
 			galaxy.set_fleets(result)
+			if _fleet_ship >= 0 and native_screen == Screens.MAIN:
+				_refresh_fleet() # a turn, or an order, changed the fleets
 		"options":
 			_view("map_controls").show_options(result)
 
@@ -209,13 +241,29 @@ func _load_packs() -> void:
 			_views.erase(scene_name)
 
 
-## A star click: the game decides, as the legacy map does, whether it opens the player's colony
-## there (a legacy screen for now) or the system panel.
+## A star click: with F4's mode on it takes the merged relocations; with ships selected in the
+## fleet panel it moves them there (black holes do nothing, as on the legacy map); otherwise the
+## game decides, as the legacy map does, whether it opens the player's colony there (a legacy
+## screen for now) or the system panel.
 func _on_star_clicked(star_id: int) -> void:
+	if galaxy.relocating:
+		_end_relocating()
+		_send({"verb": "merge_relocations", "star": star_id})
+		return
+	var fleet_panel := _view("fleet_panel")
+	var ships: Array = fleet_panel.selected_ships() if fleet_panel.visible else []
+	if not ships.is_empty():
+		if not galaxy.stars[star_id].black_hole:
+			_send({"verb": "move", "ships": ships, "star": star_id}, func(result: Dictionary):
+				galaxy.preview = {}
+				fleet_panel.order_done(result))
+		return
 	_send({"verb": "select_star", "star": star_id}, _on_star_selected)
 
 
 func _on_star_selected(result: Dictionary) -> void:
+	if result.get("ok", false) and result.get("opened", "") != "none":
+		_view("fleet_panel").dismiss() # the game closed the fleet box for the system box
 	if result.get("ok", false) and result.get("opened", "") == "system":
 		_open_system(int(result.star))
 		if not galaxy.get_viewport_rect().has_point(galaxy.get_global_transform_with_canvas() * galaxy.star_position(int(result.star))):
@@ -234,6 +282,98 @@ func _open_system(star_id: int) -> void:
 		system_panel.show_system(result, galaxy.legacy_pixel() * 0.85)
 		if not was_visible:
 			_place_panel(system_panel, star_id))
+
+
+## Opens a fleet's panel (a map icon, the system panel's fleets, F1/F2): the game keeps the
+## fleet box record and closes the system box, then the `fleet` query fills the panel.
+func _open_fleet(ship_id: int) -> void:
+	_send({"verb": "open_fleet", "fleet": ship_id}, func(opened: Dictionary):
+		if not opened.get("ok", false):
+			return
+		_view("system_panel").dismiss()
+		_send({"verb": "query", "what": "fleet", "ship": int(opened.ship)}, func(result: Dictionary):
+			if not result.get("ok", false) or native_screen != Screens.MAIN:
+				return
+			var fleet_panel := _view("fleet_panel")
+			var was_visible := fleet_panel.visible
+			fleet_panel.show_fleet(result, true)
+			_fleet_ship = int(result.ship)
+			galaxy.selected_fleet = _fleet_ship
+			galaxy.redraw()
+			if not was_visible:
+				_place_fleet_panel(fleet_panel, Vector2(float(result.x), float(result.y)))))
+
+
+## The panel's fleet again (after a turn, an order elsewhere or a legacy screen); closed when it
+## is gone.
+func _refresh_fleet() -> void:
+	var fleet_panel := _view("fleet_panel")
+	_send({"verb": "query", "what": "fleet", "ship": _fleet_ship}, func(result: Dictionary):
+		if native_screen != Screens.MAIN:
+			return
+		if not result.get("ok", false):
+			fleet_panel.close()
+			return
+		fleet_panel.show_fleet(result)
+		_fleet_ship = int(result.ship)
+		galaxy.selected_fleet = _fleet_ship
+		galaxy.redraw())
+
+
+## F1 / F2: the previous or next fleet of the open fleet's owner, or the player's first fleet.
+func _cycle_fleet(dir: int) -> void:
+	var from := _fleet_ship
+	if from < 0:
+		for fleet: Dictionary in galaxy.fleets:
+			if int(fleet.owner) == int(galaxy.data.get("player", -1)):
+				_open_fleet(int(fleet.ship))
+				return
+		return
+	_send({"verb": "query", "what": "next_fleet", "fleet": from, "dir": dir}, func(result: Dictionary):
+		if result.get("ok", false) and int(result.ship) >= 0:
+			_open_fleet(int(result.ship))
+			galaxy.focus_point(_fleet_position(int(result.ship))))
+
+
+func _fleet_position(ship_id: int) -> Vector2:
+	for fleet: Dictionary in galaxy.fleets:
+		if int(fleet.ship) == ship_id:
+			return Vector2(float(fleet.x), float(fleet.y))
+	return galaxy.camera.position
+
+
+## The route preview for the hovered star while the fleet panel has ships selected.
+func _on_star_hovered(star_id: int) -> void:
+	_hovered_star = star_id
+	var fleet_panel := _view("fleet_panel")
+	var ships: Array = fleet_panel.selected_ships() if fleet_panel.visible else []
+	if star_id < 0 or ships.is_empty() or galaxy.relocating:
+		if not galaxy.preview.is_empty():
+			galaxy.preview = {}
+			galaxy.redraw()
+		fleet_panel.show_preview({})
+		return
+	_send({"verb": "query", "what": "move_preview", "ships": ships, "star": star_id}, func(result: Dictionary):
+		if star_id != _hovered_star:
+			return # the pointer has moved on
+		galaxy.preview = {"star": star_id, "line": result.get("line", "")} if result.get("ok", false) else {}
+		galaxy.redraw()
+		fleet_panel.show_preview(result))
+
+
+func _end_relocating() -> void:
+	if galaxy.relocating:
+		galaxy.relocating = false
+		Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+
+
+## The fleet panel beside the fleet, on the side of the window away from it.
+func _place_fleet_panel(fleet_panel: Control, world: Vector2) -> void:
+	var view := get_viewport().get_visible_rect().size
+	var at: Vector2 = galaxy.get_global_transform_with_canvas() * world
+	var x := view.x - fleet_panel.size.x - 24.0 if at.x < view.x * 0.5 else 24.0
+	var y := clampf(at.y - fleet_panel.size.y * 0.5, 56.0, view.y - fleet_panel.size.y - 80.0)
+	fleet_panel.position = Vector2(x, y)
 
 
 ## Beside the star, on the side of the window away from it (the legacy box takes the quadrant away
@@ -436,10 +576,122 @@ func _smoke_galaxy(shots: String) -> bool:
 	await get_tree().create_timer(1.0).timeout
 	print("smoke: F5 from %d: panel %s, star %d, screen %d" % [before, system_panel.visible, galaxy.selected, native_screen])
 	system_panel.close()
+	if not await _smoke_fleet(shots):
+		return false
 	galaxy._view_placed = false
 	_send({"verb": "query", "what": "view"}, galaxy.place_view)
 	await get_tree().create_timer(0.5).timeout
 	return true
+
+
+## The fleet panel (WP3.3c): the player's first fleet opens with its ships, a route preview to
+## another star answers, ALL clears the selection, and the panel closes.
+func _smoke_fleet(shots: String) -> bool:
+	var own := -1
+	for fleet: Dictionary in galaxy.fleets:
+		if int(fleet.owner) == int(galaxy.data.player) and not fleet.moving:
+			own = int(fleet.ship)
+			break
+	if own < 0:
+		print("smoke: no fleet of the player's at a star; fleet panel not checked")
+		return true
+	_open_fleet(own)
+	var fleet_panel := _view("fleet_panel")
+	var waited := 0.0
+	while not fleet_panel.visible and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if not fleet_panel.visible:
+		await _smoke_fail("fleet %d did not open its panel" % own)
+		return false
+	var ships: Array = fleet_panel.selected_ships()
+	print("smoke: fleet panel '%s', %d ships, %d selected, status '%s', buttons %s" % [fleet_panel.title.text,
+		fleet_panel.fleet.ships.size(), ships.size(), fleet_panel.status.text, fleet_panel.fleet.buttons])
+	var target := -1
+	for s: Dictionary in galaxy.stars:
+		if int(s.id) != int(fleet_panel.fleet.star) and not s.black_hole:
+			target = int(s.id)
+			break
+	if not ships.is_empty() and target >= 0:
+		_on_star_hovered(target)
+		await get_tree().create_timer(0.5).timeout
+		print("smoke: preview to %d: line '%s', status '%s'" % [target, galaxy.preview.get("line", ""), fleet_panel.status.text])
+		if galaxy.preview.is_empty():
+			await _smoke_fail("no route preview")
+			return false
+	await get_tree().create_timer(1.0).timeout # ship pictures
+	if shots != "":
+		await _shot(shots + "/native-fleet-panel.png")
+	if "--fleet-orders" in OS.get_cmdline_user_args():
+		return await _smoke_fleet_orders(shots)
+	if not ships.is_empty():
+		fleet_panel._on_all()
+		print("smoke: after ALL, %d selected" % fleet_panel.selected_ships().size())
+	fleet_panel.close()
+	_on_star_hovered(-1)
+	return true
+
+
+## `--fleet-orders` (a save with a fleet that can colonise, such as fixture SAVE6): colonise
+## through the panel's button and confirmation, then move the next fleet by a star click.
+func _smoke_fleet_orders(shots: String) -> bool:
+	var fleet_panel := _view("fleet_panel")
+	var colonized := false
+	for fleet: Dictionary in galaxy.fleets.duplicate():
+		if int(fleet.owner) != int(galaxy.data.player) or fleet.moving:
+			continue
+		_open_fleet(int(fleet.ship))
+		await get_tree().create_timer(0.5).timeout
+		if not fleet_panel.visible or not fleet_panel.fleet.buttons.colonize:
+			continue
+		var before: Dictionary = await _query("empire")
+		fleet_panel.get_node("Box/Orders/Colonize").pressed.emit()
+		var picker: PopupMenu = fleet_panel.planets
+		await get_tree().create_timer(0.5).timeout
+		if picker.visible:
+			picker.id_pressed.emit(picker.get_item_id(0))
+			picker.hide()
+			await get_tree().create_timer(0.5).timeout
+		var confirm: ConfirmationDialog = fleet_panel.confirm_colony
+		print("smoke: colonise confirmation '%s'" % confirm.dialog_text.replace("\n", " | "))
+		if shots != "":
+			await _shot(shots + "/native-colonize-confirm.png")
+		confirm.confirmed.emit()
+		confirm.hide()
+		await get_tree().create_timer(1.0).timeout
+		var after: Dictionary = await _query("empire")
+		print("smoke: colonised from fleet %d: freighters %d -> %d, panel %s" % [int(fleet.ship),
+			int(before.freighters), int(after.freighters), fleet_panel.visible])
+		colonized = true
+		break
+	if not colonized:
+		await _smoke_fail("no fleet could colonise")
+		return false
+	# Move: the first fleet of the player's at a star, all ships, to the nearest other star.
+	for fleet: Dictionary in galaxy.fleets:
+		if int(fleet.owner) != int(galaxy.data.player) or fleet.moving or int(fleet.star) < 0:
+			continue
+		_open_fleet(int(fleet.ship))
+		await get_tree().create_timer(0.5).timeout
+		if fleet_panel.selected_ships().is_empty():
+			fleet_panel._on_all()
+		var from: Vector2 = galaxy.star_position(int(fleet.star))
+		var target := -1
+		var best := INF
+		for s: Dictionary in galaxy.stars:
+			var d := from.distance_to(Vector2(float(s.x), float(s.y)))
+			if int(s.id) != int(fleet.star) and not s.black_hole and d < best:
+				best = d
+				target = int(s.id)
+		_on_star_clicked(target)
+		await get_tree().create_timer(1.0).timeout
+		print("smoke: moved fleet %d to star %d: status '%s'" % [int(fleet.ship), target, fleet_panel.status.text])
+		if shots != "":
+			await _shot(shots + "/native-fleet-moved.png")
+		fleet_panel.close()
+		return true
+	await _smoke_fail("no fleet to move")
+	return false
 
 
 func _click_game(at: Vector2) -> void:

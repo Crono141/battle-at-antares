@@ -59,6 +59,35 @@ text = "Colony ▶"
 metadata/key = "F5"
 metadata/action = "colony_next"
 
+[node name="Fleets" type="HBoxContainer" parent="Box"]
+layout_mode = 2
+
+[node name="Previous" type="Button" parent="Box/Fleets"]
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Previous fleet"
+focus_mode = 0
+text = "◀ Fleet"
+metadata/key = "F1"
+metadata/action = "fleet_previous"
+
+[node name="Next" type="Button" parent="Box/Fleets"]
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Next fleet"
+focus_mode = 0
+text = "Fleet ▶"
+metadata/key = "F2"
+metadata/action = "fleet_next"
+
+[node name="Relocations" type="Button" parent="Box"]
+layout_mode = 2
+tooltip_text = "Send all new ships to one star: press, then click the star (right click cancels)"
+focus_mode = 0
+text = "Merge relocations"
+metadata/key = "F4"
+metadata/action = "merge_relocations"
+
 [node name="Influence" type="Button" parent="Box"]
 layout_mode = 2
 tooltip_text = "Show empires' influence: off, filled, borders"

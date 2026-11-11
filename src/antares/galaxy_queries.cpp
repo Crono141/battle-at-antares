@@ -89,6 +89,9 @@ namespace antares::commands::internal {
         void Record_System_Box(int16_t star) {
             FLEETPOP::Set_Fleet_Movement_Icon_Selections(0, 0); // a later star click can't move ships
             MOX::moveable_box[0].id = star;
+            if (MOVEBOX::Moveable_Box_Selected(2)) {
+                MOVEBOX::Vanish_Fleet_Movement_Box(); // the system box replaces the fleet box (WP3.3c)
+            }
             MAINSCR::Set_Popup_Draw_XY(0, star, &MOX::moveable_box[0].x, &MOX::moveable_box[0].y);
             MOVEBOX::Move_Box_To_Top(0);
         }

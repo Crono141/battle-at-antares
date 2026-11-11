@@ -8,8 +8,15 @@ extends Node2D
 ## Stars, Fleets, Labels. They read the data kept here (the `galaxy` and `fleets` queries) and the
 ## level-of-detail helpers below, which reproduce the legacy map's sizes at its four zoom levels and
 ## carry on smoothly in between, so the default view looks like the original.
+##
+## Fleets (WP3.3c): a click on a fleet icon opens it (repeated clicks on overlapping icons cycle
+## through them, as on the legacy map); the open fleet is framed, and with its ships selected the
+## hovered star shows the route preview line main.gd sets in `preview`.
 
 signal star_clicked(star_id: int)
+signal fleet_clicked(ship_id: int)
+signal star_hovered(star_id: int)
+signal right_clicked
 
 ## Banner colours by the game's player colour index (s_player.color).
 const PLAYER_COLORS := [
@@ -37,6 +44,10 @@ var stars: Array = []
 var fleets: Array = [] # the `fleets` query's list
 var selected := -1 # the star whose system panel is open
 var influence_mode := 0 # as the legacy V key: 0 off, 1 filled, 2 borders only
+var selected_fleet := -1 # the first ship of the fleet whose panel is open
+var preview := {} # the route preview: {"star": id, "line": "ok" or "blocked"}
+var relocating := false # F4: the next star click merges relocations there
+var _hovered_star := -1
 
 var _view_placed := false
 var _target_zoom := 1.0
@@ -199,9 +210,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				zoom_by(1.2 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.2, button.position)
 			get_viewport().set_input_as_handled()
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
-			# As the legacy map: a right click centres the map there.
+			# As the legacy map: a right click centres the map there (or cancels F4's mode).
 			if button.pressed:
-				focus_point(_screen_to_world(button.position))
+				if relocating:
+					right_clicked.emit()
+				else:
+					focus_point(_screen_to_world(button.position))
 			get_viewport().set_input_as_handled()
 		elif button.button_index == MOUSE_BUTTON_LEFT:
 			if button.pressed:
@@ -211,12 +225,20 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				_dragging = false
 				if not _drag_moved:
+					var fleet := _pick_fleet(button.position)
 					var star := pick(button.position)
-					if star >= 0:
+					if fleet >= 0 and not relocating:
+						fleet_clicked.emit(fleet)
+					elif star >= 0:
 						star_clicked.emit(star)
 			get_viewport().set_input_as_handled()
 		return
 	var motion := event as InputEventMouseMotion
+	if motion and not _dragging:
+		var star := pick(motion.position)
+		if star != _hovered_star:
+			_hovered_star = star
+			star_hovered.emit(star)
 	if motion and _dragging:
 		if motion.position.distance_to(_press_pos) > 4.0:
 			_drag_moved = true
@@ -241,6 +263,21 @@ func pick(screen: Vector2) -> int:
 			best_d = d
 			best = int(star.id)
 	return best
+
+
+## The fleet icon under a screen point (its first ship), or -1. Repeated clicks on icons that
+## overlap there cycle through them (SHIPS::Overlapped_Ship_Icon_Button).
+func _pick_fleet(screen: Vector2) -> int:
+	var world := _screen_to_world(screen)
+	var hits := []
+	for fleet: Dictionary in fleets:
+		var rect: Rect2 = $Fleets.icon_rect(fleet)
+		if rect.grow(2.0 * pixel()).has_point(world):
+			hits.append(int(fleet.ship))
+	if hits.is_empty():
+		return -1
+	var at := hits.find(selected_fleet)
+	return hits[(at + 1) % hits.size()] if at >= 0 else hits[0]
 
 
 ## Centres the camera on a star (F5/F6, the system panel).

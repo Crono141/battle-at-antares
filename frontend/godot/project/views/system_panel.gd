@@ -4,10 +4,11 @@ extends Control
 ## rotating planets, fleet and gate icons) at the places the legacy box uses, in the box picture's
 ## pixels scaled to the panel. Hovering a planet or fleet shows the box's own text in Info; a click
 ## on one of the player's colonies opens it; a right click on a planet shows its colony
-## information; drag the title to move the panel. Fleet clicks come with the fleet panel (WP3.3c).
+## information; drag the title to move the panel; a click on a fleet opens its fleet panel (WP3.3c).
 
 signal command(dict: Dictionary)
 signal closed
+signal fleet_chosen(ship_id: int)
 
 ## The box picture's size in its own pixels.
 const BOX_SIZE := Vector2(347.0, 273.0)
@@ -70,9 +71,14 @@ func show_system(result: Dictionary, screen_scale: float) -> void:
 
 
 func close() -> void:
+	dismiss()
+	command.emit({"verb": "close_system"}) # the saved system box record (galaxy_queries.cpp)
+
+
+## Hides the panel without telling the game (opening a fleet closed the system box itself).
+func dismiss() -> void:
 	hide()
 	system = {}
-	command.emit({"verb": "close_system"}) # the saved system box record (galaxy_queries.cpp)
 	closed.emit()
 
 
@@ -212,6 +218,10 @@ func _gui_input(event: InputEvent) -> void:
 			var planet := _planet(int(hit.get_slice(":", 1)))
 			if planet.get("colony", {}).get("mine", false):
 				command.emit({"verb": "open_colony", "planet": int(planet.planet)})
+		elif hit.begins_with("fleet:"):
+			for fleet: Dictionary in system.get("fleets", []):
+				if "fleet:%d" % int(fleet.node) == hit:
+					fleet_chosen.emit(int(fleet.ship))
 		elif hit == "" and button.position.y < 22.0 * _unit():
 			_drag_from = button.position # the title bar
 	elif button.button_index == MOUSE_BUTTON_RIGHT and button.pressed:
