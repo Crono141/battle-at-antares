@@ -4,6 +4,7 @@
 
 #include "antares/commands.h"
 #include "antares/host.h"
+#include "antares/input_trace.h"
 #include "config/text_encoding.h"
 #include "miniz.h"
 #include "yyjson.h"
@@ -21,6 +22,7 @@ namespace antares::native {
         std::atomic<int16_t> s_native_screen{-1};
         std::atomic<uint64_t> s_native_visit{0};
         std::atomic<uint64_t> s_leave_frame{0};
+        std::atomic<uint64_t> s_leave_polls{0};
 
         struct s_command {
             uint64_t id = 0;
@@ -38,6 +40,13 @@ namespace antares::native {
         std::vector<std::string> s_packs;
         uint64_t s_packs_generation = 0;
         std::deque<std::string> s_snapshots;
+        struct s_sprite_request {
+            uint64_t id = 0;
+            std::string lbx;
+            int32_t entry = 0;
+        };
+        std::deque<s_sprite_request> s_sprite_requests;
+        std::deque<std::pair<uint64_t, sprites::s_sprite>> s_sprites;
 
         // Game thread only.
         std::string s_packages_key;
@@ -165,6 +174,33 @@ namespace antares::native {
                     std::to_string(++s_snapshot_seq) + ",\"result\":" + answer + "}";
                 std::lock_guard<std::mutex> lock(s_mutex);
                 s_snapshots.push_back(std::move(snapshot));
+            }
+        }
+
+        // Exports queued sprites, for at most `budget_ms` (the first one always runs).
+        void Serve_Sprites(uint64_t budget_ms) {
+            const uint64_t start = SDL_GetTicks();
+            while (true) {
+                s_sprite_request request;
+                {
+                    std::lock_guard<std::mutex> lock(s_mutex);
+                    if (s_sprite_requests.empty()) {
+                        return;
+                    }
+                    request = std::move(s_sprite_requests.front());
+                    s_sprite_requests.pop_front();
+                }
+                sprites::s_sprite sprite;
+                if (!sprites::Export(request.lbx, request.entry, &sprite)) {
+                    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "native: sprite %s %d: %s", request.lbx.c_str(), (int)request.entry, sprite.error.c_str());
+                }
+                {
+                    std::lock_guard<std::mutex> lock(s_mutex);
+                    s_sprites.emplace_back(request.id, std::move(sprite));
+                }
+                if (SDL_GetTicks() - start >= budget_ms) {
+                    return;
+                }
             }
         }
 
@@ -384,6 +420,14 @@ namespace antares::native {
         return s_leave_frame;
     }
 
+    uint64_t Leave_Polls() {
+        return s_leave_polls;
+    }
+
+    uint64_t Polls() {
+        return input_trace::Polls();
+    }
+
     bool Take_Request(s_request* request) {
         std::lock_guard<std::mutex> lock(s_mutex);
         if (s_requests.empty()) {
@@ -400,6 +444,24 @@ namespace antares::native {
             s_answered = true;
             s_answer = value;
         }
+    }
+
+    uint64_t Request_Sprite(const std::string& lbx, int32_t entry) {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        const uint64_t id = s_next_id++;
+        s_sprite_requests.push_back({id, lbx, entry});
+        return id;
+    }
+
+    bool Take_Sprite(uint64_t* id, sprites::s_sprite* sprite) {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (s_sprites.empty()) {
+            return false;
+        }
+        *id = s_sprites.front().first;
+        *sprite = std::move(s_sprites.front().second);
+        s_sprites.pop_front();
+        return true;
     }
 
     std::vector<std::string> Resource_Packs(uint64_t* generation) {
@@ -467,6 +529,7 @@ namespace antares::native {
         // frontend showed a native view, and each checks the screen it needs.
         while (MOX::current_screen == screen && Claimed(screen)) {
             Tick();
+            Serve_Sprites(20);
             std::deque<s_command> commands;
             {
                 std::lock_guard<std::mutex> lock(s_mutex);
@@ -499,6 +562,7 @@ namespace antares::native {
             Leave_Galaxy();
         }
         Drop_Legacy_Input();
+        s_leave_polls = input_trace::Polls();
         s_leave_frame = host::Frame_Generation(); // before the screen, so the frontend never misses it
         s_native_screen = -1;
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: screen %d leaves for %d", (int)screen, (int)MOX::current_screen);

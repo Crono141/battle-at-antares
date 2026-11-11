@@ -12,6 +12,13 @@ func _ready() -> void:
 		var screen: int = button.get_meta("screen", -1)
 		button.pressed.connect(func(): command.emit({"verb": "open", "screen": screen}))
 	$Row/Turn.pressed.connect(func(): command.emit({"verb": "end_turn"}))
+	# The legacy galaxy's letter keys (WP3.3a), shown in each button's tooltip.
+	for button: Button in find_children("*", "Button", true, false):
+		if button.has_meta("key"):
+			var key := InputEventKey.new()
+			key.keycode = OS.find_keycode_from_string(String(button.get_meta("key")))
+			button.shortcut = Shortcut.new()
+			button.shortcut.events = [key]
 
 
 func show_empire(empire: Dictionary) -> void:

@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <vector>
+
 struct s_animation_header;
 
 namespace video {
@@ -279,6 +281,23 @@ namespace render {
     bool Parity_Enabled();
     void Parity_Check(const uint8_t* page, const video::s_palette_color* palette);
     bool Parity_Save(const char* screenshot_path);
+
+    // WP3.3a: the HD art of an LBX entry as plain images for a frontend (export.cpp). Each frame
+    // is its art at scale S, straight RGBA bytes, with its top-left `origin` in 1x pixels from the
+    // top-left of the entry's 1x frame (art may reach past it). Indexed pixels take their colour
+    // from `palette_rgb` (0xRRGGBB per index); full-colour pixels keep theirs.
+    struct s_exported_frame {
+        int32_t width = 0; // in S pixels
+        int32_t height = 0;
+        int32_t origin_x = 0; // in 1x pixels
+        int32_t origin_y = 0;
+        std::vector<uint8_t> rgba;
+    };
+    // Game thread. `loaded_entry` is the entry's bytes, registered with Register_Load. False when
+    // the HD pack has no art for the entry, or it didn't decode within `max_ms`: the caller then
+    // uses the 1x frames.
+    bool Export_Art(const char* lbx_name, int32_t entry, const s_animation_header* loaded_entry, const uint32_t* palette_rgb,
+        std::vector<s_exported_frame>* frames, uint32_t max_ms);
 
     // HD cutscenes on the parallel 4x screen (video.cpp).
     //

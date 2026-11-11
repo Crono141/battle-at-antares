@@ -582,12 +582,12 @@ namespace PLNTSUM {
         int16_t icon_w = animate::Get_Width(ship_icon);
         int16_t icon_h = animate::Get_Height(ship_icon);
 
-        // Calculate coordinates based on hardcoded offsets and row scaling
-        int16_t x1 = 100 /* 0x64 */ - icon_w;
-        int16_t y1 = (row_index * 55 /* 0x37 */) - icon_h + 82 /* 0x52 */;
+        // Where Draw_Colony_ETA draws the icon (the recovered field sat 2 pixels up and left of it).
+        int16_t x1 = 102 - icon_w;
+        int16_t y1 = plntscrn_delta_y[row_index] - icon_h + 84;
 
-        int16_t x2 = x1 + icon_w;
-        int16_t y2 = y1 + icon_h;
+        int16_t x2 = x1 + icon_w - 1;
+        int16_t y2 = y1 + icon_h - 1;
 
         // Register the field and store its handle
         *field_id = fields::Add_Hidden_Field(x1, y1, x2, y2, "", 0);
@@ -598,16 +598,11 @@ namespace PLNTSUM {
         int16_t width = animate::Get_Width(pic);
         int16_t height = animate::Get_Height(pic);
 
-        // Calculate top-left Y based on row index and animation height
-        int16_t y = (row_index * 55 - height) + 84;
+        // Where Draw_Outpost_ETA draws the icon: the recovered field was at x 102, beside the
+        // colony icon, so the outpost icon couldn't be clicked (owner playtest 2026-11-07).
+        int16_t y = plntscrn_delta_y[row_index] - height + 84;
 
-        *field_id = fields::Add_Hidden_Field(
-            102,
-            y,
-            width + 102,
-            y + height,
-            "",
-            0);
+        *field_id = fields::Add_Hidden_Field(18, y, 18 + width - 1, y + height - 1, "", 0);
     }
 
     void __cdecl Reset_Explored_Planets() {
@@ -701,13 +696,14 @@ namespace PLNTSUM {
         screen->buttons[7] = fields::Add_Radio_Button_Field(441, 358, "", screen->pics[8], &filter_out_planets_out_of_range, "5", 41);
 
         if (Send_Colony_Button_Selectable()) {
-            screen->buttons[8] = fields::Add_Hidden_Field(386, 408, 609, 413, "C", 41);
+            // The drawn buttons (PLNTSUM.LBX 9 and 10, 156x23 and 157x25 at 454,386 and 454,413).
+            screen->buttons[8] = fields::Add_Hidden_Field(454, 386, 609, 408, "C", 41);
         } else {
             screen->buttons[8] = -1000;
         }
 
         if (Send_Outpost_Button_Selectable()) {
-            screen->buttons[9] = fields::Add_Hidden_Field(413, 437, 610, 442, "O", 41);
+            screen->buttons[9] = fields::Add_Hidden_Field(454, 413, 610, 437, "O", 41);
         } else {
             screen->buttons[9] = -1000;
         }
@@ -812,6 +808,11 @@ namespace PLNTSUM {
         allocate::Get_Remaining_Block_Space(MOX::screen_seg);
     }
 
+    // A button is available (1) while the player has a free ship of its kind, and armed (2) only
+    // when the player chose it. The recovered code armed one by itself, on entry and after every send
+    // or recall (switching to colony ships once the last outpost ship was sent), so a click on a
+    // planet could send a ship the player never chose to send (owner playtest 2026-11-07). The
+    // player's choice now stays armed while it has a ship; otherwise nothing is armed.
     void __cdecl Determine_Button_Status() {
         Build_Ship_Summary();
 
@@ -819,37 +820,28 @@ namespace PLNTSUM {
         draw_outpost_button_status = 0;
 
         if (MOX::scroll_bar->total_rows > 0 && EVENTS::Event_Check_Hyperspace_Flux() == 0) {
-            if (Send_Outpost_Button_Selectable()) {
-                if (Send_Colony_Button_Selectable()) {
-                    draw_colony_button_status = 2;
-                    send_choice = 0;
-
-                    if (!Send_Outpost_Button_Selectable()) {
-                        return;
-                    }
-
-                    draw_outpost_button_status = 1;
-                    return;
-                }
-            }
-
             if (Send_Colony_Button_Selectable()) {
-                if (!Send_Outpost_Button_Selectable()) {
-                    draw_colony_button_status = 2;
-                    send_choice = 0;
-                    return;
-                }
+                draw_colony_button_status = 1;
             }
-
-            if (!Send_Colony_Button_Selectable() && Send_Outpost_Button_Selectable()) {
-                draw_outpost_button_status = 2;
-                send_choice = 1;
+            if (Send_Outpost_Button_Selectable()) {
+                draw_outpost_button_status = 1;
             }
+        }
+        if (send_choice == 0 && draw_colony_button_status != 0) {
+            draw_colony_button_status = 2;
+        } else if (send_choice == 1 && draw_outpost_button_status != 0) {
+            draw_outpost_button_status = 2;
+        } else {
+            send_choice = -1;
         }
     }
 
     void __cdecl Check_For_Colony_And_Outpost_Ships() {
         bool stop_searching = false;
+        // Fresh for this visit: the send buttons' fields are added from these flags
+        // (Add_Plntsum_Fields), before Build_Ship_Summary runs.
+        found_colony_ship = 0;
+        found_outpost_ship = 0;
 
         if (MOX::ship_stack_count <= 0) {
             return;
@@ -884,9 +876,10 @@ namespace PLNTSUM {
                     if (can_order && ship->status != 1) {
                         if (Ship_Is_Not_Colonizing(ship)) {
                             draw_outpost_button_status = 1;
-                            // The original binary sets the colony-found flag here as well,
-                            // and the early-exit check depends on preserving that behavior.
-                            found_colony_ship = 1;
+                            // The recovered code set found_colony_ship here and never
+                            // found_outpost_ship, so the outpost button got no field and couldn't
+                            // be clicked or reached with O (owner playtest 2026-11-07).
+                            found_outpost_ship = 1;
                         }
                     }
                 }
@@ -1501,6 +1494,18 @@ namespace PLNTSUM {
         }
     }
 
+    // The player's colony or outpost ship on its way to colonise planet_idx (the one whose icon
+    // Update_Ship_Etas shows on the planet's row), or -1.
+    static int16_t Ship_Sent_To_Planet(int16_t planet_idx, int16_t order_type) {
+        for (int16_t ship_idx = 0; ship_idx < (int16_t)MOX::NUM_SHIPS; ++ship_idx) {
+            s_ship_data* ship = &MOX::ship[ship_idx];
+            if (ship->d.ship_type == order_type && HACCESS::Ship_Owner(ship_idx) == MOX::PLAYER_NUM && Colony_Ship_Auto_Colonization(ship) == planet_idx) {
+                return ship_idx;
+            }
+        }
+        return -1;
+    }
+
     void __cdecl Undo_Send_Order(int16_t planet_idx, int16_t order_type) {
         int16_t ship_idx = -1;
         int16_t ships[2];
@@ -1516,11 +1521,10 @@ namespace PLNTSUM {
             if (found) break;
 
             if (PLNTSUM::planet_summary[i].explored == planet_idx) {
-                if (order_type == SHIP_TYPE_COLONY) {
-                    ship_idx = PLNTSUM::planet_summary[i].best_colony_ship_idx;
-                } else {
-                    ship_idx = PLNTSUM::planet_summary[i].best_outpost_ship_idx;
-                }
+                // The recovered code took best_colony_ship_idx / best_outpost_ship_idx, the nearest
+                // free ship: -1 when the sent ship was the only one (the click did nothing), else
+                // an idle ship that was "re-routed" while the sent one flew on.
+                ship_idx = Ship_Sent_To_Planet(planet_idx, order_type);
 
                 if (!MAINSCR::Ship_Can_Be_Selected(ship_idx)) {
                     int16_t msg_id = (order_type == SHIP_TYPE_COLONY) ? 0x149 /* HESTR_149_YOU_ARE_UNABLE_TO_UNDO */ : 0x14A /* HESTR_14A_YOU_ARE_UNABLE_TO_UNDO */;
@@ -1931,6 +1935,10 @@ namespace PLNTSUM {
         int16_t exit_flag = 0;
         int16_t last_scanned_status = -1;
         char warning_msg[100];
+        // The rows the fields were last added for (see the refresh_fields check below).
+        int16_t fields_first_row = -1;
+        int16_t fields_total_rows = -1;
+        int16_t fields_sort_choice = -1;
 
         MAINSCR::Allocate_First_Screen_Seg(8);
         fade_flag = 1;
@@ -1991,7 +1999,7 @@ namespace PLNTSUM {
         p_rotating_planet = (s_animation_header**)allocate::Allocate_Next_Block_Aligned(
             MOX::screen_seg, sizeof(*p_rotating_planet) * PLANET_PICTURE_COUNT, alignof(s_animation_header*));
         Load_Planet_Pictures();
-        Determine_Button_Status();
+        Determine_Button_Status(); // send_choice is -1 here: the screen opens with nothing armed
 
         do {
             int16_t prev_sort_choice = sort_choice;
@@ -2023,6 +2031,10 @@ namespace PLNTSUM {
 
                 if (Send_Colony_Button_Selectable() || Send_Outpost_Button_Selectable()) {
                     Build_Ship_Summary();
+                } else {
+                    // The rebuilt list has no ETAs, and without a free ship nothing above restores
+                    // them, so the icons of ships already sent vanished (owner playtest 2026-11-07).
+                    Update_Ship_Etas();
                 }
             }
 
@@ -2076,7 +2088,9 @@ namespace PLNTSUM {
                         send_choice = -1;
                     } else {
                         draw_colony_button_status = 2;
-                        draw_outpost_button_status = 1;
+                        if (draw_outpost_button_status != 0) { // no outpost ship: stays grey
+                            draw_outpost_button_status = 1;
+                        }
                         send_choice = 0;
                     }
                 }
@@ -2094,16 +2108,29 @@ namespace PLNTSUM {
                         send_choice = -1;
                     } else {
                         draw_outpost_button_status = 2;
-                        draw_colony_button_status = 1;
+                        if (draw_colony_button_status != 0) { // no colony ship: stays grey
+                            draw_colony_button_status = 1;
+                        }
                         send_choice = 1;
                     }
                 }
             }
 
+            // The ship icons' click areas belong to the rows on screen, but the recovered code
+            // only re-added the fields after a message box. On entry they were added before the
+            // list existed, so no icon could be clicked, and after scrolling, sorting or filtering
+            // they stayed on the old rows (owner playtest 2026-11-07). Waits for the button to be
+            // released so a scroll bar drag isn't cut off.
+            if ((MOX::scroll_bar->first_visible_row != fields_first_row || MOX::scroll_bar->total_rows != fields_total_rows || sort_choice != fields_sort_choice) && mouse::Mouse_Button() == 0) {
+                screen->refresh_fields = true;
+            }
             if (screen->refresh_fields) {
                 fields::Clear_Fields();
                 Add_Plntsum_Fields();
                 screen->refresh_fields = false;
+                fields_first_row = MOX::scroll_bar->first_visible_row;
+                fields_total_rows = MOX::scroll_bar->total_rows;
+                fields_sort_choice = sort_choice;
             }
 
             if (exit_flag == 0) {

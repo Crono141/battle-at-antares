@@ -21,6 +21,8 @@
 // are one table in antares/commands.h, which the native loop, the control channel and the tests
 // share. This file adds the bridge verbs "watch" and "unwatch" (snapshots).
 
+#include "antares/sprites.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -55,6 +57,10 @@ namespace antares::native {
     // a legacy screen. Until a newer frame arrives, the legacy frame still shows what was on screen
     // before the native view took over (the old galaxy), so the frontend keeps its native view up.
     uint64_t Leave_Frame_Generation();
+    // Input polls (antares::input_trace) counted when the native view handed over, and now. The
+    // legacy screen has drawn and presented once it has polled twice since.
+    uint64_t Leave_Polls();
+    uint64_t Polls();
 
     struct s_request {
         uint64_t id = 0;
@@ -71,6 +77,11 @@ namespace antares::native {
     // Snapshots of watched queries ({"verb": "watch", "what": "empire"}): the game thread re-runs
     // each one while a native screen runs and posts it when its answer changed.
     bool Take_Snapshot(std::string* json);
+
+    // The game's art as images (antares/sprites.h, WP3.3a): queues one LBX entry; the game thread
+    // exports it while a native screen runs, and Take_Sprite hands it out with the request's id.
+    uint64_t Request_Sprite(const std::string& lbx, int32_t entry);
+    bool Take_Sprite(uint64_t* id, sprites::s_sprite* sprite);
 
     // Godot resource packs (or zips) from the enabled packages' godot/ folders, lowest priority
     // first, so loading them in order lets the highest-priority package win. The generation

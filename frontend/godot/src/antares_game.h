@@ -20,7 +20,7 @@ namespace godot {
     class AntaresGame : public Control {
         GDCLASS(AntaresGame, Control)
 
-    public:
+      public:
         AntaresGame() = default;
         ~AntaresGame() override;
 
@@ -58,13 +58,15 @@ namespace godot {
         int64_t get_native_visit() const;
         void answer_request(int64_t id, int64_t value);
         PackedStringArray get_resource_packs() const;
+        // WP3.3a: the game's art (an LBX entry's frames) as images; sprite_ready(id, sprite) follows.
+        int64_t request_sprite(const String& lbx, int64_t entry);
         // The last legacy frame as an image (tests: works headless).
         Ref<Image> get_frame_image() const;
 
-    protected:
+      protected:
         static void _bind_methods();
 
-    private:
+      private:
         Rect2 Frame_Rect() const;
         bool To_Game(const Vector2& local, Vector2* game) const;
         void Upload_Rows(int32_t row_first, int32_t row_last);
@@ -98,6 +100,7 @@ namespace godot {
         // Leaving a native view for a legacy screen waits for that screen's first frame (or
         // kLegacyWaitMs), so the stale frame from before the native view never shows.
         int64_t legacy_wait_start_ms_ = -1;
+        uint64_t legacy_ready_generation_ = 0; // the frame to wait for once the legacy screen has drawn
         uint64_t packs_generation_ = 0;
 
         // The frame in horizontal strips, so a frame that changed in a few rows uploads only those
