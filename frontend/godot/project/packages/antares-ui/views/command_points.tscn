@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://views/command_points.gd" id="1"]
+[ext_resource type="Script" path="res://packages/antares-ui/views/command_points.gd" id="1"]
 
 [node name="CommandPoints" type="PanelContainer"]
 custom_minimum_size = Vector2(520, 0)

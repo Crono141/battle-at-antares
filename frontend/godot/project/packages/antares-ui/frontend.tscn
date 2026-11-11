@@ -1,0 +1,87 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://packages/antares-ui/frontend.gd" id="1_frontend"]
+[ext_resource type="Script" path="res://packages/antares-ui/galaxy.gd" id="2_galaxy"]
+[ext_resource type="Script" path="res://packages/antares-ui/galaxy/labels.gd" id="3_labels"]
+[ext_resource type="Script" path="res://packages/antares-ui/galaxy/influence.gd" id="6_influence"]
+[ext_resource type="Script" path="res://packages/antares-ui/galaxy/nebulae.gd" id="7_nebulae"]
+[ext_resource type="Script" path="res://packages/antares-ui/galaxy/links.gd" id="8_links"]
+[ext_resource type="Script" path="res://packages/antares-ui/galaxy/stars.gd" id="9_stars"]
+[ext_resource type="Script" path="res://packages/antares-ui/galaxy/fleets.gd" id="10_fleets"]
+[ext_resource type="Script" path="res://packages/antares-ui/galaxy/backdrop.gd" id="11_backdrop"]
+
+[node name="AntaresUI" type="Node"]
+script = ExtResource("1_frontend")
+
+[node name="Backdrop" type="CanvasLayer" parent="."]
+layer = -1
+
+[node name="Starfield" type="Control" parent="Backdrop"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("11_backdrop")
+galaxy_path = NodePath("../../Galaxy")
+
+[node name="Galaxy" type="Node2D" parent="."]
+script = ExtResource("2_galaxy")
+
+[node name="Camera" type="Camera2D" parent="Galaxy"]
+zoom = Vector2(2, 2)
+
+[node name="Nebulae" type="Node2D" parent="Galaxy"]
+script = ExtResource("7_nebulae")
+
+[node name="Influence" type="Node2D" parent="Galaxy"]
+script = ExtResource("6_influence")
+
+[node name="Links" type="Node2D" parent="Galaxy"]
+script = ExtResource("8_links")
+
+[node name="Stars" type="Node2D" parent="Galaxy"]
+script = ExtResource("9_stars")
+
+[node name="Fleets" type="Node2D" parent="Galaxy"]
+script = ExtResource("10_fleets")
+
+[node name="Labels" type="Node2D" parent="Galaxy"]
+script = ExtResource("3_labels")
+
+[node name="UI" type="CanvasLayer" parent="."]
+layer = 2
+
+[node name="Bar" type="HBoxContainer" parent="UI"]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 400.0
+offset_bottom = 40.0
+mouse_filter = 2
+theme_override_constants/separation = 16
+
+[node name="Mode" type="Button" parent="UI/Bar"]
+layout_mode = 2
+focus_mode = 0
+text = "Galaxy scene (Ctrl+G)"
+
+[node name="Native" type="Control" parent="UI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Overlay" type="CanvasLayer" parent="."]
+layer = 3
+
+[node name="Shade" type="ColorRect" parent="Overlay"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.45)

@@ -173,7 +173,7 @@ func _frame_count(entry: int) -> int:
 
 
 func _player_color(color_index: int) -> Color:
-	var galaxy_script := preload("res://galaxy.gd")
+	var galaxy_script := preload("../galaxy.gd")
 	return galaxy_script.PLAYER_COLORS[color_index % 8] if color_index >= 0 else galaxy_script.NEUTRAL_COLOR
 
 

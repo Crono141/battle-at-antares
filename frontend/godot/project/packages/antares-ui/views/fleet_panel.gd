@@ -237,7 +237,7 @@ func _refresh_icons() -> void:
 
 
 func _owner_color() -> Color:
-	var galaxy_script := preload("res://galaxy.gd")
+	var galaxy_script := preload("../galaxy.gd")
 	var index := int(fleet.get("color", -1))
 	return galaxy_script.PLAYER_COLORS[index % 8] if index >= 0 else galaxy_script.NEUTRAL_COLOR
 
