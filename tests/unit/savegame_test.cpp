@@ -1060,7 +1060,9 @@ DOCTEST_TEST_CASE("latest and version 0 save streams restore the complete persis
             DOCTEST_CHECK(
                 SAVEGAME::Consume_Loaded_Config_Message().empty());
         } else {
-            DOCTEST_CHECK((loaded_config_message.empty()));
+            DOCTEST_CHECK(loaded_config_message ==
+                "Original save: it keeps the original rules. Rule mods don't apply to it.");
+            DOCTEST_CHECK(SAVEGAME::Consume_Loaded_Config_Message().empty());
         }
         DOCTEST_CHECK(TEST_CONFIG_SNAPSHOT::commit_count == format + 1);
         DOCTEST_REQUIRE((TEST_CONFIG_SNAPSHOT::committed_state.values.size() ==
@@ -1322,7 +1324,9 @@ DOCTEST_TEST_CASE("latest and version 0 save streams restore the complete persis
     uint32_t previous_version_three_seed = 0;
     DOCTEST_REQUIRE(SAVEGAME::Read_Game(
         &previous_version_three_reader, &previous_version_three_metadata, &previous_version_three_settings, &previous_version_three_seed));
-    DOCTEST_CHECK(SAVEGAME::Consume_Loaded_Config_Message().empty());
+    // No config record in the stream: stock rules, and the notice says so.
+    DOCTEST_CHECK(SAVEGAME::Consume_Loaded_Config_Message() ==
+        "Original save: it keeps the original rules. Rule mods don't apply to it.");
     DOCTEST_CHECK((previous_version_three_metadata.version == 3));
     DOCTEST_CHECK((previous_version_three_reader.Length() ==
         previous_version_three_size));

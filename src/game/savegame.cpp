@@ -27,6 +27,9 @@ namespace SAVEGAME {
         constexpr size_t SETTINGS_RESERVED_OFFSET = 0xE4;
         const uint8_t ZEROES[512] = {};
         bool pending_loaded_config_message = false;
+        // Antares: a save with no config record (the original game's, Redone's before version 3)
+        // loads with stock rules, whatever rule mods are enabled; say so on load.
+        bool pending_classic_rules_message = false;
 
         static_assert(ORIGINAL_MAX_STARS == 72, "save version 0 requires 72 stars");
         static_assert(MAX_STARS >= ORIGINAL_MAX_STARS, "star capacity cannot load version 0 saves");
@@ -1617,6 +1620,10 @@ namespace SAVEGAME {
     } // namespace
 
     std::string Consume_Loaded_Config_Message() {
+        if (pending_classic_rules_message) {
+            pending_classic_rules_message = false;
+            return "Original save: it keeps the original rules. Rule mods don't apply to it.";
+        }
         if (!pending_loaded_config_message) return {};
         pending_loaded_config_message = false;
 
@@ -1742,6 +1749,7 @@ namespace SAVEGAME {
 
     bool Read_Game(SERIAL::Reader_* reader, s_metadata* metadata, s_settings* saved_settings, uint32_t* random_seed, std::string* error_text) {
         pending_loaded_config_message = false;
+        pending_classic_rules_message = false;
         if (error_text != nullptr) error_text->clear();
         if (reader == nullptr || metadata == nullptr || saved_settings == nullptr || random_seed == nullptr) return false;
 
@@ -1915,6 +1923,8 @@ namespace SAVEGAME {
         }
         pending_loaded_config_message =
             config_snapshot_applied && loaded_config_prompt;
+        pending_classic_rules_message =
+            !has_saved_config_snapshot && loaded_config_prompt;
         if (metadata->version < LUA_SAVE_SNAPSHOT_VERSION) {
             orion2re::lua::game::Restore_Legacy_Ship_Generations();
         }
