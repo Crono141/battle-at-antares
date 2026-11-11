@@ -20,6 +20,7 @@ namespace antares {
         std::string error;     // why not, when !valid ("file:line:column: message")
         bool art_only = false; // D18: not recorded in saves
         bool hd_art = false;   // has an HD art pack (data/art/ or data/hd/ with pack.json or index.json)
+        bool godot_ui = false; // has Godot resource packs (godot/*.pck or *.zip): a UI package (D26)
         std::string readme;    // README.md at the package root, if any (WP5.5)
         config::s_mod_manifest manifest;
     };

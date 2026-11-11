@@ -3,6 +3,8 @@
 #include "antares/package_catalog.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <map>
 #include <set>
@@ -55,6 +57,43 @@ namespace antares {
             return found;
         }
 
+        // godot/*.pck or godot/*.zip, the files the Godot build loads as resource packs (native.cpp).
+        bool Is_Godot_Pack_Path_(std::string path) {
+            for (char& character : path) {
+                character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+            }
+            const auto ends_with = [&](const char* suffix) {
+                const size_t length = std::strlen(suffix);
+                return path.size() > length && path.compare(path.size() - length, length, suffix) == 0;
+            };
+            return path.rfind("godot/", 0) == 0 && path.find('/', 6) == std::string::npos && (ends_with(".pck") || ends_with(".zip"));
+        }
+
+        bool Has_Godot_Pack_(const std::string& source_path, bool archive) {
+            if (!archive) {
+                std::error_code error;
+                for (std::filesystem::directory_iterator entry(std::filesystem::path(source_path + "godot"), error), end; !error && entry != end; entry.increment(error)) {
+                    if (entry->is_regular_file(error) && Is_Godot_Pack_Path_("godot/" + entry->path().filename().string())) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            mz_zip_archive zip{};
+            if (!mz_zip_reader_init_file(&zip, source_path.c_str(), 0)) {
+                return false;
+            }
+            bool found = false;
+            const mz_uint count = mz_zip_reader_get_num_files(&zip);
+            for (mz_uint index = 0; !found && index < count; ++index) {
+                char name[512];
+                mz_zip_reader_get_filename(&zip, index, name, sizeof(name));
+                found = Is_Godot_Pack_Path_(name);
+            }
+            mz_zip_reader_end(&zip);
+            return found;
+        }
+
         void Describe_(s_package_info* package) {
             std::string text;
             if (!Read_Package_File_(package->source_path, package->archive, "mod.json5", &text)) {
@@ -72,6 +111,7 @@ namespace antares {
             for (const char* marker : {"data/art/pack.json", "data/hd/pack.json", "data/art/index.json", "data/hd/index.json"}) {
                 package->hd_art = package->hd_art || Has_Package_File_(package->source_path, package->archive, marker);
             }
+            package->godot_ui = Has_Godot_Pack_(package->source_path, package->archive);
             Read_Package_File_(package->source_path, package->archive, "README.md", &package->readme);
         }
     } // namespace
