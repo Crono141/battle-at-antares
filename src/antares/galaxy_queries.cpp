@@ -243,6 +243,7 @@ namespace antares::commands::internal {
                 s_out item = fleets.Append_Object();
                 item.Int("icon", i);
                 item.Int("node", node);
+                item.Int("ship", ship_id); // the stack's first ship: what the fleet verbs take
                 item.Int("owner", owner);
                 item.Int("color", Player_Color(owner));
                 int32_t sprite = -1;
@@ -389,6 +390,7 @@ namespace antares::commands::internal {
                 s_out item = fleets.Append_Object();
                 item.Int("icon", i);
                 item.Int("node", node);
+                item.Int("ship", MOX::ship_node[node].ship_idx); // the stack's first ship: what the fleet verbs take
                 item.Int("owner", ship.owner);
                 item.Int("color", Player_Color(ship.owner));
                 if (Valid_Player(ship.owner)) {
@@ -754,8 +756,8 @@ namespace antares::commands::internal {
         table->push_back({"cycle_colony_star", e_kind::command, galaxy, 0, "dir: 0 next, 1 previous", Cycle_Colony_Star});
         table->push_back({"toggle_option", e_kind::command, galaxy, 0, "option: 0-7 (Alt+F1..F8), not 3", Toggle_Option});
         table->push_back({"galaxy", e_kind::query, ANY_SCREEN, 1, "", Query_Galaxy});
-        table->push_back({"fleets", e_kind::query, ANY_SCREEN, 1, "", Query_Fleets});
-        table->push_back({"system", e_kind::query, ANY_SCREEN, 1, "star: star id", Query_System});
+        table->push_back({"fleets", e_kind::query, ANY_SCREEN, 2, "", Query_Fleets});
+        table->push_back({"system", e_kind::query, ANY_SCREEN, 2, "star: star id", Query_System});
         table->push_back({"potential_colony", e_kind::query, ANY_SCREEN, 1, "planet: planet id", Query_Potential_Colony});
         table->push_back({"options", e_kind::query, ANY_SCREEN, 1, "", Query_Options});
         table->push_back({"view", e_kind::query, ANY_SCREEN, 1, "", Query_View});
