@@ -244,11 +244,46 @@ namespace antares::commands {
 
         // ---- Queries ----
 
+        // The tax popup's six rates, 0 to 50 % (MAINPUPS::Add_Tax_Rate_Fields).
+        constexpr int k_tax_rate_count = 6;
+
+        // The side bar's research box: a breakthrough this turn, nothing being researched, the
+        // research points with the turns to the next discovery and the chance of it next turn, or
+        // no progress at all.
+        void Research_Box(s_player& player, s_out out) {
+            char unit[16];
+            MAINSCR::Get_Research_Unit_String(unit);
+            out.Int("produced", player.research_produced);
+            out.Str("unit", unit);
+            if (player.research_breakthrough != 0) {
+                out.Str("state", "breakthrough");
+                out.Str("text", Utf8(HAROLD::H_Message(0x183), 200));
+                return;
+            }
+            if (player.current_research_field == 0) {
+                out.Str("state", "none");
+                out.Str("text", Utf8(HAROLD::H_Message(0x188), 200));
+                return;
+            }
+            const int16_t turns = COLCALC::Player_N_Turns_Until_Research_Complete(&player);
+            out.Int("turns", turns);
+            out.Int("chance", turns < 0 ? 0 : COLCALC::Chance_For_Research_Breakthrough(&player));
+            if (turns > 0) {
+                char text[80];
+                snprintf(text, sizeof(text), HAROLD::H_Message(turns == 1 ? 0xe1 : 0xe2), (int)turns);
+                out.Str("state", "turns");
+                out.Str("text", Utf8(text, sizeof(text)));
+            } else {
+                out.Str("state", turns < 0 ? "stalled" : "complete");
+                out.Str("text", "");
+            }
+        }
+
         void Query_Empire(int16_t, const s_args&, s_out& out) {
             if (!Have_Game(out)) {
                 return;
             }
-            const s_player& player = MOX::player[MOX::PLAYER_NUM];
+            s_player& player = MOX::player[MOX::PLAYER_NUM];
             out.Int("stardate", MOX::stardate);
             out.Int("player", MOX::PLAYER_NUM);
             out.Str("race", Utf8(player.race_name, sizeof(player.race_name)));
@@ -261,6 +296,32 @@ namespace antares::commands {
             out.Int("command_points", player.command_points);
             out.Int("command_points_used", player.command_points_used);
             out.Int("tax_rate", player.tax_rate);
+            // WP3.3d: what the legacy galaxy's side bar shows (MAINSCR::Draw_Main_Screen_Summaries,
+            // mainscr_main.cpp): income after costs, freighters spare, the research box, and the
+            // rates the tax popup offers (MAINPUPS::Add_Tax_Rate_Fields).
+            out.Int("surplus_bc", player.surplus_bc);
+            out.Int("surplus_freighters", player.surplus_freighters);
+            s_out rates = out.Add_List("tax_rates");
+            for (int i = 0; i < k_tax_rate_count; ++i) {
+                rates.Append_Int(i * 10);
+            }
+            Research_Box(player, out.Add_Object("research"));
+        }
+
+        // set_tax_rate {rate}: the tax popup (MAINSCR::Tax_Rate_Popup, MAINPUPS::Evaluate_Tax_Rate_Input):
+        // the rate, then the player's colonies recomputed, as the popup and the galaxy after it do.
+        void Set_Tax_Rate(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t rate = -1;
+            if (!args.Int("rate", &rate) || rate < 0 || rate > (k_tax_rate_count - 1) * 10 || rate % 10 != 0) {
+                out.Fail("bad_args", "rate: 0, 10, 20, 30, 40 or 50");
+                return;
+            }
+            MOX::player[MOX::PLAYER_NUM].tax_rate = (uint8_t)rate;
+            COLCALC::Do_Player_Colony_Calculations(MOX::PLAYER_NUM);
+            out.Int("tax_rate", rate);
         }
 
         void Query_Command_Points(int16_t, const s_args&, s_out& out) {
@@ -320,7 +381,8 @@ namespace antares::commands {
                 {"open", e_kind::command, ANY_SCREEN, 0, "screen: SCREEN_* number", Open},
                 {"close", e_kind::command, ANY_SCREEN, 0, "", Close},
                 {"scrap_ships", e_kind::command, ANY_SCREEN, 0, "ships: [ship id] (one place)", Scrap_Ships},
-                {"empire", e_kind::query, ANY_SCREEN, 1, "", Query_Empire},
+                {"set_tax_rate", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "rate: 0..50 in tens", Set_Tax_Rate},
+                {"empire", e_kind::query, ANY_SCREEN, 2, "", Query_Empire},
                 {"command_points", e_kind::query, ANY_SCREEN, 1, "", Query_Command_Points},
                 {"ships", e_kind::query, ANY_SCREEN, 1, "star: star id (optional)", Query_Ships},
             };

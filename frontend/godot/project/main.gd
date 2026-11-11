@@ -405,6 +405,8 @@ func _smoke_native() -> void:
 			return
 	var empire: Dictionary = await _query("empire")
 	print("smoke: empire %s" % empire)
+	if not await _smoke_tax(int(empire.tax_rate)):
+		return
 	if not await _smoke_galaxy(shots):
 		return
 	_send({"verb": "open", "screen": Screens.SHOW_COMMAND_POINTS})
@@ -580,6 +582,24 @@ func _smoke_galaxy(shots: String) -> bool:
 		return false
 	galaxy._view_placed = false
 	_send({"verb": "query", "what": "view"}, galaxy.place_view)
+	await get_tree().create_timer(0.5).timeout
+	return true
+
+
+## The bar's tax menu (WP3.3d): another rate shows on the bar, then the old one goes back.
+func _smoke_tax(old_rate: int) -> bool:
+	var bar := _view("galaxy_bar")
+	var rate := 30 if old_rate != 30 else 40
+	bar.money.get_popup().id_pressed.emit(rate)
+	var waited := 0.0
+	while not bar.money.text.ends_with("Tax %d%%" % rate) and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	print("smoke: bar after tax %d%%: '%s' | '%s' | '%s'" % [rate, bar.money.text, bar.research.text, bar.freighters_label.text])
+	if not bar.money.text.ends_with("Tax %d%%" % rate):
+		await _smoke_fail("the tax rate did not change on the bar")
+		return false
+	bar.money.get_popup().id_pressed.emit(old_rate)
 	await get_tree().create_timer(0.5).timeout
 	return true
 

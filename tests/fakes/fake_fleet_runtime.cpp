@@ -194,3 +194,28 @@ namespace SHIPS {
 namespace strings {
     void __cdecl String_To_Upper(char*) {}
 } // namespace strings
+
+// WP3.3d: the empire query's side bar figures and set_tax_rate.
+namespace TEST_EMPIRE {
+    int16_t turns = 3;   // Player_N_Turns_Until_Research_Complete
+    int32_t chance = 12; // Chance_For_Research_Breakthrough
+    int recomputed = 0;  // Do_Player_Colony_Calculations calls
+} // namespace TEST_EMPIRE
+
+namespace COLCALC {
+    int16_t __cdecl Player_N_Turns_Until_Research_Complete(s_player*) {
+        return TEST_EMPIRE::turns;
+    }
+    int32_t __cdecl Chance_For_Research_Breakthrough(s_player*) {
+        return TEST_EMPIRE::chance;
+    }
+    void __cdecl Do_Player_Colony_Calculations(int16_t) {
+        ++TEST_EMPIRE::recomputed;
+    }
+} // namespace COLCALC
+
+namespace MAINSCR {
+    void __cdecl Get_Research_Unit_String(char* out) {
+        strlcpy(out, "RP", 16);
+    }
+} // namespace MAINSCR
