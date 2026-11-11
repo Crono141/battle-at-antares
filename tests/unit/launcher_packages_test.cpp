@@ -353,6 +353,10 @@ DOCTEST_TEST_CASE("launcher package info: README, HD art, and what a package cha
     files.Write_Zip("data/mods/zipped-look.zip", {{"mod.json5", s_launcher_test_directory::Manifest("zipped-look")},
         {"config/main.cfg", ""}, {"README.md", "# Zipped\n"}, {"data/hd/index.json", "{}"}});
     files.Package("broken", "dependencies: [{ id: \"nowhere\", version: \">=1.0.0\" }],");
+    files.Package("my-ui");
+    files.Write("data/mods/my-ui/godot/my-ui.zip", "zip");
+    files.Write_Zip("data/mods/zipped-ui.zip", {{"mod.json5", s_launcher_test_directory::Manifest("zipped-ui")},
+        {"config/main.cfg", ""}, {"godot/zipped-ui.pck", "pck"}});
     files.Init_Vfs();
 
     const std::vector<antares::s_package_info> packages = antares::Discover_Packages();
@@ -365,6 +369,13 @@ DOCTEST_TEST_CASE("launcher package info: README, HD art, and what a package cha
     DOCTEST_CHECK(Find_(packages, "zipped-look")->art_only);
     DOCTEST_CHECK(Find_(packages, "zipped-look")->hd_art);
     DOCTEST_CHECK(Find_(packages, "zipped-look")->readme == "# Zipped\n");
+    // Godot resource packs make a UI package (D26), still art-only; art packs aren't UI.
+    DOCTEST_CHECK(Find_(packages, "my-ui")->godot_ui);
+    DOCTEST_CHECK(Find_(packages, "my-ui")->art_only);
+    DOCTEST_CHECK(Find_(packages, "zipped-ui")->godot_ui);
+    DOCTEST_CHECK(Find_(packages, "zipped-ui")->art_only);
+    DOCTEST_CHECK_FALSE(Find_(packages, "look")->godot_ui);
+    DOCTEST_CHECK_FALSE(Find_(packages, "zipped-look")->godot_ui);
 
     // Enabling only the package: its settings carry its id, its dependency's carry theirs.
     const antares::s_config_check addon = antares::Check_Package("addon");

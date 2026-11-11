@@ -679,6 +679,9 @@ namespace launcher {
             } else if (!package->valid) {
                 ImGui::SameLine();
                 ImGui::TextColored(COLOUR_ERROR, "invalid");
+            } else if (package->godot_ui) {
+                ImGui::SameLine();
+                ImGui::TextColored(COLOUR_DIM, "UI");
             } else if (package->art_only) {
                 ImGui::SameLine();
                 ImGui::TextColored(COLOUR_DIM, "art");
@@ -750,7 +753,9 @@ namespace launcher {
             ImGui::TextUnformatted(manifest.description.c_str());
             ImGui::Spacing();
         }
-        if (package->art_only) {
+        if (package->godot_ui && package->art_only) {
+            ImGui::TextColored(COLOUR_DIM, "UI: changes how the Godot build shows and controls the game, not how it plays. Saves don't record it.");
+        } else if (package->art_only) {
             ImGui::TextColored(COLOUR_DIM, "Art only: changes how the game looks, not how it plays. Saves don't record it.");
         } else {
             ImGui::TextColored(COLOUR_DIM, "Changes the rules: saves made with it record it and need it to load.");
