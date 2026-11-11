@@ -89,3 +89,13 @@ If a UI package wants to change a **game sprite** (a different star or ship pict
 the art pack way, in `data/art/<LBX>/<entry>/`, not in its Godot files. Then the original screens
 show it too, and it takes part in the art packs' order: enable the package above `antares-hd` for
 its sprites to win. `data/art/` keeps the package art-only.
+
+### When a UI package and an art pack have the same image
+
+The package higher in the launcher's list wins, image by image; images it doesn't have come from
+the next package down. A UI package with five new star sprites in `data/art/`, enabled above
+`antares-hd`, shows its five stars (on its own views and the original screens alike) and the HD
+pack's art for everything else; enabled below `antares-hd`, the HD stars win. Godot files at the
+same path in two packages follow the same rule. The player sets the order, so say in your README
+where your package should go. Reordering packages while the game runs takes effect for game
+sprites at once, and for Godot files at the next start.
