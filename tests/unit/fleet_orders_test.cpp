@@ -295,3 +295,41 @@ DOCTEST_TEST_CASE("merge_relocations checks the count as F4 does, then merges") 
     DOCTEST_CHECK(TEST_FLEET::relocated_to == 1);
     Tear_Down_();
 }
+
+namespace TEST_EMPIRE {
+    extern int16_t turns;
+    extern int32_t chance;
+    extern int recomputed;
+} // namespace TEST_EMPIRE
+
+DOCTEST_TEST_CASE("set_tax_rate takes the popup's rates and recomputes the colonies (WP3.3d)") {
+    Set_Up_();
+    TEST_EMPIRE::recomputed = 0;
+    DOCTEST_CHECK(Contains_(Run_(R"({"verb":"set_tax_rate","rate":35})"), "bad_args"));
+    DOCTEST_CHECK(Contains_(Run_(R"({"verb":"set_tax_rate","rate":60})"), "bad_args"));
+    DOCTEST_CHECK(Contains_(Run_(R"({"verb":"set_tax_rate","rate":-10})"), "bad_args"));
+    DOCTEST_CHECK(TEST_EMPIRE::recomputed == 0);
+    DOCTEST_CHECK(Contains_(Run_(R"({"verb":"set_tax_rate","rate":30})"), R"("tax_rate":30)"));
+    DOCTEST_CHECK(g_players_[0].tax_rate == 30);
+    DOCTEST_CHECK(TEST_EMPIRE::recomputed == 1);
+    Tear_Down_();
+}
+
+DOCTEST_TEST_CASE("the empire query carries the side bar's research box (WP3.3d)") {
+    Set_Up_();
+    g_players_[0].current_research_field = 2;
+    g_players_[0].research_produced = 328;
+    g_players_[0].surplus_bc = -5;
+    TEST_EMPIRE::turns = 6;
+    std::string result = Run_(R"({"verb":"query","what":"empire"})");
+    DOCTEST_CHECK(Contains_(result, R"("surplus_bc":-5)"));
+    DOCTEST_CHECK(Contains_(result, R"("state":"turns")"));
+    DOCTEST_CHECK(Contains_(result, R"("turns":6)"));
+    DOCTEST_CHECK(Contains_(result, R"("produced":328)"));
+    DOCTEST_CHECK(Contains_(result, R"("tax_rates":[0,10,20,30,40,50])"));
+    g_players_[0].current_research_field = 0;
+    DOCTEST_CHECK(Contains_(Run_(R"({"verb":"query","what":"empire"})"), R"("state":"none")"));
+    g_players_[0].research_breakthrough = 1;
+    DOCTEST_CHECK(Contains_(Run_(R"({"verb":"query","what":"empire"})"), R"("state":"breakthrough")"));
+    Tear_Down_();
+}

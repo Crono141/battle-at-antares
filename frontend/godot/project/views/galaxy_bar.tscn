@@ -7,85 +7,147 @@ anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_top = -56.0
+offset_top = -84.0
 grow_horizontal = 2
 grow_vertical = 0
 script = ExtResource("1")
 
-[node name="Row" type="HBoxContainer" parent="."]
+[node name="Rows" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="Empire" type="HBoxContainer" parent="Rows"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 18
+
+[node name="Date" type="Label" parent="Rows/Empire"]
+layout_mode = 2
+tooltip_text = "Your race and the stardate"
+mouse_filter = 1
+text = "Race   Stardate"
+
+[node name="Money" type="MenuButton" parent="Rows/Empire"]
+layout_mode = 2
+tooltip_text = "Treasury and income per turn. Click to set the tax rate"
+text = "BC"
+flat = false
+item_count = 6
+popup/item_0/text = "Tax 0%"
+popup/item_0/checkable = 2
+popup/item_0/id = 0
+popup/item_1/text = "Tax 10%"
+popup/item_1/checkable = 2
+popup/item_1/id = 10
+popup/item_2/text = "Tax 20%"
+popup/item_2/checkable = 2
+popup/item_2/id = 20
+popup/item_3/text = "Tax 30%"
+popup/item_3/checkable = 2
+popup/item_3/id = 30
+popup/item_4/text = "Tax 40%"
+popup/item_4/checkable = 2
+popup/item_4/id = 40
+popup/item_5/text = "Tax 50%"
+popup/item_5/checkable = 2
+popup/item_5/id = 50
+
+[node name="Command" type="Label" parent="Rows/Empire"]
+layout_mode = 2
+tooltip_text = "Command points: spare (total)"
+mouse_filter = 1
+text = "Command"
+
+[node name="Food" type="Label" parent="Rows/Empire"]
+layout_mode = 2
+tooltip_text = "Food surplus"
+mouse_filter = 1
+text = "Food"
+
+[node name="Freighters" type="Label" parent="Rows/Empire"]
+layout_mode = 2
+tooltip_text = "Freighters: spare (total)"
+mouse_filter = 1
+text = "Freighters"
+
+[node name="Research" type="Button" parent="Rows/Empire"]
+layout_mode = 2
+tooltip_text = "Research per turn and the turns to the next discovery. Click to choose research"
+focus_mode = 0
+text = "RP"
+metadata/screen = 36
+
+[node name="Row" type="HBoxContainer" parent="Rows"]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="Empire" type="Label" parent="Row"]
+[node name="Screens" type="HBoxContainer" parent="Rows/Row"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Empire"
+alignment = 1
 
-[node name="Screens" type="HBoxContainer" parent="Row"]
-layout_mode = 2
-
-[node name="Colonies" type="Button" parent="Row/Screens"]
+[node name="Colonies" type="Button" parent="Rows/Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Colonies"
 metadata/screen = 20
 metadata/key = "C"
 
-[node name="Planets" type="Button" parent="Row/Screens"]
+[node name="Planets" type="Button" parent="Rows/Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Planets"
 metadata/screen = 32
 metadata/key = "P"
 
-[node name="Fleets" type="Button" parent="Row/Screens"]
+[node name="Fleets" type="Button" parent="Rows/Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Fleets"
 metadata/screen = 4
 metadata/key = "F"
 
-[node name="Leaders" type="Button" parent="Row/Screens"]
+[node name="Leaders" type="Button" parent="Rows/Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Leaders"
 metadata/screen = 29
 metadata/key = "L"
 
-[node name="Races" type="Button" parent="Row/Screens"]
+[node name="Races" type="Button" parent="Rows/Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Races"
 metadata/screen = 6
 metadata/key = "R"
 
-[node name="Info" type="Button" parent="Row/Screens"]
+[node name="Info" type="Button" parent="Rows/Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Info"
 metadata/screen = 9
 metadata/key = "I"
 
-[node name="Research" type="Button" parent="Row/Screens"]
+[node name="Research" type="Button" parent="Rows/Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Research"
 metadata/screen = 36
 
-[node name="Command" type="Button" parent="Row/Screens"]
+[node name="Command" type="Button" parent="Rows/Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Command points"
 metadata/screen = 43
 
-[node name="Game" type="Button" parent="Row/Screens"]
+[node name="Game" type="Button" parent="Rows/Row/Screens"]
 layout_mode = 2
 focus_mode = 0
 text = "Game"
 metadata/screen = 8
 metadata/key = "G"
 
-[node name="Turn" type="Button" parent="Row"]
+[node name="Turn" type="Button" parent="Rows/Row"]
 layout_mode = 2
 focus_mode = 0
 theme_override_font_sizes/font_size = 20
