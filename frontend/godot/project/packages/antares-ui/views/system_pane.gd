@@ -30,7 +30,7 @@ const ASTEROIDS_ICON := 0x3F
 @onready var governor_name: Label = $Box/Governor/Row/Names/Name
 @onready var governor_title: Label = $Box/Governor/Row/Names/Title
 @onready var governor_skills: VBoxContainer = $Box/Governor/Row/Names/Skills
-@onready var planets_box: VBoxContainer = $Box/Scroll/Planets
+@onready var planets_box: VBoxContainer = $Box/Scroll/Margin/Planets
 @onready var description: Label = $Box/Description
 
 var art: Node:
@@ -133,16 +133,15 @@ func _glowing(row: Control, planet_id: int) -> Control:
 	var style := StyleBoxFlat.new()
 	style.draw_center = false
 	style.bg_color = Color(0, 0, 0, 0)
-	style.shadow_color = Color(get_theme_color("font_pressed_color", "Button"), 0.5)
-	style.shadow_size = 10
-	style.set_corner_radius_all(6)
-	style.set_content_margin_all(5) # the glow shows in this ring too: the list clips its sides
+	style.shadow_color = Color(get_theme_color("font_pressed_color", "Button"), 0.7)
+	style.shadow_size = 11
+	style.set_corner_radius_all(6) # (the list has a margin all round, so the glow isn't clipped)
 	wrapper.add_theme_stylebox_override("panel", style)
 	wrapper.add_child(row)
 	return wrapper
 
 
-## The screen rect of a planet's row, clipped to the list's visible part (the colony pane's chevron,
+## The screen rect of a planet's row, clipped to the list's visible part (for markers by a row,
 ## WP3.4), or an empty rect when the row is scrolled out of sight.
 func planet_row_rect(planet_id: int) -> Rect2:
 	var scroll: Control = $Box/Scroll

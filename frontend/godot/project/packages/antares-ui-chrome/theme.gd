@@ -146,7 +146,6 @@ func build(dir: String) -> Dictionary:
 			"bar_center": float(_pieces.tee.bar_center) * screen_scale,
 		}
 	return {
-		"chevron_bar": _texture("bar"),
 		"tee": tee,
 		"name": NAME,
 		"theme": t,

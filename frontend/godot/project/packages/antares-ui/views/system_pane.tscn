@@ -99,7 +99,15 @@ layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
-[node name="Planets" type="VBoxContainer" parent="Box/Scroll"]
+[node name="Margin" type="MarginContainer" parent="Box/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="Planets" type="VBoxContainer" parent="Box/Scroll/Margin"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 6
