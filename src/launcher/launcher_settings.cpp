@@ -32,7 +32,7 @@ namespace launcher {
                 {"Display",
                     {"interface.fullscreen", "interface.window_width", "interface.window_height", "interface.scaler", "interface.vsync_enabled"}},
                 {"Interface",
-                    {"interface.show_exit_message", "interface.main_menu_mod_list", "interface.screen_fade_speed", "interface.scroll_interval", "combat.bombardment_hit_frames", "interface.center_on_next_ship", "interface.no_outpost_prompt", "interface.warn_blockers", "interface.main_map_overview_markers", "interface.main_screen_tax_rate", "interface.maximum_galaxy_zoom_mode", "interface.history_graph_smoothing", "interface.sort_serious_turn_summary_first", "interface.confirm_battle_message_timeout"}},
+                    {"interface.legacy_ui", "interface.show_exit_message", "interface.main_menu_mod_list", "interface.screen_fade_speed", "interface.scroll_interval", "combat.bombardment_hit_frames", "interface.center_on_next_ship", "interface.no_outpost_prompt", "interface.warn_blockers", "interface.main_map_overview_markers", "interface.main_screen_tax_rate", "interface.maximum_galaxy_zoom_mode", "interface.history_graph_smoothing", "interface.sort_serious_turn_summary_first", "interface.confirm_battle_message_timeout"}},
                 {"Game rules",
                     {"game.starting_ships", "combat.max_turns", "combat.human_fleet_auto_retreat", "combat.interactive_combat_stats", "leaders.leaders_no_limit", "research.fixed_cost", "gameplay.allow_native_annihilation"}},
                 {"Multiplayer", {"interface.router"}},
@@ -229,6 +229,13 @@ namespace launcher {
         message_ = value_text.empty() ? "Removed " + path + " from the profile." : "Saved " + path + " = " + value_text + ";";
         if (!note.empty()) message_ += " " + note;
         message_is_error_ = false;
+    }
+
+    bool c_launcher::Native_UI_On_() const {
+        config::t_variable_id id = config::CONFIG_NO_VARIABLE;
+        config::s_typed_value typed;
+        return check_.effective != nullptr && config::Find_Variable("interface.legacy_ui", SDL_strlen("interface.legacy_ui"), &id) &&
+            config::Read_State_Value(&check_.effective->state, id, &typed) && !typed.bool_value;
     }
 
     bool c_launcher::Hd_Art_Enabled_(std::string* package_id) const {

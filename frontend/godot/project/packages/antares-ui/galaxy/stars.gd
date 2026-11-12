@@ -31,7 +31,8 @@ func _draw() -> void:
 		if not drawn:
 			# A stand-in until the picture arrives.
 			draw_circle(center, size * 0.18, Color(1, 1, 1, 0.8))
-		if int(star.id) == galaxy.selected:
+		# An open system shows its orbits: no ring round its star too (owner).
+		if int(star.id) == galaxy.selected and int(star.id) != galaxy.system_star:
 			draw_arc(center, size * 0.62 + 3.0 * px, 0.0, TAU, 48, Color(1, 1, 1, 0.85), 1.5 * px, true)
 
 

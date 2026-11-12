@@ -68,6 +68,12 @@ namespace {
             DOCTEST_REQUIRE(mz_zip_writer_end(&archive) == MZ_TRUE);
         }
         // A package folder with a manifest; `extra` goes inside the manifest object.
+        // A file's bytes (to put a zip inside a zipped package).
+        std::string Read(const fs::path& relative) const {
+            std::ifstream in(root_ / relative, std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+
         void Package(const std::string& id, const std::string& extra = "", const std::string& config = "") const {
             Write("data/mods/" + id + "/mod.json5", Manifest(id, extra));
             Write("data/mods/" + id + "/config/main.cfg", config);
@@ -357,6 +363,15 @@ DOCTEST_TEST_CASE("launcher package info: README, HD art, and what a package cha
     files.Write("data/mods/my-ui/godot/my-ui.zip", "zip");
     files.Write_Zip("data/mods/zipped-ui.zip", {{"mod.json5", s_launcher_test_directory::Manifest("zipped-ui")},
         {"config/main.cfg", ""}, {"godot/zipped-ui.pck", "pck"}});
+    // Themes (D27): a Godot zip with a theme.gd and no frontend.tscn; folder and zipped.
+    files.Package("my-theme");
+    files.Write_Zip("data/mods/my-theme/godot/my-theme.zip", {{"packages/my-theme/theme.gd", "extends RefCounted"}});
+    files.Package("my-frontend");
+    files.Write_Zip("data/mods/my-frontend/godot/my-frontend.zip", {{"packages/my-frontend/frontend.tscn", "[gd_scene]"},
+        {"packages/my-frontend/theme.gd", "extends RefCounted"}});
+    files.Write_Zip("scratch/inner.zip", {{"packages/zipped-theme/theme.gd", "extends RefCounted"}});
+    files.Write_Zip("data/mods/zipped-theme.zip", {{"mod.json5", s_launcher_test_directory::Manifest("zipped-theme")},
+        {"config/main.cfg", ""}, {"godot/zipped-theme.zip", files.Read("scratch/inner.zip")}});
     files.Init_Vfs();
 
     const std::vector<antares::s_package_info> packages = antares::Discover_Packages();
@@ -376,6 +391,11 @@ DOCTEST_TEST_CASE("launcher package info: README, HD art, and what a package cha
     DOCTEST_CHECK(Find_(packages, "zipped-ui")->art_only);
     DOCTEST_CHECK_FALSE(Find_(packages, "look")->godot_ui);
     DOCTEST_CHECK_FALSE(Find_(packages, "zipped-look")->godot_ui);
+    DOCTEST_CHECK(Find_(packages, "my-theme")->godot_theme);
+    DOCTEST_CHECK(Find_(packages, "zipped-theme")->godot_theme);
+    DOCTEST_CHECK(Find_(packages, "zipped-theme")->art_only);
+    DOCTEST_CHECK_FALSE(Find_(packages, "my-frontend")->godot_theme); // a whole UI, with its own theme
+    DOCTEST_CHECK_FALSE(Find_(packages, "my-ui")->godot_theme);
 
     // Enabling only the package: its settings carry its id, its dependency's carry theirs.
     const antares::s_config_check addon = antares::Check_Package("addon");

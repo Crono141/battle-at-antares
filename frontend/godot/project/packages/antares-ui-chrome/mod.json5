@@ -1,0 +1,12 @@
+{
+  id: "antares-ui-chrome",
+  name: "Antares UI: Chrome",
+  description: "A theme for Antares UI: the original screens' metal buttons and frames at a small size, armed buttons glowing amber. Ticking it turns the legacy interface off (Godot build).",
+  version: "0.1.0",
+
+  requires: {
+    engine: ">=2.0.0 <3.0.0",
+  },
+
+  config: "config/main.cfg",
+}

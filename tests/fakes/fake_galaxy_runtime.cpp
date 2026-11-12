@@ -49,12 +49,94 @@ namespace MOX {
     char* planet_gravity_string[PLANET_GRAVITY_COUNT];
     char* planet_size_string[PLANET_SIZE_COUNT];
     char* planet_special_string[SYSTEM_SPECIAL_COUNT];
+    s_skill_data skill_data[54];
+    int16_t first_field_in_group[10] = {0, 18, 55, 57, 29, 7, 22, 28, 10, 74};
 } // namespace MOX
+
+namespace TEST_GALAXY {
+    std::set<int> leader_skills; // the skills every leader has (WP3.3f: the governor's skills)
+} // namespace TEST_GALAXY
+
+namespace TEST_GALAXY {
+    int stream_volume = -1; // the last music volume set_volume gave the sound system
+} // namespace TEST_GALAXY
+
+namespace sound {
+    void __cdecl Stop_Stream() {}
+    void __cdecl Stream_On() {}
+    void __cdecl Set_Stream_Max_Volume(int32_t) {}
+    void __cdecl Set_Stream_Volume(int32_t volume) {
+        TEST_GALAXY::stream_volume = volume;
+    }
+    void __cdecl Sound_On() {}
+    void __cdecl Set_Sound_Max_Volume(int32_t) {}
+} // namespace sound
+
+namespace JIM {
+    void Play_Background_Music() {}
+    void __cdecl Stop_Background_Music() {}
+    void __cdecl Get_Text_Message(const char*, int16_t, char* dest, int16_t max_len) {
+        snprintf(dest, (size_t)max_len, "No applications");
+    }
+} // namespace JIM
+
+namespace TECH {
+    char* __cdecl Technology_Applications_Name(int16_t app, int16_t) {
+        static char names[8][16];
+        static int next = 0;
+        char* name = names[next++ % 8];
+        snprintf(name, sizeof(names[0]), "App %d", app);
+        return name;
+    }
+    char* __cdecl Technology_Fields_Name(int16_t field) {
+        static char name[16];
+        snprintf(name, sizeof(name), "Field %d", field);
+        return name;
+    }
+    int16_t __cdecl Get_Hyper_Tech_App_ID(int16_t field) {
+        return (int16_t)(200 + field - TECH_FIELD_BIOLOGY);
+    }
+} // namespace TECH
+
+namespace vfs {
+    s_vfs_file* fopen_lbx(const char*, int32_t) {
+        return nullptr; // no skill descriptions in the tests: the query sends ""
+    }
+    size_t fread(void*, size_t, size_t, s_vfs_file*) {
+        return 0;
+    }
+    int32_t fseek(s_vfs_file*, int32_t, int32_t) {
+        return -1;
+    }
+    int32_t fclose(s_vfs_file*) {
+        return 0;
+    }
+} // namespace vfs
+
+namespace string_overrides {
+    void Apply_String(const char*, size_t, char*, size_t) {}
+} // namespace string_overrides
+
+namespace OFFICER {
+    void __cdecl Get_Skill_Description_LBX_Name(char* lbx_name, uint32_t size) {
+        snprintf(lbx_name, size, "SKILDESC.LBX");
+    }
+    bool __cdecl Officer_Has_Special_Skill(int16_t, int16_t, int16_t skill_idx) {
+        return TEST_GALAXY::leader_skills.count(skill_idx) != 0;
+    }
+    bool __cdecl Officer_Has_General_Skill(int16_t, int16_t, int16_t skill_idx) {
+        return TEST_GALAXY::leader_skills.count(skill_idx) != 0;
+    }
+    int32_t __cdecl Officer_Skill_Bonus(uint32_t, int16_t, int16_t skill_idx) {
+        return 10 + skill_idx;
+    }
+} // namespace OFFICER
 
 namespace TECHDATA {
     s_tech_building_data buildings[BUILDING_COUNT];
     s_tech_hull_data hull_data[HULL_CLASS_COUNT];
     s_tech_fuel_data fuel[FUEL_COUNT];
+    s_tech_field_data technology_fields[TECH_FIELD_COUNT];
 } // namespace TECHDATA
 
 namespace HAROLD {
@@ -126,6 +208,9 @@ namespace HACCESS {
 } // namespace HACCESS
 
 namespace COLCALC {
+    int __cdecl Player_Research_Cost(s_player*, int16_t field) {
+        return 100 * field;
+    }
     void __cdecl Compute_Potential_Colony_Info(s_player*, s_planet_data*, s_potential_colony_info* info) {
         *info = s_potential_colony_info{};
         info->industry = 3;

@@ -23,6 +23,8 @@ namespace TEST_GALAXY {
     extern int box_to_top;
     extern int box_vanished;
     extern int16_t cycle_to;
+    extern std::set<int> leader_skills;
+    extern int stream_volume;
 } // namespace TEST_GALAXY
 
 namespace {
@@ -265,7 +267,7 @@ DOCTEST_TEST_CASE("the system query shows what the box shows") {
     Tear_Down_Galaxy_();
 }
 
-DOCTEST_TEST_CASE("the system query v3: governor, planet words, morale and government (WP3.3f)") {
+DOCTEST_TEST_CASE("the system query v4: governor and its skills, planet words, morale and government (WP3.3f)") {
     Set_Up_Galaxy_();
     std::vector<s_leader_data> leaders(MAX_LEADERS);
     snprintf(leaders[4].name, sizeof(leaders[4].name), "Androgena");
@@ -281,6 +283,20 @@ DOCTEST_TEST_CASE("the system query v3: governor, planet words, morale and gover
     const std::string full = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"system\",\"star\":0}");
     DOCTEST_CHECK(Contains_(full, "\"governor\":{\"leader\":4,\"name\":\"Androgena\",\"title\":\"Governor\""));
     DOCTEST_CHECK(Contains_(full, "\"portrait\":217")); // 0xD2 + 7
+    DOCTEST_CHECK(Contains_(full, "\"skills\":[]"));
+    // v4: the governor's skills as the officer screen lists them, colony skills first.
+    static char farming[] = "Farming Leader";
+    static char farming_fmt[] = "+%d%%";
+    static char tactics[] = "Tactics";
+    static char tactics_fmt[] = "+%d";
+    MOX::skill_data[6] = {0, 0, 2, 0, 0, 0, farming, farming_fmt};
+    MOX::skill_data[2] = {0, 0, 0, 0, 0, 0, tactics, tactics_fmt};
+    TEST_GALAXY::leader_skills = {2, 6};
+    const std::string skilled = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"system\",\"star\":0}");
+    DOCTEST_CHECK(Contains_(skilled, "\"skills\":[{\"skill\":6,\"name\":\"Farming Leader\",\"bonus\":\"+16%\",\"icon\":91,\"description\":\"\"},{\"skill\":2,\"name\":\"Tactics\",\"bonus\":\"+12\",\"icon\":89,\"description\":\"\"}]"));
+    TEST_GALAXY::leader_skills.clear();
+    MOX::skill_data[6] = {};
+    MOX::skill_data[2] = {};
     DOCTEST_CHECK(Contains_(full, "\"size_name\":"));
     DOCTEST_CHECK(Contains_(full, ("\"government_sprite\":" + std::to_string(0x13 + GOVERNMENT_DEMOCRACY)).c_str()));
     DOCTEST_CHECK(Contains_(full, "\"morale_icons\":3"));
@@ -306,5 +322,61 @@ DOCTEST_TEST_CASE("the designs query lists the player's design slots (WP3.3f)") 
     g_players_[0].ship_designs[2].cost = 529;
     const std::string designs = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"designs\"}");
     DOCTEST_CHECK(Contains_(designs, "\"designs\":[{\"slot\":2,\"name\":\"Corvette VII\",\"hull\":2,\"hull_name\":\"Cruiser\",\"picture\":105,\"cost\":529}]"));
+    Tear_Down_Galaxy_();
+}
+
+DOCTEST_TEST_CASE("set_volume sets the music and sound levels as the game menu's sliders (WP3.3g)") {
+    Set_Up_Galaxy_();
+    MOX::settings.music_on = 1;
+    MOX::settings.music_level = 80;
+    MOX::settings.sound_fx_on = 1;
+    MOX::settings.sound_fx_level = 70;
+    DOCTEST_CHECK(Contains_(Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"options\"}"), "\"music\":80,\"sound\":70"));
+    const std::string set = Run_(SCREEN_MAIN, "{\"verb\":\"set_volume\",\"music\":40,\"sound\":3}");
+    DOCTEST_CHECK(Contains_(set, "\"music\":40,\"sound\":0"));
+    DOCTEST_CHECK(MOX::settings.music_level == 40);
+    DOCTEST_CHECK(TEST_GALAXY::stream_volume == 40);
+    DOCTEST_CHECK(MOX::settings.sound_fx_on == 0);
+    // 5 or less turns the music off.
+    DOCTEST_CHECK(Contains_(Run_(SCREEN_MAIN, "{\"verb\":\"set_volume\",\"music\":5}"), "\"music\":0"));
+    DOCTEST_CHECK(MOX::settings.music_on == 0);
+    DOCTEST_CHECK(Contains_(Run_(SCREEN_MAIN, "{\"verb\":\"set_volume\",\"music\":101}"), "bad_args"));
+    Tear_Down_Galaxy_();
+}
+
+DOCTEST_TEST_CASE("the research query and choose_research follow the change-research screen (WP3.3g)") {
+    Set_Up_Galaxy_();
+    s_player& p = g_players_[0];
+    // Construction (group 4) starts at Engineering (29): known, so its next field (30) is offered.
+    TECHDATA::technology_fields[TECH_FIELD_ENGINEERING].next_field_id = 30;
+    TECHDATA::technology_fields[30].tech[0] = 11;
+    TECHDATA::technology_fields[30].tech[1] = 12;
+    p.tech_fields[TECH_FIELD_ENGINEERING] = 3; // known
+    p.tech_fields[30] = 2;                       // researchable
+    p.tech_applications[11] = TECH_RESEARCH_STATUS_AVAILABLE;
+    p.tech_applications[12] = 0;                 // not available
+    p.research_accumulated = 500;
+    p.current_research_field = 30;
+    p.current_research_application = 11;
+    p.research_breakthrough = 1;
+    const std::string research = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"research\"}");
+    DOCTEST_CHECK(Contains_(research, "\"field\":30,\"app\":11,\"accumulated\":500"));
+    DOCTEST_CHECK(Contains_(research, "{\"group\":4,\"area\":\"Construction\",\"field\":30,\"field_name\":\"Field 30\",\"cost\":2500,\"all\":false,\"apps\":[{\"app\":11,\"name\":\"App 11\"}]}"));
+    p.traits[TRAIT_CREATIVE] = 1; // creative: every application of the field
+    DOCTEST_CHECK(Contains_(Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"research\"}"), "\"cost\":2500,\"all\":true"));
+    p.traits[TRAIT_CREATIVE] = 0;
+    // Areas with nothing researchable: no field.
+    DOCTEST_CHECK(Contains_(research, "{\"group\":2,\"area\":\"Power\",\"field\":0}"));
+    // Keeping the field keeps the breakthrough; a choice not on offer is refused.
+    DOCTEST_CHECK(Contains_(Run_(SCREEN_MAIN, "{\"verb\":\"choose_research\",\"field\":30,\"app\":11}"), "\"ok\":true"));
+    DOCTEST_CHECK(p.research_breakthrough == 1);
+    DOCTEST_CHECK(Contains_(Run_(SCREEN_MAIN, "{\"verb\":\"choose_research\",\"field\":30,\"app\":12}"), "refused"));
+    // Another field loses it.
+    p.current_research_field = 5;
+    DOCTEST_CHECK(Contains_(Run_(SCREEN_MAIN, "{\"verb\":\"choose_research\",\"field\":30,\"app\":11}"), "\"field\":30,\"app\":11"));
+    DOCTEST_CHECK(p.research_breakthrough == 0);
+    p = s_player{};
+    TECHDATA::technology_fields[TECH_FIELD_ENGINEERING] = {};
+    TECHDATA::technology_fields[30] = {};
     Tear_Down_Galaxy_();
 }

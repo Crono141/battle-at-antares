@@ -1,6 +1,10 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "game/string_overrides.h"
+
+#include <algorithm>
+#include <vector>
 
 // WP3.3a: the native galaxy's queries and commands (contract: notes/antares/native-bridge.md,
 // "The interface"; rules inventory: notes/antares/screens/00-main.md and 00-system-popup.md).
@@ -38,6 +42,8 @@ namespace antares::commands::internal {
         constexpr int32_t k_artemis_icon = 33;
         // OFFICER.LBX: colony leaders' portraits (OFFICER::Load_Officer_Picture, picture type 1).
         constexpr int32_t k_officer_portraits = 0xD2;
+        // OFFICER.LBX: the skill icons, one per skill pair (OFFICER::Load_Officer_Skill_Icons).
+        constexpr int32_t k_officer_skill_icons = 0x58;
         // COLONY2.LBX: government icons (+ government) and morale masks (COLONY::Govt_Anim, C_Anims).
         constexpr int32_t k_government_icons = 0x13;
         constexpr int32_t k_morale_happy = 0x10;
@@ -360,6 +366,44 @@ namespace antares::commands::internal {
             }
         }
 
+        // A skill's help text, as OFFICER::Print_Officer_Skill_Help shows it on a right click: the
+        // skill descriptions file's record (OFFICER::Load_Officer_Skill_Name_Descriptions: data
+        // entry 1, records of 0xFF bytes, string overrides 28 on) with the leader's name and the
+        // bonus (10 and 15 for skills 28 and 29). Read from the file here: the screen's copy is only
+        // loaded while the leaders screen is up.
+        std::string Skill_Description(int16_t leader, int16_t skill, int16_t bonus) {
+            char lbx[20];
+            OFFICER::Get_Skill_Description_LBX_Name(lbx, sizeof(lbx));
+            s_vfs_file* file = vfs::fopen_lbx(lbx, 1);
+            if (file == nullptr) {
+                return {};
+            }
+            uint16_t header[2] = {};
+            char text[0x100] = {};
+            const int16_t record = skill / 2;
+            bool ok = vfs::fread(header, sizeof(header), 1, file) == 1 && record < header[0] && header[1] <= 0xFF;
+            if (ok) {
+                ok = vfs::fseek(file, (long)(sizeof(header) + (size_t)record * header[1]), SEEK_SET) == 0 &&
+                    vfs::fread(text, header[1], 1, file) == 1;
+            }
+            vfs::fclose(file);
+            if (!ok) {
+                return {};
+            }
+            text[0xFF] = '\0';
+            string_overrides::Apply_String(lbx, (size_t)27 + record + 1, text, 0xFF);
+            char name[80];
+            const s_leader_data& data = MOX::leaders[leader];
+            snprintf(name, sizeof(name), "%s", data.name);
+            if (MOX::settings.language != 4 && data.title[0] != '\0') {
+                strlcat(name, ",", sizeof(name));
+            }
+            const int value = skill == 28 ? 10 : (skill == 29 ? 15 : bonus);
+            char out[256];
+            snprintf(out, sizeof(out), text, name, value);
+            return Utf8(out, sizeof(out));
+        }
+
         void Query_System(int16_t, const s_args& args, s_out& out) {
             if (!Have_Game(out)) {
                 return;
@@ -474,6 +518,34 @@ namespace antares::commands::internal {
                 g.Str("title", Utf8(leader.title, sizeof(leader.title)));
                 g.Int("level", leader.level);
                 g.Int("portrait", k_officer_portraits + leader.pict_num);
+                // v4: the skills the officer screen lists for a colony leader (OFFICER::
+                // Print_Officer_Data): colony skills, then general ones, each with its icon, its
+                // name and its bonus as the screen prints it.
+                s_out skills = g.Add_List("skills");
+                const int16_t owner = static_cast<int8_t>(leader.player_index);
+                for (int pass = 0; pass < 2; ++pass) {
+                    for (int16_t i = 0; i < 54; ++i) {
+                        const s_skill_data& skill = MOX::skill_data[i];
+                        const bool has = pass == 0
+                            ? skill.skill_type == 2 && OFFICER::Officer_Has_Special_Skill(owner, governor, i)
+                            : skill.skill_type == 0 && OFFICER::Officer_Has_General_Skill(owner, governor, i);
+                        if (!has || skill.name == nullptr) {
+                            continue;
+                        }
+                        char bonus[68] = {};
+                        if (skill.format_str != nullptr) {
+                            snprintf(bonus, sizeof(bonus), skill.format_str,
+                                static_cast<int32_t>(static_cast<int16_t>(OFFICER::Officer_Skill_Bonus(owner, governor, i))));
+                        }
+                        s_out item = skills.Append_Object();
+                        item.Int("skill", i);
+                        item.Str("name", Utf8(skill.name, 64));
+                        item.Str("bonus", Utf8(bonus, sizeof(bonus)));
+                        item.Int("icon", k_officer_skill_icons + i / 2);
+                        item.Str("description", Skill_Description(governor, i,
+                            static_cast<int16_t>(OFFICER::Officer_Skill_Bonus(owner, governor, i))));
+                    }
+                }
             }
             out.Int("ring_x", k_box_rings_x);
             out.Int("ring_y", k_box_rings_y);
@@ -693,6 +765,174 @@ namespace antares::commands::internal {
                 item.Str("name", Message(option.message));
                 item.Bool("on", option.value != 0);
             }
+            // v2 (WP3.3g): the game menu's volume sliders, 0-100 (0: off).
+            out.Int("music", MOX::settings.music_on != 0 ? MOX::settings.music_level : 0);
+            out.Int("sound", MOX::settings.sound_fx_on != 0 ? MOX::settings.sound_fx_level : 0);
+        }
+
+        // ---- Research (WP3.3g: the research flyout) ----
+
+        // The research areas in the change-research screen's order (TECH::entry_to_group, two
+        // columns of four), each named as the screen's art labels it.
+        struct s_research_area {
+            uint8_t group;
+            const char* name;
+        };
+        constexpr s_research_area k_research_areas[8] = {{4, "Construction"}, {2, "Power"}, {6, "Chemistry"},
+            {8, "Sociology"}, {7, "Computers"}, {1, "Biology"}, {3, "Physics"}, {5, "Force Fields"}};
+
+        // A field whose every application comes at once: creative races in any field, everyone in
+        // these (TECH::Draw_Little_Arrow and Display_Entry_Text point at all of its applications).
+        bool Gives_All_Applications(const s_player& player, int16_t field) {
+            return player.traits[TRAIT_CREATIVE] == 1 || field == 0x37 || field == 0x39 || field == 0x1D || field == 0x16 ||
+                field == 0x1C || field == 0x17;
+        }
+
+        struct s_research_choice {
+            int16_t field = 0;
+            std::vector<int16_t> apps; // available applications; empty: none left in the field
+            int32_t cost = 0;
+        };
+
+        // One area's field as the change-research screen offers it (TECH::Init_Entry_Data with the
+        // current field cleared, as TECH::_Tech_Select does when changing: the field being
+        // researched is offered too, and the cost already paid comes off every field).
+        s_research_choice Research_Choice(const s_player& player, uint8_t group) {
+            s_research_choice choice;
+            int16_t field = MOX::first_field_in_group[group];
+            while (field != 0 && player.tech_fields[field] != 2) {
+                field = TECHDATA::technology_fields[field].next_field_id;
+            }
+            if (field == 0) {
+                return choice;
+            }
+            choice.field = field;
+            if (field < TECH_FIELD_BIOLOGY) {
+                for (const int16_t app : TECHDATA::technology_fields[field].tech) {
+                    if (app > 0 && app < TECH_APP_COUNT && player.tech_applications[app] == TECH_RESEARCH_STATUS_AVAILABLE) {
+                        choice.apps.push_back(app);
+                    }
+                }
+            } else {
+                choice.apps.push_back(TECH::Get_Hyper_Tech_App_ID(field)); // a hyper-advanced field
+            }
+            const int32_t cost = COLCALC::Player_Research_Cost(const_cast<s_player*>(&player), field) - player.research_accumulated;
+            choice.cost = cost < 0 ? 0 : cost;
+            return choice;
+        }
+
+        void Query_Research(int16_t, const s_args&, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            const s_player& player = MOX::player[MOX::PLAYER_NUM];
+            out.Int("field", (uint8_t)player.current_research_field);
+            out.Int("app", (uint8_t)player.current_research_application); // stored in a signed byte
+            out.Int("accumulated", player.research_accumulated);
+            out.Bool("creative", player.traits[TRAIT_CREATIVE] == 1);
+            char none[80] = {};
+            JIM::Get_Text_Message("billtext.lbx", 62, none, sizeof(none)); // "no applications left"
+            s_out areas = out.Add_List("areas");
+            for (const s_research_area& area : k_research_areas) {
+                const s_research_choice choice = Research_Choice(player, area.group);
+                s_out item = areas.Append_Object();
+                item.Int("group", area.group);
+                item.Str("area", area.name);
+                item.Int("field", choice.field);
+                if (choice.field == 0) {
+                    continue; // all researched
+                }
+                item.Str("field_name", Utf8(TECH::Technology_Fields_Name(choice.field), 62));
+                item.Int("cost", choice.cost);
+                item.Bool("all", Gives_All_Applications(player, choice.field)); // one pick, or all of them
+                s_out apps = item.Add_List("apps");
+                for (const int16_t app : choice.apps) {
+                    s_out a = apps.Append_Object();
+                    a.Int("app", app);
+                    a.Str("name", Utf8(TECH::Technology_Applications_Name(app, MOX::PLAYER_NUM), 64));
+                }
+                if (choice.apps.empty()) {
+                    item.Str("none", Utf8(none, sizeof(none)));
+                }
+            }
+        }
+
+        // A choice from the research flyout, as the change-research screen commits one
+        // (TECH::Commit_Selected_Entry, then TECH::Tech_Change: a new field loses the breakthrough).
+        void Choose_Research(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t field = 0;
+            int64_t app = 0;
+            if (!args.Int("field", &field) || !args.Int("app", &app)) {
+                out.Fail("bad_args", "field and app: one of the research query's choices");
+                return;
+            }
+            s_player& player = MOX::player[MOX::PLAYER_NUM];
+            for (const s_research_area& area : k_research_areas) {
+                const s_research_choice choice = Research_Choice(player, area.group);
+                if (choice.field != field || std::find(choice.apps.begin(), choice.apps.end(), (int16_t)app) == choice.apps.end()) {
+                    continue;
+                }
+                const int8_t previous = player.current_research_field;
+                player.current_research_field = (int8_t)field;
+                player.current_research_application = (int8_t)app;
+                if (player.current_research_field != previous) {
+                    player.research_breakthrough = 0;
+                }
+                out.Int("field", (uint8_t)player.current_research_field);
+                out.Int("app", (uint8_t)player.current_research_application);
+                return;
+            }
+            out.Fail("refused", "not one of the research choices");
+        }
+
+        // The game menu's settings page's volume sliders (LOADSAVE::Set_Music_For_Game_Popup and
+        // Set_Sound_For_Game_Popup, on 0-100 instead of the slider's 0-155): 5 or less is off. Saved
+        // with the session settings, as leaving the game menu does.
+        void Set_Volume(int16_t, const s_args& args, s_out& out) {
+            int64_t music = -1;
+            int64_t sound = -1;
+            if ((args.Has("music") && (!args.Int("music", &music) || music < 0 || music > 100)) ||
+                (args.Has("sound") && (!args.Int("sound", &sound) || sound < 0 || sound > 100)) ||
+                (music < 0 && sound < 0)) {
+                out.Fail("bad_args", "music and / or sound: 0-100");
+                return;
+            }
+            if (music >= 0) {
+                int16_t level = (int16_t)music;
+                if (level <= 5) {
+                    level = 0;
+                    sound::Stop_Stream();
+                    JIM::Stop_Background_Music();
+                    MOX::settings.music_on = 0;
+                } else if (MOX::settings.music_on == 0) {
+                    sound::Stream_On();
+                    MOX::settings.music_on = 1;
+                    JIM::Play_Background_Music();
+                }
+                MOX::settings.music_level = (int8_t)level;
+                sound::Set_Stream_Max_Volume(level);
+                sound::Set_Stream_Volume(level);
+            }
+            if (sound >= 0) {
+                MOX::settings.sound_fx_level = (int8_t)sound;
+                if (sound > 5) {
+                    if (MOX::settings.sound_fx_on == 0) {
+                        sound::Sound_On();
+                    }
+                    MOX::settings.sound_fx_on = 1;
+                    sound::Set_Sound_Max_Volume(MOX::settings.sound_fx_level);
+                } else {
+                    MOX::settings.sound_fx_level = 0;
+                    sound::Set_Sound_Max_Volume(0);
+                    MOX::settings.sound_fx_on = 0;
+                }
+            }
+            LOADSAVE::Save_Session_Related_Settings();
+            out.Int("music", MOX::settings.music_on != 0 ? MOX::settings.music_level : 0);
+            out.Int("sound", MOX::settings.sound_fx_on != 0 ? MOX::settings.sound_fx_level : 0);
         }
 
         // ---- Commands ----
@@ -826,10 +1066,13 @@ namespace antares::commands::internal {
         table->push_back({"toggle_option", e_kind::command, galaxy, 0, "option: 0-7 (Alt+F1..F8), not 3", Toggle_Option});
         table->push_back({"galaxy", e_kind::query, ANY_SCREEN, 1, "", Query_Galaxy});
         table->push_back({"fleets", e_kind::query, ANY_SCREEN, 2, "", Query_Fleets});
-        table->push_back({"system", e_kind::query, ANY_SCREEN, 3, "star: star id", Query_System});
+        table->push_back({"system", e_kind::query, ANY_SCREEN, 4, "star: star id", Query_System});
         table->push_back({"designs", e_kind::query, ANY_SCREEN, 1, "", Query_Designs});
         table->push_back({"potential_colony", e_kind::query, ANY_SCREEN, 2, "planet: planet id", Query_Potential_Colony});
-        table->push_back({"options", e_kind::query, ANY_SCREEN, 1, "", Query_Options});
+        table->push_back({"options", e_kind::query, ANY_SCREEN, 2, "", Query_Options});
+        table->push_back({"set_volume", e_kind::command, ANY_SCREEN, 0, "music, sound: 0-100", Set_Volume});
+        table->push_back({"research", e_kind::query, ANY_SCREEN, 1, "", Query_Research});
+        table->push_back({"choose_research", e_kind::command, galaxy, 0, "field, app: a research choice", Choose_Research});
         table->push_back({"view", e_kind::query, ANY_SCREEN, 1, "", Query_View});
     }
 

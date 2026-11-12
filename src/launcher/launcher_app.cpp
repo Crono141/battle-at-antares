@@ -239,8 +239,20 @@ namespace launcher {
             message_ = message + ".";
             message_is_error_ = false;
         }
+        // D27: ticking a theme or a UI package turns the legacy interface off (the theme shows
+        // nothing with it on); turning it back on is the setting's own.
+        if (on && package->godot_ui && !Native_UI_On_()) {
+            config::t_variable_id native = config::CONFIG_NO_VARIABLE;
+            if (config::Find_Variable("interface.legacy_ui", SDL_strlen("interface.legacy_ui"), &native)) {
+                const std::string before = message_;
+                Set_Setting_(native, "false");
+                message_ = (message.empty() ? std::string() : before + " ") + "Legacy interface off: the Godot interface shows " + Package_Name_(package_id) + ".";
+            }
+        }
         return true;
     }
+
+
 
     std::string c_launcher::Package_Name_(const std::string& package_id) const {
         const antares::s_package_info* package = Find_Package_(package_id);
@@ -679,6 +691,9 @@ namespace launcher {
             } else if (!package->valid) {
                 ImGui::SameLine();
                 ImGui::TextColored(COLOUR_ERROR, "invalid");
+            } else if (package->godot_theme) {
+                ImGui::SameLine();
+                ImGui::TextColored(COLOUR_DIM, "Theme");
             } else if (package->godot_ui) {
                 ImGui::SameLine();
                 ImGui::TextColored(COLOUR_DIM, "UI");
@@ -753,8 +768,10 @@ namespace launcher {
             ImGui::TextUnformatted(manifest.description.c_str());
             ImGui::Spacing();
         }
-        if (package->godot_ui && package->art_only) {
-            ImGui::TextColored(COLOUR_DIM, "UI: changes how the Godot build shows and controls the game, not how it plays. Saves don't record it.");
+        if (package->godot_theme && package->art_only) {
+            ImGui::TextColored(COLOUR_DIM, "Theme: changes how the Godot build's own interface looks (Antares UI, or a UI package that loads themes), not how the game plays. Ticking it turns the legacy interface off. Saves don't record it.");
+        } else if (package->godot_ui && package->art_only) {
+            ImGui::TextColored(COLOUR_DIM, "UI: changes how the Godot build shows and controls the game, not how it plays. Ticking it turns the legacy interface off. Saves don't record it.");
         } else if (package->art_only) {
             ImGui::TextColored(COLOUR_DIM, "Art only: changes how the game looks, not how it plays. Saves don't record it.");
         } else {

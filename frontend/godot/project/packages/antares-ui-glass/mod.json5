@@ -1,0 +1,12 @@
+{
+  id: "antares-ui-glass",
+  name: "Antares UI: Glass",
+  description: "A theme for Antares UI: dark glass panels with thin steel edges, amber for what is on. Ticking it turns the legacy interface off (Godot build).",
+  version: "0.1.0",
+
+  requires: {
+    engine: ">=2.0.0 <3.0.0",
+  },
+
+  config: "config/main.cfg",
+}

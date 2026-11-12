@@ -217,11 +217,14 @@ namespace antares::native {
                 s_waiting_request = id;
                 s_answered = false;
                 const std::string utf8 = Utf8(text);
+                // "screen": the game screen asking (WP3.3f): over the turn's legacy galaxy frames a
+                // frontend shows its own galaxy behind the question instead.
                 std::string json = "{\"id\":" + std::to_string(id) + ",\"kind\":\"" + kind + "\",\"text\":" +
-                    Json_Quote(utf8) + (fields.empty() ? "" : ",") + fields + "}";
+                    Json_Quote(utf8) + ",\"screen\":" + std::to_string((int)MOX::current_screen) +
+                    (fields.empty() ? "" : ",") + fields + "}";
                 s_requests.push_back({id, kind, utf8, std::move(json)});
             }
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: request %llu (%s)", (unsigned long long)id, kind);
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: request %llu (%s) on screen %d", (unsigned long long)id, kind, (int)MOX::current_screen);
             int32_t answer = 0;
             while (true) {
                 {

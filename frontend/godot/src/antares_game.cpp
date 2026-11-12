@@ -105,6 +105,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("answer_request", "id", "value"), &AntaresGame::answer_request);
         ClassDB::bind_method(D_METHOD("get_resource_packs"), &AntaresGame::get_resource_packs);
         ClassDB::bind_method(D_METHOD("get_packages"), &AntaresGame::get_packages);
+        ClassDB::bind_method(D_METHOD("get_native_ui"), &AntaresGame::get_native_ui);
         ClassDB::bind_method(D_METHOD("get_frame_image"), &AntaresGame::get_frame_image);
         ClassDB::bind_method(D_METHOD("request_sprite", "lbx", "entry"), &AntaresGame::request_sprite);
         ADD_PROPERTY(PropertyInfo(Variant::STRING, "game_dir", PROPERTY_HINT_GLOBAL_DIR), "set_game_dir", "get_game_dir");
@@ -439,6 +440,10 @@ namespace godot {
             out.push_back(String::utf8(id.c_str()));
         }
         return out;
+    }
+
+    bool AntaresGame::get_native_ui() const {
+        return antares::host::Native_UI();
     }
 
     void AntaresGame::Upload_Rows(int32_t row_first, int32_t row_last) {

@@ -238,14 +238,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Over a panel the wheel is the panel's: a list scrolled to its end passes it on, and
 			# it must not zoom the map (owner, 2026-11-11).
 			if button.pressed and get_viewport().gui_get_hovered_control() == null:
-				zoom_by(1.2 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.2, button.position)
+				# In a system the wheel zooms about its star, so it can't wander off (owner).
+				var at := button.position
+				if not system.is_empty():
+					at = get_global_transform_with_canvas() * star_position(system_star)
+				zoom_by(1.2 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.2, at)
 			get_viewport().set_input_as_handled()
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
 			# As the legacy map: a right click centres the map there (or cancels F4's mode).
 			if button.pressed:
 				if relocating:
 					right_clicked.emit()
-				else:
+				elif system.is_empty(): # no panning in a system (owner)
 					focus_point(_screen_to_world(button.position))
 			get_viewport().set_input_as_handled()
 		elif button.button_index == MOUSE_BUTTON_LEFT:
@@ -277,7 +281,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if motion and _dragging:
 		if motion.position.distance_to(_press_pos) > 4.0:
 			_drag_moved = true
-		if _drag_moved:
+		if _drag_moved and system.is_empty(): # a system's view stays on it (owner, 2026-11-12)
 			camera.position -= motion.relative / camera.zoom.x
 			_clamp_camera()
 			_anchor_world = camera.position
@@ -366,6 +370,12 @@ func fly_to(world: Vector2, zoom: float, screen: Vector2) -> void:
 ## Moves the camera smoothly to a point at the current zoom (the fleet buttons).
 func glide_to(world: Vector2) -> void:
 	_fly(world, camera.zoom.x)
+
+
+## Leaves a system for its fleet (WP3.3g, owner): the camera glides out a little round `world`
+## (the system's star), keeping the view it will come back to.
+func step_back(world: Vector2, factor := 0.45) -> void:
+	_fly(world, maxf(camera.zoom.x * factor, furthest_zoom()))
 
 
 ## Back to the view before the first flight.

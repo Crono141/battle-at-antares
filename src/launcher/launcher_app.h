@@ -73,6 +73,8 @@ namespace launcher {
          *  off and !confirmed, nothing changes yet: a popup asks first (Toggle_Pending). False when
          *  nothing changed. */
         bool Set_Package_Enabled(const std::string& package_id, bool on, bool confirmed = false);
+        // The Godot interface is on: the profile's `interface legacy_ui` is off (D27).
+        bool Native_UI_On_() const;
         bool Toggle_Pending() const { return !pending_toggle_.id.empty(); }
         const std::string& Message() const { return message_; }
         /** Polls the running game, if any. */

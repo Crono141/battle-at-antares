@@ -21,6 +21,7 @@ namespace antares {
         bool art_only = false; // D18: not recorded in saves
         bool hd_art = false;   // has an HD art pack (data/art/ or data/hd/ with pack.json or index.json)
         bool godot_ui = false; // has Godot resource packs (godot/*.pck or *.zip): a UI package (D26)
+        bool godot_theme = false; // its Godot zip holds a theme.gd and no frontend.tscn (D27)
         std::string readme;    // README.md at the package root, if any (WP5.5)
         config::s_mod_manifest manifest;
     };

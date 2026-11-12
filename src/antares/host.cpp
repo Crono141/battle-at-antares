@@ -74,6 +74,10 @@ namespace antares::host {
         return Window() != nullptr && !platform::Game_Thread_Exited();
     }
 
+    bool Native_UI() {
+        return platform::g_legacy_ui == 0;
+    }
+
     void Window_Settings(int32_t* width, int32_t* height, bool* fullscreen) {
         *width = platform::g_window_width;
         *height = platform::g_window_height;

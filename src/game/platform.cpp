@@ -1253,6 +1253,7 @@ namespace platform {
     int32_t g_window_width = 640;
     int32_t g_window_height = 480;
     uint8_t g_fullscreen = 0;
+    uint8_t g_legacy_ui = 1; // Antares (D27): read by the Godot build (host::Native_UI)
     uint8_t* offscreen_surface;
     float g_raw_mouse_x;
     float g_raw_mouse_y;

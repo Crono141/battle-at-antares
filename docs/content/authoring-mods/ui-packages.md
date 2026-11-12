@@ -5,10 +5,21 @@ does. A **UI package** replaces some of those screens with its own views, made a
 and scripts. The game's rules don't change: the views read the game through queries and act
 through commands, the same calls the original screens make.
 
-`antares-ui` ships with the game as the first UI package, and as an example to copy or change. It
-replaces the galaxy screen with a map you can zoom and drag, with panels over it. It is off by
-default; enable it like any other package. A UI package doesn't change saves: saves don't record
-it, and a save loads with or without it.
+The game is built in three layers:
+
+1. **The engine:** the rules, the saves, the original screens, and the bridge an interface talks
+   through (queries it reads, commands it sends).
+2. **The layout:** which panels exist, where they sit and what they do. The Godot build has one
+   built in, **Antares UI**: the galaxy as a map you can zoom and drag, with panels over it. It
+   shows when the setting `interface legacy_ui` (the launcher's "Legacy interface") is off; it is on
+   by default, so the game starts with the original screens.
+3. **The theme:** how the panels and buttons look. Theme packages (Antares UI: Chrome and Antares
+   UI: Glass ship with the game) style any layout that uses the theme names; see "Themes" below.
+
+A **UI package** changes the layout: it replaces some or all of Antares UI. Antares UI's source
+ships with the game in `ui-source/` (a Godot project, see its README) as the place to start.
+Neither a UI package nor a theme changes saves: saves don't record them, and a save loads with or
+without them.
 
 ## How it fits together
 
@@ -16,14 +27,17 @@ it, and a save loads with or without it.
   with its Godot files in `godot/`, as a `.zip` (or a `.pck` exported by Godot).
 - Inside that zip, every file sits under `packages/<package id>/`, which is its path in the Godot
   project (`res://packages/<package id>/...`).
-- The entry point is `packages/<package id>/frontend.tscn`. When the package is enabled, the game
-  creates that scene over the original screen. Its root script says which screens it draws
+- The entry point is `packages/<package id>/frontend.tscn`. When the package is enabled and the
+  legacy interface is off, the game creates that scene over the original screen, in place of the
+  built-in Antares UI. Its root script says which screens it draws
   (`claimed_screens`, the game's `SCREEN_*` numbers) and which pop-up kinds it answers
   (`claimed_requests`); everything else stays the original screen.
 - If several UI packages are enabled, the one with the highest priority (listed first) is used.
 - Packages also replace single files: any enabled package whose zip holds a file at the same path
-  replaces it, the highest priority winning. A package that only restyles the fleet panel ships
-  `packages/antares-ui/views/fleet_panel.tscn` and nothing else (enable it above `antares-ui`).
+  replaces it, the highest priority winning, the built-in Antares UI's files included. A package
+  that only rearranges the right edge's tabs ships `packages/antares-ui/views/side_tabs.tscn` (and
+  its script, if changed) and nothing else.
+- Ticking a UI or theme package in the launcher turns the legacy interface off.
 
 ```text
 data/mods/my-ui/
@@ -99,3 +113,46 @@ pack's art for everything else; enabled below `antares-hd`, the HD stars win. Go
 same path in two packages follow the same rule. The player sets the order, so say in your README
 where your package should go. Reordering packages while the game runs takes effect for game
 sprites at once, and for Godot files at the next start.
+
+## Themes
+
+The look of the native interface comes from **theme packages**: `antares-ui-chrome` (the original
+screens' metal, small) and `antares-ui-glass` (dark glass panels) ship with the game. Enable any
+number of them (the launcher labels them "Theme"); Options > Theme in the native galaxy switches
+between the enabled ones while playing, and remembers the choice. The first one enabled is the
+default. With none enabled, the interface uses Godot's own look. A theme has no dependency: it
+works with Antares UI and with any layout that keeps the theme names below.
+
+A theme package is a UI package without a `frontend.tscn`: its zip holds
+`packages/<id>/theme.gd`, a script with one function,
+
+```gdscript
+extends RefCounted
+func build(dir: String) -> Dictionary  # dir is res://packages/<id>
+```
+
+that returns `{}` when it can't build (missing art), or:
+
+| Key | What it is |
+|---|---|
+| `name` | what the selector shows |
+| `theme` | a Godot `Theme` put on every native view |
+| `frame` | a `StyleBox` drawn round the whole view, over it, or `null` |
+| `inset` | the frame's thickness: edge controls sit inside it |
+| `edge_gap` | the gap between the buttons and slots along an edge (0: side by side) |
+| `bar_height` | the top bar's height; its icons are 28 pixels |
+| `pane_gap` | the gap between a pane and the screen's edge (or the frame) |
+
+The views ask the theme for these type variations: `Pane`, `Row`, `RowOpen`, `Slot`, `Pocket`
+(behind the top bar), `BottomPocket` (behind the fleet and colony buttons) and `Portrait`
+(`PanelContainer`); `SlotButton` (the bar's figures), `SideTab` (the right edge's tabs) and
+`Toggle` (`Button`); `Heading`, `Name`, `Dim` and `Section` (`Label`). An armed button (a pressed
+toggle) letters in the button's `font_pressed_color`, glowing with the `Button` constant `glow`
+and colour `glow_color`. `packages/antares-ui/themes.gd` has the details;
+`packages/antares-ui-glass/theme.gd` is a short example made of `StyleBoxFlat`s.
+
+A theme reads its own files (images, fonts) as files, not as imported Godot resources:
+`Image.load_from_file()` and `FontFile.load_dynamic_font()` on paths under `dir`. So a plain zip
+of the folder works, with no Godot export. The chrome theme's metal is cut from the player's own
+game by the workspace tool `tools/themeart.py` into its `art/` folder, which the source repository
+doesn't carry; fonts under an open licence can ship as they are, with their licence beside them.
