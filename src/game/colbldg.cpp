@@ -5,6 +5,9 @@
 #include "lua/lua_game_ship_identity.h"
 #include "strbuild.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace COLBLDG {
 
     bool warn_blockers = true;
@@ -553,6 +556,39 @@ namespace COLBLDG {
         pending_refit_design_valid_ = false;
     }
 
+    // Antares (WP3.4b, a fix): ships queued for refit in this popup session, as they were. The
+    // original scrapped a refitting ship taken off the list (or left by Cancel) before OK: it had
+    // already overwritten the ship's design. Now the ship goes back as it was.
+    namespace {
+        struct s_refit_original {
+            int16_t ship;
+            s_ship_data data;
+        };
+        std::vector<s_refit_original> refit_originals_;
+    } // namespace
+
+    void Forget_Refit_Originals() {
+        refit_originals_.clear();
+    }
+
+    bool Has_Refit_Original(int16_t ship_idx) {
+        return std::any_of(refit_originals_.begin(), refit_originals_.end(), [&](const s_refit_original& r) {
+            return r.ship == ship_idx;
+        });
+    }
+
+    bool Restore_Refit_Original(int16_t ship_idx) {
+        for (auto it = refit_originals_.begin(); it != refit_originals_.end(); ++it) {
+            if (it->ship == ship_idx) {
+                MOX::ship[ship_idx] = it->data;
+                refit_originals_.erase(it);
+                MAINSCR::Update_Ship_Icons_In_Between_Turns();
+                return true;
+            }
+        }
+        return false;
+    }
+
     void __cdecl Build_Queue_Popup() {
         uint32_t original_seed = game_random::Get_Random_Seed();
         game_random::Set_Random_Seed(COLONY::colony_handle);
@@ -581,6 +617,7 @@ namespace COLBLDG {
         ERICHELP::Set_Building_Queue_Screen_Help_List();
 
         if (COLBLDG::return_to_build_popup_from_custom_design == 0) {
+            Forget_Refit_Originals();
             for (int i = 0; i < 7; ++i) {
                 COLBLDG::current_item[i] = MOX::colony[colony_idx].producing[i];
             }
@@ -1702,7 +1739,8 @@ namespace COLBLDG {
                     int16_t item = current_item[i];
                     if (COLBLDG::Colony_Production_Is_Queued_Ship(item)) {
                         if (ERIC::Sint_Is_In_List(item, MOX::colony[COLONY::colony_handle].producing, 14) == 0) {
-                            if (MOX::ship[COLBLDG::Colony_Production_Ship_Index(item)].status == 4) {
+                            const int16_t ship_idx = COLBLDG::Colony_Production_Ship_Index(item);
+                            if (MOX::ship[ship_idx].status == 4 && !Has_Refit_Original(ship_idx)) {
                                 if (GENDRAW::Do_Confirmation_Box(ESTRINGS::E_Strings(0x1dc)) == 0) {
                                     *selected_field_id = 0;
                                     return;
@@ -1722,6 +1760,7 @@ namespace COLBLDG {
                 }
 
                 Remove_Ships(0);
+                Forget_Refit_Originals();
             } else {
                 field_mode = 0;
                 COLONY::Reset_Mouse_Picture();
@@ -2114,6 +2153,9 @@ namespace COLBLDG {
             return;
         }
 
+        if (!Has_Refit_Original(ship_n)) {
+            refit_originals_.push_back({ship_n, MOX::ship[ship_n]});
+        }
         int8_t owner = MOX::colony[COLONY::colony_handle].owner;
         s_ship_design old_design = MOX::ship[ship_n].d;
         s_ship_design new_design = *pending_design;
@@ -2181,6 +2223,7 @@ namespace COLBLDG {
         if (original_front_item != colony->producing[0]) {
             colony->bought_outright = 0;
         }
+        Forget_Refit_Originals(); // committed: the refits stand
     }
 
     int8_t __cdecl Add_To_Queue(int16_t product_id) {
@@ -2354,15 +2397,19 @@ namespace COLBLDG {
 
         if (COLBLDG::Colony_Production_Is_Queued_Ship(item)) {
             int16_t ship_idx = COLBLDG::Colony_Production_Ship_Index(item);
-            if (MOX::ship[ship_idx].status == 4) {
-                if (GENDRAW::Do_Confirmation_Box(ESTRINGS::E_Strings(0x213 /* Cancel ship building? */)) == 0) {
-                    Do_Draw_Build_Queue();
-                    return;
+            if (Restore_Refit_Original(ship_idx)) {
+                // Antares: a refit from this session goes back to the ship it was (no question, no scrapping)
+            } else {
+                if (MOX::ship[ship_idx].status == 4) {
+                    if (GENDRAW::Do_Confirmation_Box(ESTRINGS::E_Strings(0x213 /* Cancel ship building? */)) == 0) {
+                        Do_Draw_Build_Queue();
+                        return;
+                    }
                 }
-            }
 
-            if (!ERIC::Sint_Is_In_List(item, (int16_t*)MOX::colony[COLONY::colony_handle].producing, 14)) {
-                Delete_Ship(ship_idx);
+                if (!ERIC::Sint_Is_In_List(item, (int16_t*)MOX::colony[COLONY::colony_handle].producing, 14)) {
+                    Delete_Ship(ship_idx);
+                }
             }
             Do_Draw_Build_Queue();
         }
@@ -2449,6 +2496,9 @@ namespace COLBLDG {
                 if (COLBLDG::Colony_Production_Is_Queued_Ship(prod)) {
                     if (First_Prod_Colony_Queue_Slot(COLONY::colony_handle, prod) == -1) {
                         int16_t ship_idx = COLBLDG::Colony_Production_Ship_Index(prod);
+                        if (Restore_Refit_Original(ship_idx)) {
+                            continue; // Antares: Cancel puts a refitted ship back
+                        }
                         int16_t officer_idx = MOX::ship[ship_idx].officer_index;
                         if (officer_idx != -1) {
                             OFFICER::Move_Officer_To_Pool(officer_idx);

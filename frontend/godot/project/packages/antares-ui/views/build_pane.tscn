@@ -45,6 +45,16 @@ theme_type_variation = &"Toggle"
 toggle_mode = true
 text = "UNITS"
 
+[node name="Refit" type="Button" parent="Box/Header"]
+custom_minimum_size = Vector2(90, 32)
+layout_mode = 2
+size_flags_vertical = 4
+tooltip_text = "Refit a warship in orbit to one of your designs"
+focus_mode = 0
+theme_type_variation = &"Toggle"
+toggle_mode = true
+text = "REFIT"
+
 [node name="Close" type="Button" parent="Box/Header"]
 custom_minimum_size = Vector2(34, 30)
 layout_mode = 2
@@ -59,17 +69,23 @@ size_flags_vertical = 3
 theme_override_constants/separation = 10
 
 [node name="Left" type="VBoxContainer" parent="Box/Columns"]
-custom_minimum_size = Vector2(290, 0)
+custom_minimum_size = Vector2(330, 0)
 layout_mode = 2
 theme_override_constants/separation = 8
 
 [node name="Detail" type="PanelContainer" parent="Box/Columns/Left"]
 custom_minimum_size = Vector2(0, 250)
 layout_mode = 2
+size_flags_vertical = 3
 theme_type_variation = &"Row"
 
-[node name="Box" type="VBoxContainer" parent="Box/Columns/Left/Detail"]
+[node name="Scroll" type="ScrollContainer" parent="Box/Columns/Left/Detail"]
 layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Box" type="VBoxContainer" parent="Box/Columns/Left/Detail/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_constants/separation = 4
 
 [node name="Toggles" type="HBoxContainer" parent="Box/Columns/Left"]
@@ -103,7 +119,7 @@ text = "BUILD LIST"
 
 [node name="Queue" type="PanelContainer" parent="Box/Columns/Left"]
 layout_mode = 2
-size_flags_vertical = 3
+tooltip_text = "Drag items here, or between items, to place them"
 theme_type_variation = &"Row"
 
 [node name="Box" type="VBoxContainer" parent="Box/Columns/Left/Queue"]
@@ -128,16 +144,16 @@ theme_override_constants/separation = 0
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="Cancel" type="Button" parent="Box/Buttons"]
-custom_minimum_size = Vector2(0, 36)
-layout_mode = 2
-size_flags_horizontal = 3
-focus_mode = 0
-text = "CANCEL"
-
 [node name="Ok" type="Button" parent="Box/Buttons"]
 custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 focus_mode = 0
 text = "OK"
+
+[node name="Cancel" type="Button" parent="Box/Buttons"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 0
+text = "CANCEL"

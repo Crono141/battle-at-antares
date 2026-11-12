@@ -434,9 +434,11 @@ namespace antares::commands::internal {
                 COLBLDG::active_prod[0] = -1;
                 COLBLDG::field_mode = 0;
                 COLBLDG::colony_auto_building = MOX::colony[colony].auto_building != 0;
+                COLBLDG::Forget_Refit_Originals();
             }
 
             ~s_build_scope() {
+                COLBLDG::Forget_Refit_Originals();
                 COLONY::colony_handle = colony_handle;
                 COLONY::planet_handle = planet_handle;
                 COLONY::star_handle = star_handle;
@@ -451,26 +453,61 @@ namespace antares::commands::internal {
             }
         };
 
-        // One buildable item with what the popup's detail box shows (Draw_Cost_And_Time_Info,
-        // Build_Ship_Design_Info_Formatted_Paragraph): cost here, build time, upkeep, the picture,
-        // and a design's parts.
-        void Build_Item(int16_t c, int16_t id, s_out item) {
-            s_colony& colony = MOX::colony[c];
-            item.Int("id", id);
-            item.Str("name", Item_Name(colony, id));
-            Item_Picture(colony, id, item.Add_Object("picture"));
-            if (id == COLONY_PRODUCTION_HOUSING || id == COLONY_PRODUCTION_TRADE_GOODS) {
-                return; // settings, not items
+        // One record of an LBX record table (a u16 count and size, then the records), read as
+        // farload::Far_Reload_Data reads it but without the popup's caches (pure).
+        std::string Lbx_Record(const char* lbx, int32_t entry, uint16_t record, size_t offset, size_t length) {
+            s_vfs_file* file = vfs::fopen_lbx(lbx, entry);
+            if (file == nullptr) {
+                return {};
             }
-            item.Int("cost", COLCALC::Colony_Product_Cost(&colony, id));
-            item.Int("turns", COLONY::Calculate_Colony_Turn_Count_From_Scrap_For_Prod(c, id));
-            if (COLBLDG::Colony_Production_Is_Building(id)) {
-                item.Int("upkeep", TECHDATA::buildings[id].maintenance);
+            uint16_t header[2] = {};
+            std::string text(length + 1, '\0');
+            bool ok = vfs::fread(header, sizeof(header), 1, file) == 1 && record < header[0] && offset + length <= header[1];
+            if (ok) {
+                ok = vfs::fseek(file, (long)(sizeof(header) + (size_t)record * header[1] + offset), SEEK_SET) == 0 &&
+                    vfs::fread(text.data(), length, 1, file) == 1;
             }
-            if (!COLBLDG::Colony_Production_Is_Ship_Design(id)) {
-                return;
+            vfs::fclose(file);
+            if (!ok) {
+                return {};
             }
-            s_ship_design& design = MOX::player[colony.owner].ship_designs[COLBLDG::Colony_Production_Ship_Design_Index(id)];
+            return Utf8(text.data(), length);
+        }
+
+        // The help text the popup's detail box prints for an item (Draw_Current_Selection,
+        // Draw_Building_Info): a building's application, a unit's fixed application, or a
+        // setting's description. Ship designs show their parts instead.
+        std::string Item_Description(int16_t id) {
+            int16_t app = -1;
+            switch (id) {
+                case COLONY_PRODUCTION_OUTPOST_SHIP: app = 109; break;
+                case COLONY_PRODUCTION_FREIGHTERS: app = 69; break;
+                case COLONY_PRODUCTION_COLONY_SHIP: app = 41; break;
+                case COLONY_PRODUCTION_TRANSPORT_SHIP: app = 189; break;
+                case COLONY_PRODUCTION_SPY: app = 166; break;
+                case COLONY_PRODUCTION_SCIENTIST: app = 7; break;
+                case COLONY_PRODUCTION_WORKER: app = 8; break;
+                case COLONY_PRODUCTION_FARMER: app = 6; break;
+                case COLONY_PRODUCTION_HOUSING:
+                case COLONY_PRODUCTION_TRADE_GOODS:
+                    return Lbx_Record(ESTRINGS::E_Strings(HESTR_170_MAX_POPULATION),
+                        id == COLONY_PRODUCTION_HOUSING ? 13 : 12, 0, 0, 600);
+                default:
+                    if (COLBLDG::Colony_Production_Is_Building(id)) {
+                        app = (int16_t)TECHDATA::buildings[id].tech_app;
+                    }
+                    break;
+            }
+            if (app < 0) {
+                return {};
+            }
+            char lbx[20];
+            TEXTBOX::Get_Help_Lbx_Name(lbx, sizeof(lbx));
+            return Lbx_Record(lbx, 0, (uint16_t)app, offsetof(s_help_record, body), sizeof(s_help_record::body));
+        }
+
+        // A design's parts, as the popup lists them (Build_Ship_Design_Info_Formatted_Paragraph).
+        void Design_Parts(s_ship_design& design, s_out item) {
             item.Str("hull", Utf8(TECHDATA::hull_data[design.size].name, 40));
             item.Str("shield", Utf8(TECHDATA::shields[design.shield_type].name, 40));
             item.Str("computer", Utf8(TECHDATA::computers[design.computer_type].name, 40));
@@ -489,6 +526,98 @@ namespace antares::commands::internal {
             for (int i = 0; i < 39; ++i) {
                 if (struct_::Test_Bit_Field(design.special_device_flags, i)) {
                     specials.Append_Object().Str("text", Utf8(TECHDATA::specials[i].name, 60));
+                }
+            }
+        }
+
+        // One buildable item with what the popup's detail box shows (Draw_Cost_And_Time_Info,
+        // Build_Ship_Design_Info_Formatted_Paragraph): cost here, build time, upkeep, the picture,
+        // and a design's parts.
+        void Build_Item(int16_t c, int16_t id, s_out item) {
+            s_colony& colony = MOX::colony[c];
+            item.Int("id", id);
+            item.Str("name", Item_Name(colony, id));
+            Item_Picture(colony, id, item.Add_Object("picture"));
+            const std::string description = Item_Description(id);
+            if (!description.empty()) {
+                item.Str("description", description);
+            }
+            if (id == COLONY_PRODUCTION_HOUSING || id == COLONY_PRODUCTION_TRADE_GOODS) {
+                return; // settings, not items
+            }
+            item.Int("cost", COLCALC::Colony_Product_Cost(&colony, id));
+            item.Int("turns", COLONY::Calculate_Colony_Turn_Count_From_Scrap_For_Prod(c, id));
+            if (COLBLDG::Colony_Production_Is_Building(id)) {
+                item.Int("upkeep", TECHDATA::buildings[id].maintenance);
+            }
+            if (!COLBLDG::Colony_Production_Is_Ship_Design(id)) {
+                return;
+            }
+            Design_Parts(MOX::player[colony.owner].ship_designs[COLBLDG::Colony_Production_Ship_Design_Index(id)], item);
+        }
+
+        // REFIT's requirement, as the popup checks it: Chemistry and Nuclear Fission researched.
+        bool Can_Refit(int16_t owner) {
+            const s_player& player = MOX::player[owner];
+            return player.tech_fields[TECH_FIELD_CHEMISTRY] == TECH_RESEARCH_STATUS_RESEARCHED &&
+                player.tech_fields[TECH_FIELD_NUCLEAR_FISSION] == TECH_RESEARCH_STATUS_RESEARCHED;
+        }
+
+        // A ship REFIT offers (COLREFIT::Build_Ship_List): the colony owner's warship in orbit,
+        // not already refitting or building.
+        bool Refit_Ship(const s_colony& colony, int64_t ship) {
+            if (ship < 0 || ship >= MAX_SHIPS) {
+                return false;
+            }
+            const s_ship_data& data = MOX::ship[ship];
+            return data.owner == colony.owner && data.status < 3 &&
+                data.location == MOX::planet[colony.planet].star_index && data.d.ship_type == SHIP_TYPE_COMBAT;
+        }
+
+        // A design a ship can be refitted to (COLREFIT::Evaluate2_Input): a saved design of its size.
+        bool Refit_Target(const s_colony& colony, const s_ship_data& ship, int64_t slot) {
+            if (slot < 0 || slot >= SHIP_SIZE_COUNT) {
+                return false;
+            }
+            const s_ship_design& design = MOX::player[colony.owner].ship_designs[slot];
+            return design.size == ship.d.size && design.name[0] != '\0' &&
+                strcmp(COLBLDG::Selection_Name(COLBLDG::Colony_Production_From_Ship_Design_Index((int16_t)slot)), ESTRINGS::E_Strings(12)) != 0;
+        }
+
+        // REFIT (the popup's button and its two lists): the ships in orbit, each with the
+        // designs it can become and what that costs (AIBUILD::Refit_Cost, as
+        // Add_Refited_Ship_To_Queue charges it).
+        void Refit_Options(int16_t c, s_out refit) {
+            s_colony& colony = MOX::colony[c];
+            const bool can = Can_Refit(colony.owner);
+            refit.Bool("available", can);
+            if (!can) {
+                refit.Str("message", Utf8(ESTRINGS::E_Strings(0x244), 400));
+            }
+            s_out ships = refit.Add_List("ships");
+            for (int16_t i = 0; i < MAX_SHIPS; ++i) {
+                if (!Refit_Ship(colony, i)) {
+                    continue;
+                }
+                s_ship_data& ship = MOX::ship[i];
+                s_out row = ships.Append_Object();
+                row.Int("ship", i);
+                row.Str("name", Utf8(ship.d.name, sizeof(ship.d.name)));
+                s_out picture = row.Add_Object("picture");
+                picture.Str("lbx", "SHIPS.LBX");
+                picture.Int("entry", (int32_t)ship.d.picture_num + (int32_t)MOX::player[colony.owner].color * 50);
+                Design_Parts(ship.d, row);
+                s_out targets = row.Add_List("targets");
+                for (int16_t slot = 0; slot < SHIP_SIZE_COUNT; ++slot) {
+                    if (!Refit_Target(colony, ship, slot)) {
+                        continue;
+                    }
+                    s_ship_design design = MOX::player[colony.owner].ship_designs[slot];
+                    design.cost = DESIGN::Cost_Of_Design(colony.owner, &design);
+                    s_out target = targets.Append_Object();
+                    target.Int("design", slot);
+                    target.Str("name", Utf8(design.name, sizeof(design.name)));
+                    target.Int("cost", AIBUILD::Refit_Cost(colony.owner, &ship.d, &design));
                 }
             }
         }
@@ -526,6 +655,8 @@ namespace antares::commands::internal {
                 }
                 Build_Item(c, id, units.Append_Object());
             }
+            Refit_Options(c, out.Add_Object("refit"));
+            out.Int("slots", 7);
             s_out queue = out.Add_List("queue");
             for (int slot = 0; slot < 7; ++slot) {
                 const int16_t id = MOX::colony[c].producing[slot];
@@ -545,7 +676,8 @@ namespace antares::commands::internal {
         // order they were made, with the popup's random seed (the colony's number, as
         // Build_Queue_Popup sets it), then the popup's OK (COLBLDG::Commit_Build_Queue). Ships for
         // designs are made here, as the popup makes them when they're added; Cancel sends nothing.
-        // Edits: {"add": id, "repeat": bool}, {"delete": slot}, {"move": [from, to]}. Questions
+        // Edits: {"add": id, "repeat": bool}, {"delete": slot}, {"move": [from, to]},
+        // {"refit": ship, "design": slot}. Questions
         // the popup asks along the way (androids filling the planet, cancelling a refit, housing
         // or trade goods ahead of other items) are the game's own.
         void Build_Commit(int16_t, const s_args& args, s_out& out) {
@@ -579,7 +711,19 @@ namespace antares::commands::internal {
                     yyjson_val* add = yyjson_obj_get(edit, "add");
                     yyjson_val* del = yyjson_obj_get(edit, "delete");
                     yyjson_val* move = yyjson_obj_get(edit, "move");
-                    if (yyjson_is_int(add)) {
+                    yyjson_val* refit = yyjson_obj_get(edit, "refit");
+                    if (yyjson_is_int(refit)) {
+                        // REFIT's second list chose a design (COLREFIT::Evaluate2_Input), then the
+                        // popup queues the ship (Add_Refited_Ship_To_Queue).
+                        const int64_t ship = yyjson_get_int(refit);
+                        const int64_t slot = yyjson_get_int(yyjson_obj_get(edit, "design"));
+                        if (!Can_Refit(MOX::colony[c].owner) || !Refit_Ship(MOX::colony[c], ship) ||
+                            !Refit_Target(MOX::colony[c], MOX::ship[ship], slot)) {
+                            continue;
+                        }
+                        COLBLDG::Set_Pending_Refit_Design((int16_t)ship, &MOX::player[MOX::colony[c].owner].ship_designs[slot]);
+                        COLBLDG::Add_Refited_Ship_To_Queue();
+                    } else if (yyjson_is_int(add)) {
                         const int16_t id = (int16_t)yyjson_get_int(add);
                         if (id == COLONY_PRODUCTION_CUSTOM_DESIGN) {
                             continue; // the popup's Design button, not an item
@@ -589,9 +733,11 @@ namespace antares::commands::internal {
                         COLBLDG::field_mode = 0;
                     } else if (yyjson_is_int(del)) {
                         const int64_t slot = yyjson_get_int(del);
-                        if (slot >= 0 && slot < 7 && !(slot == 0 && MOX::colony[c].bought_outright != 0)) {
-                            COLBLDG::Delete_From_Queue((int16_t)slot);
+                        if (slot < 0 || slot >= 7 || (slot == 0 && MOX::colony[c].bought_outright != 0)) {
+                            continue;
                         }
+                        // (a refit from this commit goes back to the ship it was: Delete_From_Queue)
+                        COLBLDG::Delete_From_Queue((int16_t)slot);
                     } else if (yyjson_is_arr(move) && yyjson_arr_size(move) == 2) {
                         const int64_t from = yyjson_get_int(yyjson_arr_get(move, 0));
                         const int64_t to = yyjson_get_int(yyjson_arr_get(move, 1));
@@ -632,7 +778,7 @@ namespace antares::commands::internal {
         table->push_back({"move_colonist", e_kind::command, galaxy, 0, "colony, pop, job (0-2)", Move_Colonist});
         table->push_back({"buy", e_kind::command, galaxy, 0, "colony", Buy});
         table->push_back({"build_options", e_kind::query, ANY_SCREEN, 1, "colony", Query_Build_Options});
-        table->push_back({"build_commit", e_kind::command, galaxy, 0, "colony, edits [{add, repeat} / {delete} / {move}], auto", Build_Commit});
+        table->push_back({"build_commit", e_kind::command, galaxy, 0, "colony, edits [{add, repeat} / {delete} / {move} / {refit, design}], auto", Build_Commit});
     }
 
 } // namespace antares::commands::internal

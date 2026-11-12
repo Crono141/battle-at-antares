@@ -26,6 +26,7 @@ namespace {
     s_planet_data c_planets_[2];
     s_colony c_colonies_[2];
     char c_building_names_[49][16];
+    s_ship_data c_ships_[MAX_SHIPS];
 
     bool Has_(const std::string& text, const char* part) {
         return text.find(part) != std::string::npos;
@@ -100,6 +101,11 @@ namespace {
         TECHDATA::buildings[BUILDING_STAR_BASE].group = 7;
         TECHDATA::buildings[BUILDING_ARTEMIS_SYSTEM_NET].group = 7;
         TECHDATA::buildings[BUILDING_DIMENSIONAL_PORTAL].group = 7;
+        for (auto& s : c_ships_) {
+            s = s_ship_data{};
+            s.owner = -1;
+        }
+        MOX::ship = c_ships_;
         TEST_COLONY::colony_calculations = 0;
         TEST_COLONY::buys = 0;
         TEST_COLONY::refuse_job = false;
@@ -189,4 +195,52 @@ DOCTEST_TEST_CASE("build_options lists what CHANGE offers; build_commit replays 
     DOCTEST_CHECK(c_colonies_[0].auto_building == 1);
     DOCTEST_CHECK_FALSE(COLBLDG::quiet_ui);
     DOCTEST_CHECK(COLONY::colony_handle == -7);
+}
+
+DOCTEST_TEST_CASE("REFIT lists the warships in orbit and their designs; a refit edit queues the ship (WP3.4b)") {
+    Set_Up_();
+    s_ship_data* ships = c_ships_;
+    ships[3].owner = 0;
+    ships[3].status = 0;
+    ships[3].location = 0;
+    ships[3].d.ship_type = SHIP_TYPE_COMBAT;
+    ships[3].d.size = 2;
+    snprintf(ships[3].d.name, sizeof(ships[3].d.name), "Old Guard");
+    ships[4] = ships[3];
+    ships[4].location = 1; // elsewhere
+    snprintf(c_players_[0].ship_designs[1].name, sizeof(c_players_[0].ship_designs[1].name), "New Guard");
+    c_players_[0].ship_designs[1].size = 2;
+    snprintf(c_players_[0].ship_designs[2].name, sizeof(c_players_[0].ship_designs[2].name), "Other Hull");
+    c_players_[0].ship_designs[2].size = 3;
+    static char hull[] = "Cruiser";
+    for (auto& h : TECHDATA::hull_data) {
+        h.name = hull;
+    }
+    // Without Chemistry and Nuclear Fission the button only says why.
+    std::string options = Run_("{\"verb\":\"query\",\"what\":\"build_options\",\"colony\":0}");
+    DOCTEST_CHECK(Has_(options, "\"refit\":{\"available\":false,\"message\":"));
+    std::string commit = Run_("{\"verb\":\"build_commit\",\"colony\":0,\"edits\":[{\"refit\":3,\"design\":1}]}");
+    DOCTEST_CHECK(Has_(commit, "\"applied\":0"));
+    c_players_[0].tech_fields[TECH_FIELD_CHEMISTRY] = TECH_RESEARCH_STATUS_RESEARCHED;
+    c_players_[0].tech_fields[TECH_FIELD_NUCLEAR_FISSION] = TECH_RESEARCH_STATUS_RESEARCHED;
+    options = Run_("{\"verb\":\"query\",\"what\":\"build_options\",\"colony\":0}");
+    DOCTEST_CHECK(Has_(options, "\"refit\":{\"available\":true,\"ships\":[{\"ship\":3,\"name\":\"Old Guard\""));
+    DOCTEST_CHECK(Has_(options, "\"targets\":[{\"design\":1,\"name\":\"New Guard\",\"cost\":25}]"));
+    DOCTEST_CHECK_FALSE(Has_(options, "\"ship\":4"));
+    DOCTEST_CHECK(Has_(options, "\"slots\":7"));
+    // A design of another size is refused, as the popup refuses it.
+    commit = Run_("{\"verb\":\"build_commit\",\"colony\":0,\"edits\":[{\"refit\":3,\"design\":2},{\"refit\":3,\"design\":1}]}");
+    DOCTEST_CHECK(Has_(commit, "\"applied\":1"));
+    DOCTEST_CHECK(c_colonies_[0].producing[1] == COLBLDG::Colony_Production_From_Ship_Index(3));
+    DOCTEST_CHECK(ships[3].status == 4);
+    DOCTEST_CHECK(std::string(ships[3].d.name) == "New Guard");
+    // A refit taken off again in the same commit puts the ship back (the popup would scrap it).
+    ships[3].status = 0;
+    snprintf(ships[3].d.name, sizeof(ships[3].d.name), "Old Guard");
+    c_colonies_[0].producing[1] = COLONY_PRODUCTION_NONE;
+    commit = Run_("{\"verb\":\"build_commit\",\"colony\":0,\"edits\":[{\"refit\":3,\"design\":1},{\"delete\":1}]}");
+    DOCTEST_CHECK(Has_(commit, "\"applied\":2"));
+    DOCTEST_CHECK(ships[3].status == 0);
+    DOCTEST_CHECK(std::string(ships[3].d.name) == "Old Guard");
+    DOCTEST_CHECK(c_colonies_[0].producing[1] == COLONY_PRODUCTION_NONE);
 }

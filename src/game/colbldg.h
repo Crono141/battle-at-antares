@@ -142,6 +142,15 @@ namespace COLBLDG {
     /** Clears the transient refit design. */
     void Clear_Pending_Refit_Design();
 
+    /** Antares: forgets the ships this popup session queued for refit (they stand once committed). */
+    void Forget_Refit_Originals();
+
+    /** Antares: whether `ship_idx` was queued for refit in this popup session. */
+    bool Has_Refit_Original(int16_t ship_idx);
+
+    /** Antares: puts a ship queued for refit in this session back as it was; false when it wasn't. */
+    bool Restore_Refit_Original(int16_t ship_idx);
+
     /** Opens the colony build-queue popup and runs its input loop. */
     void __cdecl Build_Queue_Popup();
 

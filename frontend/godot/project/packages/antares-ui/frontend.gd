@@ -663,7 +663,15 @@ func get_theme_constant_from(control: Control, name: String) -> float:
 func _open_build_pane(colony_id: int, bought: bool) -> void:
 	var pane := _view("build_pane")
 	var colony_pane: Control = _view("colony_pane")
-	pane.place_at(colony_pane.get_global_rect().end.x + maxf(get_theme_constant_from(pane, "pane_gap"), 6.0))
+	var gap := maxf(get_theme_constant_from(pane, "pane_gap"), 6.0)
+	# Clear of the side tabs (Glass keeps them on the screen's right edge, beside the panes).
+	var right := get_viewport().get_visible_rect().size.x
+	var tabs: Control = _view("side_tabs")
+	if tabs.visible:
+		for b in tabs.find_children("*", "Button", true, false):
+			if (b as Control).is_visible_in_tree():
+				right = minf(right, (b as Control).get_global_rect().position.x - gap)
+	pane.place_at(colony_pane.get_global_rect().end.x + gap, right)
 	pane.move_to_front()
 	_frame_view.move_to_front()
 	pane.open(colony_id, bought)
@@ -1302,6 +1310,95 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 		print("smoke: build design %d: queue %s" % [design, with_ship.map(func(q: Dictionary) -> String: return "%s (%d)" % [q.name, int(q.id)])])
 		if with_ship.is_empty() or int(with_ship[-1].id) > -100:
 			await host.smoke_fail("a design added in the build pane did not become a queued ship")
+			return false
+	# A drop between items (WP3.4b review): the item lands at that gap; then the Refit tab.
+	_open_build_pane(int(c.colony), false)
+	waited = 0.0
+	while not build.visible and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(0.6).timeout
+	var first_gap := 1 if build.bought else 0
+	var before_drop: Array = build._queue.map(func(q: Dictionary) -> int: return int(q.id))
+	var drop_pick := -1
+	for item: Dictionary in build.options.units:
+		if item.has("id") and int(item.id) > -50 and int(item.id) != pick:
+			drop_pick = int(item.id) # a unit that isn't a design (no ship made)
+			break
+	print("smoke: build pane %s wide (min %s): header %s, columns %s (left %s, right %s)" % [build.size.x,
+		build.get_combined_minimum_size().x, build.get_node("Box/Header").get_combined_minimum_size().x,
+		build.get_node("Box/Columns").get_combined_minimum_size().x, build.get_node("Box/Columns/Left").get_combined_minimum_size().x,
+		build.get_node("Box/Columns/Right").get_combined_minimum_size().x])
+	if drop_pick != -1 and build._queue.size() < build.SLOTS:
+		build._add(drop_pick, first_gap)
+	print("smoke: build drop %d at gap %d: %s -> %s" % [drop_pick, first_gap, before_drop, build._queue.map(func(q: Dictionary) -> int: return int(q.id))])
+	build._show_detail(build._names.get(drop_pick, {}))
+	await get_tree().create_timer(0.6).timeout
+	if shots != "":
+		await host.shot(shots + "/native-build-drop.png")
+	var refit: Dictionary = build.options.get("refit", {})
+	print("smoke: refit available %s, %d ships, targets %s" % [refit.get("available", "?"), refit.get("ships", []).size(),
+		refit.get("ships", []).map(func(sh: Dictionary) -> int: return sh.get("targets", []).size())])
+	build.tabs_refit.button_pressed = true
+	await get_tree().create_timer(0.6).timeout
+	if shots != "":
+		await host.shot(shots + "/native-build-refit.png")
+	build._ok()
+	waited = 0.0
+	while build.visible and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(0.6).timeout
+	var after_drop: Array = (await _query_args({"what": "colony", "colony": int(c.colony)})).build.queue
+	print("smoke: after the drop's OK: %s" % [after_drop.map(func(q: Dictionary) -> int: return int(q.id))])
+	if drop_pick != -1 and (after_drop.size() <= first_gap or int(after_drop[first_gap].id) != drop_pick):
+		await host.smoke_fail("an item dropped between others did not land there")
+		return false
+	# A refit taken off again before OK (the fix to the original): the ship is still there, as it was.
+	var refit_colony := -1
+	var refit_ship := {}
+	for col_id in 250:
+		var o: Dictionary = await _query_args({"what": "build_options", "colony": col_id})
+		if not o.get("ok", false):
+			continue
+		for sh: Dictionary in o.get("refit", {}).get("ships", []):
+			if not sh.get("targets", []).is_empty():
+				refit_colony = int(o.colony)
+				refit_ship = sh
+				break
+		if refit_colony >= 0:
+			break
+	if refit_colony < 0:
+		print("smoke: refit: no colony has a warship in orbit with a design to refit to")
+	else:
+		_open_build_pane(refit_colony, false)
+		waited = 0.0
+		while (not build.visible or int(build.options.get("colony", -1)) != refit_colony) and waited < 5.0:
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
+		await get_tree().create_timer(0.6).timeout
+		build.tabs_refit.button_pressed = true
+		build._open_refit_popup(refit_ship, build.items_box, -1)
+		await get_tree().create_timer(0.6).timeout
+		if shots != "":
+			await host.shot(shots + "/native-build-refit-popup.png")
+		build._refit(refit_ship, refit_ship.targets[0])
+		var refit_slot: int = build._queue.size() - 1
+		build._delete(refit_slot)
+		build._ok()
+		waited = 0.0
+		while build.visible and waited < 5.0:
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
+		var again: Dictionary = await _query_args({"what": "build_options", "colony": refit_colony})
+		var back := false
+		for sh: Dictionary in again.get("refit", {}).get("ships", []):
+			if int(sh.ship) == int(refit_ship.ship) and String(sh.name) == String(refit_ship.name):
+				back = true
+		print("smoke: refit %s (%d) to %s, taken off, OK: ship back as it was %s" % [refit_ship.name, int(refit_ship.ship),
+			refit_ship.targets[0].name, back])
+		if not back:
+			await host.smoke_fail("a refit taken off the list lost its ship")
 			return false
 	await get_tree().create_timer(0.8).timeout
 	return true

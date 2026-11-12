@@ -136,8 +136,13 @@ namespace COLBLDG {
         }
         return 0;
     }
+    bool Restore_Refit_Original(int16_t ship_idx);
+
     void __cdecl Delete_From_Queue(int16_t slot) {
         TEST_COLONY::build_calls.push_back("delete " + std::to_string(slot));
+        if (Colony_Production_Is_Queued_Ship(current_item[slot])) {
+            Restore_Refit_Original(Colony_Production_Ship_Index(current_item[slot]));
+        }
         for (int i = slot; i < 6; ++i) {
             current_item[i] = current_item[i + 1];
         }
@@ -159,6 +164,86 @@ namespace COLBLDG {
         snprintf(dest, size, "Laser");
     }
 } // namespace COLBLDG
+
+namespace COLBLDG {
+    namespace {
+        int16_t g_refit_ship = -1;
+        s_ship_design g_refit_design;
+        std::vector<std::pair<int16_t, s_ship_data>> g_originals;
+    } // namespace
+
+    // As the game's (Antares fix): refits of this session are remembered and put back.
+    void Forget_Refit_Originals() {
+        g_originals.clear();
+    }
+
+    bool Has_Refit_Original(int16_t ship_idx) {
+        for (auto& o : g_originals) {
+            if (o.first == ship_idx) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool Restore_Refit_Original(int16_t ship_idx) {
+        for (auto it = g_originals.begin(); it != g_originals.end(); ++it) {
+            if (it->first == ship_idx) {
+                MOX::ship[ship_idx] = it->second;
+                g_originals.erase(it);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    char* __cdecl Selection_Name(int16_t id) {
+        static char name[64];
+        if (Colony_Production_Is_Ship_Design(id)) {
+            strlcpy(name, MOX::player[MOX::PLAYER_NUM].ship_designs[Colony_Production_Ship_Design_Index(id)].name, sizeof(name));
+        } else {
+            name[0] = '\0';
+        }
+        return name;
+    }
+
+    void Set_Pending_Refit_Design(int16_t ship_idx, const s_ship_design* design) {
+        g_refit_ship = ship_idx;
+        g_refit_design = *design;
+    }
+
+    // As the game's: queue the ship, then give it the new design and the refit's cost.
+    void __cdecl Add_Refited_Ship_To_Queue() {
+        for (int16_t& slot : current_item) {
+            if (slot == COLONY_PRODUCTION_NONE || slot == 0) {
+                slot = Colony_Production_From_Ship_Index(g_refit_ship);
+                g_originals.emplace_back(g_refit_ship, MOX::ship[g_refit_ship]);
+                MOX::ship[g_refit_ship].d = g_refit_design;
+                MOX::ship[g_refit_ship].status = 4;
+                MOX::ship[g_refit_ship].d.cost = 25;
+                return;
+            }
+        }
+    }
+} // namespace COLBLDG
+
+namespace AIBUILD {
+    int16_t __cdecl Refit_Cost(int16_t, s_ship_design*, s_ship_design*) {
+        return 25;
+    }
+} // namespace AIBUILD
+
+namespace DESIGN {
+    int16_t __cdecl Cost_Of_Design(int16_t, s_ship_design* design) {
+        return design->cost;
+    }
+} // namespace DESIGN
+
+namespace TEXTBOX {
+    void __cdecl Get_Help_Lbx_Name(char* name, size_t size) {
+        strlcpy(name, "HELP.LBX", size);
+    }
+} // namespace TEXTBOX
 
 namespace struct_ {
     int16_t __cdecl Test_Bit_Field(void* bits, uint16_t index) {
