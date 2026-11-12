@@ -8,7 +8,6 @@ signal command(dict: Dictionary)
 signal closed
 
 const SLIDE_TIME := 0.2
-const TOP := 46.0
 
 var _tween: Tween
 var _closing := false
@@ -49,8 +48,9 @@ func open_at(x: float) -> void:
 		position.y = -size.y
 	_closing = false
 	show()
+	var top := float(get_theme_constant("inset", "Screen") + get_theme_constant("bar_height", "Screen") + 4)
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_property(self, "position:y", TOP, SLIDE_TIME)
+	_tween.tween_property(self, "position:y", top, SLIDE_TIME)
 
 
 func close() -> void:

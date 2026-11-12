@@ -1,2 +1,4 @@
 bin/
 .godot/
+# Theme art cut from the player's game (Moo2Mods tools/themeart.py, WP3.3g): never committed.
+packages/*/art/

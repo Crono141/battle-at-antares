@@ -19,18 +19,12 @@ const PLANET_ICONS := 11
 const PLANET_SIZE_COUNT := 5
 const GAS_GIANT_ICON := 0x3E
 const ASTEROIDS_ICON := 0x3F
-## COLONY2.LBX: food, industry, research.
-const FOOD_ICON := 0
-const INDUSTRY_ICON := 1
-const RESEARCH_ICON := 2
-const ROW_COLOR := Color(0.08, 0.09, 0.14, 0.85)
-const SELECTED_COLOR := Color(1.0, 0.35, 0.35)
 
 @onready var fleets_row: HBoxContainer = $Box/Fleets
 @onready var star_name: Label = $Box/Header/Names/Name
 @onready var star_title: Label = $Box/Header/Names/Title
 @onready var governor: PanelContainer = $Box/Governor
-@onready var portrait: TextureRect = $Box/Governor/Row/Portrait
+@onready var portrait: TextureRect = $Box/Governor/Row/Frame/Portrait
 @onready var governor_name: Label = $Box/Governor/Row/Names/Name
 @onready var governor_title: Label = $Box/Governor/Row/Names/Title
 @onready var planets_box: VBoxContainer = $Box/Scroll/Planets
@@ -53,14 +47,32 @@ var _shown_left := 0.0
 
 
 func _ready() -> void:
-	_shown_left = offset_left
 	$Box/Header/Close.pressed.connect(close)
+	_restyle()
 	$Box/Back.pressed.connect(close)
 	# The governor opens the colony leaders on this system (the legacy leaders screen for now).
 	governor.gui_input.connect(func(event: InputEvent):
 		var click := event as InputEventMouseButton
 		if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
 			command.emit({"verb": "open", "screen": Screens.OFFICERS, "star": star}))
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_THEME_CHANGED and is_node_ready():
+		_restyle()
+
+
+## Inside the screen frame, from under the top bar to the bottom (WP3.3g).
+func _restyle() -> void:
+	var inset := get_theme_constant("inset", "Screen")
+	var gap := get_theme_constant("pane_gap", "Screen")
+	offset_left = inset + gap
+	offset_right = offset_left + 372.0
+	offset_top = inset + get_theme_constant("bar_height", "Screen") + 14
+	offset_bottom = -(inset + gap)
+	_shown_left = offset_left
+	if not system.is_empty():
+		_show_planets()
 
 
 ## Shows a system (the `system` query's answer) under the star's name.
@@ -169,17 +181,8 @@ func _show_planets() -> void:
 func _planet_row(planet: Dictionary) -> Control:
 	var id := int(planet.planet)
 	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = ROW_COLOR
-	style.set_corner_radius_all(3)
-	style.content_margin_left = 8
-	style.content_margin_right = 8
-	style.content_margin_top = 6
-	style.content_margin_bottom = 6
-	if id == selected_planet:
-		style.border_color = SELECTED_COLOR
-		style.set_border_width_all(2)
-	panel.add_theme_stylebox_override("panel", style)
+	# The theme's row; the selected planet's is the open one (WP3.3g).
+	panel.theme_type_variation = &"RowOpen" if id == selected_planet else &"Row"
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.gui_input.connect(func(event: InputEvent):
 		var click := event as InputEventMouseButton
@@ -192,18 +195,23 @@ func _planet_row(planet: Dictionary) -> Control:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_theme_constant_override("separation", 10)
 	rows.add_child(row)
-	row.add_child(_icon("COLSYSDI.LBX", _planet_icon(planet), Vector2(40, 40)))
+	row.add_child(_icon("COLSYSDI.LBX", _planet_icon(planet), Vector2(34, 34)))
 	var names := VBoxContainer.new()
 	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	names.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	names.add_theme_constant_override("separation", 0)
 	row.add_child(names)
-	names.add_child(_label(planet.get("name", ""), 18))
+	var name_label := _label(planet.get("name", ""), 18)
+	name_label.add_theme_font_override("font", get_theme_font("font", "Name"))
+	names.add_child(name_label)
 	if planet.type == "planet":
 		var words: Array = [planet.get("size_name", ""), planet.get("climate_name", ""), planet.get("minerals_name", "")]
 		if planet.has("gravity_name"):
 			words.append(planet.gravity_name)
-		names.add_child(_label(" · ".join(words), 13, 0.8))
+		var words_label := _label(" · ".join(words), 13)
+		words_label.theme_type_variation = &"Dim"
+		words_label.add_theme_font_size_override("font_size", 13)
+		names.add_child(words_label)
 	var colony: Dictionary = planet.get("colony", {})
 	var right := VBoxContainer.new()
 	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -230,19 +238,19 @@ func _details(planet: Dictionary, colony: Dictionary) -> Control:
 	if not potential.is_empty():
 		var line := HBoxContainer.new()
 		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		line.add_theme_constant_override("separation", 6)
+		line.add_theme_constant_override("separation", 4)
 		if race_id >= 0:
-			line.add_child(_icon("RACEICON.LBX", race_id * 13, Vector2(26, 34), "Maximum population"))
-		line.add_child(_label(str(int(potential.max_population)), 18))
+			line.add_child(_icon("RACEICON.LBX", race_id * 13, Vector2(20, 26), "Maximum population"))
+		line.add_child(_label(str(int(potential.max_population)), 17))
 		line.add_child(_gap())
-		line.add_child(_icon("COLONY2.LBX", FOOD_ICON, Vector2(24, 24), "Food per farmer"))
-		line.add_child(_label(str(potential.food_per_farmer), 18))
+		line.add_child(_bar_icon("food", "Food per farmer"))
+		line.add_child(_label(str(potential.food_per_farmer), 17))
 		line.add_child(_gap())
-		line.add_child(_icon("COLONY2.LBX", INDUSTRY_ICON, Vector2(24, 24), "Industry per worker"))
-		line.add_child(_label(str(int(potential.industry_per_worker)), 18))
+		line.add_child(_bar_icon("industry", "Industry per worker"))
+		line.add_child(_label(str(int(potential.industry_per_worker)), 17))
 		line.add_child(_gap())
-		line.add_child(_icon("COLONY2.LBX", RESEARCH_ICON, Vector2(24, 24), "Research per scientist"))
-		line.add_child(_label(str(int(potential.research_per_scientist)), 18))
+		line.add_child(_bar_icon("research", "Research per scientist"))
+		line.add_child(_label(str(int(potential.research_per_scientist)), 17))
 		box.add_child(line)
 		var extras: Array = []
 		for entry: Dictionary in potential.get("lines", []).slice(4):
@@ -254,21 +262,46 @@ func _details(planet: Dictionary, colony: Dictionary) -> Control:
 		var morale := HBoxContainer.new()
 		morale.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		morale.add_theme_constant_override("separation", 2)
-		morale.add_child(_icon("COLONY2.LBX", int(colony.government_sprite), Vector2(28, 28), "Government"))
+		morale.add_child(_icon("COLONY2.LBX", int(colony.government_sprite), Vector2(22, 22), "Government"))
 		morale.add_child(_gap())
 		var masks := absi(int(colony.morale_icons))
 		for i in mini(masks, 10):
-			morale.add_child(_icon("COLONY2.LBX", int(colony.morale_sprite), Vector2(24, 24), "Morale"))
+			morale.add_child(_icon("COLONY2.LBX", int(colony.morale_sprite), Vector2(18, 18), "Morale"))
+		var spacer := Control.new()
+		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		morale.add_child(spacer)
+		morale.add_child(_colony_button(planet, colony))
 		box.add_child(morale)
-	if colony.get("mine", false):
-		var open_colony := Button.new()
-		open_colony.text = "Outpost" if colony.outpost else "Colony"
-		open_colony.focus_mode = Control.FOCUS_NONE
-		open_colony.disabled = colony.outpost
-		var id := int(planet.planet)
-		open_colony.pressed.connect(func(): command.emit({"verb": "open_colony", "planet": id}))
-		box.add_child(open_colony)
+	elif colony.get("mine", false):
+		box.add_child(_colony_button(planet, colony))
 	return box
+
+
+## The colony's button (the legacy colony screen until WP3.4); outposts have none to open.
+func _colony_button(planet: Dictionary, colony: Dictionary) -> Button:
+	var open_colony := Button.new()
+	open_colony.text = "OUTPOST" if colony.get("outpost", false) else "COLONY"
+	open_colony.focus_mode = Control.FOCUS_NONE
+	open_colony.disabled = colony.get("outpost", false) or not colony.get("mine", false)
+	open_colony.visible = colony.get("mine", false)
+	open_colony.custom_minimum_size = Vector2(96, 26)
+	open_colony.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	open_colony.add_theme_font_size_override("font_size", 13)
+	var id := int(planet.planet)
+	open_colony.pressed.connect(func(): command.emit({"verb": "open_colony", "planet": id}))
+	return open_colony
+
+
+## A bar icon (the theme art's: food, industry, research), at a row's size.
+func _bar_icon(name: String, tip: String) -> TextureRect:
+	var rect := TextureRect.new()
+	rect.texture = preload("../themes.gd").icon(name, 20)
+	rect.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	rect.tooltip_text = tip
+	rect.mouse_filter = Control.MOUSE_FILTER_PASS
+	return rect
 
 
 func _on_planet_clicked(planet_id: int) -> void:

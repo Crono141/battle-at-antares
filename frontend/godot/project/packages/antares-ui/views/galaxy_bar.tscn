@@ -1,7 +1,6 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://packages/antares-ui/views/galaxy_bar.gd" id="1"]
-[ext_resource type="Script" path="res://packages/antares-ui/views/sprite_rect.gd" id="2"]
 
 [node name="GalaxyBar" type="PanelContainer"]
 anchors_preset = 5
@@ -10,41 +9,38 @@ anchor_right = 0.5
 offset_top = 6.0
 offset_bottom = 42.0
 grow_horizontal = 2
+theme_type_variation = &"Pocket"
 script = ExtResource("1")
 
 [node name="Row" type="HBoxContainer" parent="."]
 layout_mode = 2
 alignment = 1
-theme_override_constants/separation = 14
 
 [node name="Game" type="Button" parent="Row"]
+custom_minimum_size = Vector2(92, 0)
 layout_mode = 2
-tooltip_text = "Save, load, settings and quit"
+tooltip_text = "Save, load, settings and quit (G)"
 focus_mode = 0
 toggle_mode = true
-text = "Game"
+text = "GAME"
 metadata/key = "G"
 metadata/action = "game_menu"
 
-[node name="Date" type="Label" parent="Row"]
+[node name="Empire" type="PanelContainer" parent="Row"]
 layout_mode = 2
 tooltip_text = "Your race and the stardate"
-mouse_filter = 1
-text = "Race   Stardate"
+theme_type_variation = &"Slot"
 
-[node name="MoneyIcon" type="TextureRect" parent="Row"]
-custom_minimum_size = Vector2(22, 22)
+[node name="Date" type="Label" parent="Row/Empire"]
 layout_mode = 2
-size_flags_vertical = 4
-expand_mode = 1
-stretch_mode = 5
-script = ExtResource("2")
-lbx = "COLONY2.LBX"
-entry = 3
+text = "Race   Stardate"
+vertical_alignment = 1
 
 [node name="Money" type="MenuButton" parent="Row"]
 layout_mode = 2
 tooltip_text = "Treasury and income per turn. Rest the pointer here (or click) for the tax rate"
+focus_mode = 0
+theme_type_variation = &"SlotButton"
 text = "BC"
 flat = false
 item_count = 6
@@ -66,58 +62,49 @@ popup/item_4/id = 40
 popup/item_5/text = "Tax 50%"
 popup/item_5/checkable = 2
 popup/item_5/id = 50
+metadata/icon = "coin"
 
 [node name="Command" type="Button" parent="Row"]
 layout_mode = 2
 tooltip_text = "Command points: spare (total). Click for the breakdown"
 focus_mode = 0
-flat = true
+theme_type_variation = &"SlotButton"
 text = "Command"
 metadata/screen = 43
+metadata/icon = "command"
 
-[node name="FoodIcon" type="TextureRect" parent="Row"]
-custom_minimum_size = Vector2(22, 22)
-layout_mode = 2
-size_flags_vertical = 4
-expand_mode = 1
-stretch_mode = 5
-script = ExtResource("2")
-lbx = "COLONY2.LBX"
-entry = 0
-
-[node name="Food" type="Label" parent="Row"]
+[node name="Food" type="Button" parent="Row"]
 layout_mode = 2
 tooltip_text = "Food surplus"
-mouse_filter = 1
+focus_mode = 0
+mouse_default_cursor_shape = 0
+theme_type_variation = &"SlotButton"
 text = "Food"
+metadata/icon = "food"
+metadata/passive = true
 
-[node name="Freighters" type="Label" parent="Row"]
+[node name="Freighters" type="Button" parent="Row"]
 layout_mode = 2
 tooltip_text = "Freighters: spare (total)"
-mouse_filter = 1
+focus_mode = 0
+theme_type_variation = &"SlotButton"
 text = "Freighters"
-
-[node name="ResearchIcon" type="TextureRect" parent="Row"]
-custom_minimum_size = Vector2(22, 22)
-layout_mode = 2
-size_flags_vertical = 4
-expand_mode = 1
-stretch_mode = 5
-script = ExtResource("2")
-lbx = "COLONY2.LBX"
-entry = 2
+metadata/icon = "freighter"
+metadata/passive = true
 
 [node name="Research" type="Button" parent="Row"]
 layout_mode = 2
 tooltip_text = "Research per turn and the turns to the next discovery. Click to choose research"
 focus_mode = 0
+theme_type_variation = &"SlotButton"
 text = "RP"
 metadata/screen = 36
+metadata/icon = "research"
 
 [node name="Turn" type="Button" parent="Row"]
+custom_minimum_size = Vector2(92, 0)
 layout_mode = 2
-tooltip_text = "End the turn"
+tooltip_text = "End the turn (T)"
 focus_mode = 0
-theme_override_font_sizes/font_size = 18
-text = "  Turn  "
+text = "TURN"
 metadata/key = "T"

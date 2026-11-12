@@ -5,8 +5,10 @@ a map you can zoom and drag. Clicking a star flies the map to it, shows its plan
 orbits and opens the system pane on the left (planets, colony potential, morale, governor and the
 fleets in orbit). The empire's figures and Turn are along the top (rest the pointer on the
 treasury for the tax rate; Game drops the game menu), the screens are tabs on the right edge, Ship
-Design lists your designs and Options holds the map's influence view, merging relocations and the
-game options. The fleet and colony buttons and the distance tool are along the bottom. Screens it
+Design lists your designs and Options holds the map's influence view, merging relocations, the
+distance tool, the game options and the theme. The fleet and colony buttons are along the bottom.
+Its look comes from a theme package (Antares UI: Chrome or Antares UI: Glass; enable either or
+both, and switch in Options > Theme). Screens it
 doesn't redraw yet (colonies, research, the ship designer and the rest) open as the original
 screens.
 It does nothing in the classic build (`antares`).
@@ -30,7 +32,8 @@ and each also has a button on the map. Zoom is the mouse wheel.
 
 ## Needs and conflicts
 
-No dependencies. Uses the HD art (Battle at Antares HD) when that package is enabled, and the
+No dependencies. Enable a theme package with it (Chrome or Glass); without one it uses Godot's
+plain look. Uses the HD art (Battle at Antares HD) when that package is enabled, and the
 original art otherwise.
 
 ## Saves

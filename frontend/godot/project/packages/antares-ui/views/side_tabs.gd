@@ -22,6 +22,23 @@ func _ready() -> void:
 			tab.shortcut = Shortcut.new()
 			tab.shortcut.events = [key]
 			tab.shortcut_in_tooltip = true
+	_restyle()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_THEME_CHANGED and is_node_ready():
+		_restyle()
+
+
+## Against the screen frame's inner edge (a few pixels under it, so the tabs read as attached),
+## the theme's gap between them (none in the chrome theme: side by side).
+func _restyle() -> void:
+	var inset := get_theme_constant("inset", "Screen")
+	var gap := get_theme_constant("edge_gap", "Screen") if inset == 0 else 0
+	if not has_theme_constant_override("separation") or get_theme_constant("separation") != gap:
+		add_theme_constant_override("separation", gap) # (an override notifies this view again)
+	offset_right = -(inset - 4) if inset > 0 else -4.0
+	offset_left = offset_right - 34.0
 
 
 ## Lights or darkens the tab of one flyout.

@@ -51,6 +51,13 @@ const REVEAL_TIME := 0.25
 var _revealing := false
 var _revealed := false
 var _have_empire := false
+## Themes (WP3.3g): the enabled theme packages' looks, the one in use, and the frame it draws
+## round the whole view.
+const Themes := preload("themes.gd")
+var _themes: Array = [] # [{id, name, built}]
+var theme_id := ""
+var _frame: StyleBox
+var _frame_view: Control
 
 
 func _ready() -> void:
@@ -67,6 +74,15 @@ func _ready() -> void:
 	galaxy.star_hovered.connect(_on_star_hovered)
 	galaxy.right_clicked.connect(_end_relocating)
 	galaxy.planet_clicked.connect(_on_planet_clicked)
+	_frame_view = Control.new()
+	_frame_view.name = "ScreenFrame"
+	_frame_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_frame_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_frame_view.draw.connect(func():
+		if _frame:
+			_frame_view.draw_style_box(_frame, Rect2(Vector2.ZERO, _frame_view.size)))
+	native_layer.add_child(_frame_view)
+	_load_themes()
 	mode_button.pressed.connect(func(): _set_native(not native))
 	$UI/Bar.hide() # the owner's layout (WP3.3f): Ctrl+G stays, the button goes
 	overlay.hide()
@@ -86,8 +102,10 @@ func detach() -> void:
 	game.grab_focus()
 
 
-## New resource packs arrived: views made before them are rebuilt from the new files.
+## New resource packs arrived: views made before them are rebuilt from the new files, and the
+## themes found again (a theme package may have come or gone).
 func packs_changed() -> void:
+	_load_themes()
 	for scene_name in _views.keys():
 		if scene_name != "dialog":
 			_views[scene_name].queue_free()
@@ -129,6 +147,7 @@ func _on_native_screen(screen: int) -> void:
 	var controls := _view("map_controls")
 	controls.visible = screen == Screens.MAIN
 	_view("side_tabs").visible = screen == Screens.MAIN
+	_frame_view.visible = screen == Screens.MAIN
 	var options := _view("options_menu")
 	options.keys_active = screen == Screens.MAIN
 	var game_menu := _view("game_menu")
@@ -184,6 +203,44 @@ func _reveal() -> void:
 	_revealing = false
 
 
+## The enabled theme packages' themes; the player's saved choice, else the highest priority one,
+## else Godot's own look.
+func _load_themes() -> void:
+	_themes = Themes.discover(game.get_packages())
+	var wanted := Themes.saved_choice()
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--theme="):
+			wanted = arg.substr(8) # the smoke's choice, not the player's
+	var chosen := ""
+	for entry: Dictionary in _themes:
+		if entry.id == wanted:
+			chosen = wanted
+	if chosen == "" and not _themes.is_empty():
+		chosen = _themes[0].id
+	apply_theme(chosen, false)
+
+
+## Puts a theme on every native view (the Options flyout's selector calls this).
+func apply_theme(id: String, remember := true) -> void:
+	var built := {}
+	for entry: Dictionary in _themes:
+		if entry.id == id:
+			built = entry.built
+	theme_id = id if not built.is_empty() else ""
+	if built.is_empty():
+		built = Themes.plain()
+	native_layer.theme = built.theme
+	if _views.has("dialog"):
+		_views.dialog.theme = built.theme
+	_frame = built.get("frame")
+	_frame_view.queue_redraw()
+	if remember and id != "":
+		Themes.save_choice(id)
+	if _views.has("options_menu"):
+		_views.options_menu.show_themes(_themes, theme_id)
+	print("frontend: theme %s" % (built.get("name", "?")))
+
+
 func _views_dir() -> String:
 	return scene_file_path.get_base_dir() + "/views"
 
@@ -204,12 +261,17 @@ func _view(scene_name: String) -> Control:
 			view.action.connect(_on_view_action)
 		if view.has_signal("fleet_chosen"):
 			view.fleet_chosen.connect(_open_fleet_from_pane)
+		if view.has_signal("theme_chosen"):
+			view.theme_chosen.connect(apply_theme)
 		if view.has_signal("planet_selected"):
 			view.planet_selected.connect(_on_pane_planet)
 		if view.has_signal("selection_changed"):
 			view.selection_changed.connect(func(): _on_star_hovered(_hovered_star))
 		native_layer.add_child(view)
+		_frame_view.move_to_front() # the frame stays over every view
 		_views[scene_name] = view
+		if scene_name == "options_menu":
+			view.show_themes(_themes, theme_id)
 	return _views[scene_name]
 
 
@@ -232,6 +294,12 @@ func _on_view_action(action_name: String) -> void:
 		"influence":
 			$Galaxy/Influence.cycle()
 			_view("options_menu").show_influence(galaxy.influence_mode)
+		"influence_off", "influence_filled", "influence_borders":
+			$Galaxy/Influence.set_mode(["influence_off", "influence_filled", "influence_borders"].find(action_name))
+			_view("options_menu").show_influence(galaxy.influence_mode)
+		"distance":
+			_view("options_menu").close()
+			_send({"verb": "open", "screen": Screens.DISTANCE_BETWEEN_STARS})
 		"fleet_next", "fleet_previous":
 			_cycle_fleet(0 if action_name == "fleet_next" else 1)
 		"designs":
@@ -327,6 +395,7 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 	if dialog == null:
 		dialog = load(_views_dir() + "/dialog.tscn").instantiate()
 		dialog.answered.connect(_on_answered)
+		dialog.theme = native_layer.theme
 		$Overlay.add_child(dialog)
 		_views["dialog"] = dialog
 	overlay.show()
@@ -781,9 +850,24 @@ func _smoke_galaxy(shots: String) -> bool:
 	_on_view_action("options")
 	var options := _view("options_menu")
 	await get_tree().create_timer(0.8).timeout
-	print("smoke: options flyout %s: '%s', %d game options" % [options.visible, options.influence_button.text, options.options_box.get_child_count()])
+	print("smoke: options flyout %s: influence %s, %d game options, themes %s (in use '%s')" % [options.visible,
+		options.influence_buttons.map(func(b: Button) -> bool: return b.button_pressed), options.options_box.get_child_count(),
+		_themes.map(func(t: Dictionary) -> String: return t.id), theme_id])
 	if shots != "":
 		await host.shot(shots + "/native-options.png")
+	# Switching themes while playing (WP3.3g): every other enabled theme in turn, then back.
+	var first := theme_id
+	for entry: Dictionary in _themes:
+		if entry.id != first:
+			options.theme_button.select(_themes.find(entry))
+			options.theme_button.item_selected.emit(_themes.find(entry))
+			await get_tree().create_timer(0.6).timeout
+			print("smoke: theme switched to '%s' (%s)" % [theme_id, entry.name])
+			if shots != "":
+				await host.shot(shots + "/native-options-%s.png" % String(entry.name).to_lower())
+	if first != "":
+		apply_theme(first, false)
+	await get_tree().create_timer(0.3).timeout
 	if not options.visible or options.options_box.get_child_count() == 0:
 		await host.smoke_fail("the options flyout did not open with the game options")
 		return false
@@ -816,20 +900,22 @@ func _smoke_galaxy(shots: String) -> bool:
 	return true
 
 
-## The bar's tax menu (WP3.3d): another rate shows on the bar, then the old one goes back.
+## The bar's tax menu (WP3.3d): another rate is checked in the treasury's menu, then the old one
+## goes back. (The bar doesn't show the rate, WP3.3g.)
 func _smoke_tax(old_rate: int) -> bool:
 	var bar := _view("galaxy_bar")
 	var rate := 30 if old_rate != 30 else 40
-	bar.money.get_popup().id_pressed.emit(rate)
+	var popup: PopupMenu = bar.money.get_popup()
+	popup.id_pressed.emit(rate)
 	var waited := 0.0
-	while not bar.money.text.ends_with("Tax %d%%" % rate) and waited < 5.0:
+	while not popup.is_item_checked(popup.get_item_index(rate)) and waited < 5.0:
 		await get_tree().create_timer(0.1).timeout
 		waited += 0.1
-	print("smoke: bar after tax %d%%: '%s' | '%s' | '%s'" % [rate, bar.money.text, bar.research.text, bar.freighters_label.text])
-	if not bar.money.text.ends_with("Tax %d%%" % rate):
-		await host.smoke_fail("the tax rate did not change on the bar")
+	print("smoke: bar after tax %d%%: '%s' | '%s' | '%s' | '%s'" % [rate, bar.money.text, bar.command_label.text, bar.research.text, bar.freighters_label.text])
+	if not popup.is_item_checked(popup.get_item_index(rate)):
+		await host.smoke_fail("the tax rate did not change in the treasury's menu")
 		return false
-	bar.money.get_popup().id_pressed.emit(old_rate)
+	popup.id_pressed.emit(old_rate)
 	await get_tree().create_timer(0.5).timeout
 	return true
 

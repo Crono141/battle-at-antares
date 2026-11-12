@@ -1,30 +1,29 @@
 extends PanelContainer
-## The galaxy's top bar (WP3.1b, WP3.3d; laid out for the design pass, WP3.3f): Game, the stardate
-## and the empire's figures as the legacy side bar shows them, each with the game's own icon, and
-## Turn at the end. Game drops the game menu down from the bar (game_menu). The treasury opens the
-## tax rates when the pointer rests on it (a click pins the menu, as any menu button), as the side
-## bar's money box opens the tax popup; command points open their breakdown, research opens research. The screen launchers are the tabs
-## on the right edge (side_tabs).
+## The galaxy's top bar (WP3.1b, WP3.3d; laid out for the design pass, WP3.3f; themed, WP3.3g):
+## Game, the race and stardate, the empire's figures each in its own slot with the game's icon
+## (treasury, command points, food, freighters, research), and Turn. Game drops the game menu
+## (game_menu). The treasury opens the tax rates when the pointer rests on it (a click pins the
+## menu); the rate itself is not on the bar (owner, 2026-11-12). Command points open their
+## breakdown, research opens research. The bar sits in a pocket of the theme's screen frame.
 
 signal command(dict: Dictionary)
 signal action(name: String)
 
+const Themes := preload("../themes.gd")
 const WARNING_COLOR := Color(1.0, 0.45, 0.35)
 ## How long the tax menu stays open after the pointer leaves the treasury and the menu.
 const HOVER_CLOSE := 0.4
 
-@onready var date_label: Label = $Row/Date
+@onready var row: HBoxContainer = $Row
+@onready var date_label: Label = $Row/Empire/Date
 @onready var money: MenuButton = $Row/Money
 @onready var command_label: Button = $Row/Command
-@onready var food_label: Label = $Row/Food
-@onready var freighters_label: Label = $Row/Freighters
+@onready var food_label: Button = $Row/Food
+@onready var freighters_label: Button = $Row/Freighters
 @onready var research: Button = $Row/Research
 @onready var game_button: Button = $Row/Game
 
-var art: Node:
-	set(value):
-		art = value
-		preload("sprite_rect.gd").bind_all(self, art)
+var art: Node # the bar's icons are the theme art's (Themes.icon), not the art service's
 
 var _hover_opened := false
 var _away := 0.0
@@ -37,14 +36,47 @@ func _ready() -> void:
 		command.emit({"verb": "set_tax_rate", "rate": rate}))
 	money.mouse_entered.connect(_open_on_hover)
 	money.pressed.connect(func(): _hover_opened = false) # a click pins it
-	research.pressed.connect(func(): command.emit({"verb": "open", "screen": int(research.get_meta("screen"))}))
-	command_label.pressed.connect(func(): command.emit({"verb": "open", "screen": int(command_label.get_meta("screen"))}))
+	for button: Button in [research, command_label]:
+		button.pressed.connect(func(): command.emit({"verb": "open", "screen": int(button.get_meta("screen"))}))
 	for button: Button in find_children("*", "Button", true, false):
 		if button.has_meta("key"):
 			var key := InputEventKey.new()
 			key.keycode = OS.find_keycode_from_string(String(button.get_meta("key")))
 			button.shortcut = Shortcut.new()
 			button.shortcut.events = [key]
+		if button.get_meta("passive", false):
+			button.button_mask = 0 # a figure, not a control: it shows its tooltip and nothing else
+	Themes.glowing(game_button)
+	_restyle()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_THEME_CHANGED and is_node_ready():
+		_restyle()
+
+
+## The theme's layout: the bar's height, its gaps, its place under the screen frame, the icons.
+func _restyle() -> void:
+	var inset := get_theme_constant("inset", "Screen")
+	var height := get_theme_constant("bar_height", "Screen")
+	row.add_theme_constant_override("separation", get_theme_constant("edge_gap", "Screen"))
+	offset_top = inset - 3 if inset > 0 else 6
+	for child: Control in row.get_children():
+		child.custom_minimum_size.y = height
+		if child is Button and child.has_meta("icon"):
+			var b: Button = child
+			b.icon = Themes.icon(String(b.get_meta("icon")), get_theme_constant("icon_height", "Screen"))
+			b.expand_icon = false
+		if child is Button and child.get_meta("passive", false):
+			child.remove_theme_stylebox_override("hover") # the old theme's, after a switch
+			child.add_theme_stylebox_override("hover", child.get_theme_stylebox("normal"))
+	Themes.glow(game_button)
+
+
+## Lights Game while its menu is down.
+func show_game_menu(open: bool) -> void:
+	game_button.set_pressed_no_signal(open)
+	Themes.glow(game_button)
 
 
 func _open_on_hover() -> void:
@@ -70,27 +102,23 @@ func _process(delta: float) -> void:
 		_hover_opened = false
 
 
-## Lights Game while its menu is down.
-func show_game_menu(open: bool) -> void:
-	game_button.set_pressed_no_signal(open)
-
-
 ## The `empire` snapshot: what the legacy side bar shows (WP3.3d).
 func show_empire(empire: Dictionary) -> void:
 	if not empire.get("ok", false):
 		return
 	date_label.text = "%s   Stardate %.1f" % [empire.race, float(empire.stardate) / 10.0]
-	money.text = "%s BC (%s)   Tax %d%%" % [_thousands(int(empire.bc)), _signed(int(empire.surplus_bc)), int(empire.tax_rate)]
+	money.text = "%s BC (%s)" % [_thousands(int(empire.bc)), _signed(int(empire.surplus_bc))]
+	money.tooltip_text = "Treasury and income per turn; tax %d%%. Rest the pointer here (or click) for the tax rate" % int(empire.tax_rate)
 	_warn(money, int(empire.bc) < 0 or int(empire.surplus_bc) < 0)
 	var popup := money.get_popup()
 	for i in popup.item_count:
 		popup.set_item_checked(i, popup.get_item_id(i) == int(empire.tax_rate))
 	var spare := int(empire.command_points) - int(empire.command_points_used)
-	command_label.text = "Command %s (%d)" % [_signed(spare), int(empire.command_points)]
+	command_label.text = "%s (%d)" % [_signed(spare), int(empire.command_points)]
 	_warn(command_label, spare < 0)
 	food_label.text = _signed(int(empire.surplus_food))
 	_warn(food_label, int(empire.surplus_food) < 0)
-	freighters_label.text = "Freighters %s (%d)" % [_signed(int(empire.surplus_freighters)), int(empire.freighters)]
+	freighters_label.text = "%s (%d)" % [_signed(int(empire.surplus_freighters)), int(empire.freighters)]
 	_warn(freighters_label, int(empire.surplus_freighters) < 0)
 	research.text = _research_text(empire.research)
 
@@ -112,11 +140,10 @@ func _research_text(box: Dictionary) -> String:
 
 
 func _warn(control: Control, on: bool) -> void:
-	if on:
-		for color in ["font_color", "font_hover_color", "font_pressed_color"]:
+	for color in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
+		if on:
 			control.add_theme_color_override(color, WARNING_COLOR)
-	else:
-		for color in ["font_color", "font_hover_color", "font_pressed_color"]:
+		else:
 			control.remove_theme_color_override(color)
 
 

@@ -1,16 +1,7 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://packages/antares-ui/views/system_pane.gd" id="1"]
 [ext_resource type="Script" path="res://packages/antares-ui/views/sprite_rect.gd" id="2"]
-
-[sub_resource type="StyleBoxFlat" id="pane"]
-content_margin_left = 14.0
-content_margin_top = 12.0
-content_margin_right = 14.0
-content_margin_bottom = 12.0
-bg_color = Color(0.04, 0.05, 0.08, 0.84)
-border_width_right = 3
-border_color = Color(0.48, 0.06, 0.12, 0.9)
 
 [node name="SystemPane" type="PanelContainer"]
 anchors_preset = 9
@@ -19,7 +10,7 @@ offset_top = 48.0
 offset_right = 360.0
 offset_bottom = -8.0
 grow_vertical = 2
-theme_override_styles/panel = SubResource("pane")
+theme_type_variation = &"Pane"
 script = ExtResource("1")
 
 [node name="Box" type="VBoxContainer" parent="."]
@@ -40,21 +31,21 @@ theme_override_constants/separation = 0
 
 [node name="Name" type="Label" parent="Box/Header/Names"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.95, 0.84, 0.63, 1)
-theme_override_font_sizes/font_size = 28
+theme_type_variation = &"Heading"
 text = "Star"
 
 [node name="Title" type="Label" parent="Box/Header/Names"]
-modulate = Color(1, 1, 1, 0.75)
 layout_mode = 2
+theme_type_variation = &"Dim"
 text = "Star System"
 
 [node name="Close" type="Button" parent="Box/Header"]
+custom_minimum_size = Vector2(34, 30)
 layout_mode = 2
 size_flags_vertical = 0
 tooltip_text = "Close (Esc)"
 focus_mode = 0
-text = "✕"
+text = "X"
 
 [node name="Description" type="Label" parent="Box"]
 visible = false
@@ -63,6 +54,7 @@ autowrap_mode = 3
 
 [node name="Governor" type="PanelContainer" parent="Box"]
 layout_mode = 2
+theme_type_variation = &"Row"
 tooltip_text = "Colony leaders: assign this system's governor"
 mouse_default_cursor_shape = 2
 
@@ -70,8 +62,13 @@ mouse_default_cursor_shape = 2
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="Portrait" type="TextureRect" parent="Box/Governor/Row"]
-custom_minimum_size = Vector2(84, 100)
+[node name="Frame" type="PanelContainer" parent="Box/Governor/Row"]
+layout_mode = 2
+mouse_filter = 1
+theme_type_variation = &"Portrait"
+
+[node name="Portrait" type="TextureRect" parent="Box/Governor/Row/Frame"]
+custom_minimum_size = Vector2(72, 88)
 layout_mode = 2
 mouse_filter = 1
 expand_mode = 1
@@ -85,13 +82,12 @@ alignment = 1
 
 [node name="Name" type="Label" parent="Box/Governor/Row/Names"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.95, 0.84, 0.63, 1)
-theme_override_font_sizes/font_size = 18
+theme_type_variation = &"Name"
 text = "Leader"
 
 [node name="Title" type="Label" parent="Box/Governor/Row/Names"]
-modulate = Color(1, 1, 1, 0.75)
 layout_mode = 2
+theme_type_variation = &"Dim"
 text = "Title"
 
 [node name="Scroll" type="ScrollContainer" parent="Box"]
@@ -105,8 +101,8 @@ size_flags_horizontal = 3
 theme_override_constants/separation = 6
 
 [node name="Back" type="Button" parent="Box"]
-custom_minimum_size = Vector2(0, 44)
+custom_minimum_size = Vector2(0, 38)
 layout_mode = 2
 tooltip_text = "Close the system and return the map (Esc)"
 focus_mode = 0
-text = "◀  Back to galaxy"
+text = "BACK TO GALAXY"

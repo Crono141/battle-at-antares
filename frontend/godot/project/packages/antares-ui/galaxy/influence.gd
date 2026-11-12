@@ -55,5 +55,10 @@ func _apply_mode() -> void:
 
 ## The V key: off, filled, borders only.
 func cycle() -> void:
-	galaxy.influence_mode = (galaxy.influence_mode + 1) % 3
+	set_mode((galaxy.influence_mode + 1) % 3)
+
+
+## 0 off, 1 filled, 2 borders only (the Options flyout's switch, WP3.3g).
+func set_mode(mode: int) -> void:
+	galaxy.influence_mode = clampi(mode, 0, 2)
 	_apply_mode()
