@@ -4,7 +4,7 @@ extends Node
 ## plays exactly like the original (D26).
 ##
 ## Native views (D27) are the built-in interface, Antares UI (res://packages/antares-ui/, in this
-## build), shown when the profile's `interface native_ui` is on (off by default). An enabled UI
+## build), shown when the profile's `interface legacy_ui` is off (it is on by default). An enabled UI
 ## package (a Godot pack holding res://packages/<package id>/frontend.tscn) replaces it, the
 ## highest-priority one; a package can also replace single files of the built-in one at the same
 ## paths. The chosen frontend scene is instanced over the legacy view, with `host` set to this
@@ -86,7 +86,7 @@ func _wait_for_frontend() -> void:
 		await get_tree().create_timer(0.5).timeout
 		waited += 0.5
 	if frontend == null:
-		await smoke_fail("--native, but no native interface (set interface native_ui = true;)")
+		await smoke_fail("--native, but the legacy interface is on (set interface legacy_ui = false;)")
 
 
 ## Headless check (`-- --smoke`): the game boots, frames arrive, input reaches the legacy screen;

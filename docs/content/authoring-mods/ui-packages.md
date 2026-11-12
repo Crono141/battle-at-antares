@@ -10,9 +10,9 @@ The game is built in three layers:
 1. **The engine:** the rules, the saves, the original screens, and the bridge an interface talks
    through (queries it reads, commands it sends).
 2. **The layout:** which panels exist, where they sit and what they do. The Godot build has one
-   built in, **Antares UI**: the galaxy as a map you can zoom and drag, with panels over it. Turn it
-   on with the setting `interface native_ui` (the launcher's "Native interface"); it is off by
-   default, so the game starts with the original screens.
+   built in, **Antares UI**: the galaxy as a map you can zoom and drag, with panels over it. It
+   shows when the setting `interface legacy_ui` (the launcher's "Legacy interface") is off; it is on
+   by default, so the game starts with the original screens.
 3. **The theme:** how the panels and buttons look. Theme packages (Antares UI: Chrome and Antares
    UI: Glass ship with the game) style any layout that uses the theme names; see "Themes" below.
 
@@ -28,7 +28,7 @@ without them.
 - Inside that zip, every file sits under `packages/<package id>/`, which is its path in the Godot
   project (`res://packages/<package id>/...`).
 - The entry point is `packages/<package id>/frontend.tscn`. When the package is enabled and the
-  native interface is on, the game creates that scene over the original screen, in place of the
+  legacy interface is off, the game creates that scene over the original screen, in place of the
   built-in Antares UI. Its root script says which screens it draws
   (`claimed_screens`, the game's `SCREEN_*` numbers) and which pop-up kinds it answers
   (`claimed_requests`); everything else stays the original screen.
@@ -37,7 +37,7 @@ without them.
   replaces it, the highest priority winning, the built-in Antares UI's files included. A package
   that only rearranges the right edge's tabs ships `packages/antares-ui/views/side_tabs.tscn` (and
   its script, if changed) and nothing else.
-- Ticking a UI or theme package in the launcher turns the native interface on.
+- Ticking a UI or theme package in the launcher turns the legacy interface off.
 
 ```text
 data/mods/my-ui/

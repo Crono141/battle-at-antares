@@ -1,7 +1,7 @@
 # Antares UI
 
-The Godot build's built-in native interface (D27), on when the setting `interface native_ui` is
-(the launcher's "Native interface"; ticking a theme turns it on). The native galaxy, in place of
+The Godot build's own interface (D27), shown when the setting `interface legacy_ui` is off (the
+launcher's "Legacy interface", on by default; ticking a theme turns it off). The native galaxy, in place of
 the original galaxy screen:
 a map you can zoom and drag. Clicking a star flies the map to it, shows its planets on their
 orbits and opens the system pane on the left (planets, colony potential, morale, governor and the
@@ -16,7 +16,7 @@ doesn't redraw yet (colonies, the ship designer, saving and loading and the rest
 original screens.
 The classic build (`antares`) doesn't have it.
 
-With the native interface off, the Godot build looks and plays exactly like the original.
+With the legacy interface on, the Godot build looks and plays exactly like the original.
 
 It is also the starting point for people who want to make their own interface: everything in it
 is a Godot scene or script you can open and change (the game ships it in `ui-source/`). See the

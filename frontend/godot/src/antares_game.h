@@ -59,7 +59,7 @@ namespace godot {
         void answer_request(int64_t id, int64_t value);
         PackedStringArray get_resource_packs() const;
         PackedStringArray get_packages() const;
-        // The profile's `interface native_ui` (D27), once the game has loaded its configuration.
+        // The profile's `interface legacy_ui` is off (D27), once the game has loaded its configuration.
         bool get_native_ui() const;
         // WP3.3a: the game's art (an LBX entry's frames) as images; sprite_ready(id, sprite) follows.
         int64_t request_sprite(const String& lbx, int64_t entry);

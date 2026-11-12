@@ -4071,16 +4071,16 @@
       bind_root: { header: "game/platform.h", symbol: "platform::g_fullscreen" },
     },
 
-    native_ui: {
-      title: "Native interface",
-      description: "Shows the Godot build's native interface (Antares UI: the galaxy map with panels) instead of the original screens.",
-      remarks: "Only the Godot build (antares-godot) has it; the classic build ignores it. Off shows every screen exactly as the original does. An enabled UI package replaces the built-in interface; theme packages change its look. Takes effect the next time the game starts.",
-      examples: ["interface native_ui = true;"],
+    legacy_ui: {
+      title: "Legacy interface",
+      description: "Shows every screen exactly as the original does. Off shows the Godot build's own interface instead (Antares UI: the galaxy map with panels).",
+      remarks: "Only the Godot build (antares-godot) has the other interface; the classic build always shows the original screens. With it off, an enabled UI package replaces the built-in interface and theme packages change its look. Takes effect the next time the game starts.",
+      examples: ["interface legacy_ui = false;"],
       group: "interface",
       namespace: "interface",
       type: "bool",
-      default: false,
-      bind_root: { header: "game/platform.h", symbol: "platform::g_native_ui" },
+      default: true,
+      bind_root: { header: "game/platform.h", symbol: "platform::g_legacy_ui" },
     },
 
     vsync_enabled: {

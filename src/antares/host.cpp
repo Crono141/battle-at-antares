@@ -75,7 +75,7 @@ namespace antares::host {
     }
 
     bool Native_UI() {
-        return platform::g_native_ui != 0;
+        return platform::g_legacy_ui == 0;
     }
 
     void Window_Settings(int32_t* width, int32_t* height, bool* fullscreen) {

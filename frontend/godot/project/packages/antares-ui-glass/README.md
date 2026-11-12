@@ -3,7 +3,7 @@
 A theme for Antares UI (the Godot build's native galaxy): dark glass panels with thin steel
 edges, clean lettering, and amber for whatever is on.
 
-It styles the native interface (Antares UI, built into the Godot build; ticking this turns it on). With this and another theme enabled,
+It styles the Godot build's own interface, Antares UI (ticking this turns the legacy interface off). With this and another theme enabled,
 Options > Theme switches between them while you play; the first one enabled is the default.
 
 The lettering is Saira Semi Condensed, under the SIL Open Font License (`fonts/OFL-Saira.txt`).

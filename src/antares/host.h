@@ -31,7 +31,7 @@ namespace antares::host {
     /** The profile's window settings (valid once the game has loaded its configuration). */
     void Window_Settings(int32_t* width, int32_t* height, bool* fullscreen);
 
-    // The profile's `interface native_ui` (D27): the Godot build shows its native interface.
+    // The profile's `interface legacy_ui` is off (D27): the Godot build shows its own interface.
     bool Native_UI();
 
     /** Copies the newest frame into `argb` (width*height ARGB8888, resized as needed) when one
