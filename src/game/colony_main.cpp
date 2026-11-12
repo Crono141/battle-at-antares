@@ -717,13 +717,19 @@ namespace COLONY {
     }
 
     void __cdecl Tested_Colony_Buys_Outright(int16_t colony_idx) {
+        Buy_Or_Unbuy_Product(colony_idx, true);
+    }
+
+    // Antares (D25, WP3.4): BUY with an argument form: `show_screen` redraws the colony screen
+    // after a refusal as the screen always did; the native colony pane passes false.
+    void __cdecl Buy_Or_Unbuy_Product(int16_t colony_idx, bool show_screen) {
         s_colony* col = &MOX::colony[colony_idx];
         char buf[500];
 
         if (col->bought_outright != 0) {
             if (!BUILD_QUEUE::Unbuy_Product(col)) {
                 GENDRAW::Help(ESTRINGS::E_Strings(ESTR_YOU_HAVE_ALREADY_BOUGHT_THIS_PRODUCT));
-                COLONY::Show_Colony_Screen();
+                if (show_screen) COLONY::Show_Colony_Screen();
             }
             return;
         }
@@ -731,13 +737,13 @@ namespace COLONY {
         int16_t star_idx = MOX::planet[col->planet].star_index;
         if ((MOX::star[star_idx].blockaded >> (MOX::PLAYER_NUM & 0x1f)) & 1) {
             GENDRAW::Help(ESTRINGS::E_Strings(ESTR_YOU_CANNOT_BUY_WHILE_THIS_STAR_IS_BLOCKADED));
-            COLONY::Show_Colony_Screen();
+            if (show_screen) COLONY::Show_Colony_Screen();
             return;
         }
 
         if (col->producing[0] == COLONY_PRODUCTION_HOUSING || col->producing[0] == COLONY_PRODUCTION_TRADE_GOODS) {
             GENDRAW::Help(ESTRINGS::E_Strings(ESTR_YOU_CANNOT_BUY_HOUSING_OR_TRADE_GOODS_AS_THEY_ARE_SETTINGS_NOT_SPECIFIC_ITEMS));
-            COLONY::Show_Colony_Screen();
+            if (show_screen) COLONY::Show_Colony_Screen();
             return;
         }
 
@@ -748,7 +754,7 @@ namespace COLONY {
             } else {
                 GENDRAW::Help(ESTRINGS::E_Strings(ESTR_YOU_HAVE_NO_PRODUCT_SELECTED_TO_BUY));
             }
-            COLONY::Show_Colony_Screen();
+            if (show_screen) COLONY::Show_Colony_Screen();
             return;
         }
 
@@ -762,17 +768,21 @@ namespace COLONY {
                 if (GENDRAW::Do_Confirmation_Box(buf) != 0) {
                     COLCALC::Colony_Buy_Outright(colony_idx);
                 }
-                COLONY::Col_Calc_Wrapper(colony_idx);
+                if (show_screen) {
+                    COLONY::Col_Calc_Wrapper(colony_idx);
+                } else {
+                    COLCALC::Colony_Calculation(colony_idx);
+                }
             } else {
                 GENDRAW::Help(ESTRINGS::E_Strings(ESTR_PURCHASING_FAILED_UNEXPECTEDLY_PLEASE_TELL_ERIC));
-                COLONY::Show_Colony_Screen();
+                if (show_screen) COLONY::Show_Colony_Screen();
             }
         } else {
             int16_t short_by = (int16_t)((uint16_t)COLCALC::Colony_Cost_To_Buy_Producing_Product(col) -
                 (uint16_t)MOX::player[col->owner].bc);
             snprintf(buf, sizeof(buf), ESTRINGS::E_Strings(ESTR_YOU_CANNOT_AFFORD_THIS_INCREASE_IN_PRODUCTION_YOU_ARE_SHORT_BY_D_BC), short_by);
             GENDRAW::Help(buf);
-            COLONY::Show_Colony_Screen();
+            if (show_screen) COLONY::Show_Colony_Screen();
         }
     }
 

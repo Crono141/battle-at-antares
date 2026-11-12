@@ -440,6 +440,7 @@ namespace COLONY {
     bool __cdecl Colony_Can_Buy_Product_0(int16_t colony_idx);
 
     void __cdecl Tested_Colony_Buys_Outright(int16_t colony_idx);
+    void __cdecl Buy_Or_Unbuy_Product(int16_t colony_idx, bool show_screen);
 
     s_animation_header* __cdecl Mini_Planet_Anim(int16_t planet_idx);
 

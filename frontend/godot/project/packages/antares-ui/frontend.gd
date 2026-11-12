@@ -192,6 +192,10 @@ func _on_native_screen(screen: int) -> void:
 		_send({"verb": "query", "what": "view"}, galaxy.place_view)
 		if _panel_star >= 0:
 			_open_system(_panel_star, false) # refreshed: a colony screen may have changed it
+			var colony_pane := _view("colony_pane")
+			if colony_pane.colony_id >= 0:
+				colony_pane.show()
+				colony_pane.refresh()
 		if design_list.get_meta("was_open", false):
 			design_list.set_meta("was_open", false)
 			design_list.open()
@@ -199,6 +203,7 @@ func _on_native_screen(screen: int) -> void:
 			_refresh_fleet()
 	else:
 		system_pane.hide() # hidden, not closed: it comes back with the galaxy
+		_view("colony_pane").dismiss()
 		design_list.set_meta("was_open", design_list.visible or design_list.get_meta("was_open", false))
 		design_list.hide()
 		if options.visible:
@@ -349,6 +354,8 @@ func _view(scene_name: String) -> Control:
 			view.fleet_chosen.connect(_open_fleet_from_pane)
 		if view.has_signal("theme_chosen"):
 			view.theme_chosen.connect(apply_theme)
+		if view.has_signal("colony_chosen"):
+			view.colony_chosen.connect(_on_colony_chosen)
 		if view.has_signal("planet_selected"):
 			view.planet_selected.connect(_on_pane_planet)
 		if view.has_signal("selection_changed"):
@@ -454,12 +461,16 @@ func _on_view_action(action_name: String) -> void:
 
 func _on_view_closed(scene_name: String) -> void:
 	if scene_name == "system_pane":
-		_panel_star = -1
+		_panel_star = -1 # first: the colony pane's closing doesn't re-frame a closing system
+		_view("colony_pane").close()
 		galaxy.selected = -1
 		galaxy.hide_system()
 		if not _opening_fleet:
 			galaxy.fly_back()
 		galaxy.redraw()
+	elif scene_name == "colony_pane":
+		if _panel_star >= 0 and _view("system_pane").visible:
+			_frame_system(_panel_star) # the free area widened again
 	elif scene_name == "design_list":
 		_view("side_tabs").show_open("designs", false)
 	elif scene_name == "options_menu":
@@ -498,6 +509,9 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 	match snapshot_name:
 		"empire":
 			_view("galaxy_bar").show_empire(result)
+			var colony_view: Control = _views.get("colony_pane")
+			if colony_view != null and colony_view.visible:
+				colony_view.refresh() # a turn, a purchase: the colony may have changed
 			_have_empire = _have_empire or result.get("ok", false)
 			_race_id = int(result.get("race_id", -1))
 			_view("system_pane").race_id = _race_id
@@ -583,19 +597,31 @@ func _open_system(star_id: int, fly := true) -> void:
 		galaxy.selected = star_id
 		var pane := _view("system_pane")
 		if fly or galaxy.system_star != star_id:
-			var view := get_viewport().get_visible_rect().size
-			var left := 360.0
-			var right := view.x - 240.0
-			if right - left < view.x * 0.3: # a small window: the panes cover most of it
-				left = 0.0
-				right = view.x
-			var zoom: float = galaxy.zoom_for_scale(SYSTEM_VIEW_SCALE)
-			galaxy.system_scale = SYSTEM_VIEW_SHARE * (right - left) / (288.0 * zoom)
-			galaxy.fly_to(galaxy.star_position(star_id), zoom, Vector2((left + right) * 0.5, view.y * 0.5))
+			_frame_system(star_id)
 		galaxy.show_system(star_id, result)
 		galaxy.redraw()
 		pane.race_id = _race_id
 		pane.show_system(result, String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")"), star_id))
+
+
+## Flies to a system with its orbits filling a share of the area the left panes leave free (the
+## system pane, and the colony pane when it is open: WP3.4).
+func _frame_system(star_id: int) -> void:
+	var view := get_viewport().get_visible_rect().size
+	var left := 360.0
+	var system_pane: Control = _views.get("system_pane")
+	if system_pane != null:
+		left = system_pane.offset_right
+	var colony_pane: Control = _views.get("colony_pane")
+	if colony_pane != null and colony_pane.colony_id >= 0:
+		left = colony_pane.offset_right
+	var right := view.x - 240.0
+	if right - left < view.x * 0.3: # a small window: the panes cover most of it
+		left = 0.0
+		right = view.x
+	var zoom: float = galaxy.zoom_for_scale(SYSTEM_VIEW_SCALE)
+	galaxy.system_scale = SYSTEM_VIEW_SHARE * (right - left) / (288.0 * zoom)
+	galaxy.fly_to(galaxy.star_position(star_id), zoom, Vector2((left + right) * 0.5, view.y * 0.5))
 
 
 ## A planet clicked on the map: selected here and in the pane.
@@ -603,6 +629,21 @@ func _on_planet_clicked(planet_id: int) -> void:
 	galaxy.selected_planet = planet_id
 	galaxy.redraw()
 	_view("system_pane").select_planet(planet_id)
+
+
+## One of the player's colonies picked in the system pane (WP3.4): the colony pane opens beside it;
+## another planet closes it.
+func _on_colony_chosen(colony_id: int) -> void:
+	var pane := _view("colony_pane")
+	var was_open: bool = pane.colony_id >= 0
+	if colony_id < 0:
+		pane.close() # its `closed` re-frames the system
+		return
+	pane.move_to_front()
+	_frame_view.move_to_front()
+	pane.open(colony_id)
+	if not was_open and _panel_star >= 0:
+		_frame_system(_panel_star) # the free area narrowed
 
 
 func _on_pane_planet(planet_id: int) -> void:
@@ -984,6 +1025,9 @@ func _smoke_galaxy(shots: String) -> bool:
 		return false
 	if shots != "":
 		await host.shot(shots + "/native-system-pane.png")
+	# The colony pane (WP3.4): the first of the player's colonies here opens beside the pane.
+	if not await _smoke_colony(pane, shots):
+		return false
 	# The governor opens the colony leaders on this system (legacy); Esc comes back to the pane.
 	var click := InputEventMouseButton.new()
 	click.button_index = MOUSE_BUTTON_LEFT
@@ -1115,6 +1159,75 @@ func _smoke_galaxy(shots: String) -> bool:
 	_send({"verb": "query", "what": "view"}, galaxy.place_view)
 	await get_tree().create_timer(0.5).timeout
 	return true
+
+
+## The colony pane (WP3.4): opens for one of the player's colonies, moves a colonist to another
+## job and back, buys and un-buys (the game's question answered Yes).
+func _smoke_colony(pane: Control, shots: String) -> bool:
+	var target := -1
+	for planet: Dictionary in pane.system.get("planets", []):
+		var c: Dictionary = planet.get("colony", {})
+		if c.get("mine", false) and not c.get("outpost", false):
+			target = int(planet.planet)
+			break
+	if target < 0:
+		print("smoke: no colony of the player's in this system; colony pane not checked")
+		return true
+	_on_planet_clicked(target)
+	var colony_pane := _view("colony_pane")
+	var waited := 0.0
+	while (colony_pane.colony.is_empty() or not colony_pane.visible) and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(1.5).timeout
+	var c: Dictionary = colony_pane.colony
+	if c.is_empty():
+		await host.smoke_fail("the colony pane did not open")
+		return false
+	var counts: Array = c.jobs.map(func(j: Dictionary) -> int: return j.colonists.size())
+	print("smoke: colony pane '%s' (%s), jobs %s, build '%s' %s turns, buy %s, defences %s, garrison %d/%d, %d buildings" % [c.name,
+		pane.system.get("name", ""), counts, c.build.name, c.build.get("turns", "-"), c.build.get("buy_cost", "-"),
+		c.defences.map(func(d: Dictionary) -> String: return "%s%s" % [d.name, "+" if d.built else "-"]),
+		int(c.garrison.marines), int(c.garrison.armor), c.buildings.size()])
+	if shots != "":
+		await host.shot(shots + "/native-colony-pane.png")
+	# A farmer to research and back (the game's own job rules).
+	var farmers: Array = c.jobs[0].colonists.filter(func(p: Dictionary) -> bool: return p.state == "citizen")
+	if not farmers.is_empty():
+		var pop := int(farmers[0].pop)
+		var moved: Dictionary = await _command({"verb": "move_colonist", "colony": int(c.colony), "pop": pop, "job": 2})
+		var after: Dictionary = await _query_args({"what": "colony", "colony": int(c.colony)})
+		print("smoke: farmer %d to research: %s, jobs now %s" % [pop, moved.get("moved", moved), after.jobs.map(func(j: Dictionary) -> int: return j.colonists.size())])
+		await _command({"verb": "move_colonist", "colony": int(c.colony), "pop": pop, "job": 0})
+	# BUY (Yes), then BUY again: un-bought, the BC back.
+	if int(c.build.get("buy_cost", 0)) > 0:
+		var before: Dictionary = await _query("empire")
+		var bought: Dictionary = await _command({"verb": "buy", "colony": int(c.colony)}, true)
+		var unbought: Dictionary = await _command({"verb": "buy", "colony": int(c.colony)}, true)
+		var after_bc: Dictionary = await _query("empire")
+		print("smoke: buy %s (bc %s), buy again %s (bc %s), treasury %d -> %d" % [bought.get("bought", "?"), bought.get("bc", "?"),
+			unbought.get("bought", "?"), unbought.get("bc", "?"), int(before.bc), int(after_bc.bc)])
+	await get_tree().create_timer(0.8).timeout
+	return true
+
+
+## Sends a command and waits for its result; `answer` says Yes to the game's question meanwhile.
+func _command(dict: Dictionary, answer := false) -> Dictionary:
+	var box := {}
+	_send(dict, func(result: Dictionary): box["r"] = result)
+	var waited := 0.0
+	while not box.has("r") and waited < 10.0:
+		await get_tree().create_timer(0.05).timeout
+		waited += 0.05
+		if answer:
+			_smoke_answer()
+	return box.get("r", {})
+
+
+func _query_args(args: Dictionary) -> Dictionary:
+	var dict := {"verb": "query"}
+	dict.merge(args)
+	return await _command(dict)
 
 
 ## The bar's tax menu (WP3.3d): another rate is checked in the treasury's menu, then the old one

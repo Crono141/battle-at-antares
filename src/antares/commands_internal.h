@@ -18,5 +18,7 @@ namespace antares::commands::internal {
     void Add_Galaxy_Entries(std::vector<s_entry>* table);
     // WP3.3c: the fleet box and fleet orders (fleet_orders.cpp).
     void Add_Fleet_Entries(std::vector<s_entry>* table);
+    // WP3.4: the colony pane (colony_queries.cpp).
+    void Add_Colony_Entries(std::vector<s_entry>* table);
 
 } // namespace antares::commands::internal

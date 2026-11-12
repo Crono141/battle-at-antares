@@ -12,6 +12,8 @@ signal command(dict: Dictionary)
 signal closed
 signal fleet_chosen(ship_id: int)
 signal planet_selected(planet_id: int)
+## One of the player's colonies was picked (WP3.4: the colony pane opens beside), or -1.
+signal colony_chosen(colony_id: int)
 
 const SLIDE_TIME := 0.3
 ## COLSYSDI.LBX: the colony screen's planet pictures (COLSYSDI::Planet_Anims).
@@ -119,6 +121,17 @@ func select_planet(planet_id: int) -> void:
 		_expanded[planet_id] = true
 		_ask_potential(planet_id)
 	_show_planets()
+	colony_chosen.emit(_player_colony(planet_id))
+
+
+## The colony id of a planet that is one of the player's colonies (not an outpost), or -1.
+func _player_colony(planet_id: int) -> int:
+	for planet: Dictionary in system.get("planets", []):
+		if int(planet.planet) == planet_id:
+			var colony: Dictionary = planet.get("colony", {})
+			if colony.get("mine", false) and not colony.get("outpost", false):
+				return int(colony.id)
+	return -1
 
 
 func _show_fleets() -> void:
@@ -352,7 +365,7 @@ func _colony_button(planet: Dictionary, colony: Dictionary) -> Button:
 	open_colony.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	open_colony.add_theme_font_size_override("font_size", 13)
 	var id := int(planet.planet)
-	open_colony.pressed.connect(func(): command.emit({"verb": "open_colony", "planet": id}))
+	open_colony.pressed.connect(func(): select_planet(id)) # the colony pane
 	return open_colony
 
 
@@ -455,6 +468,9 @@ func _slide(opening: bool) -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
+	var colony_pane := get_parent().get_node_or_null("ColonyPane")
+	if colony_pane != null and colony_pane.visible:
+		return # Esc closes the colony pane first
 	if visible and key and key.pressed and key.keycode == KEY_ESCAPE:
 		close()
 		get_viewport().set_input_as_handled()
