@@ -221,7 +221,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	var button := event as InputEventMouseButton
 	if button:
 		if button.button_index == MOUSE_BUTTON_WHEEL_UP or button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			if button.pressed:
+			# Over a panel the wheel is the panel's: a list scrolled to its end passes it on, and
+			# it must not zoom the map (owner, 2026-11-11).
+			if button.pressed and get_viewport().gui_get_hovered_control() == null:
 				zoom_by(1.2 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.2, button.position)
 			get_viewport().set_input_as_handled()
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
@@ -238,8 +240,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_drag_moved = false
 				_press_pos = button.position
 			else:
+				# Only a release whose press was on the map clicks it: a panel rebuilt under the
+				# pointer (a pane row expanding) let its release through, and that clicked whatever
+				# was under the pane (owner, 2026-11-11: an enemy colony's row closed the pane).
+				var pressed_here := _dragging
 				_dragging = false
-				if not _drag_moved:
+				if pressed_here and not _drag_moved:
 					var fleet := _pick_fleet(button.position)
 					var star := pick(button.position)
 					if fleet >= 0 and not relocating:
@@ -341,6 +347,11 @@ func fly_to(world: Vector2, zoom: float, screen: Vector2) -> void:
 		_saved_view = {"position": camera.position, "zoom": camera.zoom.x}
 	var center := world - (screen - get_viewport_rect().size * 0.5) / zoom
 	_fly(center, zoom)
+
+
+## Moves the camera smoothly to a point at the current zoom (the fleet buttons).
+func glide_to(world: Vector2) -> void:
+	_fly(world, camera.zoom.x)
 
 
 ## Back to the view before the first flight.

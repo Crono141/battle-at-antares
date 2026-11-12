@@ -14,7 +14,7 @@ offset_right = -4.0
 offset_bottom = -8.0
 grow_horizontal = 0
 mouse_filter = 2
-alignment = 2
+alignment = 1
 theme_override_constants/separation = 4
 script = ExtResource("1")
 
@@ -33,13 +33,6 @@ toggle_mode = true
 script = ExtResource("2")
 label = "Ship Design"
 metadata/action = "designs"
-
-[node name="Commandpoints" type="Button" parent="."]
-layout_mode = 2
-focus_mode = 0
-script = ExtResource("2")
-label = "Command points"
-metadata/screen = 43
 
 [node name="Research" type="Button" parent="."]
 layout_mode = 2

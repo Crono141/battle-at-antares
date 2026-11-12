@@ -422,12 +422,13 @@ func _cycle_fleet(dir: int) -> void:
 		for fleet: Dictionary in galaxy.fleets:
 			if int(fleet.owner) == int(galaxy.data.get("player", -1)):
 				_open_fleet(int(fleet.ship))
+				galaxy.glide_to(_fleet_position(int(fleet.ship)))
 				return
 		return
 	_send({"verb": "query", "what": "next_fleet", "fleet": from, "dir": dir}, func(result: Dictionary):
 		if result.get("ok", false) and int(result.ship) >= 0:
 			_open_fleet(int(result.ship))
-			galaxy.focus_point(_fleet_position(int(result.ship))))
+			galaxy.glide_to(_fleet_position(int(result.ship))))
 
 
 func _fleet_position(ship_id: int) -> Vector2:
@@ -484,6 +485,11 @@ func _smoke_native() -> void:
 		await host.smoke_fail("never reached the native galaxy")
 		return
 	print("smoke: native galaxy after %.1f s, frontend %s, packs %s" % [(Time.get_ticks_msec() - t0) / 1000.0, host.frontend_id, host.loaded_packs])
+	# The loaded save's message comes over the native galaxy a moment after it opens.
+	for i in 30:
+		await get_tree().create_timer(0.1).timeout
+		if _smoke_answer():
+			break
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--flash="):
 			await _smoke_flash(arg.substr(8))
@@ -676,6 +682,23 @@ func _smoke_galaxy(shots: String) -> bool:
 		return false
 	if shots != "":
 		await host.shot(shots + "/native-system-pane.png")
+	# The governor opens the colony leaders on this system (legacy); Esc comes back to the pane.
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	pane.governor.gui_input.emit(click)
+	if not await _wait_screen(Screens.LEGACY, 10.0):
+		await host.smoke_fail("the governor did not open the leaders")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	if shots != "":
+		game.get_frame_image().save_png(shots + "/legacy-leaders.png")
+	game.send_key(KEY_ESCAPE, false, false, false)
+	if not await _wait_screen(Screens.MAIN, 10.0):
+		await host.smoke_fail("the leaders did not return to the galaxy")
+		return false
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: leaders opened from the governor and closed; pane back: %s" % pane.visible)
 	pane.close()
 	await get_tree().create_timer(1.0).timeout
 	print("smoke: pane closed, camera back at scale %.1f" % galaxy.legacy_scale())

@@ -204,12 +204,26 @@ namespace antares::commands {
                     MOX::temp_star_handle = (int16_t)slot;
                     break;
                 }
-                case SCREEN_OFFICERS:
-                    MOX::temp_star_handle = MOX::officer_scrn_type == LEADER_TYPE_SHIP
-                        ? MAINSCR::Get_Ship_Stack_For_Officers_Screen()
-                        : MAINSCR::Get_Star_Id_For_Officers_Screen();
+                case SCREEN_OFFICERS: {
+                    // With `star` (WP3.3f, the system pane's governor): the colony leaders, on that
+                    // system, as the officer screen's colony tab shows it.
+                    int64_t star = -1;
+                    if (args.Has("star")) {
+                        if (!args.Int("star", &star) || star < 0 || star >= MOX::NUM_STARS ||
+                            !HAROLD::Player_Has_Colony(MOX::PLAYER_NUM, (int16_t)star)) {
+                            out.Fail("bad_args", "star: one of the player's colony systems");
+                            return;
+                        }
+                        MOX::officer_scrn_type = LEADER_TYPE_COLONY;
+                        MOX::temp_star_handle = (int16_t)star;
+                    } else {
+                        MOX::temp_star_handle = MOX::officer_scrn_type == LEADER_TYPE_SHIP
+                            ? MAINSCR::Get_Ship_Stack_For_Officers_Screen()
+                            : MAINSCR::Get_Star_Id_For_Officers_Screen();
+                    }
                     MAINSCR::officer_screen_return_screen = (int8_t)from;
                     break;
+                }
                 default:
                     // A colony or ship design needs setup the bridge doesn't do yet: refuse rather
                     // than open it half set up.

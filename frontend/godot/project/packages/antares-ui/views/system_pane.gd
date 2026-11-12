@@ -40,6 +40,8 @@ var art: Node:
 	set(value):
 		art = value
 		preload("sprite_rect.gd").bind_all(self, art)
+		if art and not art.loaded.is_connected(_on_art_loaded):
+			art.loaded.connect(_on_art_loaded)
 var system := {}
 var star := -1
 var race_id := -1 # the player's race (empire query): colonist pictures
@@ -54,6 +56,11 @@ func _ready() -> void:
 	_shown_left = offset_left
 	$Box/Header/Close.pressed.connect(close)
 	$Box/Back.pressed.connect(close)
+	# The governor opens the colony leaders on this system (the legacy leaders screen for now).
+	governor.gui_input.connect(func(event: InputEvent):
+		var click := event as InputEventMouseButton
+		if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
+			command.emit({"verb": "open", "screen": Screens.OFFICERS, "star": star}))
 
 
 ## Shows a system (the `system` query's answer) under the star's name.
@@ -115,17 +122,35 @@ func _show_fleets() -> void:
 		var ship := int(fleet.ship)
 		button.pressed.connect(func(): fleet_chosen.emit(ship))
 		fleets_row.add_child(button)
-		var texture: Texture2D = art.texture("BUFFER0.LBX", int(fleet.box_sprite)) if art else null
-		if texture:
-			button.icon = texture
-		else:
-			button.text = str(int(fleet.ships))
+		button.set_meta("box_sprite", int(fleet.box_sprite))
+		_fleet_icon(button, int(fleet.ships))
+
+
+## A fleet's box picture, or its ship count until the picture arrives (_on_art_loaded).
+func _fleet_icon(button: Button, ships: int) -> void:
+	var texture: Texture2D = art.texture("BUFFER0.LBX", int(button.get_meta("box_sprite"))) if art else null
+	button.icon = texture
+	button.text = "" if texture else str(ships)
+
+
+## Art arrived: fleet buttons still showing a count get their picture (owner, 2026-11-11: the
+## first system opened showed numbers until clicked again).
+func _on_art_loaded(_key: String) -> void:
+	for button: Button in fleets_row.get_children():
+		if button.icon == null and not button.is_queued_for_deletion():
+			_fleet_icon(button, int(button.text))
 
 
 func _show_governor() -> void:
 	var leader: Dictionary = system.get("governor", {})
-	governor.visible = not leader.is_empty()
+	# Shown on the player's systems, with or without a governor: either way it opens the leaders.
+	var mine: bool = system.get("planets", []).any(func(planet: Dictionary) -> bool:
+		return planet.get("colony", {}).get("mine", false) and not planet.get("colony", {}).get("outpost", false))
+	governor.visible = not leader.is_empty() or mine
 	if leader.is_empty():
+		portrait.show_sprite("", -1)
+		governor_name.text = "No governor"
+		governor_title.text = "Assign a colony leader"
 		return
 	portrait.show_sprite("OFFICER.LBX", int(leader.portrait))
 	governor_name.text = leader.name

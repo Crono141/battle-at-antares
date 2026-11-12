@@ -3,7 +3,7 @@ extends PanelContainer
 ## and the empire's figures as the legacy side bar shows them, each with the game's own icon, and
 ## Turn at the end. Game drops the game menu down from the bar (game_menu). The treasury opens the
 ## tax rates when the pointer rests on it (a click pins the menu, as any menu button), as the side
-## bar's money box opens the tax popup; research opens research. The screen launchers are the tabs
+## bar's money box opens the tax popup; command points open their breakdown, research opens research. The screen launchers are the tabs
 ## on the right edge (side_tabs).
 
 signal command(dict: Dictionary)
@@ -15,7 +15,7 @@ const HOVER_CLOSE := 0.4
 
 @onready var date_label: Label = $Row/Date
 @onready var money: MenuButton = $Row/Money
-@onready var command_label: Label = $Row/Command
+@onready var command_label: Button = $Row/Command
 @onready var food_label: Label = $Row/Food
 @onready var freighters_label: Label = $Row/Freighters
 @onready var research: Button = $Row/Research
@@ -38,6 +38,7 @@ func _ready() -> void:
 	money.mouse_entered.connect(_open_on_hover)
 	money.pressed.connect(func(): _hover_opened = false) # a click pins it
 	research.pressed.connect(func(): command.emit({"verb": "open", "screen": int(research.get_meta("screen"))}))
+	command_label.pressed.connect(func(): command.emit({"verb": "open", "screen": int(command_label.get_meta("screen"))}))
 	for button: Button in find_children("*", "Button", true, false):
 		if button.has_meta("key"):
 			var key := InputEventKey.new()
@@ -112,9 +113,11 @@ func _research_text(box: Dictionary) -> String:
 
 func _warn(control: Control, on: bool) -> void:
 	if on:
-		control.add_theme_color_override("font_color", WARNING_COLOR)
+		for color in ["font_color", "font_hover_color", "font_pressed_color"]:
+			control.add_theme_color_override(color, WARNING_COLOR)
 	else:
-		control.remove_theme_color_override("font_color")
+		for color in ["font_color", "font_hover_color", "font_pressed_color"]:
+			control.remove_theme_color_override(color)
 
 
 static func _signed(value: int) -> String:

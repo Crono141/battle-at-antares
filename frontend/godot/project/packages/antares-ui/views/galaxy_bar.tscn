@@ -67,11 +67,13 @@ popup/item_5/text = "Tax 50%"
 popup/item_5/checkable = 2
 popup/item_5/id = 50
 
-[node name="Command" type="Label" parent="Row"]
+[node name="Command" type="Button" parent="Row"]
 layout_mode = 2
-tooltip_text = "Command points: spare (total)"
-mouse_filter = 1
+tooltip_text = "Command points: spare (total). Click for the breakdown"
+focus_mode = 0
+flat = true
 text = "Command"
+metadata/screen = 43
 
 [node name="FoodIcon" type="TextureRect" parent="Row"]
 custom_minimum_size = Vector2(22, 22)
