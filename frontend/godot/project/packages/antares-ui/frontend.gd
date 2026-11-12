@@ -43,6 +43,14 @@ var _race_id := -1
 ## area the system's orbits take.
 const SYSTEM_VIEW_SCALE := 7.0
 const SYSTEM_VIEW_SHARE := 0.42
+## The native view comes in whole (owner, 2026-11-12: buttons popped in, the stars a moment
+## later): hidden until the map is placed with its star pictures and the empire's figures are in,
+## then faded in. The wait is capped so a missing picture can't hold it back.
+const REVEAL_WAIT := 4.0
+const REVEAL_TIME := 0.5
+var _revealing := false
+var _revealed := false
+var _have_empire := false
 
 
 func _ready() -> void:
@@ -62,6 +70,8 @@ func _ready() -> void:
 	mode_button.pressed.connect(func(): _set_native(not native))
 	$UI/Bar.hide() # the owner's layout (WP3.3f): Ctrl+G stays, the button goes
 	overlay.hide()
+	for item: CanvasItem in _reveal_items():
+		item.modulate.a = 0.0
 	var args := OS.get_cmdline_user_args()
 	_set_native("--native" in args or (start_native and not "--smoke" in args))
 	if "--smoke" in args and "--native" in args:
@@ -128,6 +138,8 @@ func _on_native_screen(screen: int) -> void:
 	var design_list := _view("design_list")
 	var fleet_panel := _view("fleet_panel")
 	if screen == Screens.MAIN:
+		if not _revealed and not _revealing:
+			_reveal()
 		galaxy.camera.make_current()
 		_send({"verb": "query", "what": "view"}, galaxy.place_view)
 		if _panel_star >= 0:
@@ -152,6 +164,24 @@ func _on_native_screen(screen: int) -> void:
 			_send({"verb": "query", "what": "command_points"}, points.show_result)
 	if screen == Screens.LEGACY:
 		game.grab_focus()
+
+
+## What fades in together: the starfield, the map and the panels.
+func _reveal_items() -> Array[CanvasItem]:
+	return [$Backdrop/Starfield, galaxy, native_layer]
+
+
+func _reveal() -> void:
+	_revealing = true
+	var waited := 0.0
+	while waited < REVEAL_WAIT and not (galaxy.ready_to_show() and _have_empire):
+		await get_tree().create_timer(0.05).timeout
+		waited += 0.05
+	var tween := create_tween().set_parallel()
+	for item: CanvasItem in _reveal_items():
+		tween.tween_property(item, "modulate:a", 1.0, REVEAL_TIME)
+	_revealed = true
+	_revealing = false
 
 
 func _views_dir() -> String:
@@ -279,6 +309,7 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 	match snapshot_name:
 		"empire":
 			_view("galaxy_bar").show_empire(result)
+			_have_empire = _have_empire or result.get("ok", false)
 			_race_id = int(result.get("race_id", -1))
 			_view("system_pane").race_id = _race_id
 		"galaxy":

@@ -70,25 +70,14 @@ var _drag_moved := false
 var _press_pos := Vector2.ZERO
 
 
-## How long the map waits, hidden, for its first view and star pictures before it shows anyway.
-const REVEAL_WAIT := 3.0
-const REVEAL_TIME := 0.35
-
-
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	# Hidden until it is placed and its stars have their pictures: the first frames showed the
-	# stand-in dots at the whole-map zoom, then snapped (owner, 2026-11-12).
-	modulate.a = 0.0
-	_reveal()
 
 
-func _reveal() -> void:
-	var waited := 0.0
-	while waited < REVEAL_WAIT and not (_view_placed and not stars.is_empty() and _stars_drawn()):
-		await get_tree().create_timer(0.05).timeout
-		waited += 0.05
-	create_tween().tween_property(self, "modulate:a", 1.0, REVEAL_TIME)
+## Placed at the saved view with every star's picture: the frontend fades the view in then
+## (owner, 2026-11-12: stand-in dots at the whole-map zoom showed first, then snapped).
+func ready_to_show() -> bool:
+	return _view_placed and not stars.is_empty() and _stars_drawn()
 
 
 ## Every star's picture has arrived.
