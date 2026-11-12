@@ -192,12 +192,14 @@ func _show_governor() -> void:
 		for child in governor_skills.get_children():
 			child.queue_free()
 		portrait.show_sprite("", -1)
+		governor_title.visible = true
 		governor_name.text = "No governor"
 		governor_title.text = "Assign a colony leader"
 		return
 	portrait.show_sprite("OFFICER.LBX", int(leader.portrait))
 	governor_name.text = leader.name
 	governor_title.text = leader.title
+	governor_title.visible = String(leader.title) != "" # an empty line left a gap (owner)
 	# The bonuses (system v4): each skill's icon, name and bonus, as the leaders screen lists them.
 	for child in governor_skills.get_children():
 		child.queue_free()

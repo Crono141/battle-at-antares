@@ -102,7 +102,17 @@ static func icon(name: String, height := ICON_HEIGHT) -> Texture2D:
 	var key := "%s@%d" % [name, height]
 	if _icons.has(key):
 		return _icons[key]
-	var image := Image.load_from_file("res://packages/antares-ui/art/%s.png" % name)
+	# Imported in the build (the built-in interface's art); a plain file in a package's zip that
+	# replaces it.
+	var path := "res://packages/antares-ui/art/%s.png" % name
+	var image: Image = null
+	if ResourceLoader.exists(path):
+		var imported: Texture2D = load(path)
+		image = imported.get_image() if imported else null
+		if image != null and image.is_compressed():
+			image.decompress()
+	if image == null:
+		image = Image.load_from_file(path)
 	var tex: Texture2D = null
 	if image != null and not image.is_empty():
 		var w := roundi(image.get_width() * float(height) / image.get_height())

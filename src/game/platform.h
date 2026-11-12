@@ -62,6 +62,7 @@ namespace platform {
     extern int32_t g_window_width;
     extern int32_t g_window_height;
     extern uint8_t g_fullscreen;
+    extern uint8_t g_native_ui; // Antares (D27): the Godot build's native interface
 
     extern uint8_t* offscreen_surface;
 

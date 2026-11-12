@@ -1,7 +1,7 @@
 {
   id: "antares-ui-glass",
   name: "Antares UI: Glass",
-  description: "A theme for Antares UI: dark glass panels with thin steel edges, amber for what is on. Needs Antares UI.",
+  description: "A theme for Antares UI: dark glass panels with thin steel edges, amber for what is on. Turns on the native interface (Godot build).",
   version: "0.1.0",
 
   requires: {

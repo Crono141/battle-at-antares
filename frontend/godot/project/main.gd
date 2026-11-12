@@ -3,10 +3,12 @@ extends Node
 ## screen shows as the game's own frame with input forwarded, so by default the game looks and
 ## plays exactly like the original (D26).
 ##
-## Native views come from a frontend package: an enabled package whose Godot pack holds
-## res://packages/<package id>/frontend.tscn (antares-ui ships with the game, off by default). The
-## highest-priority one is instanced over the legacy view, with `host` set to this node before it
-## enters the tree; its script claims the screens and request kinds it draws itself
+## Native views (D27) are the built-in interface, Antares UI (res://packages/antares-ui/, in this
+## build), shown when the profile's `interface native_ui` is on (off by default). An enabled UI
+## package (a Godot pack holding res://packages/<package id>/frontend.tscn) replaces it, the
+## highest-priority one; a package can also replace single files of the built-in one at the same
+## paths. The chosen frontend scene is instanced over the legacy view, with `host` set to this
+## node before it enters the tree; its script claims the screens and request kinds it draws itself
 ## (packages/antares-ui/frontend.gd). What a frontend may use here:
 ##   game    the AntaresGame node: commands, queries, snapshots, requests, claims
 ##   legacy  the Control that shows the legacy frame (hidden while a native screen is up)
@@ -17,6 +19,9 @@ extends Node
 @onready var game: AntaresGame = $UI/Legacy/Game
 @onready var legacy: Control = $UI/Legacy
 @onready var art: Node = $Art
+
+## The built-in interface (D27).
+const BUILT_IN := "antares-ui"
 
 var frontend: Node = null
 var frontend_id := ""
@@ -47,10 +52,12 @@ func _load_packs() -> void:
 		print("frontend: resource pack %s: %s" % [path, "loaded" if loaded_packs[path] else "FAILED"])
 	art.clear() # art is asked again, in case a pack changed it
 	var wanted := ""
-	for id: String in game.get_packages():
-		if ResourceLoader.exists(_entry(id)):
-			wanted = id
-			break
+	if game.get_native_ui():
+		wanted = BUILT_IN
+		for id: String in game.get_packages():
+			if ResourceLoader.exists(_entry(id)):
+				wanted = id
+				break
 	if wanted == frontend_id and _chosen:
 		if frontend:
 			frontend.packs_changed()
@@ -79,7 +86,7 @@ func _wait_for_frontend() -> void:
 		await get_tree().create_timer(0.5).timeout
 		waited += 0.5
 	if frontend == null:
-		await smoke_fail("--native, but no frontend package is enabled (enable antares-ui)")
+		await smoke_fail("--native, but no native interface (set interface native_ui = true;)")
 
 
 ## Headless check (`-- --smoke`): the game boots, frames arrive, input reaches the legacy screen;

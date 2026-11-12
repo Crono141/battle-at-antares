@@ -1,7 +1,7 @@
 {
   id: "antares-ui-chrome",
   name: "Antares UI: Chrome",
-  description: "A theme for Antares UI: the original screens' metal buttons and frames at a small size, armed buttons glowing amber. Needs Antares UI.",
+  description: "A theme for Antares UI: the original screens' metal buttons and frames at a small size, armed buttons glowing amber. Turns on the native interface (Godot build).",
   version: "0.1.0",
 
   requires: {

@@ -94,6 +94,80 @@ namespace antares {
             return found;
         }
 
+        // A Godot zip's file names (a .pck can't be listed: none).
+        void Zip_Names_(mz_zip_archive* zip, std::vector<std::string>* names) {
+            const mz_uint count = mz_zip_reader_get_num_files(zip);
+            for (mz_uint index = 0; index < count; ++index) {
+                char name[512];
+                mz_zip_reader_get_filename(zip, index, name, sizeof(name));
+                names->push_back(name);
+            }
+        }
+
+        // D27: a theme package's Godot zip holds packages/<id>/theme.gd and no frontend.tscn (a UI
+        // package's holds frontend.tscn). Looks into godot/*.zip, also inside a zipped package.
+        bool Is_Godot_Theme_(const std::string& source_path, bool archive) {
+            std::vector<std::string> names;
+            if (!archive) {
+                std::error_code error;
+                for (std::filesystem::directory_iterator entry(std::filesystem::path(source_path + "godot"), error), end; !error && entry != end; entry.increment(error)) {
+                    const std::string file = entry->path().string();
+                    if (!entry->is_regular_file(error) || file.size() < 4 || file.compare(file.size() - 4, 4, ".zip") != 0) {
+                        continue;
+                    }
+                    mz_zip_archive zip{};
+                    if (mz_zip_reader_init_file(&zip, file.c_str(), 0)) {
+                        Zip_Names_(&zip, &names);
+                        mz_zip_reader_end(&zip);
+                    }
+                }
+            } else {
+                mz_zip_archive outer{};
+                if (!mz_zip_reader_init_file(&outer, source_path.c_str(), 0)) {
+                    return false;
+                }
+                const mz_uint count = mz_zip_reader_get_num_files(&outer);
+                for (mz_uint index = 0; index < count; ++index) {
+                    char name[512];
+                    mz_zip_reader_get_filename(&outer, index, name, sizeof(name));
+                    std::string lower = name;
+                    for (char& c : lower) {
+                        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    }
+                    if (!Is_Godot_Pack_Path_(lower) || lower.compare(lower.size() - 4, 4, ".zip") != 0) {
+                        continue;
+                    }
+                    size_t size = 0;
+                    void* data = mz_zip_reader_extract_to_heap(&outer, index, &size, 0);
+                    if (data == nullptr) {
+                        continue;
+                    }
+                    mz_zip_archive inner{};
+                    if (mz_zip_reader_init_mem(&inner, data, size, 0)) {
+                        Zip_Names_(&inner, &names);
+                        mz_zip_reader_end(&inner);
+                    }
+                    mz_free(data);
+                }
+                mz_zip_reader_end(&outer);
+            }
+            const auto ends_with = [](const std::string& text, const char* suffix) {
+                const size_t length = std::strlen(suffix);
+                return text.size() >= length && text.compare(text.size() - length, length, suffix) == 0;
+            };
+            bool theme = false;
+            for (const std::string& name : names) {
+                if (name.rfind("packages/", 0) != 0) {
+                    continue;
+                }
+                if (ends_with(name, "/frontend.tscn")) {
+                    return false;
+                }
+                theme = theme || ends_with(name, "/theme.gd");
+            }
+            return theme;
+        }
+
         void Describe_(s_package_info* package) {
             std::string text;
             if (!Read_Package_File_(package->source_path, package->archive, "mod.json5", &text)) {
@@ -112,6 +186,7 @@ namespace antares {
                 package->hd_art = package->hd_art || Has_Package_File_(package->source_path, package->archive, marker);
             }
             package->godot_ui = Has_Godot_Pack_(package->source_path, package->archive);
+            package->godot_theme = package->godot_ui && Is_Godot_Theme_(package->source_path, package->archive);
             Read_Package_File_(package->source_path, package->archive, "README.md", &package->readme);
         }
     } // namespace

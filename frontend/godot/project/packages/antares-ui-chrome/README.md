@@ -6,7 +6,7 @@ they are on; the figures on the top bar sit in the Fleets screen's name slot; pa
 tech-pattern panel in the colony screen's riveted frame, which also runs round the whole view,
 with pockets for the top bar and the fleet and colony buttons.
 
-It does nothing on its own: enable Antares UI too. With both this and another theme enabled,
+It styles the native interface (Antares UI, built into the Godot build; ticking this turns it on). With this and another theme enabled,
 Options > Theme switches between them while you play; the first one enabled is the default.
 
 The metal is cut from your own copy of the game (the Battle at Antares HD art), so the package
@@ -19,7 +19,7 @@ None of its own.
 
 ## Needs and conflicts
 
-Antares UI. No conflicts: several themes can be enabled at once.
+None: it styles Antares UI or any interface that uses the theme names. No conflicts: several themes can be enabled at once.
 
 ## Saves
 
