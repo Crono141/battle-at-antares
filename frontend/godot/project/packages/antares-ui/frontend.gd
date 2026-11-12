@@ -205,6 +205,7 @@ func _on_native_screen(screen: int) -> void:
 	else:
 		system_pane.hide() # hidden, not closed: it comes back with the galaxy
 		_view("colony_pane").dismiss()
+		_view("build_pane").dismiss() # a Cancel
 		design_list.set_meta("was_open", design_list.visible or design_list.get_meta("was_open", false))
 		design_list.hide()
 		if options.visible:
@@ -355,6 +356,10 @@ func _view(scene_name: String) -> Control:
 			view.fleet_chosen.connect(_open_fleet_from_pane)
 		if view.has_signal("theme_chosen"):
 			view.theme_chosen.connect(apply_theme)
+		if view.has_signal("change_build"):
+			view.change_build.connect(_open_build_pane)
+		if view.has_signal("committed"):
+			view.committed.connect(func(): _view("colony_pane").refresh())
 		if view.has_signal("colony_chosen"):
 			view.colony_chosen.connect(_on_colony_chosen)
 		if view.has_signal("planet_selected"):
@@ -470,6 +475,7 @@ func _on_view_closed(scene_name: String) -> void:
 			galaxy.fly_back()
 		galaxy.redraw()
 	elif scene_name == "colony_pane":
+		_view("build_pane").cancel()
 		if _panel_star >= 0 and _view("system_pane").visible:
 			_frame_system(_panel_star) # the free area widened again
 	elif scene_name == "design_list":
@@ -637,6 +643,8 @@ func _on_planet_clicked(planet_id: int) -> void:
 func _on_colony_chosen(colony_id: int) -> void:
 	var pane := _view("colony_pane")
 	var was_open: bool = pane.colony_id >= 0
+	if colony_id != pane.colony_id:
+		_view("build_pane").cancel() # another colony: its edits go
 	if colony_id < 0:
 		pane.close() # its `closed` re-frames the system
 		return
@@ -645,6 +653,20 @@ func _on_colony_chosen(colony_id: int) -> void:
 	pane.open(colony_id)
 	if not was_open and _panel_star >= 0:
 		_frame_system(_panel_star) # the free area narrowed
+
+
+func get_theme_constant_from(control: Control, name: String) -> float:
+	return float(control.get_theme_constant(name, "Screen"))
+
+
+## CHANGE (WP3.4b): the build pane slides out beside the colony pane, over the map.
+func _open_build_pane(colony_id: int, bought: bool) -> void:
+	var pane := _view("build_pane")
+	var colony_pane: Control = _view("colony_pane")
+	pane.place_at(colony_pane.get_global_rect().end.x + maxf(get_theme_constant_from(pane, "pane_gap"), 6.0))
+	pane.move_to_front()
+	_frame_view.move_to_front()
+	pane.open(colony_id, bought)
 
 
 func _on_pane_planet(planet_id: int) -> void:
@@ -1208,6 +1230,79 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 		var after_bc: Dictionary = await _query("empire")
 		print("smoke: buy %s (bc %s), buy again %s (bc %s), treasury %d -> %d" % [bought.get("bought", "?"), bought.get("bc", "?"),
 			unbought.get("bought", "?"), unbought.get("bc", "?"), int(before.bc), int(after_bc.bc)])
+	# The build pane (WP3.4b): CHANGE, add an item, Cancel (nothing changes); again, OK (it's on).
+	var before_queue: Array = (await _query_args({"what": "colony", "colony": int(c.colony)})).build.queue
+	var build := _view("build_pane")
+	_open_build_pane(int(c.colony), false)
+	waited = 0.0
+	while (build.options.is_empty() or not build.visible) and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(0.8).timeout
+	var pick := -1
+	for item: Dictionary in build.options.buildings:
+		if int(item.id) > 0:
+			pick = int(item.id)
+			break
+	print("smoke: build pane: %d buildings, %d units, queue %s, auto %s; adding %d" % [build.options.buildings.size(),
+		build.options.units.size(), build.options.queue.map(func(q: Dictionary) -> String: return q.name), build.options.auto, pick])
+	if pick < 0 or build.options.units.is_empty():
+		await host.smoke_fail("the build pane offered nothing")
+		return false
+	build._add(pick)
+	build._show_detail(build._names.get(pick, {}))
+	await get_tree().create_timer(0.8).timeout
+	if shots != "":
+		await host.shot(shots + "/native-build-pane.png")
+	build.cancel()
+	await get_tree().create_timer(0.6).timeout
+	var after_cancel: Array = (await _query_args({"what": "colony", "colony": int(c.colony)})).build.queue
+	_open_build_pane(int(c.colony), false)
+	waited = 0.0
+	while not build.visible and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(0.6).timeout
+	build._add(pick)
+	build._ok()
+	waited = 0.0
+	while build.visible and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(0.8).timeout
+	var after_ok: Array = (await _query_args({"what": "colony", "colony": int(c.colony)})).build.queue
+	print("smoke: build list %d items; after Cancel %d (unchanged %s); after OK %d (last '%s'); colony pane shows %d" % [before_queue.size(),
+		after_cancel.size(), after_cancel.size() == before_queue.size(), after_ok.size(), after_ok[-1].name if not after_ok.is_empty() else "",
+		colony_pane.colony.build.queue.size()])
+	if after_cancel.size() != before_queue.size() or after_ok.size() != before_queue.size() + 1:
+		await host.smoke_fail("the build pane's Cancel or OK did not do what it should")
+		return false
+	# A ship design from Units: at OK the game makes its ship (queued as -100 - ship).
+	var design := -1
+	for item: Dictionary in build.options.units:
+		if int(item.get("id", 0)) <= -50 and int(item.get("id", 0)) > -100:
+			design = int(item.id)
+			break
+	if design != -1:
+		_open_build_pane(int(c.colony), false)
+		waited = 0.0
+		while not build.visible and waited < 5.0:
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
+		await get_tree().create_timer(0.6).timeout
+		build.tabs_units.button_pressed = true
+		build._add(design)
+		build._ok()
+		waited = 0.0
+		while build.visible and waited < 5.0:
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
+		await get_tree().create_timer(0.6).timeout
+		var with_ship: Array = (await _query_args({"what": "colony", "colony": int(c.colony)})).build.queue
+		print("smoke: build design %d: queue %s" % [design, with_ship.map(func(q: Dictionary) -> String: return "%s (%d)" % [q.name, int(q.id)])])
+		if with_ship.is_empty() or int(with_ship[-1].id) > -100:
+			await host.smoke_fail("a design added in the build pane did not become a queued ship")
+			return false
 	await get_tree().create_timer(0.8).timeout
 	return true
 

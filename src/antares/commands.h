@@ -31,6 +31,8 @@ namespace antares::commands {
         bool Str(const char* key, std::string* value) const;
         // False when the key is missing, not an array, or holds anything but integers.
         bool Int_List(const char* key, std::vector<int64_t>* values) const;
+        // The raw value (nested lists and objects: the build pane's edits), or null.
+        yyjson_val* Get(const char* key) const;
 
       private:
         yyjson_val* object_;

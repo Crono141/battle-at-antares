@@ -8,6 +8,9 @@
 namespace COLBLDG {
 
     bool warn_blockers = true;
+    // Antares (D25, WP3.4b): the native build pane drives the queue functions below with this set:
+    // they skip redrawing the popup and resetting the mouse picture (it isn't up), nothing else.
+    bool quiet_ui = false;
 
     void Commit_Autobuild_State() {
         if (BUILD_QUEUE::autobuild_settings.enabled == 0) {
@@ -1526,6 +1529,18 @@ namespace COLBLDG {
         }
     }
 
+    static void Handle_Queue_Blockers();
+
+    // Antares (WP3.4b): the popup's OK as one call (Evaluate_Input, fields[3]), for the native build
+    // pane: the autobuild state, the housing / trade goods blockers, the queue copied back.
+    void Commit_Build_Queue() {
+        field_mode = 0;
+        COLONY::Reset_Mouse_Picture();
+        Commit_Autobuild_State();
+        Handle_Queue_Blockers();
+        Do_Exit_Screen_Cleanup();
+    }
+
     static void Handle_Queue_Blockers() {
         if (Something_Behind_Settting() == 0) {
             return;
@@ -2114,6 +2129,9 @@ namespace COLBLDG {
     }
 
     void __cdecl Do_Draw_Build_Queue() {
+        if (quiet_ui) {
+            return; // Antares (D25, WP3.4b): the native build pane has no popup to redraw
+        }
         ::fields::Deactivate_Auto_Function();
         ::fields::Assign_Auto_Function(Draw_Build_Queue_Popup, 1);
         Update_Fields();

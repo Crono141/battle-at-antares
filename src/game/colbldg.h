@@ -286,6 +286,9 @@ namespace COLBLDG {
     void __cdecl Squish_Out_Queue_Slot(int16_t slot_idx);
     void __cdecl Do_Draw_Build_Queue();
     void __cdecl Do_Exit_Screen_Cleanup();
+    // Antares (D25, WP3.4b): the native build pane's quiet mode and the popup's OK as one call.
+    extern bool quiet_ui;
+    void Commit_Build_Queue();
     void __cdecl Remove_Ships(int8_t flag);
     int16_t __cdecl First_Prod_Queue_Slot(int16_t prod_idx);
     void __cdecl Delete_From_Queue(int16_t slot_idx);

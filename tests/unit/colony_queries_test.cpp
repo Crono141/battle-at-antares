@@ -4,6 +4,7 @@
 #include "doctest/doctest.h"
 
 #include <string>
+#include <vector>
 
 // WP3.4: the colony pane's query and commands (src/antares/colony_queries.cpp).
 
@@ -11,7 +12,13 @@ namespace TEST_COLONY {
     extern int colony_calculations;
     extern int buys;
     extern bool refuse_job;
+    extern std::vector<std::string> build_calls;
 } // namespace TEST_COLONY
+
+namespace TEST_NATIVE {
+    extern uint32_t random_seed;
+    extern std::vector<uint32_t> seeds_set;
+} // namespace TEST_NATIVE
 
 namespace {
     s_player c_players_[2];
@@ -140,4 +147,46 @@ DOCTEST_TEST_CASE("move_colonist and buy are the colony screen's actions (WP3.4)
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"buy\",\"colony\":0}"), "\"bought\":true"));
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"buy\",\"colony\":0}"), "\"bought\":false"));
     DOCTEST_CHECK(TEST_COLONY::buys == 2);
+}
+
+DOCTEST_TEST_CASE("build_options lists what CHANGE offers; build_commit replays the edits (WP3.4b)") {
+    Set_Up_();
+    static char design_name[] = "Warship";
+    snprintf(c_players_[0].ship_designs[0].name, sizeof(c_players_[0].ship_designs[0].name), "%s", design_name);
+    static char hull[] = "Cruiser";
+    TECHDATA::hull_data[0].name = hull;
+    static char part[] = "Part";
+    TECHDATA::shields[0].name = part;
+    TECHDATA::computers[0].name = part;
+    TECHDATA::armor[0].name = part;
+    TECHDATA::drives[0].name = part;
+    c_players_[0].ship_designs[0].ship_weapon[0].type = 1;
+    c_players_[0].ship_designs[0].ship_weapon[0].count = 4;
+    COLONY::colony_handle = -7; // the popup's globals before: put back after
+    const std::string options = Run_("{\"verb\":\"query\",\"what\":\"build_options\",\"colony\":0}");
+    DOCTEST_CHECK(Has_(options, "\"buildings\":[{\"id\":-2,"));
+    DOCTEST_CHECK(Has_(options, "{\"id\":22,\"name\":\"B22\""));
+    DOCTEST_CHECK(Has_(options, "\"cost\":2200,\"turns\":7,\"upkeep\":"));
+    DOCTEST_CHECK(Has_(options, "{\"separator\":true}"));
+    DOCTEST_CHECK(Has_(options, "\"name\":\"Warship\""));
+    DOCTEST_CHECK(Has_(options, "\"hull\":\"Cruiser\",\"shield\":\"Part\""));
+    DOCTEST_CHECK(Has_(options, "\"weapons\":[{\"text\":\"4 Laser\"}]"));
+    DOCTEST_CHECK(Has_(options, "\"queue\":[{\"id\":40,"));
+    DOCTEST_CHECK(COLONY::colony_handle == -7);
+    // The commit: the edits in order, quietly, with the colony's seed, then the popup's OK.
+    TEST_COLONY::build_calls.clear();
+    TEST_NATIVE::seeds_set.clear();
+    TEST_NATIVE::random_seed = 1234;
+    const std::string commit = Run_("{\"verb\":\"build_commit\",\"colony\":0,\"auto\":true,\"edits\":["
+                                    "{\"add\":22},{\"add\":-50,\"repeat\":true},{\"move\":[1,0]},{\"delete\":2}]}");
+    DOCTEST_CHECK(Has_(commit, "\"applied\":4"));
+    DOCTEST_CHECK(TEST_COLONY::build_calls ==
+        std::vector<std::string>{"add 22 quiet", "add -50 repeat quiet", "move 1 0", "delete 2", "commit quiet"});
+    DOCTEST_CHECK(TEST_NATIVE::seeds_set == std::vector<uint32_t>{0, 1234}); // the colony's number, then back
+    DOCTEST_CHECK(TEST_NATIVE::random_seed == 1234);
+    DOCTEST_CHECK(c_colonies_[0].producing[0] == 22);
+    DOCTEST_CHECK(c_colonies_[0].producing[1] == BUILDING_STAR_BASE);
+    DOCTEST_CHECK(c_colonies_[0].auto_building == 1);
+    DOCTEST_CHECK_FALSE(COLBLDG::quiet_ui);
+    DOCTEST_CHECK(COLONY::colony_handle == -7);
 }

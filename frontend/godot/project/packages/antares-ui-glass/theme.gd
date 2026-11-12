@@ -77,6 +77,16 @@ func build(dir: String) -> Dictionary:
 	t.set_stylebox("grabber_area", "HSlider", filled)
 	t.set_stylebox("grabber_area_highlight", "HSlider", filled)
 
+	# Names in lists (the build pane's items): plain text that lights up under the pointer.
+	t.set_type_variation("ListItem", "Button")
+	for state in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+		t.set_stylebox(state, "ListItem", StyleBoxEmpty.new())
+	t.set_color("font_color", "ListItem", GOLD)
+	t.set_color("font_hover_color", "ListItem", AMBER)
+	t.set_color("font_pressed_color", "ListItem", AMBER)
+	t.set_color("font_hover_pressed_color", "ListItem", AMBER)
+	t.set_color("font_focus_color", "ListItem", GOLD)
+	t.set_font("font", "ListItem", saira_bold)
 	t.set_color("font_color", "Label", LIGHT)
 	_label(t, "Heading", saira_bold, 30, GOLD)
 	_label(t, "Name", saira_bold, 19, GOLD)

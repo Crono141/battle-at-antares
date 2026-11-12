@@ -72,9 +72,20 @@ namespace HAROLD {
     }
 } // namespace HAROLD
 
+namespace TEST_NATIVE {
+    uint32_t random_seed = 0; // the build pane's commit sets and restores it (WP3.4b)
+    std::vector<uint32_t> seeds_set;
+} // namespace TEST_NATIVE
+
 namespace game_random {
     uint32_t __cdecl Get_Random_Seed() {
-        return 0;
+        return TEST_NATIVE::random_seed;
+    }
+    uint32_t __cdecl Set_Random_Seed(uint32_t seed) {
+        const uint32_t previous = TEST_NATIVE::random_seed;
+        TEST_NATIVE::random_seed = seed;
+        TEST_NATIVE::seeds_set.push_back(seed);
+        return previous;
     }
 } // namespace game_random
 

@@ -1,9 +1,11 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "yyjson.h"
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 
 // WP3.4: the colony pane's query and commands (contract: notes/antares/native-bridge.md, "The
 // colony pane"). The query reads the colony fields COLCALC::Colony_Calculation leaves behind and
@@ -400,6 +402,228 @@ namespace antares::commands::internal {
             out.Int("bc", MOX::player[MOX::PLAYER_NUM].bc);
         }
 
+        // ---- The build pane (WP3.4b) ----
+
+        // The build popup's globals (COLONY handles, the working queue, the lists, its modes), set
+        // for one colony as COLBLDG::Build_Queue_Popup sets them, and put back afterwards: queries
+        // and the commit borrow the popup's own functions, which read and fill these.
+        struct s_build_scope {
+            int16_t colony_handle = COLONY::colony_handle;
+            int16_t planet_handle = COLONY::planet_handle;
+            int16_t star_handle = COLONY::star_handle;
+            int16_t current_item[7];
+            int16_t active_prod[4];
+            uint8_t field_mode = COLBLDG::field_mode;
+            int16_t colony_auto_building = COLBLDG::colony_auto_building;
+            int16_t building_indexes[54];
+            int16_t n_building_indexes = COLBLDG::n_building_indexes;
+            int16_t military_indexes[54];
+            int16_t n_military_indexes = COLBLDG::n_military_indexes;
+
+            explicit s_build_scope(int16_t colony) {
+                memcpy(current_item, COLBLDG::current_item, sizeof(current_item));
+                memcpy(active_prod, COLBLDG::active_prod, sizeof(active_prod));
+                memcpy(building_indexes, COLBLDG::building_indexes, sizeof(building_indexes));
+                memcpy(military_indexes, COLBLDG::military_indexes, sizeof(military_indexes));
+                COLONY::colony_handle = colony;
+                COLONY::planet_handle = MOX::colony[colony].planet;
+                COLONY::star_handle = MOX::planet[MOX::colony[colony].planet].star_index;
+                for (int i = 0; i < 7; ++i) {
+                    COLBLDG::current_item[i] = MOX::colony[colony].producing[i];
+                }
+                COLBLDG::active_prod[0] = -1;
+                COLBLDG::field_mode = 0;
+                COLBLDG::colony_auto_building = MOX::colony[colony].auto_building != 0;
+            }
+
+            ~s_build_scope() {
+                COLONY::colony_handle = colony_handle;
+                COLONY::planet_handle = planet_handle;
+                COLONY::star_handle = star_handle;
+                memcpy(COLBLDG::current_item, current_item, sizeof(current_item));
+                memcpy(COLBLDG::active_prod, active_prod, sizeof(active_prod));
+                COLBLDG::field_mode = field_mode;
+                COLBLDG::colony_auto_building = colony_auto_building;
+                memcpy(COLBLDG::building_indexes, building_indexes, sizeof(building_indexes));
+                COLBLDG::n_building_indexes = n_building_indexes;
+                memcpy(COLBLDG::military_indexes, military_indexes, sizeof(military_indexes));
+                COLBLDG::n_military_indexes = n_military_indexes;
+            }
+        };
+
+        // One buildable item with what the popup's detail box shows (Draw_Cost_And_Time_Info,
+        // Build_Ship_Design_Info_Formatted_Paragraph): cost here, build time, upkeep, the picture,
+        // and a design's parts.
+        void Build_Item(int16_t c, int16_t id, s_out item) {
+            s_colony& colony = MOX::colony[c];
+            item.Int("id", id);
+            item.Str("name", Item_Name(colony, id));
+            Item_Picture(colony, id, item.Add_Object("picture"));
+            if (id == COLONY_PRODUCTION_HOUSING || id == COLONY_PRODUCTION_TRADE_GOODS) {
+                return; // settings, not items
+            }
+            item.Int("cost", COLCALC::Colony_Product_Cost(&colony, id));
+            item.Int("turns", COLONY::Calculate_Colony_Turn_Count_From_Scrap_For_Prod(c, id));
+            if (COLBLDG::Colony_Production_Is_Building(id)) {
+                item.Int("upkeep", TECHDATA::buildings[id].maintenance);
+            }
+            if (!COLBLDG::Colony_Production_Is_Ship_Design(id)) {
+                return;
+            }
+            s_ship_design& design = MOX::player[colony.owner].ship_designs[COLBLDG::Colony_Production_Ship_Design_Index(id)];
+            item.Str("hull", Utf8(TECHDATA::hull_data[design.size].name, 40));
+            item.Str("shield", Utf8(TECHDATA::shields[design.shield_type].name, 40));
+            item.Str("computer", Utf8(TECHDATA::computers[design.computer_type].name, 40));
+            item.Str("armor", Utf8(TECHDATA::armor[design.armor_type].name, 40));
+            item.Str("drive", Utf8(TECHDATA::drives[design.ftl_type].name, 40));
+            s_out weapons = item.Add_List("weapons");
+            for (s_ship_weapons& weapon : design.ship_weapon) {
+                if (weapon.type == 0) {
+                    continue;
+                }
+                char text[200];
+                COLBLDG::Build_Weapon_String(&weapon, text, sizeof(text), 0, (uint8_t)weapon.count);
+                weapons.Append_Object().Str("text", std::to_string((int)weapon.count) + " " + Utf8(text, sizeof(text)));
+            }
+            s_out specials = item.Add_List("specials");
+            for (int i = 0; i < 39; ++i) {
+                if (struct_::Test_Bit_Field(design.special_device_flags, i)) {
+                    specials.Append_Object().Str("text", Utf8(TECHDATA::specials[i].name, 60));
+                }
+            }
+        }
+
+        // What CHANGE offers (COLBLDG::Build_Arrays for the colony, as the popup opens): Buildings
+        // (trade goods, housing, the buildable buildings by name) and Units (in the popup's order,
+        // separators kept), with the queue and the auto build switch.
+        void Query_Build_Options(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            if (!args.Int("colony", &colony_id)) {
+                out.Fail("bad_args", "colony: one of the player's colonies");
+                return;
+            }
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            const int16_t c = (int16_t)colony_id;
+            s_build_scope scope(c);
+            COLBLDG::Build_Arrays();
+            out.Int("colony", c);
+            out.Bool("auto", MOX::colony[c].auto_building != 0);
+            s_out buildings = out.Add_List("buildings");
+            for (int i = 0; i < COLBLDG::n_building_indexes; ++i) {
+                Build_Item(c, COLBLDG::building_indexes[i], buildings.Append_Object());
+            }
+            s_out units = out.Add_List("units");
+            for (int i = 0; i < COLBLDG::n_military_indexes; ++i) {
+                const int16_t id = COLBLDG::military_indexes[i];
+                if (id == COLONY_PRODUCTION_SEPARATOR) {
+                    units.Append_Object().Bool("separator", true);
+                    continue;
+                }
+                Build_Item(c, id, units.Append_Object());
+            }
+            s_out queue = out.Add_List("queue");
+            for (int slot = 0; slot < 7; ++slot) {
+                const int16_t id = MOX::colony[c].producing[slot];
+                if (id == COLONY_PRODUCTION_NONE || id == 0) {
+                    break;
+                }
+                s_out q = queue.Append_Object();
+                q.Int("id", id);
+                q.Str("name", Item_Name(MOX::colony[c], id));
+                if (id != COLONY_PRODUCTION_REPEAT) {
+                    Item_Picture(MOX::colony[c], id, q.Add_Object("picture"));
+                }
+            }
+        }
+
+        // CHANGE's OK: the build pane's edits replayed through the popup's own functions in the
+        // order they were made, with the popup's random seed (the colony's number, as
+        // Build_Queue_Popup sets it), then the popup's OK (COLBLDG::Commit_Build_Queue). Ships for
+        // designs are made here, as the popup makes them when they're added; Cancel sends nothing.
+        // Edits: {"add": id, "repeat": bool}, {"delete": slot}, {"move": [from, to]}. Questions
+        // the popup asks along the way (androids filling the planet, cancelling a refit, housing
+        // or trade goods ahead of other items) are the game's own.
+        void Build_Commit(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            if (!args.Int("colony", &colony_id)) {
+                out.Fail("bad_args", "colony, edits [...], auto");
+                return;
+            }
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            yyjson_val* edits = args.Get("edits");
+            if (edits != nullptr && !yyjson_is_arr(edits)) {
+                out.Fail("bad_args", "edits: a list of {add, repeat} / {delete} / {move}");
+                return;
+            }
+            const int16_t c = (int16_t)colony_id;
+            s_build_scope scope(c);
+            const uint32_t seed = game_random::Get_Random_Seed();
+            game_random::Set_Random_Seed(c);
+            COLBLDG::quiet_ui = true;
+            int applied = 0;
+            size_t index = 0;
+            size_t count = 0;
+            yyjson_val* edit = nullptr;
+            if (edits != nullptr) {
+                yyjson_arr_foreach(edits, index, count, edit) {
+                    yyjson_val* add = yyjson_obj_get(edit, "add");
+                    yyjson_val* del = yyjson_obj_get(edit, "delete");
+                    yyjson_val* move = yyjson_obj_get(edit, "move");
+                    if (yyjson_is_int(add)) {
+                        const int16_t id = (int16_t)yyjson_get_int(add);
+                        if (id == COLONY_PRODUCTION_CUSTOM_DESIGN) {
+                            continue; // the popup's Design button, not an item
+                        }
+                        COLBLDG::field_mode = yyjson_get_bool(yyjson_obj_get(edit, "repeat")) ? 2 : 0;
+                        COLBLDG::Add_To_Queue(id);
+                        COLBLDG::field_mode = 0;
+                    } else if (yyjson_is_int(del)) {
+                        const int64_t slot = yyjson_get_int(del);
+                        if (slot >= 0 && slot < 7 && !(slot == 0 && MOX::colony[c].bought_outright != 0)) {
+                            COLBLDG::Delete_From_Queue((int16_t)slot);
+                        }
+                    } else if (yyjson_is_arr(move) && yyjson_arr_size(move) == 2) {
+                        const int64_t from = yyjson_get_int(yyjson_arr_get(move, 0));
+                        const int64_t to = yyjson_get_int(yyjson_arr_get(move, 1));
+                        if (from >= 0 && from < 7 && to >= 0 && to < 7 && from != to) {
+                            COLBLDG::Insert_Before_Queue_Slot((int16_t)from, (int16_t)to);
+                            COLBLDG::Defragment_Queue();
+                        }
+                    } else {
+                        continue;
+                    }
+                    ++applied;
+                }
+            }
+            yyjson_val* automatic = args.Get("auto");
+            if (yyjson_is_bool(automatic)) {
+                COLBLDG::colony_auto_building = yyjson_get_bool(automatic) ? 1 : 0;
+            }
+            COLBLDG::Commit_Build_Queue();
+            COLBLDG::quiet_ui = false;
+            game_random::Set_Random_Seed(seed);
+            COLCALC::Colony_Calculation(c);
+            out.Int("applied", applied);
+            s_out queue = out.Add_List("queue");
+            for (int slot = 0; slot < 7; ++slot) {
+                const int16_t id = MOX::colony[c].producing[slot];
+                if (id == COLONY_PRODUCTION_NONE || id == 0) {
+                    break;
+                }
+                queue.Append_Object().Int("id", id);
+            }
+        }
+
     } // namespace
 
     void Add_Colony_Entries(std::vector<s_entry>* table) {
@@ -407,6 +631,8 @@ namespace antares::commands::internal {
         table->push_back({"colony", e_kind::query, ANY_SCREEN, 1, "colony: colony id (the player's)", Query_Colony});
         table->push_back({"move_colonist", e_kind::command, galaxy, 0, "colony, pop, job (0-2)", Move_Colonist});
         table->push_back({"buy", e_kind::command, galaxy, 0, "colony", Buy});
+        table->push_back({"build_options", e_kind::query, ANY_SCREEN, 1, "colony", Query_Build_Options});
+        table->push_back({"build_commit", e_kind::command, galaxy, 0, "colony, edits [{add, repeat} / {delete} / {move}], auto", Build_Commit});
     }
 
 } // namespace antares::commands::internal

@@ -7,11 +7,13 @@ extends PanelContainer
 ## COLONISTS, the defences (those built, centred), the garrison and the buildings, and View colony.
 ##
 ## Colonists move by dragging one to another job's row (`move_colonist`: the game's own rules and
-## messages). BUY sends `buy` (the game asks first; a second BUY un-buys). CHANGE, TRANSPORT
-## COLONISTS and View colony open the original colony screen for now (the build pane is WP3.4b).
+## messages). BUY sends `buy` (the game asks first; a second BUY un-buys). CHANGE slides out the
+## build pane (WP3.4b); TRANSPORT COLONISTS and View colony open the original colony screen.
 
 signal command(dict: Dictionary)
 signal closed
+## CHANGE: the build pane opens on this colony (`bought`: its front item is bought).
+signal change_build(colony_id: int, bought: bool)
 
 const SLIDE_TIME := 0.25
 const WIDTH := 340.0
@@ -211,11 +213,11 @@ func _build_box(build: Dictionary) -> Control:
 	buttons.add_child(buy)
 	var change := Button.new()
 	change.text = "CHANGE"
-	change.tooltip_text = "Change what is built (the original build list for now)"
+	change.tooltip_text = "Change what is built: the build list slides out"
 	change.focus_mode = Control.FOCUS_NONE
 	change.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	change.custom_minimum_size.y = 32
-	change.pressed.connect(_open_original)
+	change.pressed.connect(func(): change_build.emit(colony_id, int(build.get("bought", 0)) > 0))
 	buttons.add_child(change) # on the right, where the build pane will slide out
 	return v
 
@@ -362,6 +364,9 @@ func _slide(opening: bool) -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
+	var build_pane := get_parent().get_node_or_null("BuildPane")
+	if build_pane != null and build_pane.visible:
+		return # Esc cancels the build pane first
 	if visible and key and key.pressed and key.keycode == KEY_ESCAPE:
 		close()
 		get_viewport().set_input_as_handled()

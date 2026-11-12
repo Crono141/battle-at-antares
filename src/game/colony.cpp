@@ -330,6 +330,9 @@ namespace COLONY {
     }
 
     void __cdecl Reset_Mouse_Picture() {
+        if (COLBLDG::quiet_ui) {
+            return; // Antares (WP3.4b): no colony screen mouse to reset under the native build pane
+        }
         mouse::Set_Mouse_List(&MOX::mouse_list_arrow, 1);
         fields::Enable_Draw_All_Fields();
     }

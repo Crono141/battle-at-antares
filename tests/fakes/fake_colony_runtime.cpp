@@ -1,5 +1,8 @@
 #include "pch.h"
 
+#include <string>
+#include <vector>
+
 // Stand-ins for what src/antares/colony_queries.cpp calls in the game (WP3.4), for
 // tests/unit/colony_queries_test.cpp. Costs, turns and buying are simple and recorded.
 
@@ -81,3 +84,92 @@ namespace ESTRINGS {
         return text;
     }
 } // namespace ESTRINGS
+
+// ---- The build pane (WP3.4b): a small working queue, as the popup's functions keep it ----
+
+namespace TEST_COLONY {
+    std::vector<std::string> build_calls; // what the commit called, in order
+} // namespace TEST_COLONY
+
+namespace COLONY {
+    int16_t colony_handle = -1;
+    int16_t planet_handle = -1;
+    int16_t star_handle = -1;
+    int16_t __cdecl Calculate_Colony_Turn_Count_From_Scrap_For_Prod(int16_t, int16_t) {
+        return 7;
+    }
+} // namespace COLONY
+
+namespace COLCALC {
+    int32_t __cdecl Colony_Product_Cost(s_colony*, int16_t id) {
+        return id > 0 ? 100 * id : 250;
+    }
+} // namespace COLCALC
+
+namespace COLBLDG {
+    bool quiet_ui = false;
+    uint8_t field_mode;
+    int16_t active_prod[4] = {-1, 0, 0, 0};
+    int16_t current_item[7];
+    int16_t colony_auto_building;
+    int16_t building_indexes[54];
+    int16_t n_building_indexes;
+    int16_t military_indexes[54];
+    int16_t n_military_indexes;
+
+    void __cdecl Build_Arrays() {
+        building_indexes[0] = COLONY_PRODUCTION_TRADE_GOODS;
+        building_indexes[1] = BUILDING_MARINE_BARRACKS;
+        n_building_indexes = 2;
+        military_indexes[0] = COLONY_PRODUCTION_FREIGHTERS;
+        military_indexes[1] = COLONY_PRODUCTION_SEPARATOR;
+        military_indexes[2] = COLBLDG::Colony_Production_From_Ship_Design_Index(0);
+        n_military_indexes = 3;
+    }
+    int8_t __cdecl Add_To_Queue(int16_t id) {
+        TEST_COLONY::build_calls.push_back("add " + std::to_string(id) + (field_mode == 2 ? " repeat" : "") + (quiet_ui ? " quiet" : ""));
+        for (int i = 0; i < 7; ++i) {
+            if (current_item[i] == COLONY_PRODUCTION_NONE || current_item[i] == 0) {
+                current_item[i] = id;
+                return 1;
+            }
+        }
+        return 0;
+    }
+    void __cdecl Delete_From_Queue(int16_t slot) {
+        TEST_COLONY::build_calls.push_back("delete " + std::to_string(slot));
+        for (int i = slot; i < 6; ++i) {
+            current_item[i] = current_item[i + 1];
+        }
+        current_item[6] = COLONY_PRODUCTION_NONE;
+    }
+    void __cdecl Insert_Before_Queue_Slot(int16_t from, int16_t to) {
+        TEST_COLONY::build_calls.push_back("move " + std::to_string(from) + " " + std::to_string(to));
+        std::swap(current_item[from], current_item[to]);
+    }
+    void __cdecl Defragment_Queue() {}
+    void Commit_Build_Queue() {
+        TEST_COLONY::build_calls.push_back(std::string("commit") + (quiet_ui ? " quiet" : ""));
+        for (int i = 0; i < 7; ++i) {
+            MOX::colony[COLONY::colony_handle].producing[i] = current_item[i];
+        }
+        MOX::colony[COLONY::colony_handle].auto_building = (uint8_t)colony_auto_building;
+    }
+    void __cdecl Build_Weapon_String(s_ship_weapons*, char* dest, uint32_t size, uint8_t, uint8_t) {
+        snprintf(dest, size, "Laser");
+    }
+} // namespace COLBLDG
+
+namespace struct_ {
+    int16_t __cdecl Test_Bit_Field(void* bits, uint16_t index) {
+        return (static_cast<uint8_t*>(bits)[index / 8] >> (index % 8)) & 1;
+    }
+} // namespace struct_
+
+namespace TECHDATA {
+    s_tech_shield_data shields[SHIELD_COUNT];
+    s_tech_computer_data computers[COMPUTER_COUNT];
+    s_tech_armor_data armor[ARMOR_COUNT];
+    s_tech_drive_data drives[DRIVE_COUNT];
+    s_tech_specials_data specials[SPECIAL_COUNT];
+} // namespace TECHDATA

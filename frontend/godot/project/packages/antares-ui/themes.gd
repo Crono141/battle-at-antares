@@ -8,7 +8,7 @@ extends RefCounted
 ##   name        what the selector shows
 ##   theme       a Theme for every native view, with these type variations:
 ##                 Pane, Row, RowOpen, Slot, Pocket, BottomPocket, Portrait (PanelContainer),
-##                 SlotButton, SideTab, Toggle (Button), Heading, Name, Dim, Section (Label);
+##                 SlotButton, SideTab, Toggle, ListItem (Button), Heading, Name, Dim, Section (Label);
 ##                 an armed (pressed) Button's lettering is its font_pressed_color, and the
 ##                 Button constant "glow" / colour "glow_color" its glow
 ##   frame       a StyleBox drawn round the whole view, over it (or null)
@@ -55,7 +55,7 @@ static func plain() -> Dictionary:
 	t.set_color("font_hover_pressed_color", "Button", Color8(255, 138, 28))
 	for v in ["Pane", "Row", "RowOpen", "Slot", "Pocket", "BottomPocket", "Portrait"]:
 		t.set_type_variation(v, "PanelContainer")
-	for v in ["SlotButton", "SideTab", "Toggle"]:
+	for v in ["SlotButton", "SideTab", "Toggle", "ListItem"]:
 		t.set_type_variation(v, "Button")
 	for v in ["Heading", "Name", "Dim", "Section"]:
 		t.set_type_variation(v, "Label")

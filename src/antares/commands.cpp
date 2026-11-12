@@ -19,6 +19,10 @@ namespace antares::commands {
         return yyjson_obj_get(object_, key) != nullptr;
     }
 
+    yyjson_val* s_args::Get(const char* key) const {
+        return yyjson_obj_get(object_, key);
+    }
+
     bool s_args::Int(const char* key, int64_t* value) const {
         yyjson_val* val = yyjson_obj_get(object_, key);
         if (!yyjson_is_int(val)) {
