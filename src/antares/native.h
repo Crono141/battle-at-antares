@@ -64,7 +64,7 @@ namespace antares::native {
 
     struct s_request {
         uint64_t id = 0;
-        std::string kind; // "message", "confirm", "warning", "choose"
+        std::string kind; // "message", "confirm", "warning", "choose", "text"
         std::string text; // UTF-8
         std::string json; // the whole request, as the contract describes it
     };
@@ -73,6 +73,8 @@ namespace antares::native {
     bool Request_Pending();
     // value: 1 for OK or Yes, 0 for No; for "choose" the option's index, or -1 to cancel.
     void Answer_Request(uint64_t id, int32_t value);
+    /** Answers a "text" request: `value` 1 accepted (with `text`), 0 cancelled. */
+    void Answer_Request_Text(uint64_t id, int32_t value, const std::string& text);
 
     // Snapshots of watched queries ({"verb": "watch", "what": "empire"}): the game thread re-runs
     // each one while a native screen runs and posts it when its answer changed.
@@ -113,6 +115,9 @@ namespace antares::native {
     bool Message(const char* title, const char* text, uint16_t timeout_ticks);
     // GENDRAW::Confirmation_Box (User_Box 1): *answer is 1 for Yes, 0 for No.
     bool Confirm(const char* text, int16_t* answer);
+    /** The game's text input box as a "text" request (`prompt`, the current `text`, at most
+     * `max_chars`); false when the frontend doesn't answer them. `accepted`: 0 when cancelled. */
+    bool Text_Input(const char* prompt, char* text, size_t text_size, int16_t max_chars, int8_t* accepted);
     // GENDRAW::Message_Box_Exploding (Warning_Box, User_Box 3):
     bool Warning(const char* text);
     // fields::Get_List_Field: `list` holds items of `item_size` bytes up to an empty one; `flags`

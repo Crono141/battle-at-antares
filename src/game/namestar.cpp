@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/native.h"
+
 namespace namestar {
 
     s_input_box_state input_box;
@@ -263,6 +265,12 @@ namespace namestar {
         if (MOX::star[star_idx].name[0] == '\0') {
             strlcpy(MOX::star[star_idx].name, backup_name, sizeof(MOX::star[star_idx].name));
         }
+        // Antares: a name typed outside the input box (a frontend's dialog) is cut to the width the
+        // box would have allowed beside the neighbouring stars' names.
+        fonts::Set_Font_Style(3, &colors);
+        for (size_t n = strlen(MOX::star[star_idx].name); n > 1 && fonts::Get_String_Width(MOX::star[star_idx].name) > max_name_width; --n) {
+            MOX::star[star_idx].name[n - 1] = '\0';
+        }
 
         fonts::Get_String_Width(MOX::star[star_idx].name);
 
@@ -296,6 +304,10 @@ namespace namestar {
     int8_t __cdecl Input_Box_Popup(char* input_text, uint32_t input_text_size, int16_t max_input_length, int16_t max_length, char* prompt_text, int16_t x, int16_t y, int8_t show_cancel_anim) {
         if (input_text == nullptr || input_text_size == 0 || prompt_text == nullptr) {
             return 0;
+        }
+        int8_t native_accepted = 0;
+        if (antares::native::Text_Input(prompt_text, input_text, input_text_size, max_input_length, &native_accepted)) {
+            return native_accepted; // Antares: answered by the frontend's dialog (a "text" request)
         }
 
         EVANHELP::Save_Help_List();

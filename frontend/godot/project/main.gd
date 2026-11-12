@@ -143,7 +143,8 @@ func _game_to_screen(game_point: Vector2) -> Vector2:
 	var size := game.size
 	var scale := minf(size.x / 640.0, size.y / 480.0)
 	var origin := (size - Vector2(640, 480) * scale) * 0.5
-	return game.global_position + origin + game_point * scale
+	# Injected events are in window pixels: the interface scale (content scale) applies.
+	return (game.global_position + origin + game_point * scale) * get_window().content_scale_factor
 
 
 func smoke_fail(why: String) -> void:

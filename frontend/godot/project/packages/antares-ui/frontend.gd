@@ -15,7 +15,7 @@ extends Node
 ## The game's screens (SCREEN_* values, res://screens.gd) this package draws natively.
 @export var claimed_screens: Array[int] = [Screens.MAIN, Screens.SHOW_COMMAND_POINTS]
 ## The request kinds its dialog answers; the rest ("choose") keep the legacy popup.
-@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning"]
+@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text"]
 ## Start with the native views on (Ctrl+G switches); `-- --smoke` without `--native` starts off.
 @export var start_native := true
 
@@ -67,6 +67,7 @@ var _shot_question := false # smoke: one screenshot of a turn's question over th
 const Themes := preload("themes.gd")
 var _themes: Array = [] # [{id, name, built}]
 var theme_id := ""
+var ui_scale := 100.0 # percent: the window's content scale (Options)
 var _frame: StyleBox
 var _frame_view: Control
 var _built := {} # the theme in use, as its package built it
@@ -310,6 +311,49 @@ func _load_themes() -> void:
 	if chosen == "" and not _themes.is_empty():
 		chosen = _themes[0].id
 	apply_theme(chosen, false)
+	_apply_saved_scale()
+
+
+## The interface scale (owner, 2026-11-12, after a friend found everything illegibly small on a
+## 2560x1600 screen): the window's content scale, so panels, text and the map's labels grow
+## together and every coordinate stays in one space. Saved in the settings; with none saved, the
+## screen's height decides (1080 lines: 100%), in steps of 5%.
+func _apply_saved_scale() -> void:
+	if not get_window().size_changed.is_connected(_on_window_resized):
+		get_window().size_changed.connect(_on_window_resized)
+	var percent := Themes.saved_ui_scale()
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--ui-scale="):
+			percent = float(arg.substr(11))
+	if percent <= 0.0:
+		var screen := DisplayServer.screen_get_size(get_window().current_screen)
+		percent = clampf(roundf(float(screen.y) / 1080.0 * 20.0) * 5.0, 100.0, 300.0)
+	set_ui_scale(percent, false)
+
+
+## The largest scale the window holds: the panes need about 1280x720 logical pixels.
+func max_ui_scale() -> float:
+	var window := Vector2(get_window().size)
+	return clampf(floorf(minf(window.x / 1280.0, window.y / 720.0) * 20.0) * 5.0, 100.0, 300.0)
+
+
+## A smaller window: the scale comes down to what it holds (the saved choice stays).
+func _on_window_resized() -> void:
+	var wanted := Themes.saved_ui_scale()
+	if wanted <= 0.0:
+		wanted = ui_scale
+	set_ui_scale(wanted, false)
+
+
+## Applies a scale in percent; `remember`: saved as the player's choice.
+func set_ui_scale(percent: float, remember := true) -> void:
+	percent = clampf(percent, 50.0, max_ui_scale())
+	get_window().content_scale_factor = percent / 100.0
+	ui_scale = percent
+	if remember:
+		Themes.save_ui_scale(percent)
+	if _views.has("options_menu"):
+		_views.options_menu.show_scale(percent, max_ui_scale())
 
 
 ## Puts a theme on every native view (the Options flyout's selector calls this).
@@ -356,6 +400,8 @@ func _view(scene_name: String) -> Control:
 			view.fleet_chosen.connect(_open_fleet_from_pane)
 		if view.has_signal("theme_chosen"):
 			view.theme_chosen.connect(apply_theme)
+		if view.has_signal("scale_changed"):
+			view.scale_changed.connect(func(percent: float, final: bool): set_ui_scale(percent, final))
 		if view.has_signal("change_build"):
 			view.change_build.connect(_open_build_pane)
 		if view.has_signal("committed"):
@@ -371,6 +417,7 @@ func _view(scene_name: String) -> Control:
 		_views[scene_name] = view
 		if scene_name == "options_menu":
 			view.show_themes(_themes, theme_id)
+			view.show_scale(ui_scale, max_ui_scale())
 		if scene_name in ["galaxy_bar", "map_controls"]: # the frame's joints follow their pockets
 			view.item_rect_changed.connect(_frame_view.queue_redraw)
 			view.visibility_changed.connect(_frame_view.queue_redraw)
@@ -553,7 +600,7 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 	dialog.ask(id, kind, request)
 
 
-func _on_answered(id: int, value: int) -> void:
+func _on_answered(id: int, value: int, text := "") -> void:
 	overlay.hide()
 	if _question_over_galaxy:
 		_question_over_galaxy = false
@@ -563,7 +610,10 @@ func _on_answered(id: int, value: int) -> void:
 			# the title flashed before a combat).
 			_legacy_after_frame = int(game.get_stats().frames)
 			_legacy_waited = 0.0
-	game.answer_request(id, value)
+	if text != "" or (_views.has("dialog") and _views.dialog._kind == "text"):
+		game.answer_request_text(id, value, text)
+	else:
+		game.answer_request(id, value)
 
 
 ## A star click: with F4's mode on it takes the merged relocations; with ships selected in the
@@ -801,6 +851,9 @@ func _smoke_native() -> void:
 		if arg.begins_with("--shots="):
 			shots = arg.substr(8)
 	var t0 := Time.get_ticks_msec()
+	if "--new-game" in OS.get_cmdline_user_args():
+		await _smoke_new_game(shots)
+		return
 	if not await _wait_screen(Screens.MAIN, 120.0):
 		await host.smoke_fail("never reached the native galaxy")
 		return
@@ -853,6 +906,17 @@ func _smoke_native() -> void:
 		research.visible, not points.visible, research.areas_box.get_child_count(), offered, int(research_state.field), int(research_state.app)])
 	if shots != "":
 		await host.shot(shots + "/native-research.png")
+	# The arrow follows the pointer (owner, 2026-11-12): the second application of an area with
+	# two or more, or the first, as if hovered.
+	var hovered := 0
+	for branch in research.areas_box.find_children("*", "Control", true, false):
+		if branch.get_script() == preload("views/research_branch.gd") and branch.rows.size() > 0 and hovered == 0:
+			branch.hover(mini(1, branch.rows.size() - 1))
+			hovered = branch.rows.size()
+			print("smoke: research arrow on hover: %d rows, pointing at %s (gives all %s)" % [branch.rows.size(), branch.pointed, branch.gives_all])
+	await get_tree().create_timer(0.3).timeout
+	if shots != "":
+		await host.shot(shots + "/native-research-hover.png")
 	if not research.visible or research.areas_box.get_child_count() != 8:
 		await host.smoke_fail("the research drop-down did not show its areas")
 		return
@@ -1645,6 +1709,77 @@ func _wait_screen(screen: int, timeout: float) -> bool:
 		waited += 0.1
 		_smoke_answer()
 	return native_screen == screen
+
+
+## `--new-game` (no save loaded): the new game flow through the legacy menus (the render suite's
+## clicks), then the first turn's home star naming must come as a native "text" question over the
+## native galaxy, not the legacy one (owner, 2026-11-12); the typed name lands on the star.
+func _smoke_new_game(shots: String) -> void:
+	await get_tree().create_timer(12.0).timeout # the main menu after -skip-intro
+	for step in [[Vector2(527, 229), 4.0], [Vector2(470, 400), 6.0], [Vector2(410, 352), 4.0]]:
+		await host.click_game(step[0])
+		await get_tree().create_timer(step[1]).timeout
+	# The ruler's name (a native "text" question over the new game screen: accepted as offered),
+	# the banner (Return), then the home star's name over the native galaxy.
+	var dialog: Control = null
+	var waited := 0.0
+	var next_key := 3.0
+	while waited < 90.0:
+		dialog = _views.get("dialog")
+		if dialog != null and dialog.visible and dialog._kind == "text":
+			if native_screen == Screens.MAIN:
+				break
+			print("smoke: new game question '%s' answered with '%s'" % [dialog.get_node("Box/Text").text, dialog.get_node("Box/Entry").text])
+			if shots != "":
+				await host.shot(shots + "/native-ruler-name.png")
+			dialog._answer(1)
+		elif native_screen != Screens.MAIN and waited >= next_key:
+			game.send_key(KEY_ENTER, false, false, false) # the banner
+			next_key = waited + 3.0
+		await get_tree().create_timer(0.5).timeout
+		waited += 0.5
+	if dialog == null or not dialog.visible or dialog._kind != "text":
+		if shots != "":
+			game.get_frame_image().save_png(shots + "/new-game-stuck.png")
+		await host.smoke_fail("no native home star question (screen %d)" % native_screen)
+		return
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: home star question '%s', value '%s', native galaxy %s, behind it the native view %s" % [dialog.get_node("Box/Text").text,
+		dialog.get_node("Box/Entry").text, native_screen == Screens.MAIN, galaxy.visible])
+	if shots != "":
+		await host.shot(shots + "/native-home-star-name.png")
+	var home := String(dialog.get_node("Box/Entry").text)
+	dialog.get_node("Box/Entry").text = "Smoke Prime"
+	dialog._answer(1)
+	await get_tree().create_timer(3.0).timeout
+	# The map's labels (cut to the width the map leaves the name, as the input box would).
+	var text := JSON.stringify(await _query("galaxy"))
+	var at := text.find("\"Smoke")
+	var named := at >= 0
+	print("smoke: home star '%s' renamed: %s (%s)" % [home, named, text.substr(at, 16) if named else "-"])
+	if shots != "":
+		await host.shot(shots + "/native-home-star-named.png")
+	if not named or native_screen != Screens.MAIN:
+		await host.smoke_fail("the home star was not renamed natively")
+		return
+	# Research on the first turn: hovering an application points the arrow at it, or at all of the
+	# field's applications where every race gets them all.
+	_on_view_action("research")
+	await get_tree().create_timer(1.5).timeout
+	var research := _view("research_panel")
+	var shown := 0
+	for branch in research.areas_box.find_children("*", "Control", true, false):
+		if branch.get_script() != preload("views/research_branch.gd") or branch.rows.size() < 2:
+			continue
+		branch.hover(1)
+		print("smoke: new game research hover: %d rows, gives all %s, arrow at %s" % [branch.rows.size(), branch.gives_all, branch.pointed])
+		shown += 1
+	await get_tree().create_timer(0.3).timeout
+	if shots != "":
+		await host.shot(shots + "/native-research-hover.png")
+	research.close()
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
 
 
 ## The smoke test answers native message boxes with OK / Yes.

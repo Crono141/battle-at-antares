@@ -4,7 +4,9 @@
 #include "antares/native.h"
 #include "doctest/doctest.h"
 
+#include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace TEST_NATIVE {
@@ -243,4 +245,40 @@ DOCTEST_TEST_CASE("requests stay legacy without a frontend or an unclaimed kind"
     DOCTEST_CHECK_FALSE(antares::native::Choose("pick", &list[0][0], 8, nullptr, &selected, &answer));
     antares::native::Attach_Control(false);
     antares::native::Claim_Requests({});
+}
+
+DOCTEST_TEST_CASE("a text request offers the current text and takes back the typed one (WP3.4)") {
+    antares::native::Claim_Requests({"text"});
+    antares::native::Attach_Control(true);
+    std::string json;
+    // The frontend's side: wait for the request, answer it.
+    auto answer_with = [&json](int32_t value, std::string text) {
+        return std::thread([&json, value, text] {
+            antares::native::s_request request;
+            while (!antares::native::Take_Request(&request)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            json = request.json;
+            antares::native::Answer_Request_Text(request.id, value, text);
+        });
+    };
+    char name[20] = "Sol";
+    int8_t accepted = -1;
+    std::thread frontend = answer_with(1, "New Terra\x01 Prime Major");
+    DOCTEST_CHECK(antares::native::Text_Input("Name your home star", name, sizeof(name), 15, &accepted));
+    frontend.join();
+    DOCTEST_CHECK(Contains_(json, "\"kind\":\"text\""));
+    DOCTEST_CHECK(Contains_(json, "\"value\":\"Sol\",\"max_chars\":15"));
+    DOCTEST_CHECK(accepted == 1);
+    DOCTEST_CHECK(std::string(name) == "New Terra Prime"); // printable only, at most 15
+    // Cancelled: the text stays.
+    frontend = answer_with(0, "Ignored");
+    DOCTEST_CHECK(antares::native::Text_Input("Name it", name, sizeof(name), 15, &accepted));
+    frontend.join();
+    DOCTEST_CHECK(accepted == 0);
+    DOCTEST_CHECK(std::string(name) == "New Terra Prime");
+    antares::native::Attach_Control(false);
+    antares::native::Claim_Requests({});
+    // Unclaimed: the legacy input box.
+    DOCTEST_CHECK_FALSE(antares::native::Text_Input("Name it", name, sizeof(name), 15, &accepted));
 }

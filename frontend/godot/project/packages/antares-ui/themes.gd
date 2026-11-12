@@ -89,6 +89,21 @@ static func saved_choice() -> String:
 	return String(cfg.get_value("theme", "id", ""))
 
 
+## The interface scale saved in the settings (percent; 0: none saved yet).
+static func saved_ui_scale() -> float:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS) != OK:
+		return 0.0
+	return float(cfg.get_value("ui", "scale", 0.0))
+
+
+static func save_ui_scale(percent: float) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS)
+	cfg.set_value("ui", "scale", percent)
+	cfg.save(SETTINGS)
+
+
 static func save_choice(id: String) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(SETTINGS)

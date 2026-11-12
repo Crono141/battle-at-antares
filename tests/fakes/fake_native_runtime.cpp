@@ -228,3 +228,20 @@ namespace video {
     void __cdecl Copy_Off_To_Back() {}
     void __cdecl Set_Refresh_Stencil() {}
 } // namespace video
+
+namespace TEST_NATIVE {
+    int home_star_renames = 0;
+} // namespace TEST_NATIVE
+
+namespace namestar {
+    int16_t __cdecl Star_Name_Popup_Map_Center_X() {
+        return 0;
+    }
+    int16_t __cdecl Star_Name_Popup_Map_Center_Y() {
+        return 0;
+    }
+    // The first turn's question: counted.
+    void __cdecl Change_Home_Star_Name_Popup(int16_t, int16_t, int16_t) {
+        ++TEST_NATIVE::home_star_renames;
+    }
+} // namespace namestar

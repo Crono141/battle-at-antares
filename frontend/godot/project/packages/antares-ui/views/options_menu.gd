@@ -9,6 +9,8 @@ signal command(dict: Dictionary)
 signal action(name: String)
 signal closed
 signal theme_chosen(id: String)
+## The interface scale (percent) changed: `final` once the slider is let go or a number entered.
+signal scale_changed(percent: float, final: bool)
 
 const Themes := preload("../themes.gd")
 const SLIDE_TIME := 0.25
@@ -22,6 +24,8 @@ var keys_active := false
 @onready var theme_button: OptionButton = $Box/Theme
 @onready var music_slider: HSlider = $Box/Music/Slider
 @onready var sound_slider: HSlider = $Box/Sound/Slider
+@onready var scale_slider: HSlider = $Box/Scale/Slider
+@onready var scale_value: SpinBox = $Box/Scale/Value
 
 var _tween: Tween
 var _shown_right := 0.0 # offset_right when open: a flyout keeps its right edge by the tabs
@@ -50,6 +54,15 @@ func _ready() -> void:
 		slider.drag_ended.connect(func(changed: bool):
 			if changed:
 				command.emit({"verb": "set_volume", key: int(slider.value)}))
+	# The interface scale (owner, after a 2560x1600 playtest): live while dragging, kept when let
+	# go; or typed in.
+	scale_slider.value_changed.connect(func(v: float):
+		scale_value.set_value_no_signal(v)
+		scale_changed.emit(v, false))
+	scale_slider.drag_ended.connect(func(_changed: bool): scale_changed.emit(scale_slider.value, true))
+	scale_value.value_changed.connect(func(v: float):
+		scale_slider.set_value_no_signal(v)
+		scale_changed.emit(v, true))
 	theme_button.item_selected.connect(func(index: int):
 		if index >= 0 and index < _theme_ids.size():
 			theme_chosen.emit(_theme_ids[index]))
@@ -137,6 +150,14 @@ func show_influence(mode: int) -> void:
 	for i in influence_buttons.size():
 		influence_buttons[i].set_pressed_no_signal(i == mode) # quietly, so the group doesn't
 	_glow_all()
+
+
+## The scale in use (percent), without sending it back.
+func show_scale(percent: float, largest := 300.0) -> void:
+	scale_slider.max_value = largest
+	scale_value.max_value = largest
+	scale_slider.set_value_no_signal(percent)
+	scale_value.set_value_no_signal(percent)
 
 
 ## The enabled theme packages, the one in use selected.

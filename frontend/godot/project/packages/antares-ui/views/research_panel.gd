@@ -2,9 +2,10 @@ extends "drop_panel.gd"
 ## Research (WP3.3g, owner: the research figure drops this down and it stays in native): the
 ## change-research screen's choices from the `research` query, the eight areas in its order, each
 ## with the field it would research, the RP still to go and the applications on offer. The one
-## being researched is armed, with the original's branching arrow pointing at the chosen
+## being researched is lit, with the original's branching arrow pointing at the chosen
 ## application, or at all of them where the field gives every one (creative races, and a few
-## fields for everyone); another sends `choose_research` (a new field loses the breakthrough).
+## fields for everyone); the arrow follows the pointer over the applications, showing what a click
+## would give. A click sends `choose_research` (a new field loses the breakthrough).
 
 signal command(dict: Dictionary)
 
@@ -92,26 +93,34 @@ func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 2)
 	line.add_child(list)
+	branch.gives_all = gives_all
+	var chosen: Array[bool] = []
+	var picked_color := get_theme_color("font_pressed_color", "ListItem")
 	for app: Dictionary in apps:
 		var id := int(app.app)
+		# Clickable text, not buttons (owner): the chosen one lit, the arrow following the pointer.
 		var b := Button.new()
-		b.theme_type_variation = &"Toggle"
-		b.toggle_mode = true
+		b.flat = true
+		b.theme_type_variation = &"ListItem"
 		b.focus_mode = Control.FOCUS_NONE
 		b.text = String(app.name)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size.y = 28
-		b.add_theme_font_size_override("font_size", 13)
-		b.tooltip_text = "Research %s: all of its applications come with it" % area.field_name if gives_all \
-			else "Research this application (one per field)"
-		b.set_pressed_no_signal(is_current and (gives_all or id == current_app))
+		b.custom_minimum_size.y = 26
+		b.add_theme_font_size_override("font_size", 15)
+		var on := is_current and (gives_all or id == current_app)
+		if on:
+			for state in ["font_color", "font_hover_color", "font_pressed_color"]:
+				b.add_theme_color_override(state, picked_color)
+		var row := list.get_child_count()
+		b.mouse_entered.connect(func(): branch.hover(row))
+		b.mouse_exited.connect(func(): branch.hover(-1))
 		b.pressed.connect(func():
 			command.emit({"verb": "choose_research", "field": field, "app": id, "_reply_to": "_chosen"}))
-		Themes.glowing(b)
 		list.add_child(b)
 		branch.rows.append(b)
-		branch.pointed.append(is_current and (gives_all or id == current_app))
-	branch.color = get_theme_color("font_pressed_color", "Button")
+		chosen.append(on)
+	branch.set_chosen(chosen)
+	branch.color = picked_color
 	list.resized.connect(branch.queue_redraw)
 	return panel
 

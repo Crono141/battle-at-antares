@@ -103,6 +103,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("get_native_screen"), &AntaresGame::get_native_screen);
         ClassDB::bind_method(D_METHOD("get_native_visit"), &AntaresGame::get_native_visit);
         ClassDB::bind_method(D_METHOD("answer_request", "id", "value"), &AntaresGame::answer_request);
+        ClassDB::bind_method(D_METHOD("answer_request_text", "id", "value", "text"), &AntaresGame::answer_request_text);
         ClassDB::bind_method(D_METHOD("get_resource_packs"), &AntaresGame::get_resource_packs);
         ClassDB::bind_method(D_METHOD("get_packages"), &AntaresGame::get_packages);
         ClassDB::bind_method(D_METHOD("get_native_ui"), &AntaresGame::get_native_ui);
@@ -409,6 +410,10 @@ namespace godot {
         antares::native::Answer_Request((uint64_t)id, (int32_t)value);
     }
 
+    void AntaresGame::answer_request_text(int64_t id, int64_t value, const String& text) {
+        antares::native::Answer_Request_Text((uint64_t)id, (int32_t)value, std::string(text.utf8().get_data()));
+    }
+
     Ref<Image> AntaresGame::get_frame_image() const {
         if (width_ <= 0 || height_ <= 0 || frame_.size() < (size_t)width_ * (size_t)height_) {
             return Ref<Image>();
@@ -613,7 +618,9 @@ namespace godot {
     void AntaresGame::Apply_Cursor(bool force) {
         Input* input = Input::get_singleton();
         const bool changed = antares::host::Take_Cursor(&cursor_argb_, &cursor_size_, &cursor_generation_);
-        const float scale = Frame_Rect().size.x / 640.0f;
+        // The frame's scale on screen: its logical size times the interface scale (cursor images
+        // are in screen pixels).
+        const float scale = Frame_Rect().size.x / 640.0f * get_tree()->get_root()->get_content_scale_factor();
         if (!is_visible_in_tree()) {
             if (cursor_custom_) {
                 input->set_custom_mouse_cursor(Ref<Resource>());

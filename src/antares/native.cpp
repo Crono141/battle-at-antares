@@ -37,6 +37,7 @@ namespace antares::native {
         uint64_t s_waiting_request = 0;
         bool s_answered = false;
         int32_t s_answer = 0;
+        std::string s_answer_text; // a "text" request's answer
         std::vector<std::string> s_packs;
         std::vector<std::string> s_package_ids; // highest priority first
         uint64_t s_packs_generation = 0;
@@ -61,13 +62,15 @@ namespace antares::native {
         enum e_request_kind : uint32_t { KIND_MESSAGE = 1,
             KIND_CONFIRM = 2,
             KIND_WARNING = 4,
-            KIND_CHOOSE = 8 };
+            KIND_CHOOSE = 8,
+            KIND_TEXT = 16 };
 
         uint32_t Kind_Bit(const std::string& kind) {
             return kind == "message" ? KIND_MESSAGE
                 : kind == "confirm"  ? KIND_CONFIRM
                 : kind == "warning"  ? KIND_WARNING
                 : kind == "choose"   ? KIND_CHOOSE
+                : kind == "text"     ? KIND_TEXT
                                      : 0;
         }
 
@@ -245,6 +248,11 @@ namespace antares::native {
             return Frontend() && (s_claimed_kinds.load() & bit) != 0;
         }
 
+        // Main_Screen's first-turn question: the player names the home star (mainscr_main.cpp).
+        bool Home_Star_Rename_Due() {
+            return MOX::given_chance_to_rename_home_star[MOX::PLAYER_NUM] == 0 && MOX::stardate == 35000;
+        }
+
         // The native galaxy is offered only where the legacy one does nothing more than wait for
         // input: single player, and not on the first turn's home star renaming.
         bool Native_Allowed(int16_t screen) {
@@ -254,7 +262,9 @@ namespace antares::native {
             if (MOX::game_type != 0 || MOX::player == nullptr) {
                 return false;
             }
-            if (MOX::given_chance_to_rename_home_star[MOX::PLAYER_NUM] == 0 && MOX::stardate == 35000) {
+            // The first turn's home star renaming: native when the frontend answers "text" requests
+            // (it is asked once the native galaxy is up), else the legacy galaxy's input box.
+            if (Home_Star_Rename_Due() && !Claimed_Kind(KIND_TEXT)) {
                 return false;
             }
             return MOX::player[MOX::PLAYER_NUM].surrender_to == -1;
@@ -439,10 +449,15 @@ namespace antares::native {
     }
 
     void Answer_Request(uint64_t id, int32_t value) {
+        Answer_Request_Text(id, value, std::string());
+    }
+
+    void Answer_Request_Text(uint64_t id, int32_t value, const std::string& text) {
         std::lock_guard<std::mutex> lock(s_mutex);
         if (id == s_waiting_request) {
             s_answered = true;
             s_answer = value;
+            s_answer_text = text;
         }
     }
 
@@ -543,6 +558,8 @@ namespace antares::native {
         // once, it showed over the last legacy frame and then an empty map (owner, 2026-11-11).
         std::string entry_message = screen == SCREEN_MAIN ? SAVEGAME::Consume_Loaded_Config_Message() : std::string();
         constexpr uint32_t k_entry_message_ticks = 100; // about half a second
+        // And the first turn's home star renaming, as Main_Screen asks it (a "text" request).
+        bool rename_home = screen == SCREEN_MAIN && Home_Star_Rename_Due();
         uint32_t ticks = 0;
         // Commands that arrived for an earlier native screen still run: they were sent while the
         // frontend showed a native view, and each checks the screen it needs.
@@ -580,6 +597,14 @@ namespace antares::native {
                 const std::string message = std::move(entry_message);
                 entry_message.clear();
                 GENDRAW::Message_Box(message.c_str()); // a "message" request when claimed
+            }
+            if (rename_home && entry_message.empty() && ticks >= k_entry_message_ticks && MOX::current_screen == screen) {
+                rename_home = false;
+                MOX::given_chance_to_rename_home_star[MOX::PLAYER_NUM] = 1;
+                const int16_t star = MOX::planet[MOX::player[MOX::PLAYER_NUM].home_planet_id].star_index;
+                namestar::Change_Home_Star_Name_Popup(namestar::Star_Name_Popup_Map_Center_X(), namestar::Star_Name_Popup_Map_Center_Y(), star);
+                Refresh_Snapshots(screen); // the new name on the map
+                host::On_Publish();
             }
         }
         if (screen == SCREEN_MAIN) {
@@ -619,6 +644,32 @@ namespace antares::native {
         }
         *answer = Ask("confirm", text, "") != 0 ? 1 : 0;
         MOX::FULL_DRAW_SCREEN_FLAG = 1; // as Confirmation_Box leaves it
+        return true;
+    }
+
+    bool Text_Input(const char* prompt, char* text, size_t text_size, int16_t max_chars, int8_t* accepted) {
+        if (!Claimed_Kind(KIND_TEXT) || text == nullptr || text_size == 0) {
+            return false;
+        }
+        const std::string fields = "\"value\":" + Json_Quote(Utf8(text)) + ",\"max_chars\":" + std::to_string(max_chars);
+        const int32_t ok = Ask("text", prompt, fields);
+        std::string answer;
+        {
+            std::lock_guard<std::mutex> lock(s_mutex);
+            answer = s_answer_text;
+        }
+        *accepted = ok != 0 ? 1 : 0;
+        if (ok != 0) {
+            // The game's text is its own 8-bit set: keep the printable ASCII the input box takes.
+            std::string kept;
+            for (const char c : answer) {
+                if (c >= 0x20 && c < 0x7F && (int)kept.size() < max_chars) {
+                    kept.push_back(c);
+                }
+            }
+            strlcpy(text, kept.c_str(), text_size);
+        }
+        MOX::FULL_DRAW_SCREEN_FLAG = 1;
         return true;
     }
 

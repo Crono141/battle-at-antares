@@ -8,6 +8,27 @@ extends Control
 var rows: Array[Control] = []
 var pointed: Array[bool] = []
 var color := Color.WHITE
+## Every application comes with the field (the arrow points at all of them whichever is picked).
+var gives_all := false
+var _chosen: Array[bool] = []
+
+
+## The arrow as the game has it (the field's current choice, or none).
+func set_chosen(chosen: Array[bool]) -> void:
+	_chosen = chosen.duplicate()
+	pointed = chosen.duplicate()
+	queue_redraw()
+
+
+## The pointer is on row `i` (-1: off the rows): the arrow shows what picking it would give.
+func hover(i: int) -> void:
+	if i < 0:
+		pointed = _chosen.duplicate()
+	else:
+		pointed = []
+		for k in rows.size():
+			pointed.append(gives_all or k == i)
+	queue_redraw()
 
 const WIDTH := 18.0
 

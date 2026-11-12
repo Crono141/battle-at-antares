@@ -57,6 +57,7 @@ namespace godot {
         int64_t get_native_screen() const;
         int64_t get_native_visit() const;
         void answer_request(int64_t id, int64_t value);
+        void answer_request_text(int64_t id, int64_t value, const String& text);
         PackedStringArray get_resource_packs() const;
         PackedStringArray get_packages() const;
         // The profile's `interface legacy_ui` is off (D27), once the game has loaded its configuration.
