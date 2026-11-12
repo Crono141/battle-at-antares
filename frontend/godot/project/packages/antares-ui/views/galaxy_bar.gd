@@ -31,6 +31,7 @@ var _away := 0.0
 
 
 func _ready() -> void:
+	modulate.a = 0.0 # until the first figures arrive (its placeholder words showed at start)
 	game_button.pressed.connect(func(): action.emit("game_menu"))
 	$Row/Turn.pressed.connect(func(): command.emit({"verb": "end_turn"}))
 	money.get_popup().id_pressed.connect(func(rate: int):
@@ -79,6 +80,8 @@ func show_game_menu(open: bool) -> void:
 func show_empire(empire: Dictionary) -> void:
 	if not empire.get("ok", false):
 		return
+	if modulate.a < 1.0:
+		create_tween().tween_property(self, "modulate:a", 1.0, 0.25)
 	date_label.text = "%s   Stardate %.1f" % [empire.race, float(empire.stardate) / 10.0]
 	money.text = "%s BC (%s)   Tax %d%%" % [_thousands(int(empire.bc)), _signed(int(empire.surplus_bc)), int(empire.tax_rate)]
 	_warn(money, int(empire.bc) < 0 or int(empire.surplus_bc) < 0)
