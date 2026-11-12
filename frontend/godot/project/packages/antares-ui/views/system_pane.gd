@@ -159,6 +159,29 @@ func _on_art_loaded(_key: String) -> void:
 			_fleet_icon(button, int(button.text))
 
 
+## A skill's help in a small native frame by the pointer; a click anywhere closes it.
+func _show_help(title: String, text: String, at: Vector2) -> void:
+	if text == "":
+		return
+	var popup := PopupPanel.new()
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	popup.add_child(box)
+	var heading := Label.new()
+	heading.theme_type_variation = &"Name"
+	heading.text = title
+	box.add_child(heading)
+	var body := Label.new()
+	body.text = text
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size.x = 320
+	box.add_child(body)
+	add_child(popup)
+	popup.popup_hide.connect(popup.queue_free)
+	popup.popup(Rect2i(Vector2i(at) + Vector2i(12, 12), Vector2i.ZERO))
+	popup.reset_size()
+
+
 func _show_governor() -> void:
 	var leader: Dictionary = system.get("governor", {})
 	# Shown on the player's systems, with or without a governor: either way it opens the leaders.
@@ -180,8 +203,18 @@ func _show_governor() -> void:
 		child.queue_free()
 	for skill: Dictionary in leader.get("skills", []):
 		var line := HBoxContainer.new()
-		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		line.add_theme_constant_override("separation", 4)
+		# A right click shows the skill's help, as on the leaders screen (owner); a left click
+		# still goes to the governor block (the leaders).
+		line.mouse_filter = Control.MOUSE_FILTER_PASS
+		line.tooltip_text = "Right click for what it does"
+		var help_title := String(skill.name)
+		var help_text := String(skill.get("description", ""))
+		line.gui_input.connect(func(event: InputEvent):
+			var click := event as InputEventMouseButton
+			if click and click.pressed and click.button_index == MOUSE_BUTTON_RIGHT:
+				_show_help(help_title, help_text, click.global_position)
+				line.accept_event())
 		line.add_child(_icon("OFFICER.LBX", int(skill.icon), Vector2(16, 16)))
 		var name_label := _label(String(skill.name), 14)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -288,8 +321,13 @@ func _details(planet: Dictionary, colony: Dictionary) -> Control:
 		morale.add_child(_icon("COLONY2.LBX", int(colony.government_sprite), Vector2(22, 22), "Government"))
 		morale.add_child(_gap())
 		var masks := absi(int(colony.morale_icons))
+		# The masks overlap, as the colony screen stacks its icons (owner).
+		var stack := HBoxContainer.new()
+		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stack.add_theme_constant_override("separation", -6)
+		morale.add_child(stack)
 		for i in mini(masks, 10):
-			morale.add_child(_icon("COLONY2.LBX", int(colony.morale_sprite), Vector2(18, 18), "Morale"))
+			stack.add_child(_icon("COLONY2.LBX", int(colony.morale_sprite), Vector2(18, 18), "Morale"))
 		var spacer := Control.new()
 		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE

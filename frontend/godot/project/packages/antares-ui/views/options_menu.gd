@@ -73,6 +73,7 @@ func _restyle() -> void:
 	offset_top = get_theme_constant("content_top", "Screen")
 	_shown_right = offset_right
 	_glow_all()
+	_fit.call_deferred()
 
 
 func open() -> void:
@@ -96,6 +97,7 @@ func show_options(result: Dictionary) -> void:
 		sound_slider.set_value_no_signal(float(result.sound))
 		sound_slider.value_changed.emit(sound_slider.value)
 	for child in options_box.get_children():
+		options_box.remove_child(child) # out at once: freed rows still counted towards the height
 		child.queue_free()
 	for option: Dictionary in result.options:
 		var id := int(option.option)
@@ -122,6 +124,13 @@ func show_options(result: Dictionary) -> void:
 		Themes.glowing(switch)
 		line.add_child(switch)
 		options_box.add_child(row)
+	_fit.call_deferred()
+
+
+## Back to the height of what it holds (rows rebuilt by a snapshot, a theme change): a
+## PanelContainer grows by itself but never shrinks (owner: it stayed past the frame).
+func _fit() -> void:
+	size.y = get_combined_minimum_size().y
 
 
 func show_influence(mode: int) -> void:

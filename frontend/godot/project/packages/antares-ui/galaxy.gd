@@ -372,6 +372,12 @@ func glide_to(world: Vector2) -> void:
 	_fly(world, camera.zoom.x)
 
 
+## Leaves a system for its fleet (WP3.3g, owner): the camera glides out a little round `world`
+## (the system's star), keeping the view it will come back to.
+func step_back(world: Vector2, factor := 0.45) -> void:
+	_fly(world, maxf(camera.zoom.x * factor, furthest_zoom()))
+
+
 ## Back to the view before the first flight.
 func fly_back() -> void:
 	if _saved_view.is_empty():

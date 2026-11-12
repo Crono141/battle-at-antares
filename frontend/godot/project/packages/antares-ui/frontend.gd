@@ -39,6 +39,9 @@ var _fleet_ship := -1 # the first ship of the fleet whose panel is open (reopene
 var _hovered_star := -1
 var _opening_fleet := false # a fleet opens from the system pane: the map stays where it is
 var _race_id := -1
+## A fleet opened from inside a system (its pane or its map): the system to go back to when the
+## fleet panel closes (owner, 2026-11-12), or -1.
+var _fleet_from_system := -1
 ## The camera's view of an open system: the legacy scale it flies to, and how much of the free
 ## area the system's orbits take.
 const SYSTEM_VIEW_SCALE := 7.0
@@ -55,6 +58,9 @@ var _have_empire := false
 ## native galaxy instead.
 const GALAXY_BEHIND_SCREENS := [Screens.MAIN, Screens.MAIN_NEXT_TURN, Screens.REPORTS, Screens.TURN_SUMMARY]
 var _question_over_galaxy := false
+var _legacy_after_frame := -1 # the frame count the legacy view waits past to come back, or -1
+var _stale_frame: PackedByteArray # the legacy frame held while the question was up
+var _legacy_waited := 0.0
 var _shot_question := false # smoke: one screenshot of a turn's question over the native galaxy
 ## Themes (WP3.3g): the enabled theme packages' looks, the one in use, and the frame it draws
 ## round the whole view.
@@ -136,7 +142,26 @@ func _set_native(on: bool) -> void:
 	mode_button.text = "Legacy galaxy (Ctrl+G)" if on else "Native galaxy (Ctrl+G)"
 
 
+func _process(delta: float) -> void:
+	if _legacy_after_frame < 0:
+		return
+	_legacy_waited += delta
+	var frames := int(game.get_stats().frames)
+	if frames <= _legacy_after_frame and _legacy_waited < 3.0:
+		return
+	_legacy_after_frame = frames
+	# A new frame, but the game may still be presenting the old page: wait for a different one.
+	var image: Image = game.get_frame_image()
+	if image != null and image.get_data() == _stale_frame and _legacy_waited < 3.0:
+		return
+	_legacy_after_frame = -1
+	if native_screen == Screens.LEGACY and not _question_over_galaxy:
+		galaxy.hide()
+		legacy.show()
+
+
 func _on_native_screen(screen: int) -> void:
+	_legacy_after_frame = -1
 	if screen == Screens.MAIN:
 		_galaxy_behind = true
 	elif screen == Screens.LEGACY:
@@ -254,8 +279,11 @@ func _draw_frame() -> void:
 		var y: float = c if top else _frame_view.size.y - c
 		for x in [r.position.x - grow.x + c, r.end.x + grow.y - c]:
 			# The art is the bottom joint (a bar from above): upside down for the top.
-			if top: # a negative height draws upwards from the rect's position: give its bottom edge
-				_frame_view.draw_texture_rect(tex, Rect2(Vector2(x - anchor.x, y + anchor.y), Vector2(size.x, -size.y)), false)
+			if top: # upside down, its top flush with the screen's top (owner): mirrored about the
+				# joint's own height, so it spans y 0 to its height
+				_frame_view.draw_set_transform(Vector2(0, size.y), 0.0, Vector2(1, -1))
+				_frame_view.draw_texture_rect(tex, Rect2(Vector2(x - anchor.x, 0), size), false)
+				_frame_view.draw_set_transform(Vector2.ZERO)
 			else:
 				_frame_view.draw_texture_rect(tex, Rect2(Vector2(x - anchor.x, y - anchor.y), size), false)
 
@@ -428,6 +456,11 @@ func _on_view_closed(scene_name: String) -> void:
 		galaxy.selected_fleet = -1
 		galaxy.preview = {}
 		galaxy.redraw()
+		if _fleet_from_system >= 0:
+			var star := _fleet_from_system
+			_fleet_from_system = -1
+			if native_screen == Screens.MAIN:
+				_open_system(star) # back into the system, its pane again
 
 
 func _send(command: Dictionary, on_result: Callable = Callable()) -> void:
@@ -477,6 +510,8 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 	# frame (owner, 2026-11-12). Other legacy screens (combat, colonies) keep their frame.
 	if native and native_screen == Screens.LEGACY and not galaxy.stars.is_empty() and int(request.get("screen", -1)) in GALAXY_BEHIND_SCREENS:
 		_question_over_galaxy = true
+		var held: Image = game.get_frame_image()
+		_stale_frame = held.get_data() if held != null else PackedByteArray()
 		legacy.hide()
 		galaxy.show()
 	dialog.ask(id, kind, request)
@@ -487,8 +522,11 @@ func _on_answered(id: int, value: int) -> void:
 	if _question_over_galaxy:
 		_question_over_galaxy = false
 		if native_screen == Screens.LEGACY:
-			galaxy.hide()
-			legacy.show()
+			# The legacy view still holds its last frame from before the native galaxy (the title
+			# screen after a load): it comes back with the game's next frame (owner, 2026-11-12:
+			# the title flashed before a combat).
+			_legacy_after_frame = int(game.get_stats().frames)
+			_legacy_waited = 0.0
 	game.answer_request(id, value)
 
 
@@ -514,6 +552,7 @@ func _on_star_clicked(star_id: int) -> void:
 
 func _on_star_selected(result: Dictionary) -> void:
 	if result.get("ok", false) and result.get("opened", "") != "none":
+		_fleet_from_system = -1 # another system opens: not the one the fleet came from
 		_view("fleet_panel").dismiss() # the game closed the fleet box for the system box
 	if result.get("ok", false) and result.get("opened", "") == "system":
 		_open_system(int(result.star))
@@ -566,11 +605,20 @@ func _open_fleet_from_pane(ship_id: int) -> void:
 ## Opens a fleet's panel (a map icon, the system panel's fleets, F1/F2): the game keeps the
 ## fleet box record and closes the system box, then the `fleet` query fills the panel.
 func _open_fleet(ship_id: int) -> void:
+	var from_star := _panel_star if _view("system_pane").visible else -1
+	if from_star >= 0:
+		_opening_fleet = true # the pane goes, the map stays at the system
 	_send({"verb": "open_fleet", "fleet": ship_id}, func(opened: Dictionary):
 		if not opened.get("ok", false):
+			_opening_fleet = false
 			return
 		_view("system_pane").dismiss()
 		_opening_fleet = false
+		if from_star >= 0:
+			# From a system: out a little round its star, the map free to pick a destination;
+			# closing the fleet panel comes back to the system.
+			_fleet_from_system = from_star
+			galaxy.step_back(galaxy.star_position(from_star))
 		_send({"verb": "query", "what": "fleet", "ship": int(opened.ship)}, func(result: Dictionary):
 			if not result.get("ok", false) or native_screen != Screens.MAIN:
 				return
@@ -881,6 +929,7 @@ func _smoke_galaxy(shots: String) -> bool:
 	print("smoke: system pane '%s', %d planets, %d fleets, governor '%s', camera at scale %.1f, orbits alpha %.2f" % [
 		pane.star_name.text, pane.system.get("planets", []).size(), pane.system.get("fleets", []).size(),
 		governor.get("name", ""), galaxy.legacy_scale(), $Galaxy/Orbits.modulate.a])
+	print("smoke: governor skills %s" % governor.get("skills", []))
 	# Select each colonisable planet in turn (as a map click does); its potential arrives.
 	for planet: Dictionary in pane.system.get("planets", []):
 		if planet.type != "gas_giant":
@@ -971,6 +1020,14 @@ func _smoke_galaxy(shots: String) -> bool:
 		await get_tree().process_frame
 	print("smoke: volume music %d sound %d (sliders %d / %d), set_volume %s" % [int(opts.music), int(opts.sound),
 		int(options.music_slider.value), int(options.sound_slider.value), vol.r.get("ok", false)])
+	# Music at 100 and back (owner, 2026-11-12: the flyout grew past the frame and stayed).
+	var tall_before: float = options.size.y
+	_send({"verb": "set_volume", "music": 100})
+	await get_tree().create_timer(0.8).timeout
+	var tall_at_100: float = options.size.y
+	_send({"verb": "set_volume", "music": int(opts.music)})
+	await get_tree().create_timer(0.8).timeout
+	print("smoke: options height %.0f, at music 100 %.0f, after %.0f" % [tall_before, tall_at_100, options.size.y])
 	print("smoke: options flyout %s: influence %s, %d game options, themes %s (in use '%s')" % [options.visible,
 		options.influence_buttons.map(func(b: Button) -> bool: return b.button_pressed), options.options_box.get_child_count(),
 		_themes.map(func(t: Dictionary) -> String: return t.id), theme_id])
@@ -1084,8 +1141,43 @@ func _smoke_fleet(shots: String) -> bool:
 	if not ships.is_empty():
 		fleet_panel._on_all()
 		print("smoke: after ALL, %d selected" % fleet_panel.selected_ships().size())
+	var fleet_star := int(fleet_panel.fleet.star)
 	fleet_panel.close()
 	_on_star_hovered(-1)
+	await get_tree().create_timer(0.6).timeout
+	# From inside a system (WP3.3g, owner): the fleet opens from the pane, the camera steps back a
+	# little with the map free, and closing the panel comes back into the system with its pane.
+	if fleet_star >= 0:
+		_on_star_clicked(fleet_star)
+		var pane := _view("system_pane")
+		waited = 0.0
+		while not pane.visible and waited < 5.0:
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
+		await get_tree().create_timer(1.2).timeout
+		var in_system: float = galaxy.legacy_scale()
+		var pane_fleets: Array = pane.system.get("fleets", [])
+		if pane.visible and not pane_fleets.is_empty():
+			pane.fleet_chosen.emit(int(pane_fleets[0].ship))
+			waited = 0.0
+			while not fleet_panel.visible and waited < 5.0:
+				await get_tree().create_timer(0.1).timeout
+				waited += 0.1
+			await get_tree().create_timer(1.2).timeout
+			print("smoke: fleet from the system: panel %s, pane %s, scale %.1f -> %.1f, panning free %s, returns to %d" % [
+				fleet_panel.visible, pane.visible, in_system, galaxy.legacy_scale(), galaxy.system.is_empty(), _fleet_from_system])
+			fleet_panel.close()
+			waited = 0.0
+			while not pane.visible and waited < 5.0:
+				await get_tree().create_timer(0.1).timeout
+				waited += 0.1
+			await get_tree().create_timer(1.2).timeout
+			print("smoke: fleet closed: back in the system %s, pane %s, scale %.1f" % [galaxy.system_star == fleet_star, pane.visible, galaxy.legacy_scale()])
+			if not pane.visible or galaxy.system_star != fleet_star:
+				await host.smoke_fail("closing a fleet opened from a system did not come back to it")
+				return false
+		pane.close()
+		await get_tree().create_timer(1.0).timeout
 	return true
 
 

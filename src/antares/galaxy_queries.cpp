@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "game/string_overrides.h"
 
 #include <algorithm>
 #include <vector>
@@ -365,6 +366,44 @@ namespace antares::commands::internal {
             }
         }
 
+        // A skill's help text, as OFFICER::Print_Officer_Skill_Help shows it on a right click: the
+        // skill descriptions file's record (OFFICER::Load_Officer_Skill_Name_Descriptions: data
+        // entry 1, records of 0xFF bytes, string overrides 28 on) with the leader's name and the
+        // bonus (10 and 15 for skills 28 and 29). Read from the file here: the screen's copy is only
+        // loaded while the leaders screen is up.
+        std::string Skill_Description(int16_t leader, int16_t skill, int16_t bonus) {
+            char lbx[20];
+            OFFICER::Get_Skill_Description_LBX_Name(lbx, sizeof(lbx));
+            s_vfs_file* file = vfs::fopen_lbx(lbx, 1);
+            if (file == nullptr) {
+                return {};
+            }
+            uint16_t header[2] = {};
+            char text[0x100] = {};
+            const int16_t record = skill / 2;
+            bool ok = vfs::fread(header, sizeof(header), 1, file) == 1 && record < header[0] && header[1] <= 0xFF;
+            if (ok) {
+                ok = vfs::fseek(file, (long)(sizeof(header) + (size_t)record * header[1]), SEEK_SET) == 0 &&
+                    vfs::fread(text, header[1], 1, file) == 1;
+            }
+            vfs::fclose(file);
+            if (!ok) {
+                return {};
+            }
+            text[0xFF] = '\0';
+            string_overrides::Apply_String(lbx, (size_t)27 + record + 1, text, 0xFF);
+            char name[80];
+            const s_leader_data& data = MOX::leaders[leader];
+            snprintf(name, sizeof(name), "%s", data.name);
+            if (MOX::settings.language != 4 && data.title[0] != '\0') {
+                strlcat(name, ",", sizeof(name));
+            }
+            const int value = skill == 28 ? 10 : (skill == 29 ? 15 : bonus);
+            char out[256];
+            snprintf(out, sizeof(out), text, name, value);
+            return Utf8(out, sizeof(out));
+        }
+
         void Query_System(int16_t, const s_args& args, s_out& out) {
             if (!Have_Game(out)) {
                 return;
@@ -503,6 +542,8 @@ namespace antares::commands::internal {
                         item.Str("name", Utf8(skill.name, 64));
                         item.Str("bonus", Utf8(bonus, sizeof(bonus)));
                         item.Int("icon", k_officer_skill_icons + i / 2);
+                        item.Str("description", Skill_Description(governor, i,
+                            static_cast<int16_t>(OFFICER::Officer_Skill_Bonus(owner, governor, i))));
                     }
                 }
             }

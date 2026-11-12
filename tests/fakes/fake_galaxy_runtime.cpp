@@ -98,7 +98,29 @@ namespace TECH {
     }
 } // namespace TECH
 
+namespace vfs {
+    s_vfs_file* fopen_lbx(const char*, int32_t) {
+        return nullptr; // no skill descriptions in the tests: the query sends ""
+    }
+    size_t fread(void*, size_t, size_t, s_vfs_file*) {
+        return 0;
+    }
+    int32_t fseek(s_vfs_file*, int32_t, int32_t) {
+        return -1;
+    }
+    int32_t fclose(s_vfs_file*) {
+        return 0;
+    }
+} // namespace vfs
+
+namespace string_overrides {
+    void Apply_String(const char*, size_t, char*, size_t) {}
+} // namespace string_overrides
+
 namespace OFFICER {
+    void __cdecl Get_Skill_Description_LBX_Name(char* lbx_name, uint32_t size) {
+        snprintf(lbx_name, size, "SKILDESC.LBX");
+    }
     bool __cdecl Officer_Has_Special_Skill(int16_t, int16_t, int16_t skill_idx) {
         return TEST_GALAXY::leader_skills.count(skill_idx) != 0;
     }

@@ -293,7 +293,7 @@ DOCTEST_TEST_CASE("the system query v4: governor and its skills, planet words, m
     MOX::skill_data[2] = {0, 0, 0, 0, 0, 0, tactics, tactics_fmt};
     TEST_GALAXY::leader_skills = {2, 6};
     const std::string skilled = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"system\",\"star\":0}");
-    DOCTEST_CHECK(Contains_(skilled, "\"skills\":[{\"skill\":6,\"name\":\"Farming Leader\",\"bonus\":\"+16%\",\"icon\":91},{\"skill\":2,\"name\":\"Tactics\",\"bonus\":\"+12\",\"icon\":89}]"));
+    DOCTEST_CHECK(Contains_(skilled, "\"skills\":[{\"skill\":6,\"name\":\"Farming Leader\",\"bonus\":\"+16%\",\"icon\":91,\"description\":\"\"},{\"skill\":2,\"name\":\"Tactics\",\"bonus\":\"+12\",\"icon\":89,\"description\":\"\"}]"));
     TEST_GALAXY::leader_skills.clear();
     MOX::skill_data[6] = {};
     MOX::skill_data[2] = {};
