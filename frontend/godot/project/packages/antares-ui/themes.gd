@@ -16,6 +16,8 @@ extends RefCounted
 ##   edge_gap    the gap between the buttons and slots along an edge
 ##   bar_height  the top bar's height (its icons are 28 px; the slots must hold them)
 ##   pane_gap    the gap between a pane and the screen's edge (or the frame)
+##   chevron_bar optional: a metal strip (shading across x) for the marker between the system and
+##               colony panes; without it the marker is the notched arrow in the "on" colour
 ##   tee         optional: {texture, anchor (the bars' meeting point in it), scale, bar_center (a
 ##               frame bar's centre line, in from the frame's outer edge)} drawn where a pocket's
 ##               sides meet the screen frame: as it is at the bottom, upside down at the top

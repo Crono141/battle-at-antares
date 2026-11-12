@@ -178,8 +178,11 @@ func _place_chevron() -> void:
 	if row.size == Vector2.ZERO:
 		_chevron.hide()
 		return
-	var edge := colony_pane.get_global_rect().position.x + 4.0
-	_chevron.point_at(Vector2(edge, row.get_center().y))
+	# Its back half on the planet's row, its tip inside the colony pane's border (owner's sketch).
+	var height := clampf(row.size.y * 0.62, 52.0, 84.0)
+	var tip := colony_pane.get_global_rect().position.x + 24.0
+	_chevron.bar = _built.get("chevron_bar")
+	_chevron.span(Vector2(row.end.x - 26.0, row.get_center().y), tip, height)
 	if _chevron.get_index() != native_layer.get_child_count() - 1:
 		_chevron.move_to_front()
 

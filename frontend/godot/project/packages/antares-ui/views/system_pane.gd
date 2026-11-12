@@ -124,6 +124,24 @@ func select_planet(planet_id: int) -> void:
 	colony_chosen.emit(_player_colony(planet_id))
 
 
+## The selected planet's row in a glow of the theme's "on" colour (owner): a wrapper whose own
+## style is only the glow, drawn round the row.
+func _glowing(row: Control, planet_id: int) -> Control:
+	var wrapper := PanelContainer.new()
+	wrapper.set_meta("planet", planet_id)
+	wrapper.mouse_filter = Control.MOUSE_FILTER_PASS
+	var style := StyleBoxFlat.new()
+	style.draw_center = false
+	style.bg_color = Color(0, 0, 0, 0)
+	style.shadow_color = Color(get_theme_color("font_pressed_color", "Button"), 0.5)
+	style.shadow_size = 10
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(5) # the glow shows in this ring too: the list clips its sides
+	wrapper.add_theme_stylebox_override("panel", style)
+	wrapper.add_child(row)
+	return wrapper
+
+
 ## The screen rect of a planet's row, clipped to the list's visible part (the colony pane's chevron,
 ## WP3.4), or an empty rect when the row is scrolled out of sight.
 func planet_row_rect(planet_id: int) -> Rect2:
@@ -261,7 +279,9 @@ func _show_planets() -> void:
 	if system.get("view", "full") != "full":
 		return
 	for planet: Dictionary in system.get("planets", []):
-		planets_box.add_child(_planet_row(planet))
+		var row := _planet_row(planet)
+		var id := int(planet.planet)
+		planets_box.add_child(_glowing(row, id) if id == selected_planet else row)
 
 
 func _planet_row(planet: Dictionary) -> Control:
@@ -270,6 +290,7 @@ func _planet_row(planet: Dictionary) -> Control:
 	panel.set_meta("planet", id)
 	# The theme's row; the selected planet's is the open one (WP3.3g).
 	panel.theme_type_variation = &"RowOpen" if id == selected_planet else &"Row"
+
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.gui_input.connect(func(event: InputEvent):
 		var click := event as InputEventMouseButton

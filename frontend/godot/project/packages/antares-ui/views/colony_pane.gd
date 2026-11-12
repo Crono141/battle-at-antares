@@ -4,7 +4,7 @@ extends PanelContainer
 ## name and population (morale and government are in the system pane's row), the income row, the build (its
 ## picture, turns, progress, CHANGE and BUY), each job's colonists with that job's output row below
 ## them (the original's icons, squeezed to fit as the colony screen squeezes them), TRANSPORT
-## COLONISTS, the defences (lit when built), the garrison and the buildings, and View colony.
+## COLONISTS, the defences (those built, centred), the garrison and the buildings, and View colony.
 ##
 ## Colonists move by dragging one to another job's row (`move_colonist`: the game's own rules and
 ## messages). BUY sends `buy` (the game asks first; a second BUY un-buys). CHANGE, TRANSPORT
@@ -96,6 +96,10 @@ func show_colony(result: Dictionary) -> void:
 	_fill($Scroll/Box/Build, _build_box(result.build))
 	_show_jobs()
 	_fill($Scroll/Box/Defences, _defences_row())
+	# Only what is built shows (owner): no defences, no section.
+	var any_defence: bool = colony.defences.any(func(d: Dictionary) -> bool: return d.built)
+	$Scroll/Box/Defences.visible = any_defence
+	$Scroll/Box/DefencesTitle.visible = any_defence
 	_fill($Scroll/Box/Garrison, _garrison_row())
 	_fill($Scroll/Box/Buildings, _buildings_list())
 	if not visible:
@@ -276,13 +280,12 @@ func _defences_row() -> Control:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 18)
 	for d: Dictionary in colony.defences:
+		if not d.built:
+			continue # only built defences show, centred together (owner)
 		var cell := VBoxContainer.new()
 		cell.alignment = BoxContainer.ALIGNMENT_CENTER
-		var icon := _sprite("COLONY.LBX", int(d.sprite), Vector2(48, 48), String(d.name) + ("" if d.built else ": not built"))
-		icon.modulate = Color.WHITE if d.built else Color(1, 1, 1, 0.25)
-		cell.add_child(icon)
+		cell.add_child(_sprite("COLONY.LBX", int(d.sprite), Vector2(48, 48), String(d.name)))
 		var label := Label.new()
-		label.theme_type_variation = &"Dim" if not d.built else &""
 		label.text = String(d.name)
 		label.add_theme_font_size_override("font_size", 12)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
