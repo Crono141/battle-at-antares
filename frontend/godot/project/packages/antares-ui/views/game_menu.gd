@@ -1,7 +1,7 @@
 extends PanelContainer
 ## The game menu (WP3.3f, owner's layout): drops down from the top bar's Game button with what the
-## legacy Game popup offers. Save, Load and Settings open that page of the popup (the legacy screen
-## for now) and come back to the galaxy; New Game and Quit ask the game's own question first
+## legacy Game popup offers, but its settings (the Options flyout has them, WP3.3g). Save and Load
+## open that page of the popup (the legacy screen for now) and come back to the galaxy; New Game and Quit ask the game's own question first
 ## (`leave_game`), answered in the native dialog.
 
 signal command(dict: Dictionary)

@@ -6,11 +6,12 @@ orbits and opens the system pane on the left (planets, colony potential, morale,
 fleets in orbit). The empire's figures and Turn are along the top (rest the pointer on the
 treasury for the tax rate; Game drops the game menu), the screens are tabs on the right edge, Ship
 Design lists your designs and Options holds the map's influence view, merging relocations, the
-distance tool, the game options and the theme. The fleet and colony buttons are along the bottom.
+distance tool, the game options, the music and sound volumes and the theme. The research and
+command points figures drop their panels down from the bar: research is chosen there. The fleet and colony buttons are along the bottom.
 Its look comes from a theme package (Antares UI: Chrome or Antares UI: Glass; enable either or
 both, and switch in Options > Theme). Screens it
-doesn't redraw yet (colonies, research, the ship designer and the rest) open as the original
-screens.
+doesn't redraw yet (colonies, the ship designer, saving and loading and the rest) open as the
+original screens.
 It does nothing in the classic build (`antares`).
 
 With this package off, the Godot build looks and plays exactly like the original.

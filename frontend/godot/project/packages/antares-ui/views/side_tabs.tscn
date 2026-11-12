@@ -33,13 +33,6 @@ script = ExtResource("2")
 label = "Ship Design"
 metadata/action = "designs"
 
-[node name="Research" type="Button" parent="."]
-layout_mode = 2
-focus_mode = 0
-script = ExtResource("2")
-label = "Research"
-metadata/screen = 36
-
 [node name="Info" type="Button" parent="."]
 layout_mode = 2
 focus_mode = 0

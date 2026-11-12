@@ -62,6 +62,21 @@ func build(dir: String) -> Dictionary:
 	t.set_type_variation("Portrait", "PanelContainer")
 	t.set_stylebox("panel", "Portrait", _glass(4, 1.0, STEEL, 2, 2))
 
+	# Sliders (the volumes): a visible track, the filled part amber.
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color8(52, 56, 66)
+	track.border_color = Color8(110, 116, 130)
+	track.set_border_width_all(1)
+	track.set_corner_radius_all(3)
+	track.content_margin_top = 3
+	track.content_margin_bottom = 3
+	var filled := track.duplicate()
+	filled.bg_color = Color(AMBER, 0.85)
+	filled.border_color = AMBER
+	t.set_stylebox("slider", "HSlider", track)
+	t.set_stylebox("grabber_area", "HSlider", filled)
+	t.set_stylebox("grabber_area_highlight", "HSlider", filled)
+
 	t.set_color("font_color", "Label", LIGHT)
 	_label(t, "Heading", saira_bold, 30, GOLD)
 	_label(t, "Name", saira_bold, 19, GOLD)

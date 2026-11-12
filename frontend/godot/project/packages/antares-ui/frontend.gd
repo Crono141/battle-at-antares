@@ -51,6 +51,11 @@ const REVEAL_TIME := 0.25
 var _revealing := false
 var _revealed := false
 var _have_empire := false
+## The game screens whose legacy frame is only the galaxy: a question from one shows over the
+## native galaxy instead.
+const GALAXY_BEHIND_SCREENS := [Screens.MAIN, Screens.MAIN_NEXT_TURN, Screens.REPORTS, Screens.TURN_SUMMARY]
+var _question_over_galaxy := false
+var _shot_question := false # smoke: one screenshot of a turn's question over the native galaxy
 ## Themes (WP3.3g): the enabled theme packages' looks, the one in use, and the frame it draws
 ## round the whole view.
 const Themes := preload("themes.gd")
@@ -58,6 +63,7 @@ var _themes: Array = [] # [{id, name, built}]
 var theme_id := ""
 var _frame: StyleBox
 var _frame_view: Control
+var _built := {} # the theme in use, as its package built it
 
 
 func _ready() -> void:
@@ -78,9 +84,7 @@ func _ready() -> void:
 	_frame_view.name = "ScreenFrame"
 	_frame_view.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_frame_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_frame_view.draw.connect(func():
-		if _frame:
-			_frame_view.draw_style_box(_frame, Rect2(Vector2.ZERO, _frame_view.size)))
+	_frame_view.draw.connect(_draw_frame)
 	native_layer.add_child(_frame_view)
 	_load_themes()
 	mode_button.pressed.connect(func(): _set_native(not native))
@@ -152,7 +156,7 @@ func _on_native_screen(screen: int) -> void:
 	options.keys_active = screen == Screens.MAIN
 	var game_menu := _view("game_menu")
 	var points := _view("command_points")
-	points.visible = screen == Screens.SHOW_COMMAND_POINTS
+	var research := _view("research_panel")
 	var system_pane := _view("system_pane")
 	var design_list := _view("design_list")
 	var fleet_panel := _view("fleet_panel")
@@ -178,9 +182,18 @@ func _on_native_screen(screen: int) -> void:
 			game_menu.hide()
 			game_menu.closed.emit()
 		fleet_panel.hide()
+		research.dismiss()
+		if screen != Screens.SHOW_COMMAND_POINTS:
+			points.dismiss()
 		_end_relocating()
 		if screen == Screens.SHOW_COMMAND_POINTS:
-			_send({"verb": "query", "what": "command_points"}, points.show_result)
+			# Opened as the game's screen (from elsewhere): the same drop-down, closing it closes
+			# the screen.
+			_galaxy_behind = true
+			galaxy.show()
+			legacy.hide()
+			points.as_screen = true
+			_drop_down("command_points", points, "", get_viewport().get_visible_rect().size.x * 0.5)
 	if screen == Screens.LEGACY:
 		game.grab_focus()
 
@@ -201,6 +214,50 @@ func _reveal() -> void:
 		tween.tween_property(item, "modulate:a", 1.0, REVEAL_TIME)
 	_revealed = true
 	_revealing = false
+
+
+## Fills one of the bar's drop-downs from its query and slides it down under `center`.
+func _drop_down(action_name: String, panel: Control, research_text: String, center: float) -> void:
+	if action_name == "command_points":
+		var points: Dictionary = await _query("command_points")
+		panel.show_result(points)
+	else:
+		panel.set_progress(research_text)
+		var research: Dictionary = await _query("research")
+		panel.show_research(research)
+	panel.open_at(center)
+
+
+## The theme's frame round the view, and its joints where the pockets' sides meet it.
+func _draw_frame() -> void:
+	if _frame == null:
+		return
+	_frame_view.draw_style_box(_frame, Rect2(Vector2.ZERO, _frame_view.size))
+	var tee: Dictionary = _built.get("tee", {})
+	if tee.is_empty():
+		return
+	var tex: Texture2D = tee.texture
+	var scale: float = tee.scale
+	var c: float = tee.bar_center
+	var size := Vector2(tex.get_size()) * scale
+	var anchor: Vector2 = tee.anchor * scale
+	for view_name in ["galaxy_bar", "map_controls"]:
+		var view: Control = _views.get(view_name)
+		if view == null or not view.visible:
+			continue
+		var box: StyleBox = view.get_theme_stylebox("panel", view.theme_type_variation)
+		var grow := Vector2(9, 9)
+		if box and "grow" in box:
+			grow = Vector2(box.grow[0], box.grow[2])
+		var r := view.get_global_rect()
+		var top: bool = view_name == "galaxy_bar"
+		var y: float = c if top else _frame_view.size.y - c
+		for x in [r.position.x - grow.x + c, r.end.x + grow.y - c]:
+			# The art is the bottom joint (a bar from above): upside down for the top.
+			if top: # a negative height draws upwards from the rect's position: give its bottom edge
+				_frame_view.draw_texture_rect(tex, Rect2(Vector2(x - anchor.x, y + anchor.y), Vector2(size.x, -size.y)), false)
+			else:
+				_frame_view.draw_texture_rect(tex, Rect2(Vector2(x - anchor.x, y - anchor.y), size), false)
 
 
 ## The enabled theme packages' themes; the player's saved choice, else the highest priority one,
@@ -230,6 +287,7 @@ func apply_theme(id: String, remember := true) -> void:
 	if built.is_empty():
 		built = Themes.plain()
 	native_layer.theme = built.theme
+	_built = built
 	if _views.has("dialog"):
 		_views.dialog.theme = built.theme
 	_frame = built.get("frame")
@@ -272,6 +330,9 @@ func _view(scene_name: String) -> Control:
 		_views[scene_name] = view
 		if scene_name == "options_menu":
 			view.show_themes(_themes, theme_id)
+		if scene_name in ["galaxy_bar", "map_controls"]: # the frame's joints follow their pockets
+			view.item_rect_changed.connect(_frame_view.queue_redraw)
+			view.visibility_changed.connect(_frame_view.queue_redraw)
 	return _views[scene_name]
 
 
@@ -302,6 +363,18 @@ func _on_view_action(action_name: String) -> void:
 			_send({"verb": "open", "screen": Screens.DISTANCE_BETWEEN_STARS})
 		"fleet_next", "fleet_previous":
 			_cycle_fleet(0 if action_name == "fleet_next" else 1)
+		"command_points", "research":
+			# The bar's drop-downs (WP3.3g): under their figure, on the galaxy.
+			var panel := _view("command_points" if action_name == "command_points" else "research_panel")
+			var other := _view("research_panel" if action_name == "command_points" else "command_points")
+			other.close()
+			if panel.visible:
+				panel.close()
+			else:
+				var bar := _view("galaxy_bar")
+				var figure: Control = bar.command_label if action_name == "command_points" else bar.research
+				var center := figure.get_global_rect().get_center().x
+				_drop_down(action_name, panel, bar.research.text, center)
 		"designs":
 			var designs := _view("design_list")
 			if designs.visible:
@@ -399,11 +472,23 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		$Overlay.add_child(dialog)
 		_views["dialog"] = dialog
 	overlay.show()
+	# A question from the turn's legacy galaxy (the next turn, its reports, or the galaxy itself
+	# while the native one hands over): the native galaxy shows behind it instead of the legacy
+	# frame (owner, 2026-11-12). Other legacy screens (combat, colonies) keep their frame.
+	if native and native_screen == Screens.LEGACY and not galaxy.stars.is_empty() and int(request.get("screen", -1)) in GALAXY_BEHIND_SCREENS:
+		_question_over_galaxy = true
+		legacy.hide()
+		galaxy.show()
 	dialog.ask(id, kind, request)
 
 
 func _on_answered(id: int, value: int) -> void:
 	overlay.hide()
+	if _question_over_galaxy:
+		_question_over_galaxy = false
+		if native_screen == Screens.LEGACY:
+			galaxy.hide()
+			legacy.show()
 	game.answer_request(id, value)
 
 
@@ -606,15 +691,44 @@ func _smoke_native() -> void:
 		return
 	await get_tree().create_timer(0.5).timeout
 	var points := _view("command_points")
-	print("smoke: OK button '%s'" % points.get_node("Box/Ok").text)
-	if shots != "":
-		await host.shot(shots + "/native-command-points.png")
-	print("smoke: command points '%s' / %s / %s" % [points.get_node("Box/Title").text,
+	print("smoke: command points as a screen: shown %s, '%s' / %s / %s" % [points.visible, points.get_node("Box/Header/Title").text,
 		points.get_node("Box/Total").text, points.get_node("Box/Text").text.replace("\n", " | ")])
-	_send({"verb": "close"})
+	points.close() # sends "close": back to the galaxy
 	if not await _wait_screen(Screens.MAIN, 10.0):
 		await host.smoke_fail("command points did not close")
 		return
+	await get_tree().create_timer(0.6).timeout
+	# The bar's drop-downs (WP3.3g): command points and research stay on the galaxy.
+	_on_view_action("command_points")
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: command points from the bar: shown %s, screen %d, '%s'" % [points.visible, native_screen, points.get_node("Box/Total").text])
+	if shots != "":
+		await host.shot(shots + "/native-command-points.png")
+	if not points.visible or native_screen != Screens.MAIN:
+		await host.smoke_fail("command points did not drop down on the galaxy")
+		return
+	_on_view_action("research")
+	await get_tree().create_timer(1.0).timeout
+	var research := _view("research_panel")
+	var research_state: Dictionary = await _query("research")
+	var offered := 0
+	for area: Dictionary in research_state.get("areas", []):
+		offered += area.get("apps", []).size()
+	print("smoke: research drop-down: shown %s, command points closed %s, %d areas, %d applications on offer, current field %d app %d" % [
+		research.visible, not points.visible, research.areas_box.get_child_count(), offered, int(research_state.field), int(research_state.app)])
+	if shots != "":
+		await host.shot(shots + "/native-research.png")
+	if not research.visible or research.areas_box.get_child_count() != 8:
+		await host.smoke_fail("the research drop-down did not show its areas")
+		return
+	# Choosing what is already chosen keeps it (and the breakthrough): the command answers.
+	var chose := {}
+	_send({"verb": "choose_research", "field": int(research_state.field), "app": int(research_state.app)}, func(r: Dictionary): chose["r"] = r)
+	while not chose.has("r"):
+		await get_tree().process_frame
+	print("smoke: choose_research (same choice): %s" % chose.r)
+	research.close()
+	await get_tree().create_timer(0.5).timeout
 	# A legacy screen from the native galaxy: the legacy view must not show the stale frame from
 	# before the native view (owner, 2026-11-06: Colonies flashed the old galaxy).
 	var stale: Image = game.get_frame_image()
@@ -850,6 +964,13 @@ func _smoke_galaxy(shots: String) -> bool:
 	_on_view_action("options")
 	var options := _view("options_menu")
 	await get_tree().create_timer(0.8).timeout
+	var opts: Dictionary = await _query("options")
+	var vol := {}
+	_send({"verb": "set_volume", "music": int(opts.music), "sound": int(opts.sound)}, func(r: Dictionary): vol["r"] = r)
+	while not vol.has("r"):
+		await get_tree().process_frame
+	print("smoke: volume music %d sound %d (sliders %d / %d), set_volume %s" % [int(opts.music), int(opts.sound),
+		int(options.music_slider.value), int(options.sound_slider.value), vol.r.get("ok", false)])
 	print("smoke: options flyout %s: influence %s, %d game options, themes %s (in use '%s')" % [options.visible,
 		options.influence_buttons.map(func(b: Button) -> bool: return b.button_pressed), options.options_box.get_child_count(),
 		_themes.map(func(t: Dictionary) -> String: return t.id), theme_id])
@@ -879,18 +1000,18 @@ func _smoke_galaxy(shots: String) -> bool:
 	if shots != "":
 		await host.shot(shots + "/native-game-menu.png")
 	print("smoke: game menu %s at %s" % [game_menu.visible, game_menu.position])
-	game_menu.get_node("Box/Settings").pressed.emit()
+	game_menu.get_node("Box/Load").pressed.emit()
 	if not await _wait_screen(Screens.LEGACY, 10.0):
-		await host.smoke_fail("Settings did not open")
+		await host.smoke_fail("Load did not open")
 		return false
 	await get_tree().create_timer(2.0).timeout
 	if shots != "":
-		game.get_frame_image().save_png(shots + "/legacy-settings.png")
+		game.get_frame_image().save_png(shots + "/legacy-load.png")
 	game.send_key(KEY_ESCAPE, false, false, false)
 	if not await _wait_screen(Screens.MAIN, 10.0):
-		await host.smoke_fail("Settings did not return to the galaxy")
+		await host.smoke_fail("Load did not return to the galaxy")
 		return false
-	print("smoke: settings opened and closed straight back to the galaxy; menu %s" % game_menu.visible)
+	print("smoke: load page opened and closed straight back to the galaxy; menu %s" % game_menu.visible)
 	await get_tree().create_timer(0.5).timeout
 	if not await _smoke_fleet(shots):
 		return false
@@ -1043,7 +1164,13 @@ func _wait_screen(screen: int, timeout: float) -> bool:
 func _smoke_answer() -> bool:
 	if not overlay.visible:
 		return false
-	print("smoke: answering request '%s'" % _views["dialog"].get_node("Box/Text").text)
+	print("smoke: answering request '%s' (native galaxy behind: %s, size %s)" % [_views["dialog"].get_node("Box/Text").text,
+		galaxy.visible and not legacy.visible, _views["dialog"].size])
+	if not _shot_question and galaxy.visible and not legacy.visible:
+		_shot_question = true
+		for arg in OS.get_cmdline_user_args():
+			if arg.begins_with("--shots="):
+				host.shot(arg.substr(8) + "/native-turn-question.png")
 	_views["dialog"]._answer(1)
 	return true
 

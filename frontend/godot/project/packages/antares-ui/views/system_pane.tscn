@@ -90,6 +90,10 @@ layout_mode = 2
 theme_type_variation = &"Dim"
 text = "Title"
 
+[node name="Skills" type="VBoxContainer" parent="Box/Governor/Row/Names"]
+layout_mode = 2
+theme_override_constants/separation = 0
+
 [node name="Scroll" type="ScrollContainer" parent="Box"]
 layout_mode = 2
 size_flags_vertical = 3

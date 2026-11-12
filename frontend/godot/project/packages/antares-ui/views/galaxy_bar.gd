@@ -36,8 +36,9 @@ func _ready() -> void:
 		command.emit({"verb": "set_tax_rate", "rate": rate}))
 	money.mouse_entered.connect(_open_on_hover)
 	money.pressed.connect(func(): _hover_opened = false) # a click pins it
-	for button: Button in [research, command_label]:
-		button.pressed.connect(func(): command.emit({"verb": "open", "screen": int(button.get_meta("screen"))}))
+	# Command points and research drop down from the bar and stay on the galaxy (WP3.3g).
+	research.pressed.connect(func(): action.emit("research"))
+	command_label.pressed.connect(func(): action.emit("command_points"))
 	for button: Button in find_children("*", "Button", true, false):
 		if button.has_meta("key"):
 			var key := InputEventKey.new()

@@ -33,13 +33,6 @@ custom_minimum_size = Vector2(190, 34)
 text = "NEW GAME"
 metadata/leave = "main_menu"
 
-[node name="Settings" type="Button" parent="Box"]
-layout_mode = 2
-focus_mode = 0
-custom_minimum_size = Vector2(190, 34)
-text = "SETTINGS"
-metadata/page = 1
-
 [node name="Quit" type="Button" parent="Box"]
 layout_mode = 2
 focus_mode = 0

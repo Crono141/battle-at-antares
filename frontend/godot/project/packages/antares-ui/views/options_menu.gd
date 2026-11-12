@@ -2,8 +2,8 @@ extends PanelContainer
 ## Options (WP3.3f; laid out for the themes, WP3.3g): a flyout from the right edge, opened by its
 ## tab, with the map's controls (the influence view as a three-way switch, Alt+V cycles it; merging
 ## relocations, F4; the distance tool, F9), the game options the legacy galaxy toggles with
-## Alt+F1..F8 as ON / OFF switches (the `options` snapshot), and the theme (the enabled theme
-## packages). The keys work while the galaxy is up, flyout open or not.
+## Alt+F1..F8 as ON / OFF switches (the `options` snapshot), the music and sound volumes (the game
+## menu's sliders, `set_volume`) and the theme (the enabled theme packages). The keys work while the galaxy is up, flyout open or not.
 
 signal command(dict: Dictionary)
 signal action(name: String)
@@ -20,6 +20,8 @@ var keys_active := false
 @onready var influence_buttons: Array[Button] = [$Box/Influence/Off, $Box/Influence/Filled, $Box/Influence/Borders]
 @onready var options_box: VBoxContainer = $Box/Options
 @onready var theme_button: OptionButton = $Box/Theme
+@onready var music_slider: HSlider = $Box/Music/Slider
+@onready var sound_slider: HSlider = $Box/Sound/Slider
 
 var _tween: Tween
 var _shown_right := 0.0 # offset_right when open: a flyout keeps its right edge by the tabs
@@ -39,6 +41,15 @@ func _ready() -> void:
 		close() # the star is picked on the map
 		action.emit("merge_relocations"))
 	$Box/Map/Distance.pressed.connect(func(): action.emit("distance"))
+	# The game menu's volume sliders (WP3.3g): set when let go, the value shown while dragging.
+	for pair in [[music_slider, "music", $Box/Music/Value], [sound_slider, "sound", $Box/Sound/Value]]:
+		var slider: HSlider = pair[0]
+		var key: String = pair[1]
+		var value_label: Label = pair[2]
+		slider.value_changed.connect(func(v: float): value_label.text = "OFF" if v <= 5.0 else str(int(v)))
+		slider.drag_ended.connect(func(changed: bool):
+			if changed:
+				command.emit({"verb": "set_volume", key: int(slider.value)}))
 	theme_button.item_selected.connect(func(index: int):
 		if index >= 0 and index < _theme_ids.size():
 			theme_chosen.emit(_theme_ids[index]))
@@ -79,6 +90,11 @@ func close() -> void:
 func show_options(result: Dictionary) -> void:
 	if not result.get("ok", false):
 		return
+	if result.has("music"):
+		music_slider.set_value_no_signal(float(result.music))
+		music_slider.value_changed.emit(music_slider.value)
+		sound_slider.set_value_no_signal(float(result.sound))
+		sound_slider.value_changed.emit(sound_slider.value)
 	for child in options_box.get_children():
 		child.queue_free()
 	for option: Dictionary in result.options:

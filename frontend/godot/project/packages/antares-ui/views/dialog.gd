@@ -20,9 +20,10 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 		title = "Warning" if kind == "warning" else ("Confirm" if kind == "confirm" else "")
 	$Box/Title.text = title
 	$Box/Title.visible = $Box/Title.text != ""
-	$Box/Buttons/Yes.text = "  Yes  " if kind == "confirm" else "  OK  "
+	$Box/Buttons/Yes.text = "YES" if kind == "confirm" else "OK"
 	$Box/Buttons/No.visible = kind == "confirm"
 	show()
+	reset_size() # as tall as its text: OK as far from the bottom as the text from the top (owner)
 
 
 func _answer(value: int) -> void:

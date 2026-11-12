@@ -112,6 +112,21 @@ func build(dir: String) -> Dictionary:
 		frame.content_margin_bottom = 7
 		t.set_stylebox("panel", "Portrait", frame)
 
+	# Sliders (the volumes): a visible track, the filled part amber.
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color8(52, 56, 66)
+	track.border_color = Color8(110, 116, 130)
+	track.set_border_width_all(1)
+	track.set_corner_radius_all(3)
+	track.content_margin_top = 3
+	track.content_margin_bottom = 3
+	var filled := track.duplicate()
+	filled.bg_color = Color(AMBER, 0.85)
+	filled.border_color = AMBER
+	t.set_stylebox("slider", "HSlider", track)
+	t.set_stylebox("grabber_area", "HSlider", filled)
+	t.set_stylebox("grabber_area_highlight", "HSlider", filled)
+
 	# Text.
 	t.set_color("font_color", "Label", LIGHT)
 	_label(t, "Heading", russo, 30, GOLD)
@@ -121,7 +136,17 @@ func build(dir: String) -> Dictionary:
 	t.set_color("font_color", "CheckButton", LIGHT)
 
 	var screen_frame := _bezel(bezel_tex, screen_scale, 0)
+	var tee := {}
+	var tee_tex := _texture("tee")
+	if tee_tex and _pieces.has("tee"):
+		tee = {
+			"texture": tee_tex,
+			"anchor": Vector2(_pieces.tee.anchor[0], _pieces.tee.anchor[1]),
+			"scale": screen_scale,
+			"bar_center": float(_pieces.tee.bar_center) * screen_scale,
+		}
 	return {
+		"tee": tee,
 		"name": NAME,
 		"theme": t,
 		"frame": screen_frame,

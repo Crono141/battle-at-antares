@@ -27,6 +27,7 @@ const ASTEROIDS_ICON := 0x3F
 @onready var portrait: TextureRect = $Box/Governor/Row/Frame/Portrait
 @onready var governor_name: Label = $Box/Governor/Row/Names/Name
 @onready var governor_title: Label = $Box/Governor/Row/Names/Title
+@onready var governor_skills: VBoxContainer = $Box/Governor/Row/Names/Skills
 @onready var planets_box: VBoxContainer = $Box/Scroll/Planets
 @onready var description: Label = $Box/Description
 
@@ -129,6 +130,10 @@ func _show_fleets() -> void:
 		var button := Button.new()
 		button.focus_mode = Control.FOCUS_NONE
 		button.custom_minimum_size = Vector2(56, 40)
+		# The picture is the button (owner): no frame round it, a little brighter under the pointer.
+		button.mouse_entered.connect(func(): button.modulate = Color(1.25, 1.25, 1.25))
+		button.mouse_exited.connect(func(): button.modulate = Color.WHITE)
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		button.expand_icon = true
 		button.tooltip_text = "\n".join(fleet.get("lines", []).map(func(line: Dictionary) -> String: return line.text))
 		var ship := int(fleet.ship)
@@ -143,6 +148,7 @@ func _fleet_icon(button: Button, ships: int) -> void:
 	var texture: Texture2D = art.texture("BUFFER0.LBX", int(button.get_meta("box_sprite"))) if art else null
 	button.icon = texture
 	button.text = "" if texture else str(ships)
+	button.flat = texture != null # framed only while it is a count
 
 
 ## Art arrived: fleet buttons still showing a count get their picture (owner, 2026-11-11: the
@@ -160,6 +166,8 @@ func _show_governor() -> void:
 		return planet.get("colony", {}).get("mine", false) and not planet.get("colony", {}).get("outpost", false))
 	governor.visible = not leader.is_empty() or mine
 	if leader.is_empty():
+		for child in governor_skills.get_children():
+			child.queue_free()
 		portrait.show_sprite("", -1)
 		governor_name.text = "No governor"
 		governor_title.text = "Assign a colony leader"
@@ -167,6 +175,21 @@ func _show_governor() -> void:
 	portrait.show_sprite("OFFICER.LBX", int(leader.portrait))
 	governor_name.text = leader.name
 	governor_title.text = leader.title
+	# The bonuses (system v4): each skill's icon, name and bonus, as the leaders screen lists them.
+	for child in governor_skills.get_children():
+		child.queue_free()
+	for skill: Dictionary in leader.get("skills", []):
+		var line := HBoxContainer.new()
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		line.add_theme_constant_override("separation", 4)
+		line.add_child(_icon("OFFICER.LBX", int(skill.icon), Vector2(16, 16)))
+		var name_label := _label(String(skill.name), 14)
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		line.add_child(name_label)
+		var bonus := _label(String(skill.bonus).strip_edges(), 14)
+		bonus.add_theme_color_override("font_color", get_theme_color("font_color", "Name"))
+		line.add_child(bonus)
+		governor_skills.add_child(line)
 
 
 func _show_planets() -> void:
