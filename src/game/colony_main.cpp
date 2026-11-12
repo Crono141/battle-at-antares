@@ -183,6 +183,86 @@ namespace COLONY {
         palette::Cycle_Palette_Color(255 /* 0xff */, 19 /* 0x13 */, 16 /* 0x10 */, 9, 32 /* 0x20 */, 40 /* 0x28 */, 21 /* 0x15 */, 2);
     }
 
+    // Antares (WP3.4): the landscape alone (VIEW COLONY from the native colony pane): the sky, the
+    // planet's ground, roads, buildings and satellites as Draw_Colony_Screen draws them, without
+    // the colony screen's boxes, and its RETURN button.
+    bool landscape_only = false;
+
+    static int16_t landscape_return_field = -1000;
+    static int16_t landscape_keys[2] = {-1000, -1000};
+    static int16_t landscape_area_field = -1000;
+
+    static void Draw_Landscape_View() {
+        video::Set_Page_Off();
+        if (MOX::FULL_DRAW_SCREEN_FLAG != 0) {
+            MOX::FULL_DRAW_SCREEN_FLAG = 0;
+            full_draw = 1;
+        }
+        if (full_draw != 0) {
+            graphics::Fill(0, 0, 639, 479, 0);
+            animate::Draw(0, 0, C_Anims(1));
+            animate::Draw(0, 0, C_Anims(0));
+            COLDRAW::Draw_Road_List();
+            Draw_Colony_Bldgs();
+            Draw_Colony_Satellites();
+            video::Copy_Off_To_Back();
+            video::Set_Refresh_Stencil();
+            full_draw = 0;
+        } else {
+            Draw_Colony_Bldgs();
+            Draw_Colony_Satellites();
+        }
+        fields::Draw_Visible_Fields();
+    }
+
+    static void Add_Landscape_Fields() {
+        fields::Clear_Fields();
+        landscape_return_field =
+            fields::Add_Button_Field(0x22c, 0x1cb, ESTRINGS::E_Strings(0xc), C_Anims(0x15), ESTRINGS::E_Strings(0xc), 0x28);
+        landscape_keys[0] = fields::Add_Hot_Key(" "); // Space, as on the colony screen
+        landscape_keys[1] = fields::Add_Hot_Key("\x1B");
+        landscape_area_field = fields::Add_Hidden_Field(0, 0, 0x27f, 0x1df, ESTRINGS::E_Strings(0xc), 0); // right click leaves
+    }
+
+    // The loop: until RETURN, Space, Esc or a right click. The palette and the building array are
+    // set up by Colony_Screen before it gets here.
+    static void Landscape_View_Loop() {
+        mouse::Set_Mouse_List(&COLGCBT::mouse_list_blank, 1);
+        video::Set_Page_Off();
+        video::Set_Refresh_Stencil();
+        if (ERIC::Fast_Fade_Out_Needed_For_Colony_Palette()) {
+            ERIC::Fast_Fade_Out();
+        }
+        Update_Colony_Palette();
+        if (ERIC::Fast_Fade_Out_Needed_For_Colony_Palette()) {
+            palstore::Darken_Palette(100);
+            palette::Clear_Palette_Changes(0, 255);
+        }
+        palette::Refresh_Palette();
+        Add_Landscape_Fields();
+        full_draw = 1;
+        fields::Assign_Auto_Function(Draw_Landscape_View, 1);
+        graphics::Fill(0, 0, 0x27F, 0x1DF, 0);
+        Draw_Landscape_View();
+        ERIC::Fast_Fade_In();
+        video::Set_Refresh_Stencil();
+        mouse::Set_Mouse_List(&MOX::mouse_list_arrow, 1);
+        while (true) {
+            timer::Mark_Time();
+            Draw_Landscape_View();
+            RUSS::Mox_Sync_Update();
+            const int16_t input = fields::Get_Input();
+            fields::Scan_Input();
+            timer::Release_Time(1);
+            if (input == landscape_return_field || input == landscape_keys[0] || input == landscape_keys[1] ||
+                (input != 0 && input == -landscape_area_field) || (input < 0 && input != -landscape_return_field)) {
+                break; // RETURN, Space, Esc or a right click; a left click on the landscape does nothing
+            }
+        }
+        fields::Clear_Fields();
+        fields::Deactivate_Auto_Function();
+    }
+
     void __cdecl Show_Colony_Screen() {
         MOX::FULL_DRAW_SCREEN_FLAG = 0;
         fields::Deactivate_Auto_Function();
@@ -271,6 +351,7 @@ namespace COLONY {
         int16_t saved_player_num = MOX::PLAYER_NUM;
 
         if (!valid_colony) {
+            landscape_only = false;
             MOX::current_screen = MOX::return_screen;
             MOX::PLAYER_NUM = saved_player_num;
             using_colony_screen_palette = 0;
@@ -287,6 +368,22 @@ namespace COLONY {
 
         if (MOX::return_screen != MOX::current_screen) {
             colony_saved_screen = MOX::return_screen;
+        }
+
+        if (landscape_only) {
+            landscape_only = false;
+            Landscape_View_Loop();
+            MOX::PLAYER_NUM = saved_player_num;
+            using_colony_screen_palette = 0;
+            if (MOX::return_screen == MOX::current_screen) {
+                MOX::current_screen = colony_saved_screen;
+                MOX::return_screen = colony_saved_screen;
+            } else {
+                MOX::current_screen = MOX::return_screen;
+            }
+            fields::Deactivate_Help_List();
+            game_random::Set_Random_Seed(saved_seed);
+            return;
         }
 
         fields::Clear_Fields();

@@ -147,8 +147,15 @@ namespace SAVEGAME {
     }
 } // namespace SAVEGAME
 
+namespace TEST_NATIVE {
+    int helps = 0; // the game's help messages shown
+} // namespace TEST_NATIVE
+
 namespace GENDRAW {
     void __cdecl Message_Box(const char*) {}
+    void __cdecl Help(const char*) {
+        ++TEST_NATIVE::helps;
+    }
     int16_t __cdecl Do_Confirmation_Box(const char*) {
         return 0; // the game menu's questions (leave_game): No
     }

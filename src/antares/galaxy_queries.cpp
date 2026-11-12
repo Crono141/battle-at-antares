@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "yyjson.h"
 #include "game/string_overrides.h"
 
 #include <algorithm>
@@ -997,6 +998,10 @@ namespace antares::commands::internal {
                 out.Fail("refused", "not one of the player's colonies");
                 return;
             }
+            // VIEW COLONY (WP3.4): the colony screen with only its landscape and RETURN.
+            // The colony screen runs later in the loop and clears the flag as it starts.
+            COLONY::landscape_only = MOX::colony[colony].outpost_flag == 0 && args.Get("landscape") != nullptr &&
+                yyjson_get_bool(args.Get("landscape"));
             Open_Colony_Screen(colony, out);
         }
 
@@ -1060,7 +1065,7 @@ namespace antares::commands::internal {
     void Add_Galaxy_Entries(std::vector<s_entry>* table) {
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);
         table->push_back({"select_star", e_kind::command, galaxy, 0, "star: star id", Select_Star});
-        table->push_back({"open_colony", e_kind::command, galaxy, 0, "planet: planet id", Open_Colony});
+        table->push_back({"open_colony", e_kind::command, galaxy, 0, "planet: planet id, landscape (only the landscape)", Open_Colony});
         table->push_back({"close_system", e_kind::command, galaxy, 0, "", Close_System});
         table->push_back({"cycle_colony_star", e_kind::command, galaxy, 0, "dir: 0 next, 1 previous", Cycle_Colony_Star});
         table->push_back({"toggle_option", e_kind::command, galaxy, 0, "option: 0-7 (Alt+F1..F8), not 3", Toggle_Option});

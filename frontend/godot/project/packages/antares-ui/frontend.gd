@@ -1222,14 +1222,64 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 		int(c.garrison.marines), int(c.garrison.armor), c.buildings.size()])
 	if shots != "":
 		await host.shot(shots + "/native-colony-pane.png")
-	# A farmer to research and back (the game's own job rules).
+	# Colonists on the pointer (the colony screen's pickup): a click takes the clicked one and the
+	# identical ones after it; dropped elsewhere they go back; on another row they move, together.
 	var farmers: Array = c.jobs[0].colonists.filter(func(p: Dictionary) -> bool: return p.state == "citizen")
-	if not farmers.is_empty():
-		var pop := int(farmers[0].pop)
-		var moved: Dictionary = await _command({"verb": "move_colonist", "colony": int(c.colony), "pop": pop, "job": 2})
-		var after: Dictionary = await _query_args({"what": "colony", "colony": int(c.colony)})
-		print("smoke: farmer %d to research: %s, jobs now %s" % [pop, moved.get("moved", moved), after.jobs.map(func(j: Dictionary) -> int: return j.colonists.size())])
-		await _command({"verb": "move_colonist", "colony": int(c.colony), "pop": pop, "job": 0})
+	if farmers.size() >= 2:
+		var cluster: Array = farmers[farmers.size() - 2].get("cluster", [])
+		colony_pane._pick_up(cluster, 0)
+		await get_tree().create_timer(0.5).timeout
+		if shots != "":
+			await host.shot(shots + "/native-colony-carry.png")
+		colony_pane._drop_on(-1)
+		await get_tree().create_timer(0.8).timeout
+		var same: Dictionary = await _query_args({"what": "colony", "colony": int(c.colony)})
+		var same_counts: Array = same.jobs.map(func(j: Dictionary) -> int: return j.colonists.size())
+		colony_pane._pick_up(cluster, 0)
+		colony_pane._drop_on(2)
+		var waited_move := 0.0
+		var after: Dictionary = {}
+		while waited_move < 5.0:
+			await get_tree().create_timer(0.3).timeout
+			waited_move += 0.3
+			after = await _query_args({"what": "colony", "colony": int(c.colony)})
+			if int(after.jobs[2].colonists.size()) != int(counts[2]):
+				break
+		var after_counts: Array = after.jobs.map(func(j: Dictionary) -> int: return j.colonists.size())
+		print("smoke: carry %s: dropped outside, jobs %s (unchanged %s); on research, jobs %s" % [cluster, same_counts,
+			same_counts == counts, after_counts])
+		if same_counts != counts or int(after_counts[2]) != int(counts[2]) + cluster.size():
+			await host.smoke_fail("carried colonists did not go back, or did not all move")
+			return false
+		await _command({"verb": "move_colonist", "colony": int(c.colony), "pops": cluster, "job": 0})
+	# A building's info (right click) and VIEW COLONY's landscape alone.
+	if not c.buildings.is_empty():
+		var rows: Array = colony_pane.find_children("*", "Button", true, false).filter(func(b: Button) -> bool: return b.text == String(c.buildings[0].name))
+		if not rows.is_empty():
+			colony_pane._show_info(c.buildings[0], rows[0])
+			await get_tree().create_timer(0.6).timeout
+			if shots != "":
+				await host.shot(shots + "/native-building-info.png")
+			colony_pane._close_info()
+		print("smoke: building '%s' sellable %s refund %s, description %d chars" % [c.buildings[0].name, c.buildings[0].get("sellable"),
+			c.buildings[0].get("refund"), String(c.buildings[0].get("description", "")).length()])
+	colony_pane._open_landscape()
+	var t_land := Time.get_ticks_msec()
+	while native_screen != Screens.LEGACY and Time.get_ticks_msec() - t_land < 10000:
+		await get_tree().process_frame
+	await get_tree().create_timer(1.5).timeout
+	if shots != "":
+		game.get_frame_image().save_png(shots + "/legacy-landscape.png")
+	var leaving := 0.0
+	while native_screen != Screens.MAIN and leaving < 10.0:
+		game.send_key(KEY_ESCAPE, false, false, false)
+		await get_tree().create_timer(1.0).timeout
+		leaving += 1.0
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: landscape view shown and left: back on the galaxy %s, colony pane %s" % [native_screen == Screens.MAIN, colony_pane.visible])
+	if native_screen != Screens.MAIN:
+		await host.smoke_fail("the landscape view did not close back to the galaxy")
+		return false
 	# BUY (Yes), then BUY again: un-bought, the BC back.
 	if int(c.build.get("buy_cost", 0)) > 0:
 		var before: Dictionary = await _query("empire")

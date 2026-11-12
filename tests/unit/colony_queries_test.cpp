@@ -12,6 +12,9 @@ namespace TEST_COLONY {
     extern int colony_calculations;
     extern int buys;
     extern bool refuse_job;
+    extern int refuse_after;
+    extern int sells;
+    extern bool answer_sell;
     extern std::vector<std::string> build_calls;
 } // namespace TEST_COLONY
 
@@ -109,6 +112,10 @@ namespace {
         TEST_COLONY::colony_calculations = 0;
         TEST_COLONY::buys = 0;
         TEST_COLONY::refuse_job = false;
+        TEST_COLONY::refuse_after = -1;
+        TEST_COLONY::sells = 0;
+        TEST_COLONY::answer_sell = true;
+        TECHDATA::buildings[BUILDING_MARINE_BARRACKS].cost = 300;
     }
 } // namespace
 
@@ -122,9 +129,11 @@ DOCTEST_TEST_CASE("the colony query reads the colony screen's values (WP3.4)") {
     DOCTEST_CHECK(Has_(c, "\"food\":{\"produced\":23,\"upkeep\":0,\"imports\":0,\"icons\":[{\"kind\":\"net\",\"sprite\":4,\"count\":2},{\"kind\":\"net\",\"sprite\":0,\"count\":3},{\"kind\":\"gap\"}]}"));
     DOCTEST_CHECK(Has_(c, "\"icons\":[{\"kind\":\"net\",\"sprite\":5,\"count\":1},{\"kind\":\"net\",\"sprite\":1,\"count\":2},{\"kind\":\"pollution\",\"sprite\":9,\"count\":2},{\"kind\":\"gap\"},{\"kind\":\"gap\"}]"));
     // Jobs: three farmers, one worker (race 9 * 13 + job * 2 + 1), the android scientist.
-    DOCTEST_CHECK(Has_(c, "{\"job\":0,\"colonists\":[{\"pop\":0,\"sprite\":118,\"state\":\"citizen\"},{\"pop\":1,"));
-    DOCTEST_CHECK(Has_(c, "{\"job\":1,\"colonists\":[{\"pop\":3,\"sprite\":120,\"state\":\"citizen\"}]}"));
-    DOCTEST_CHECK(Has_(c, "{\"job\":2,\"colonists\":[{\"pop\":4,\"sprite\":169,\"state\":\"android\"}]}"));
+    // Each with what a click picks up there (COLMOVE::Get_Cluster): it and the identical ones after it.
+    DOCTEST_CHECK(Has_(c, "{\"job\":0,\"colonists\":[{\"pop\":0,\"sprite\":118,\"state\":\"citizen\",\"cluster\":[0,1,2]},{\"pop\":1,"));
+    DOCTEST_CHECK(Has_(c, "{\"pop\":2,\"sprite\":118,\"state\":\"citizen\",\"cluster\":[2]}"));
+    DOCTEST_CHECK(Has_(c, "{\"job\":1,\"colonists\":[{\"pop\":3,\"sprite\":120,\"state\":\"citizen\",\"cluster\":[3]}]}"));
+    DOCTEST_CHECK(Has_(c, "{\"job\":2,\"colonists\":[{\"pop\":4,\"sprite\":169,\"state\":\"android\",\"cluster\":[4]}]}"));
     // The build: the star base, with its price; its picture is the satellite's (COLONY.LBX 9 + 2).
     DOCTEST_CHECK(Has_(c, "\"build\":{\"id\":40,\"name\":\"B40\",\"auto\":false,\"picture\":{\"lbx\":\"COLONY.LBX\",\"entry\":11},\"cost\":500,\"spent\":120,\"bought\":0,\"turns\":4,\"buy_cost\":1200"));
     // Defences: the star base not built, Artemis built, no portal.
@@ -133,7 +142,7 @@ DOCTEST_TEST_CASE("the colony query reads the colony screen's values (WP3.4)") {
     // Garrison: race 9's marines (9 * 13 + 7) and tanks (+ 9).
     DOCTEST_CHECK(Has_(c, "\"garrison\":{\"marines\":13,\"marine_sprite\":124,\"armor\":6,\"armor_sprite\":126}"));
     // Buildings: the barracks, not the satellites.
-    DOCTEST_CHECK(Has_(c, "\"buildings\":[{\"building\":22,\"name\":\"B22\"}]"));
+    DOCTEST_CHECK(Has_(c, "\"buildings\":[{\"building\":22,\"name\":\"B22\",\"sellable\":true,\"refund\":150,"));
 }
 
 DOCTEST_TEST_CASE("move_colonist and buy are the colony screen's actions (WP3.4)") {
@@ -243,4 +252,37 @@ DOCTEST_TEST_CASE("REFIT lists the warships in orbit and their designs; a refit 
     DOCTEST_CHECK(ships[3].status == 0);
     DOCTEST_CHECK(std::string(ships[3].d.name) == "Old Guard");
     DOCTEST_CHECK(c_colonies_[0].producing[1] == COLONY_PRODUCTION_NONE);
+}
+
+namespace TEST_NATIVE {
+    extern int helps;
+} // namespace TEST_NATIVE
+
+DOCTEST_TEST_CASE("a cluster of colonists moves together; buildings sell with the game's question (WP3.4)") {
+    Set_Up_();
+    // The three farmers to industry: all move.
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"move_colonist\",\"colony\":0,\"pops\":[0,1,2],\"job\":1}"), "\"count\":3"));
+    for (int i = 0; i < 3; ++i) {
+        DOCTEST_CHECK(((c_colonies_[0].pop[i] >> 7) & 3) == 1);
+    }
+    // Back to farming, refused after the first: the rest stay where they were, assigned.
+    TEST_COLONY::refuse_after = 1;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"move_colonist\",\"colony\":0,\"pops\":[0,1,2],\"job\":0}"), "\"count\":1"));
+    DOCTEST_CHECK(((c_colonies_[0].pop[0] >> 7) & 3) == 0);
+    DOCTEST_CHECK(((c_colonies_[0].pop[1] >> 7) & 3) == 1);
+    DOCTEST_CHECK((c_colonies_[0].pop[1] & 0x200) != 0);
+    DOCTEST_CHECK(((c_colonies_[0].pop[2] >> 7) & 3) == 1);
+    // A colonist of another kind in the list doesn't come along (only a cluster moves).
+    TEST_COLONY::refuse_after = -1;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"move_colonist\",\"colony\":0,\"pops\":[1,4],\"job\":2}"), "\"count\":1"));
+    DOCTEST_CHECK(((c_colonies_[0].pop[4] >> 7) & 3) == 2);
+    // Sell: the game's question; Yes takes it away and pays half its cost.
+    const int32_t bc = c_players_[0].bc;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"sell_building\",\"colony\":0,\"building\":22}"), "\"sold\":true"));
+    DOCTEST_CHECK(c_colonies_[0].buildings[BUILDING_MARINE_BARRACKS] == 0);
+    DOCTEST_CHECK(c_players_[0].bc == bc + 150);
+    // Not standing, or one that can't be scrapped: refused before any question.
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"sell_building\",\"colony\":0,\"building\":22}"), "refused"));
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"sell_building\",\"colony\":0,\"building\":3}"), "refused"));
+    DOCTEST_CHECK(TEST_COLONY::sells == 1);
 }

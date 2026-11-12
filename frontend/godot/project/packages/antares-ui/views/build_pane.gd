@@ -283,7 +283,6 @@ func _show_items() -> void:
 		b.focus_mode = Control.FOCUS_NONE
 		b.theme_type_variation = &"ListItem"
 		b.add_theme_font_size_override("font_size", 19)
-		b.tooltip_text = "Click to add it to the end of the build list, or drag it into place (Repeat build on: it repeats)"
 		var id := int(item.id)
 		b.mouse_entered.connect(func(): _show_detail(item))
 		b.pressed.connect(func(): _add(id))
@@ -317,7 +316,6 @@ func _show_refit_ships() -> void:
 			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			b.theme_type_variation = &"ListItem"
 			b.add_theme_font_size_override("font_size", 19)
-			b.tooltip_text = "Click to choose its new design, or drag it into place on the build list"
 			b.mouse_entered.connect(func(): _show_detail(ship))
 			b.pressed.connect(func(): _open_refit_popup(ship, b, -1))
 			b.set_drag_forwarding(func(_at: Vector2) -> Variant:
@@ -499,18 +497,14 @@ func _show_queue() -> void:
 				shown = design.merged({"refit_cost": int(entry.refit.cost)}, true) if not design.is_empty() else entry
 			name_button.mouse_entered.connect(func(): _show_detail(shown))
 			if not (slot == 0 and bought):
-				name_button.tooltip_text = "Drag to build it sooner or later"
 				var s := slot
 				name_button.set_drag_forwarding(func(_at: Vector2) -> Variant:
 					set_drag_preview(_drag_preview(entry))
 					return {"build_slot": s}, Callable(), Callable())
-			else:
-				name_button.tooltip_text = "Bought: it is finished next turn"
 			row.add_child(name_button)
 		if not (slot == 0 and bought):
 			var remove := Button.new()
 			remove.text = "X"
-			remove.tooltip_text = "Take it off the list"
 			remove.focus_mode = Control.FOCUS_NONE
 			remove.custom_minimum_size = Vector2(30, 26)
 			var s2 := slot

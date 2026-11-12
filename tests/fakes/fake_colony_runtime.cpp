@@ -13,6 +13,9 @@ namespace TEST_COLONY {
     int colony_calculations = 0;
     int buys = 0;
     bool refuse_job = false; // Give_Colonist_New_Job says no (as its help message would)
+    int refuse_after = -1;   // Give_Colonist_New_Job says no after this many moves (-1: never)
+    int sells = 0;
+    bool answer_sell = true; // the game's question
 } // namespace TEST_COLONY
 
 namespace COLCALC {
@@ -60,15 +63,45 @@ namespace COLMOVE {
         return 0;
     }
     uint8_t __cdecl Give_Colonist_New_Job(int16_t colony_idx, int16_t pop_idx, int16_t new_job, bool) {
-        if (TEST_COLONY::refuse_job) {
+        if (TEST_COLONY::refuse_job || TEST_COLONY::refuse_after == 0) {
             return 0;
+        }
+        if (TEST_COLONY::refuse_after > 0) {
+            --TEST_COLONY::refuse_after;
         }
         uint32_t* pop = &MOX::colony[colony_idx].pop[pop_idx];
         POP::Set_Prof(pop, (POP::e_prof)new_job);
         POP::Set_Assigned(pop, true);
         return 1;
     }
+    // Same job, race and state bits, as the game compares them.
+    bool __cdecl Pops_Identical(int16_t source_colony_idx, int16_t source_pop_idx, int16_t dest_colony_idx, int16_t dest_pop_idx) {
+        const uint32_t a = MOX::colony[source_colony_idx].pop[source_pop_idx];
+        const uint32_t b = MOX::colony[dest_colony_idx].pop[dest_pop_idx];
+        return (a & 0x7F) == (b & 0x7F) && ((a >> 7) & 3) == ((b >> 7) & 3) && (a & 0x400) == (b & 0x400);
+    }
 } // namespace COLMOVE
+
+namespace COLONY {
+    bool landscape_only = false;
+
+    bool Building_Can_Be_Scrapped(int16_t bldg_id) {
+        return bldg_id > 0 && bldg_id != BUILDING_STAR_BASE && bldg_id != BUILDING_ARTEMIS_SYSTEM_NET;
+    }
+    int32_t Building_Scrap_Refund(int16_t bldg_id) {
+        return TECHDATA::buildings[bldg_id].cost / 2;
+    }
+    // As the game's: the question, then the building goes and half its cost comes back.
+    bool Scrap_Building(int16_t colony_idx, int16_t bldg_id, bool) {
+        ++TEST_COLONY::sells;
+        if (!TEST_COLONY::answer_sell) {
+            return false;
+        }
+        MOX::colony[colony_idx].buildings[bldg_id] = 0;
+        MOX::player[MOX::colony[colony_idx].owner].bc += Building_Scrap_Refund(bldg_id);
+        return true;
+    }
+} // namespace COLONY
 
 namespace COLBLDG {
     char* __cdecl Option_String(int16_t option_id) {

@@ -4,11 +4,17 @@ extends PanelContainer
 ## name and population (morale and government are in the system pane's row), the income row, the build (its
 ## picture, turns, progress, CHANGE and BUY), each job's colonists with that job's output row below
 ## them (the original's icons, squeezed to fit as the colony screen squeezes them), TRANSPORT
-## COLONISTS, the defences (those built, centred), the garrison and the buildings, and View colony.
+## COLONISTS, the defences (those built, centred), the garrison and the buildings; VIEW COLONY sits
+## under the name.
 ##
-## Colonists move by dragging one to another job's row (`move_colonist`: the game's own rules and
-## messages). BUY sends `buy` (the game asks first; a second BUY un-buys). CHANGE slides out the
-## build pane (WP3.4b); TRANSPORT COLONISTS and View colony open the original colony screen.
+## Colonists move as on the colony screen: a click picks up that colonist and the identical ones
+## after it in its row (the `colony` query's `cluster`), which ride on the pointer; a click on
+## another job's row drops them there (`move_colonist` with `pops`: the game's own rules and
+## messages), anywhere else puts them back, as do a right click, Esc and closing. BUY sends `buy`
+## (the game asks first; a second BUY un-buys). CHANGE slides out the build pane (WP3.4b);
+## TRANSPORT COLONISTS opens the original colony screen, VIEW COLONY its landscape alone
+## (`open_colony` with `landscape`). A building is sold with a click (`sell_building`, the game's
+## question) and explained with a right click (the original's help text).
 
 signal command(dict: Dictionary)
 signal closed
@@ -34,12 +40,15 @@ var colony := {}
 var colony_id := -1
 var _tween: Tween
 var _shown_left := 0.0
+var _carry := {} # {pops, job, view}: colonists on the pointer
+var _job_panels := {} # job -> its row's panel (drop targets)
+var _info_popup: Popup
 
 
 func _ready() -> void:
 	$Scroll/Box/Header/Close.pressed.connect(close)
 	$Scroll/Box/Transport.pressed.connect(_open_original)
-	$Scroll/Box/View.pressed.connect(_open_original)
+	$Scroll/Box/View.pressed.connect(_open_landscape)
 	_restyle()
 
 
@@ -71,6 +80,8 @@ func refresh() -> void:
 
 
 func close() -> void:
+	_drop_carry()
+	_close_info()
 	if colony_id < 0 and not visible:
 		return
 	colony_id = -1
@@ -81,6 +92,8 @@ func close() -> void:
 
 ## Hides without closing (a legacy screen took over); it comes back with the galaxy.
 func dismiss() -> void:
+	_drop_carry()
+	_close_info()
 	hide()
 
 
@@ -110,6 +123,11 @@ func show_colony(result: Dictionary) -> void:
 
 func _open_original() -> void:
 	command.emit({"verb": "open_colony", "planet": int(colony.get("planet", -1))})
+
+
+## VIEW COLONY: the colony's landscape alone, with the original RETURN button.
+func _open_landscape() -> void:
+	command.emit({"verb": "open_colony", "planet": int(colony.get("planet", -1)), "landscape": true})
 
 
 # ---- Rows ----
@@ -227,16 +245,12 @@ func _show_jobs() -> void:
 	for child in jobs_box.get_children():
 		jobs_box.remove_child(child)
 		child.queue_free()
+	_job_panels.clear()
 	for job_info: Dictionary in colony.jobs:
 		var job := int(job_info.job)
 		var panel := PanelContainer.new()
 		panel.theme_type_variation = &"Row"
-		panel.tooltip_text = "%s: drag a colonist here to give it this job" % JOB_NAMES[job]
-		# A dropped colonist takes this row's job.
-		panel.set_drag_forwarding(Callable(), func(_at: Vector2, data: Variant) -> bool:
-			return data is Dictionary and data.get("colonist", false) and int(data.job) != job,
-			func(_at: Vector2, data: Variant) -> void:
-				command.emit({"verb": "move_colonist", "colony": colony_id, "pop": int(data.pop), "job": job, "_reply_to": "_after_command"}))
+		_job_panels[job] = panel
 		var rows := VBoxContainer.new()
 		rows.add_theme_constant_override("separation", 2)
 		rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -249,16 +263,18 @@ func _show_jobs() -> void:
 		if colonists.size() > 1 and colonists.size() * step > avail:
 			step = maxf((avail - 22.0) / float(colonists.size() - 1), 4.0)
 		people.add_theme_constant_override("separation", int(step - 22.0))
+		var carried: Array = _carry.get("pops", []) if int(_carry.get("job", -1)) == job else []
 		for c: Dictionary in colonists:
-			var icon := _sprite("RACEICON.LBX", int(c.sprite), Vector2(22, 30), "%s (drag to another job)" % String(c.state).capitalize())
-			icon.mouse_filter = Control.MOUSE_FILTER_PASS
-			var pop := int(c.pop)
-			icon.set_drag_forwarding(func(_at: Vector2) -> Variant:
-				var preview := _sprite("RACEICON.LBX", int(c.sprite), Vector2(22, 30), "")
-				preview.modulate.a = 0.8
-				set_drag_preview(preview)
-				return {"colonist": true, "pop": pop, "job": job},
-				Callable(), Callable())
+			var icon := _sprite("RACEICON.LBX", int(c.sprite), Vector2(22, 30), "")
+			icon.mouse_filter = Control.MOUSE_FILTER_STOP
+			if carried.has(int(c.pop)):
+				icon.modulate.a = 0.0 # on the pointer
+			var cluster: Array = c.get("cluster", [c.pop])
+			icon.gui_input.connect(func(event: InputEvent) -> void:
+				var mb := event as InputEventMouseButton
+				if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and _carry.is_empty():
+					_pick_up(cluster, job)
+					accept_event())
 			people.add_child(icon)
 		if colonists.is_empty():
 			var empty := Label.new()
@@ -315,16 +331,160 @@ func _buildings_list() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 0)
 	for b: Dictionary in colony.buildings:
-		var label := Label.new()
-		label.text = String(b.name)
-		label.add_theme_font_size_override("font_size", 15)
-		v.add_child(label)
+		var row := Button.new()
+		row.text = String(b.name)
+		row.flat = true
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.focus_mode = Control.FOCUS_NONE
+		row.theme_type_variation = &"ListItem"
+		row.add_theme_font_size_override("font_size", 15)
+		row.button_mask = MOUSE_BUTTON_MASK_LEFT | MOUSE_BUTTON_MASK_RIGHT
+		var building := int(b.building)
+		var sellable := bool(b.get("sellable", false))
+		row.gui_input.connect(func(event: InputEvent) -> void:
+			var mb := event as InputEventMouseButton
+			if mb == null or not mb.pressed:
+				return
+			if mb.button_index == MOUSE_BUTTON_RIGHT:
+				_show_info(b, row)
+				accept_event()
+			elif mb.button_index == MOUSE_BUTTON_LEFT and sellable:
+				# Sold for half its cost: the game asks first (and keeps its once-a-turn rule).
+				command.emit({"verb": "sell_building", "colony": colony_id, "building": building, "_reply_to": "_after_command"})
+				accept_event())
+		v.add_child(row)
 	if colony.buildings.is_empty():
 		var none := Label.new()
 		none.theme_type_variation = &"Dim"
 		none.text = "None"
 		v.add_child(none)
 	return v
+
+
+## A building's help text (the original's right click on the landscape), beside its row.
+func _show_info(b: Dictionary, at: Control) -> void:
+	_close_info()
+	_info_popup = Popup.new()
+	_info_popup.transparent_bg = true
+	_info_popup.transparent = true
+	var panel := PanelContainer.new()
+	panel.theme_type_variation = &"Pane"
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	panel.add_child(box)
+	var title := Label.new()
+	title.theme_type_variation = &"Name"
+	title.text = String(b.name)
+	box.add_child(title)
+	var text := Label.new()
+	text.text = String(b.get("description", ""))
+	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	text.custom_minimum_size.x = 360
+	text.add_theme_font_size_override("font_size", 16)
+	box.add_child(text)
+	if bool(b.get("sellable", false)):
+		var sell := Label.new()
+		sell.theme_type_variation = &"Dim"
+		sell.text = "Click to sell for %s BC" % _thousands(int(b.get("refund", 0)))
+		box.add_child(sell)
+	_info_popup.add_child(panel)
+	add_child(_info_popup)
+	var size_now := panel.get_combined_minimum_size()
+	var place := Vector2(at.get_screen_position().x + at.size.x + 8, at.get_screen_position().y)
+	var screen := get_viewport().get_visible_rect().size
+	place.y = minf(place.y, screen.y - size_now.y - 8)
+	_info_popup.popup(Rect2i(Vector2i(place), Vector2i(size_now)))
+
+
+func _close_info() -> void:
+	if is_instance_valid(_info_popup):
+		_info_popup.queue_free()
+	_info_popup = null
+
+
+# ---- Colonists on the pointer (the colony screen's Pickup_Colonists / Send_Cluster) ----
+
+func _pick_up(cluster: Array, job: int) -> void:
+	var pops: Array = cluster.map(func(p: Variant) -> int: return int(p))
+	var sprites: Array = []
+	var natives := false
+	for job_info: Dictionary in colony.jobs:
+		for c: Dictionary in job_info.colonists:
+			if pops.has(int(c.pop)):
+				sprites.append(int(c.sprite))
+				natives = natives or String(c.state) == "native"
+	if natives:
+		# The game refuses natives at pickup, with its own message (unless a rule allows it).
+		command.emit({"verb": "move_colonist", "colony": colony_id, "pops": pops, "job": job, "_reply_to": "_after_command"})
+		return
+	var view := HBoxContainer.new()
+	view.top_level = true
+	view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	view.add_theme_constant_override("separation", -8 if sprites.size() > 6 else 0)
+	view.z_index = 100
+	for sprite: int in sprites:
+		view.add_child(_sprite("RACEICON.LBX", sprite, Vector2(22, 30), ""))
+	add_child(view)
+	_carry = {"pops": pops, "job": job, "view": view}
+	Input.set_default_cursor_shape(Input.CURSOR_DRAG)
+	_follow_pointer()
+	_show_jobs()
+
+
+func _follow_pointer() -> void:
+	var view: Control = _carry.get("view")
+	if is_instance_valid(view):
+		view.global_position = get_global_mouse_position() + Vector2(10, 6)
+
+
+## Puts carried colonists back where they were (nothing was sent).
+func _drop_carry() -> void:
+	if _carry.is_empty():
+		return
+	var view: Control = _carry.get("view")
+	if is_instance_valid(view):
+		view.queue_free()
+	_carry = {}
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+	if is_node_ready() and not colony.is_empty():
+		_show_jobs()
+
+
+func _input(event: InputEvent) -> void:
+	if _carry.is_empty():
+		return
+	if event is InputEventMouseMotion:
+		_follow_pointer()
+		return
+	var key := event as InputEventKey
+	if key and key.pressed and key.keycode == KEY_ESCAPE:
+		_drop_carry()
+		get_viewport().set_input_as_handled()
+		return
+	var mb := event as InputEventMouseButton
+	if mb == null or not mb.pressed:
+		return
+	get_viewport().set_input_as_handled() # the click is the drop, nothing else
+	if mb.button_index != MOUSE_BUTTON_LEFT:
+		_drop_carry()
+		return
+	var target := -1
+	for job: int in _job_panels:
+		var panel: Control = _job_panels[job]
+		if panel.is_visible_in_tree() and panel.get_global_rect().has_point(mb.global_position):
+			target = job
+	_drop_on(target)
+
+
+## The carried colonists dropped on `job`'s row (-1: anywhere else: they go back).
+func _drop_on(job: int) -> void:
+	if _carry.is_empty():
+		return
+	var pops: Array = _carry.pops
+	var from := int(_carry.job)
+	_drop_carry()
+	if job >= 0 and job != from:
+		command.emit({"verb": "move_colonist", "colony": colony_id, "pops": pops, "job": job, "_reply_to": "_after_command"})
 
 
 ## After a move or a purchase: the colony again (the game recalculated it).
@@ -367,7 +527,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	var build_pane := get_parent().get_node_or_null("BuildPane")
 	if build_pane != null and build_pane.visible:
 		return # Esc cancels the build pane first
-	if visible and key and key.pressed and key.keycode == KEY_ESCAPE:
+	if visible and key and key.pressed and key.keycode == KEY_ESCAPE and _carry.is_empty():
 		close()
 		get_viewport().set_input_as_handled()
 

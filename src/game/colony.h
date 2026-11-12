@@ -12,6 +12,14 @@ namespace COLONY {
     extern uint8_t max_buildings_scrapped_per_turn;
 
     bool Can_Scrap_Building(const s_colony& colony, uint16_t stardate);
+    /** Antares: whether a building may be scrapped at all (not defences, star bases, the capitol). */
+    bool Building_Can_Be_Scrapped(int16_t bldg_id);
+    /** Antares: what scrapping a building pays back (half its cost). */
+    int32_t Building_Scrap_Refund(int16_t bldg_id);
+    /** Antares: the colony screen's scrapping: the game's question, then the scrap; true when done. */
+    bool Scrap_Building(int16_t colony_idx, int16_t bldg_id, bool landscape);
+    /** Antares: the next colony screen shows only the landscape and a Return button. */
+    extern bool landscape_only;
     void Record_Building_Scrap(s_colony* colony, uint16_t stardate);
 
     extern int32_t building_cr[170];

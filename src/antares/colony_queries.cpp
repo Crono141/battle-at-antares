@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 // WP3.4: the colony pane's query and commands (contract: notes/antares/native-bridge.md, "The
 // colony pane"). The query reads the colony fields COLCALC::Colony_Calculation leaves behind and
@@ -110,6 +111,59 @@ namespace antares::commands::internal {
                 run("short", k_import_icons + type + 4, shortage / 10);
                 run("short", k_import_icons + type, shortage % 10);
             }
+        }
+
+        // One record of an LBX record table (a u16 count and size, then the records), read as
+        // farload::Far_Reload_Data reads it but without the popup's caches (pure).
+        std::string Lbx_Record(const char* lbx, int32_t entry, uint16_t record, size_t offset, size_t length) {
+            s_vfs_file* file = vfs::fopen_lbx(lbx, entry);
+            if (file == nullptr) {
+                return {};
+            }
+            uint16_t header[2] = {};
+            std::string text(length + 1, '\0');
+            bool ok = vfs::fread(header, sizeof(header), 1, file) == 1 && record < header[0] && offset + length <= header[1];
+            if (ok) {
+                ok = vfs::fseek(file, (long)(sizeof(header) + (size_t)record * header[1] + offset), SEEK_SET) == 0 &&
+                    vfs::fread(text.data(), length, 1, file) == 1;
+            }
+            vfs::fclose(file);
+            if (!ok) {
+                return {};
+            }
+            return Utf8(text.data(), length);
+        }
+
+        // The help text the popup's detail box prints for an item (Draw_Current_Selection,
+        // Draw_Building_Info): a building's application, a unit's fixed application, or a
+        // setting's description. Ship designs show their parts instead.
+        std::string Item_Description(int16_t id) {
+            int16_t app = -1;
+            switch (id) {
+                case COLONY_PRODUCTION_OUTPOST_SHIP: app = 109; break;
+                case COLONY_PRODUCTION_FREIGHTERS: app = 69; break;
+                case COLONY_PRODUCTION_COLONY_SHIP: app = 41; break;
+                case COLONY_PRODUCTION_TRANSPORT_SHIP: app = 189; break;
+                case COLONY_PRODUCTION_SPY: app = 166; break;
+                case COLONY_PRODUCTION_SCIENTIST: app = 7; break;
+                case COLONY_PRODUCTION_WORKER: app = 8; break;
+                case COLONY_PRODUCTION_FARMER: app = 6; break;
+                case COLONY_PRODUCTION_HOUSING:
+                case COLONY_PRODUCTION_TRADE_GOODS:
+                    return Lbx_Record(ESTRINGS::E_Strings(HESTR_170_MAX_POPULATION),
+                        id == COLONY_PRODUCTION_HOUSING ? 13 : 12, 0, 0, 600);
+                default:
+                    if (COLBLDG::Colony_Production_Is_Building(id)) {
+                        app = (int16_t)TECHDATA::buildings[id].tech_app;
+                    }
+                    break;
+            }
+            if (app < 0) {
+                return {};
+            }
+            char lbx[20];
+            TEXTBOX::Get_Help_Lbx_Name(lbx, sizeof(lbx));
+            return Lbx_Record(lbx, 0, (uint16_t)app, offsetof(s_help_record, body), sizeof(s_help_record::body));
         }
 
         // An item's name as COLBLDG::Selection_Name gives it, without its refit cache.
@@ -274,6 +328,14 @@ namespace antares::commands::internal {
                     p.Int("pop", i);
                     p.Int("sprite", Pop_Sprite(c, i));
                     p.Str("state", state == 3 ? "native" : (state == 4 ? "android" : ((data & 0x400) != 0 ? "conquered" : "citizen")));
+                    // What a click here picks up (COLMOVE::Get_Cluster): this colonist and the
+                    // identical ones after it.
+                    s_out cluster = p.Add_List("cluster");
+                    for (int16_t k = i; k < (uint8_t)colony.n_pops; ++k) {
+                        if ((colony.pop[k] & 0x200) != 0 && COLMOVE::Pops_Identical(c, i, c, k)) {
+                            cluster.Append_Int(k);
+                        }
+                    }
                 }
             }
             // The build (Draw_Info_Build): the front of the queue, its progress and its price.
@@ -341,6 +403,9 @@ namespace antares::commands::internal {
                 s_out b = buildings.Append_Object();
                 b.Int("building", id);
                 b.Str("name", Utf8(TECHDATA::buildings[id].name, 64));
+                b.Bool("sellable", COLONY::Building_Can_Be_Scrapped(id));
+                b.Int("refund", COLONY::Building_Scrap_Refund(id));
+                b.Str("description", Item_Description(id));
             }
             // Picked-up colonists (the original's TRANSPORT COLONISTS needs some).
             out.Int("unassigned", COLMOVE::Get_Num_Unemployed(c));
@@ -355,10 +420,22 @@ namespace antares::commands::internal {
                 return;
             }
             int64_t colony_id = -1;
-            int64_t pop = -1;
             int64_t job = -1;
-            if (!args.Int("colony", &colony_id) || !args.Int("pop", &pop) || !args.Int("job", &job) || job < 0 || job > 2) {
-                out.Fail("bad_args", "colony, pop (a colonist's index), job (0 farmer, 1 worker, 2 scientist)");
+            std::vector<int16_t> pops;
+            yyjson_val* list = args.Get("pops");
+            int64_t pop = -1;
+            if (yyjson_is_arr(list)) {
+                size_t index = 0;
+                size_t count = 0;
+                yyjson_val* item = nullptr;
+                yyjson_arr_foreach(list, index, count, item) {
+                    pops.push_back(yyjson_is_int(item) ? (int16_t)yyjson_get_int(item) : (int16_t)-1);
+                }
+            } else if (args.Int("pop", &pop)) {
+                pops.push_back((int16_t)pop);
+            }
+            if (!args.Int("colony", &colony_id) || pops.empty() || !args.Int("job", &job) || job < 0 || job > 2) {
+                out.Fail("bad_args", "colony, pop (a colonist's index) or pops (a cluster), job (0 farmer, 1 worker, 2 scientist)");
                 return;
             }
             if (!Player_Colony(colony_id, out)) {
@@ -366,21 +443,67 @@ namespace antares::commands::internal {
             }
             const int16_t c = (int16_t)colony_id;
             s_colony& colony = MOX::colony[c];
-            if (colony.outpost_flag != 0 || pop < 0 || pop >= (uint8_t)colony.n_pops || (colony.pop[pop] & 0x200) == 0) {
-                out.Fail("bad_args", "pop: an assigned colonist of this colony");
+            for (int16_t p : pops) {
+                if (colony.outpost_flag != 0 || p < 0 || p >= (uint8_t)colony.n_pops || (colony.pop[p] & 0x200) == 0) {
+                    out.Fail("bad_args", "pops: assigned colonists of this colony");
+                    return;
+                }
+            }
+            // Picking natives up is refused with the game's message (COLMOVE::Get_Cluster).
+            if (POP::Is_Native(colony.pop[pops[0]]) && !COLMOVE::native_population_transfer) {
+                GENDRAW::Help(ESTRINGS::E_Strings(0x17e));
+                out.Int("moved", 0);
                 return;
             }
-            if ((int)((colony.pop[pop] >> 7) & 0x3) == job) {
-                out.Bool("moved", false);
-                return;
+            // Dropped on a row (COLMOVE::Send_Cluster within the colony): each in turn takes the
+            // job; at the first refusal (the game's message) the rest go back where they were.
+            // Only a cluster moves together: the ones identical to the first, decided before any moves.
+            std::vector<int16_t> cluster;
+            for (int16_t p : pops) {
+                if (p == pops[0] || COLMOVE::Pops_Identical(c, pops[0], c, p)) {
+                    cluster.push_back(p);
+                }
             }
-            POP::Set_Assigned(&colony.pop[pop], false); // picked up: not counted in its new row
-            const bool moved = COLMOVE::Give_Colonist_New_Job(c, (int16_t)pop, (int16_t)job, false) != 0;
-            if (!moved) {
-                POP::Set_Assigned(&colony.pop[pop], true); // put back
+            int moved = 0;
+            for (int16_t p : cluster) {
+                if ((int)((colony.pop[p] >> 7) & 0x3) == job) {
+                    continue;
+                }
+                POP::Set_Assigned(&colony.pop[p], false); // picked up: not counted in its new row
+                if (COLMOVE::Give_Colonist_New_Job(c, p, (int16_t)job, false) == 0) {
+                    POP::Set_Assigned(&colony.pop[p], true); // put back
+                    break;
+                }
+                ++moved;
             }
             COLCALC::Colony_Calculation(c);
-            out.Bool("moved", moved);
+            out.Bool("moved", moved > 0);
+            out.Int("count", moved);
+        }
+
+        // A building scrapped from the colony pane (COLONY::Scrap_Building, as clicking it on the
+        // landscape does): the game's question with the refund, its once-a-turn rule and message.
+        void Sell_Building(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            int64_t building = -1;
+            if (!args.Int("colony", &colony_id) || !args.Int("building", &building) || building <= 0 || building >= BUILDING_COUNT) {
+                out.Fail("bad_args", "colony, building (a building id)");
+                return;
+            }
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            const int16_t c = (int16_t)colony_id;
+            if (MOX::colony[c].buildings[building] == 0 || !COLONY::Building_Can_Be_Scrapped((int16_t)building)) {
+                out.Fail("refused", "not a building this colony can scrap");
+                return;
+            }
+            const bool sold = COLONY::Scrap_Building(c, (int16_t)building, false);
+            out.Bool("sold", sold);
+            out.Int("bc", MOX::player[MOX::colony[c].owner].bc);
         }
 
         // The colony screen's BUY (COLONY::Buy_Or_Unbuy_Product): un-buys a bought item, else asks
@@ -452,59 +575,6 @@ namespace antares::commands::internal {
                 COLBLDG::n_military_indexes = n_military_indexes;
             }
         };
-
-        // One record of an LBX record table (a u16 count and size, then the records), read as
-        // farload::Far_Reload_Data reads it but without the popup's caches (pure).
-        std::string Lbx_Record(const char* lbx, int32_t entry, uint16_t record, size_t offset, size_t length) {
-            s_vfs_file* file = vfs::fopen_lbx(lbx, entry);
-            if (file == nullptr) {
-                return {};
-            }
-            uint16_t header[2] = {};
-            std::string text(length + 1, '\0');
-            bool ok = vfs::fread(header, sizeof(header), 1, file) == 1 && record < header[0] && offset + length <= header[1];
-            if (ok) {
-                ok = vfs::fseek(file, (long)(sizeof(header) + (size_t)record * header[1] + offset), SEEK_SET) == 0 &&
-                    vfs::fread(text.data(), length, 1, file) == 1;
-            }
-            vfs::fclose(file);
-            if (!ok) {
-                return {};
-            }
-            return Utf8(text.data(), length);
-        }
-
-        // The help text the popup's detail box prints for an item (Draw_Current_Selection,
-        // Draw_Building_Info): a building's application, a unit's fixed application, or a
-        // setting's description. Ship designs show their parts instead.
-        std::string Item_Description(int16_t id) {
-            int16_t app = -1;
-            switch (id) {
-                case COLONY_PRODUCTION_OUTPOST_SHIP: app = 109; break;
-                case COLONY_PRODUCTION_FREIGHTERS: app = 69; break;
-                case COLONY_PRODUCTION_COLONY_SHIP: app = 41; break;
-                case COLONY_PRODUCTION_TRANSPORT_SHIP: app = 189; break;
-                case COLONY_PRODUCTION_SPY: app = 166; break;
-                case COLONY_PRODUCTION_SCIENTIST: app = 7; break;
-                case COLONY_PRODUCTION_WORKER: app = 8; break;
-                case COLONY_PRODUCTION_FARMER: app = 6; break;
-                case COLONY_PRODUCTION_HOUSING:
-                case COLONY_PRODUCTION_TRADE_GOODS:
-                    return Lbx_Record(ESTRINGS::E_Strings(HESTR_170_MAX_POPULATION),
-                        id == COLONY_PRODUCTION_HOUSING ? 13 : 12, 0, 0, 600);
-                default:
-                    if (COLBLDG::Colony_Production_Is_Building(id)) {
-                        app = (int16_t)TECHDATA::buildings[id].tech_app;
-                    }
-                    break;
-            }
-            if (app < 0) {
-                return {};
-            }
-            char lbx[20];
-            TEXTBOX::Get_Help_Lbx_Name(lbx, sizeof(lbx));
-            return Lbx_Record(lbx, 0, (uint16_t)app, offsetof(s_help_record, body), sizeof(s_help_record::body));
-        }
 
         // A design's parts, as the popup lists them (Build_Ship_Design_Info_Formatted_Paragraph).
         void Design_Parts(s_ship_design& design, s_out item) {
@@ -775,7 +845,8 @@ namespace antares::commands::internal {
     void Add_Colony_Entries(std::vector<s_entry>* table) {
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);
         table->push_back({"colony", e_kind::query, ANY_SCREEN, 1, "colony: colony id (the player's)", Query_Colony});
-        table->push_back({"move_colonist", e_kind::command, galaxy, 0, "colony, pop, job (0-2)", Move_Colonist});
+        table->push_back({"move_colonist", e_kind::command, galaxy, 0, "colony, pop or pops (a cluster), job (0-2)", Move_Colonist});
+        table->push_back({"sell_building", e_kind::command, galaxy, 0, "colony, building", Sell_Building});
         table->push_back({"buy", e_kind::command, galaxy, 0, "colony", Buy});
         table->push_back({"build_options", e_kind::query, ANY_SCREEN, 1, "colony", Query_Build_Options});
         table->push_back({"build_commit", e_kind::command, galaxy, 0, "colony, edits [{add, repeat} / {delete} / {move} / {refit, design}], auto", Build_Commit});

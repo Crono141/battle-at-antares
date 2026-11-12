@@ -14,6 +14,42 @@ namespace COLONY {
         ++colony->buildings_scrapped_this_turn;
     }
 
+    // Antares (WP3.4, D25): the colony screen's scrapping as a function of its arguments, for the
+    // landscape click and the native colony pane. Defences, star bases and the capitol can't be.
+    bool Building_Can_Be_Scrapped(int16_t bldg_id) {
+        return bldg_id > 0 && bldg_id != BUILDING_ARTEMIS_SYSTEM_NET && bldg_id != BUILDING_DIMENSIONAL_PORTAL &&
+            bldg_id != BUILDING_STAR_BASE && bldg_id != BUILDING_STAR_FORTRESS && bldg_id != BUILDING_BATTLESTATION &&
+            bldg_id != BUILDING_CAPITOL;
+    }
+
+    int32_t Building_Scrap_Refund(int16_t bldg_id) {
+        return TECHDATA::buildings[bldg_id].cost / 2;
+    }
+
+    // Asks the game's question (half the cost back), then scraps: once a turn per the rules (the
+    // game's message otherwise). `landscape`: the colony screen's landscape shows rubble there.
+    bool Scrap_Building(int16_t colony_idx, int16_t bldg_id, bool landscape) {
+        char buffer[1000];
+        s_colony& col_ref = MOX::colony[colony_idx];
+        if (!Can_Scrap_Building(col_ref, (uint16_t)MOX::stardate)) {
+            GENDRAW::Help(ESTRINGS::E_Strings(0x243));
+            return false;
+        }
+        const int32_t refund_val = Building_Scrap_Refund(bldg_id);
+        snprintf(buffer, sizeof(buffer), ESTRINGS::E_Strings(0x107), CR_Building_Name(bldg_id), refund_val);
+        if (!GENDRAW::Confirmation_Box(buffer)) {
+            return false;
+        }
+        Record_Building_Scrap(&col_ref, (uint16_t)MOX::stardate);
+        if (landscape) {
+            Turn_To_Rubble_CR_Bldg(bldg_id);
+        }
+        ERICNET::Remove_Building(colony_idx, bldg_id);
+        COLCALC::Colony_Calculation(colony_idx);
+        MOX::player[col_ref.owner].bc += refund_val;
+        return true;
+    }
+
     int32_t building_cr[170] = {
         316, 492, 225, 461, 153, 428, 96, 401, 50, 379, 10, 361, -21, 348, 406, 461, 316, 430, 242, 404, 182, 381, 130, 363, 88, 346, 53, 333, 480, 430, 391, 403, 317, 381, 255, 362, 204, 348, 158, 334, 121, 322, 539, 403, 454, 382, 380, 363, 319, 348, 264, 335, 219, 322, 180, 312, 587, 382, 505, 363, 434, 348, 372, 334, 318, 323, 271, 312, 232, 303, 629, 364, 549, 349, 479, 335, 419, 323, 367, 314, 318, 303, 277, 295, 666, 351, 586, 336, 517, 324, 459, 313, 409, 304, 360, 295, 320, 288, 316, 430, 242, 404, 182, 381, 130, 363, 88, 346, 53, 333, 391, 403, 317, 381, 255, 362, 204, 348, 158, 334, 121, 322, 454, 382, 380, 363, 319, 348, 264, 335, 219, 322, 180, 312, 505, 363, 434, 348, 372, 334, 318, 323, 271, 312, 232, 303, 549, 349, 479, 335, 419, 323, 367, 314, 318, 323, 277, 295, 586, 336, 517, 324, 517, 313, 409, 304, 360, 295, 320, 288};
 
@@ -1931,33 +1967,10 @@ namespace COLONY {
                 }
 
                 if (demolish_match) {
-                    if (bldg_id == BUILDING_ARTEMIS_SYSTEM_NET ||
-                        bldg_id == BUILDING_DIMENSIONAL_PORTAL ||
-                        bldg_id == BUILDING_STAR_BASE ||
-                        bldg_id == BUILDING_STAR_FORTRESS ||
-                        bldg_id == BUILDING_BATTLESTATION ||
-                        bldg_id == BUILDING_CAPITOL) {
+                    if (!Building_Can_Be_Scrapped((int16_t)bldg_id)) {
                         return;
                     }
-
-                    s_colony& col_ref = MOX::colony[colony_handle];
-                    if (!Can_Scrap_Building(col_ref, (uint16_t)MOX::stardate)) {
-                        GENDRAW::Help(ESTRINGS::E_Strings(0x243));
-                        Show_Colony_Screen();
-                        return;
-                    }
-
-                    int32_t refund_val = TECHDATA::buildings[bldg_id].cost / 2;
-
-                    snprintf(buffer, sizeof(buffer), ESTRINGS::E_Strings(0x107), CR_Building_Name((int16_t)bldg_id), refund_val);
-                    if (GENDRAW::Confirmation_Box(buffer)) {
-                        Record_Building_Scrap(&col_ref, (uint16_t)MOX::stardate);
-                        Turn_To_Rubble_CR_Bldg((int16_t)bldg_id);
-                        ERICNET::Remove_Building(colony_handle, (int16_t)bldg_id);
-                        COLCALC::Colony_Calculation(colony_handle);
-                        MOX::player[MOX::PLAYER_NUM].bc += refund_val;
-                    }
-
+                    Scrap_Building(colony_handle, (int16_t)bldg_id, true);
                     Show_Colony_Screen();
                     return;
                 }
