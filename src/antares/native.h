@@ -98,6 +98,11 @@ namespace antares::native {
     // natively (MOX::current_screen then names the next screen).
     bool Run_Screen(int16_t screen);
 
+    // The galaxy will run natively when the game gets there (a frontend claims it and it's
+    // allowed). Reports_Screen then skips its fade into the legacy galaxy, which showed for a frame
+    // before the native one after a load (owner, 2026-11-12).
+    bool Galaxy_Will_Be_Native();
+
     // True when the frontend wants this screen natively and may have it now. A legacy handler that
     // can be left between inputs (Main_Screen) checks it and returns to the dispatcher.
     bool Wants_Screen(int16_t screen);

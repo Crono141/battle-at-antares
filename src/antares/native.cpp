@@ -516,6 +516,10 @@ namespace antares::native {
         }
     }
 
+    bool Galaxy_Will_Be_Native() {
+        return Frontend() && Claimed(SCREEN_MAIN) && Native_Allowed(SCREEN_MAIN);
+    }
+
     bool Run_Screen(int16_t screen) {
         if (!Frontend()) {
             return false;
