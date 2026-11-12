@@ -375,6 +375,21 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 		_send(dict)
 
 
+## The drop-downs and slide-outs that buttons open (owner, 2026-11-12): one at a time, over
+## everything else (the system pane, the fleet panel).
+const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel"]
+
+
+## Closes the other flyouts and raises `view` over every view (the frame stays on top).
+func _bring_up(view: Control) -> void:
+	for scene_name in FLYOUTS:
+		var other: Control = _views.get(scene_name)
+		if other != null and other != view and other.visible:
+			other.close()
+	view.move_to_front()
+	_frame_view.move_to_front()
+
+
 ## The map controls' view-only actions.
 func _on_view_action(action_name: String) -> void:
 	match action_name:
@@ -394,11 +409,10 @@ func _on_view_action(action_name: String) -> void:
 		"command_points", "research":
 			# The bar's drop-downs (WP3.3g): under their figure, on the galaxy.
 			var panel := _view("command_points" if action_name == "command_points" else "research_panel")
-			var other := _view("research_panel" if action_name == "command_points" else "command_points")
-			other.close()
 			if panel.visible:
 				panel.close()
 			else:
+				_bring_up(panel)
 				var bar := _view("galaxy_bar")
 				var figure: Control = bar.command_label if action_name == "command_points" else bar.research
 				var center := figure.get_global_rect().get_center().x
@@ -408,7 +422,7 @@ func _on_view_action(action_name: String) -> void:
 			if designs.visible:
 				designs.close()
 			else:
-				_view("options_menu").close()
+				_bring_up(designs)
 				designs.open()
 				_view("side_tabs").show_open("designs", true)
 		"options":
@@ -416,7 +430,7 @@ func _on_view_action(action_name: String) -> void:
 			if options.visible:
 				options.close()
 			else:
-				_view("design_list").close()
+				_bring_up(options)
 				options.open()
 				_view("side_tabs").show_open("options", true)
 		"game_menu":
@@ -424,6 +438,7 @@ func _on_view_action(action_name: String) -> void:
 			if game_menu.visible:
 				game_menu.close()
 			else:
+				_bring_up(game_menu)
 				var bar := _view("galaxy_bar")
 				game_menu.open_at(bar.game_button.get_global_rect().position.x)
 				bar.show_game_menu(true)
@@ -777,6 +792,30 @@ func _smoke_native() -> void:
 	print("smoke: choose_research (same choice): %s" % chose.r)
 	research.close()
 	await get_tree().create_timer(0.5).timeout
+	# One flyout at a time, over the system pane (owner, 2026-11-12).
+	var stack_star := -1
+	for st: Dictionary in galaxy.stars:
+		if int(st.owner) == int(galaxy.data.player) and st.visited:
+			stack_star = int(st.id)
+			break
+	_on_star_clicked(stack_star)
+	await get_tree().create_timer(1.5).timeout
+	_on_view_action("research")
+	await get_tree().create_timer(1.0).timeout
+	_on_view_action("game_menu")
+	await get_tree().create_timer(0.8).timeout
+	var pane_index: int = _view("system_pane").get_index()
+	var menu := _view("game_menu")
+	print("smoke: flyouts: game menu shown %s over the system pane %s, research closed %s" % [menu.visible,
+		menu.get_index() > pane_index, not research.visible])
+	if not menu.visible or menu.get_index() < pane_index or research.visible:
+		await host.smoke_fail("flyouts not one at a time over the system pane")
+		return
+	if shots != "":
+		await host.shot(shots + "/native-flyout-over-pane.png")
+	menu.close()
+	_view("system_pane").close()
+	await get_tree().create_timer(1.0).timeout
 	# A legacy screen from the native galaxy: the legacy view must not show the stale frame from
 	# before the native view (owner, 2026-11-06: Colonies flashed the old galaxy).
 	var stale: Image = game.get_frame_image()
