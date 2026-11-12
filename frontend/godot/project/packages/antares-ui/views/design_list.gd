@@ -36,7 +36,7 @@ func _restyle() -> void:
 	var gap := get_theme_constant("pane_gap", "Screen")
 	offset_right = -((inset - 4 if inset > 0 else 4) + 34 + gap)
 	offset_left = offset_right - 472.0
-	offset_top = inset + get_theme_constant("bar_height", "Screen") + 10
+	offset_top = get_theme_constant("content_top", "Screen")
 	offset_bottom = -(inset + maxi(gap, 8))
 	_shown_right = offset_right
 

@@ -16,7 +16,8 @@ extends RefCounted
 ##   edge_gap    the gap between the buttons and slots along an edge
 ##   bar_height  the top bar's height (its icons are 28 px; the slots must hold them)
 ##   pane_gap    the gap between a pane and the screen's edge (or the frame)
-## Views read the layout values as Theme constants of the type "Screen".
+## Views read the layout values as Theme constants of the type "Screen", with "content_top" (where
+## panes start under the top bar) worked out from them.
 
 const SETTINGS := "user://antares-ui.cfg"
 const ICON_HEIGHT := 28
@@ -69,6 +70,12 @@ static func _add_screen_constants(built: Dictionary) -> void:
 	for key in ["inset", "edge_gap", "bar_height", "pane_gap"]:
 		t.set_constant(key, "Screen", int(built.get(key, 0)))
 	t.set_constant("icon_height", "Screen", ICON_HEIGHT)
+	# Where panes and flyouts start: under the top bar (and its pocket's frame, 9 px), with the same
+	# gap as beside the tabs, at least 4 px (owner: one separation all round).
+	var inset := int(built.get("inset", 0))
+	var bar_top := inset - 3 if inset > 0 else 6
+	var pocket := 9 if inset > 0 else 0
+	t.set_constant("content_top", "Screen", bar_top + int(built.get("bar_height", 36)) + pocket + maxi(int(built.get("pane_gap", 0)), 4))
 
 
 ## The player's choice (a package id), or "".
