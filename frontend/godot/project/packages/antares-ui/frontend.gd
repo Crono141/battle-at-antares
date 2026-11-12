@@ -70,6 +70,7 @@ var theme_id := ""
 var _frame: StyleBox
 var _frame_view: Control
 var _built := {} # the theme in use, as its package built it
+var _chevron: Control # the open colony's marker between the panes (WP3.4)
 
 
 func _ready() -> void:
@@ -92,6 +93,10 @@ func _ready() -> void:
 	_frame_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_frame_view.draw.connect(_draw_frame)
 	native_layer.add_child(_frame_view)
+	_chevron = preload("views/chevron.gd").new()
+	_chevron.name = "ColonyChevron"
+	_chevron.hide()
+	native_layer.add_child(_chevron)
 	_load_themes()
 	mode_button.pressed.connect(func(): _set_native(not native))
 	$UI/Bar.hide() # the owner's layout (WP3.3f): Ctrl+G stays, the button goes
@@ -143,6 +148,7 @@ func _set_native(on: bool) -> void:
 
 
 func _process(delta: float) -> void:
+	_place_chevron()
 	if _legacy_after_frame < 0:
 		return
 	_legacy_waited += delta
@@ -158,6 +164,24 @@ func _process(delta: float) -> void:
 	if native_screen == Screens.LEGACY and not _question_over_galaxy:
 		galaxy.hide()
 		legacy.show()
+
+
+## The chevron points from the open colony's planet row at the colony pane, or hides.
+func _place_chevron() -> void:
+	var colony_pane: Control = _views.get("colony_pane")
+	var system_pane: Control = _views.get("system_pane")
+	if colony_pane == null or system_pane == null or not colony_pane.visible or not system_pane.visible \
+			or colony_pane.colony.is_empty() or native_screen != Screens.MAIN:
+		_chevron.hide()
+		return
+	var row: Rect2 = system_pane.planet_row_rect(int(colony_pane.colony.get("planet", -1)))
+	if row.size == Vector2.ZERO:
+		_chevron.hide()
+		return
+	var edge := colony_pane.get_global_rect().position.x + 4.0
+	_chevron.point_at(Vector2(edge, row.get_center().y))
+	if _chevron.get_index() != native_layer.get_child_count() - 1:
+		_chevron.move_to_front()
 
 
 func _on_native_screen(screen: int) -> void:

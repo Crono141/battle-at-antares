@@ -48,11 +48,6 @@ tooltip_text = "Close (Esc)"
 focus_mode = 0
 text = "X"
 
-[node name="Morale" type="PanelContainer" parent="Scroll/Box"]
-layout_mode = 2
-tooltip_text = "Government and morale"
-theme_type_variation = &"Row"
-
 [node name="Money" type="PanelContainer" parent="Scroll/Box"]
 layout_mode = 2
 tooltip_text = "Income (BC)"

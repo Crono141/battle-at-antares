@@ -124,6 +124,21 @@ func select_planet(planet_id: int) -> void:
 	colony_chosen.emit(_player_colony(planet_id))
 
 
+## The screen rect of a planet's row, clipped to the list's visible part (the colony pane's chevron,
+## WP3.4), or an empty rect when the row is scrolled out of sight.
+func planet_row_rect(planet_id: int) -> Rect2:
+	var scroll: Control = $Box/Scroll
+	var shown := scroll.get_global_rect()
+	for row: Control in planets_box.get_children():
+		if row.get_meta("planet", -1) == planet_id and not row.is_queued_for_deletion():
+			var r := row.get_global_rect()
+			var mid := r.get_center().y
+			if mid < shown.position.y or mid > shown.end.y:
+				return Rect2()
+			return r
+	return Rect2()
+
+
 ## The colony id of a planet that is one of the player's colonies (not an outpost), or -1.
 func _player_colony(planet_id: int) -> int:
 	for planet: Dictionary in system.get("planets", []):
@@ -252,6 +267,7 @@ func _show_planets() -> void:
 func _planet_row(planet: Dictionary) -> Control:
 	var id := int(planet.planet)
 	var panel := PanelContainer.new()
+	panel.set_meta("planet", id)
 	# The theme's row; the selected planet's is the open one (WP3.3g).
 	panel.theme_type_variation = &"RowOpen" if id == selected_planet else &"Row"
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -343,30 +359,8 @@ func _details(planet: Dictionary, colony: Dictionary) -> Control:
 		morale.add_child(stack)
 		for i in mini(masks, 10):
 			stack.add_child(_icon("COLONY2.LBX", int(colony.morale_sprite), Vector2(18, 18), "Morale"))
-		var spacer := Control.new()
-		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		morale.add_child(spacer)
-		morale.add_child(_colony_button(planet, colony))
 		box.add_child(morale)
-	elif colony.get("mine", false):
-		box.add_child(_colony_button(planet, colony))
 	return box
-
-
-## The colony's button (the legacy colony screen until WP3.4); outposts have none to open.
-func _colony_button(planet: Dictionary, colony: Dictionary) -> Button:
-	var open_colony := Button.new()
-	open_colony.text = "OUTPOST" if colony.get("outpost", false) else "COLONY"
-	open_colony.focus_mode = Control.FOCUS_NONE
-	open_colony.disabled = colony.get("outpost", false) or not colony.get("mine", false)
-	open_colony.visible = colony.get("mine", false)
-	open_colony.custom_minimum_size = Vector2(96, 26)
-	open_colony.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	open_colony.add_theme_font_size_override("font_size", 13)
-	var id := int(planet.planet)
-	open_colony.pressed.connect(func(): select_planet(id)) # the colony pane
-	return open_colony
 
 
 ## A bar icon (the theme art's: food, industry, research), at a row's size.

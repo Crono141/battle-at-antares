@@ -1,7 +1,7 @@
 extends PanelContainer
 ## The colony pane (WP3.4, the owner's design 2A in notes/antares/ui-concepts.md): beside the
 ## system pane when one of the player's colonies is picked. From the `colony` query: the colony's
-## name and population, the morale row (government and masks), the income row, the build (its
+## name and population (morale and government are in the system pane's row), the income row, the build (its
 ## picture, turns, progress, CHANGE and BUY), each job's colonists with that job's output row below
 ## them (the original's icons, squeezed to fit as the colony screen squeezes them), TRANSPORT
 ## COLONISTS, the defences (lit when built), the garrison and the buildings, and View colony.
@@ -92,7 +92,6 @@ func show_colony(result: Dictionary) -> void:
 	population.text = "%s · %d / %d" % [result.race, int(result.population), int(result.max_population)]
 	if int(result.growth) != 0:
 		population.text += "  (%+d.%03d)" % [int(result.growth) / 1000, absi(int(result.growth)) % 1000]
-	_fill($Scroll/Box/Morale, _morale_row())
 	_fill($Scroll/Box/Money, _icon_row(result.rows.bc.icons, WIDTH - 40.0))
 	_fill($Scroll/Box/Build, _build_box(result.build))
 	_show_jobs()
@@ -114,19 +113,6 @@ func _fill(holder: Control, content: Control) -> void:
 		holder.remove_child(child)
 		child.queue_free()
 	holder.add_child(content)
-
-
-func _morale_row() -> Control:
-	var row := HBoxContainer.new()
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_theme_constant_override("separation", 8)
-	row.add_child(_sprite("COLONY2.LBX", int(colony.government_sprite), BIG_ICON, "Government"))
-	var masks := int(colony.morale_icons)
-	var runs := []
-	if masks > 0:
-		runs.append({"kind": "net", "sprite": int(colony.morale_sprite), "count": masks})
-	row.add_child(_icon_row(runs, WIDTH - 90.0))
-	return row
 
 
 ## A row of icon runs (the `colony` query's `icons`): the colony screen's overlapping icons, packed
@@ -204,14 +190,6 @@ func _build_box(build: Dictionary) -> Control:
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 6)
 	v.add_child(buttons)
-	var change := Button.new()
-	change.text = "CHANGE"
-	change.tooltip_text = "Change what is built (the original build list for now)"
-	change.focus_mode = Control.FOCUS_NONE
-	change.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	change.custom_minimum_size.y = 32
-	change.pressed.connect(_open_original)
-	buttons.add_child(change)
 	var buy := Button.new()
 	buy.focus_mode = Control.FOCUS_NONE
 	buy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -227,6 +205,14 @@ func _build_box(build: Dictionary) -> Control:
 		buy.tooltip_text = "Finish it next turn for BC"
 	buy.pressed.connect(func(): command.emit({"verb": "buy", "colony": colony_id, "_reply_to": "_after_command"}))
 	buttons.add_child(buy)
+	var change := Button.new()
+	change.text = "CHANGE"
+	change.tooltip_text = "Change what is built (the original build list for now)"
+	change.focus_mode = Control.FOCUS_NONE
+	change.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	change.custom_minimum_size.y = 32
+	change.pressed.connect(_open_original)
+	buttons.add_child(change) # on the right, where the build pane will slide out
 	return v
 
 
