@@ -589,15 +589,19 @@ namespace godot {
         int32_t height = 0;
         bool fullscreen = false;
         antares::host::Window_Settings(&width, &height, &fullscreen);
+        // Through the root Window, not the DisplayServer: a size set on the display server behind
+        // the Window's back left the viewport at the project's 1440x1080, a 4:3 strip on the left
+        // of a wider window, until the player resized it (owner, 2026-11-11).
         DisplayServer* display = DisplayServer::get_singleton();
-        display->window_set_title("Battle at Antares");
+        Window* window = get_tree()->get_root();
+        window->set_title("Battle at Antares");
         if (fullscreen) {
-            display->window_set_mode(DisplayServer::WINDOW_MODE_FULLSCREEN);
+            window->set_mode(Window::MODE_FULLSCREEN);
         } else if (width > 0 && height > 0) {
             const Vector2i size(width, height);
-            const Rect2i screen = display->screen_get_usable_rect(display->window_get_current_screen());
-            display->window_set_size(size.min(screen.size));
-            display->window_set_position(screen.position + (screen.size - size.min(screen.size)) / 2);
+            const Rect2i screen = display->screen_get_usable_rect(window->get_current_screen());
+            window->set_size(size.min(screen.size));
+            window->set_position(screen.position + (screen.size - size.min(screen.size)) / 2);
         }
     }
 

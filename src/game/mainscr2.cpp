@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "antares/fleet_orders.h"
+#include "antares/native.h"
 
 namespace MAINSCR2 {
     s_mouse_list mouse_list_from[5] = {
@@ -137,6 +138,13 @@ namespace MAINSCR2 {
             }
         } else if (MOX::at_least_one_tactical_combat != 0 && report_mode != 0) {
             should_fade = true;
+        }
+
+        // Antares (WP3.3f): with no reports to show and the galaxy native next, the fade into the
+        // legacy galaxy only flashed it before the native one; skip it, as after a turn.
+        if (should_fade && report_mode == 0 && antares::native::Galaxy_Will_Be_Native()) {
+            should_fade = false;
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: reports skip the fade into the legacy galaxy");
         }
 
         if (should_fade && MAINSCR::already_faded_into_main_screen == 0) {

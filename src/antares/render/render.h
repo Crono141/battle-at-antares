@@ -299,6 +299,16 @@ namespace render {
     bool Export_Art(const char* lbx_name, int32_t entry, const s_animation_header* loaded_entry, const uint32_t* palette_rgb,
         std::vector<s_exported_frame>* frames, uint32_t max_ms);
 
+    // The palette an art pack's sprite was made under (its sprite.json "palette", from the art
+    // index): FONTS.LBX palettes and LBX entries' embedded palettes, applied in order. False when
+    // the index doesn't say, or says it with a layer only the art tools know.
+    struct s_palette_layer {
+        int32_t palette = -1; // a FONTS.LBX palette number, or -1 for an embedded palette:
+        std::string lbx;      // the entry whose embedded palette is laid over
+        int32_t entry = -1;
+    };
+    bool Declared_Palette(const char* lbx_name, int32_t entry, std::vector<s_palette_layer>* layers);
+
     // HD cutscenes on the parallel 4x screen (video.cpp).
     //
     // A Smacker video `<NAME>.LBX` has HD frames when the VFS provides hd/VIDEO/<NAME>/video.json

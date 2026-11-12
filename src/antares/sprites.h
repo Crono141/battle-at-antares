@@ -39,5 +39,7 @@ namespace antares::sprites {
     // The palette Export uses, 0xRRGGBB per index (exposed for tests): the current palette, then
     // the entry's own entries when it has one.
     void Palette_For(const uint8_t* entry_bytes, size_t size, uint32_t palette_rgb[256]);
+    // An entry's own embedded palette (its range) laid over `palette_rgb`.
+    void Apply_Embedded_Palette(const uint8_t* entry_bytes, size_t size, uint32_t palette_rgb[256]);
 
 } // namespace antares::sprites

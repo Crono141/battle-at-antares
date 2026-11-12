@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://packages/antares-ui/frontend.gd" id="1_frontend"]
 [ext_resource type="Script" path="res://packages/antares-ui/galaxy.gd" id="2_galaxy"]
@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://packages/antares-ui/galaxy/stars.gd" id="9_stars"]
 [ext_resource type="Script" path="res://packages/antares-ui/galaxy/fleets.gd" id="10_fleets"]
 [ext_resource type="Script" path="res://packages/antares-ui/galaxy/backdrop.gd" id="11_backdrop"]
+[ext_resource type="Script" path="res://packages/antares-ui/galaxy/orbits.gd" id="12_orbits"]
 
 [node name="AntaresUI" type="Node"]
 script = ExtResource("1_frontend")
@@ -45,6 +46,9 @@ script = ExtResource("8_links")
 [node name="Stars" type="Node2D" parent="Galaxy"]
 script = ExtResource("9_stars")
 
+[node name="Orbits" type="Node2D" parent="Galaxy"]
+script = ExtResource("12_orbits")
+
 [node name="Fleets" type="Node2D" parent="Galaxy"]
 script = ExtResource("10_fleets")
 
@@ -55,10 +59,14 @@ script = ExtResource("3_labels")
 layer = 2
 
 [node name="Bar" type="HBoxContainer" parent="UI"]
-offset_left = 8.0
-offset_top = 8.0
-offset_right = 400.0
-offset_bottom = 40.0
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 380.0
+offset_top = -40.0
+offset_right = 700.0
+offset_bottom = -8.0
+grow_vertical = 0
 mouse_filter = 2
 theme_override_constants/separation = 16
 

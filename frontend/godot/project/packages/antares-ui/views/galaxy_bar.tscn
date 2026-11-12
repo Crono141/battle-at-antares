@@ -1,35 +1,50 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://packages/antares-ui/views/galaxy_bar.gd" id="1"]
+[ext_resource type="Script" path="res://packages/antares-ui/views/sprite_rect.gd" id="2"]
 
 [node name="GalaxyBar" type="PanelContainer"]
-anchors_preset = 12
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_top = -84.0
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_top = 6.0
+offset_bottom = 42.0
 grow_horizontal = 2
-grow_vertical = 0
 script = ExtResource("1")
 
-[node name="Rows" type="VBoxContainer" parent="."]
-layout_mode = 2
-theme_override_constants/separation = 2
-
-[node name="Empire" type="HBoxContainer" parent="Rows"]
+[node name="Row" type="HBoxContainer" parent="."]
 layout_mode = 2
 alignment = 1
-theme_override_constants/separation = 18
+theme_override_constants/separation = 14
 
-[node name="Date" type="Label" parent="Rows/Empire"]
+[node name="Game" type="Button" parent="Row"]
+layout_mode = 2
+tooltip_text = "Save, load, settings and quit"
+focus_mode = 0
+toggle_mode = true
+text = "Game"
+metadata/key = "G"
+metadata/action = "game_menu"
+
+[node name="Date" type="Label" parent="Row"]
 layout_mode = 2
 tooltip_text = "Your race and the stardate"
 mouse_filter = 1
 text = "Race   Stardate"
 
-[node name="Money" type="MenuButton" parent="Rows/Empire"]
+[node name="MoneyIcon" type="TextureRect" parent="Row"]
+custom_minimum_size = Vector2(22, 22)
 layout_mode = 2
-tooltip_text = "Treasury and income per turn. Click to set the tax rate"
+size_flags_vertical = 4
+expand_mode = 1
+stretch_mode = 5
+script = ExtResource("2")
+lbx = "COLONY2.LBX"
+entry = 3
+
+[node name="Money" type="MenuButton" parent="Row"]
+layout_mode = 2
+tooltip_text = "Treasury and income per turn. Rest the pointer here (or click) for the tax rate"
 text = "BC"
 flat = false
 item_count = 6
@@ -52,104 +67,57 @@ popup/item_5/text = "Tax 50%"
 popup/item_5/checkable = 2
 popup/item_5/id = 50
 
-[node name="Command" type="Label" parent="Rows/Empire"]
+[node name="Command" type="Button" parent="Row"]
 layout_mode = 2
-tooltip_text = "Command points: spare (total)"
-mouse_filter = 1
+tooltip_text = "Command points: spare (total). Click for the breakdown"
+focus_mode = 0
+flat = true
 text = "Command"
+metadata/screen = 43
 
-[node name="Food" type="Label" parent="Rows/Empire"]
+[node name="FoodIcon" type="TextureRect" parent="Row"]
+custom_minimum_size = Vector2(22, 22)
+layout_mode = 2
+size_flags_vertical = 4
+expand_mode = 1
+stretch_mode = 5
+script = ExtResource("2")
+lbx = "COLONY2.LBX"
+entry = 0
+
+[node name="Food" type="Label" parent="Row"]
 layout_mode = 2
 tooltip_text = "Food surplus"
 mouse_filter = 1
 text = "Food"
 
-[node name="Freighters" type="Label" parent="Rows/Empire"]
+[node name="Freighters" type="Label" parent="Row"]
 layout_mode = 2
 tooltip_text = "Freighters: spare (total)"
 mouse_filter = 1
 text = "Freighters"
 
-[node name="Research" type="Button" parent="Rows/Empire"]
+[node name="ResearchIcon" type="TextureRect" parent="Row"]
+custom_minimum_size = Vector2(22, 22)
+layout_mode = 2
+size_flags_vertical = 4
+expand_mode = 1
+stretch_mode = 5
+script = ExtResource("2")
+lbx = "COLONY2.LBX"
+entry = 2
+
+[node name="Research" type="Button" parent="Row"]
 layout_mode = 2
 tooltip_text = "Research per turn and the turns to the next discovery. Click to choose research"
 focus_mode = 0
 text = "RP"
 metadata/screen = 36
 
-[node name="Row" type="HBoxContainer" parent="Rows"]
+[node name="Turn" type="Button" parent="Row"]
 layout_mode = 2
-theme_override_constants/separation = 12
-
-[node name="Screens" type="HBoxContainer" parent="Rows/Row"]
-layout_mode = 2
-size_flags_horizontal = 3
-alignment = 1
-
-[node name="Colonies" type="Button" parent="Rows/Row/Screens"]
-layout_mode = 2
+tooltip_text = "End the turn"
 focus_mode = 0
-text = "Colonies"
-metadata/screen = 20
-metadata/key = "C"
-
-[node name="Planets" type="Button" parent="Rows/Row/Screens"]
-layout_mode = 2
-focus_mode = 0
-text = "Planets"
-metadata/screen = 32
-metadata/key = "P"
-
-[node name="Fleets" type="Button" parent="Rows/Row/Screens"]
-layout_mode = 2
-focus_mode = 0
-text = "Fleets"
-metadata/screen = 4
-metadata/key = "F"
-
-[node name="Leaders" type="Button" parent="Rows/Row/Screens"]
-layout_mode = 2
-focus_mode = 0
-text = "Leaders"
-metadata/screen = 29
-metadata/key = "L"
-
-[node name="Races" type="Button" parent="Rows/Row/Screens"]
-layout_mode = 2
-focus_mode = 0
-text = "Races"
-metadata/screen = 6
-metadata/key = "R"
-
-[node name="Info" type="Button" parent="Rows/Row/Screens"]
-layout_mode = 2
-focus_mode = 0
-text = "Info"
-metadata/screen = 9
-metadata/key = "I"
-
-[node name="Research" type="Button" parent="Rows/Row/Screens"]
-layout_mode = 2
-focus_mode = 0
-text = "Research"
-metadata/screen = 36
-
-[node name="Command" type="Button" parent="Rows/Row/Screens"]
-layout_mode = 2
-focus_mode = 0
-text = "Command points"
-metadata/screen = 43
-
-[node name="Game" type="Button" parent="Rows/Row/Screens"]
-layout_mode = 2
-focus_mode = 0
-text = "Game"
-metadata/screen = 8
-metadata/key = "G"
-
-[node name="Turn" type="Button" parent="Rows/Row"]
-layout_mode = 2
-focus_mode = 0
-theme_override_font_sizes/font_size = 20
+theme_override_font_sizes/font_size = 18
 text = "  Turn  "
 metadata/key = "T"

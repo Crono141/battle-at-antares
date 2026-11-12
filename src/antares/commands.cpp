@@ -161,9 +161,23 @@ namespace antares::commands {
                 case SCREEN_FLEET:
                     MAINSCR::officer_screen_return_screen = SCREEN_FLEET;
                     break;
-                case SCREEN_GAME:
-                    MOX::screen_data = 0;
+                case SCREEN_GAME: {
+                    // The game menu's pages (WP3.3f): 0 the menu itself, 1 settings, 2 load, 3 save.
+                    // A page other than the menu closes back to the galaxy, not to the menu.
+                    int64_t page = 0;
+                    if (args.Has("page") && (!args.Int("page", &page) || page < 0 || page > 3)) {
+                        out.Fail("bad_args", "page: 0 menu, 1 settings, 2 load, 3 save");
+                        return;
+                    }
+                    if (page == 3 && MOX::disallow_saves_code != 0) {
+                        // As the menu's Save button: "can't save now" (loadsave.cpp, Do_Main_Game_Popup).
+                        out.Fail("refused", Utf8(HAROLD::H_Message(0xB9), 200));
+                        return;
+                    }
+                    MOX::screen_data = (int16_t)page;
+                    LOADSAVE::antares_direct_page = page != 0 ? 1 : 0;
                     break;
+                }
                 case SCREEN_TECH_CHANGE:
                     // Tech_Change draws over the page it finds: put the galaxy there, as the legacy
                     // galaxy's research field does (Main_Screen, research_window_field).
@@ -177,12 +191,39 @@ namespace antares::commands {
                     video::Set_Refresh_Stencil();
                     MAINSCR::clear_fleet_fields = 0;
                     break;
-                case SCREEN_OFFICERS:
-                    MOX::temp_star_handle = MOX::officer_scrn_type == LEADER_TYPE_SHIP
-                        ? MAINSCR::Get_Ship_Stack_For_Officers_Screen()
-                        : MAINSCR::Get_Star_Id_For_Officers_Screen();
+                case SCREEN_DESIGN: {
+                    // The designer on one slot, as the build list's Design button enters it
+                    // (colbldg.cpp:644-647, 1718-1719): first entry, no refit; it returns here.
+                    int64_t slot = -1;
+                    if (!args.Int("slot", &slot) || slot < 0 || slot > SHIP_SIZE_DOOM_STAR) {
+                        out.Fail("bad_args", "slot: a design slot 0-5 (the designs query)");
+                        return;
+                    }
+                    MOX::refit_ship = 0;
+                    MOX::first_design_screen_call = 1;
+                    MOX::temp_star_handle = (int16_t)slot;
+                    break;
+                }
+                case SCREEN_OFFICERS: {
+                    // With `star` (WP3.3f, the system pane's governor): the colony leaders, on that
+                    // system, as the officer screen's colony tab shows it.
+                    int64_t star = -1;
+                    if (args.Has("star")) {
+                        if (!args.Int("star", &star) || star < 0 || star >= MOX::NUM_STARS ||
+                            !HAROLD::Player_Has_Colony(MOX::PLAYER_NUM, (int16_t)star)) {
+                            out.Fail("bad_args", "star: one of the player's colony systems");
+                            return;
+                        }
+                        MOX::officer_scrn_type = LEADER_TYPE_COLONY;
+                        MOX::temp_star_handle = (int16_t)star;
+                    } else {
+                        MOX::temp_star_handle = MOX::officer_scrn_type == LEADER_TYPE_SHIP
+                            ? MAINSCR::Get_Ship_Stack_For_Officers_Screen()
+                            : MAINSCR::Get_Star_Id_For_Officers_Screen();
+                    }
                     MAINSCR::officer_screen_return_screen = (int8_t)from;
                     break;
+                }
                 default:
                     // A colony or ship design needs setup the bridge doesn't do yet: refuse rather
                     // than open it half set up.
@@ -191,6 +232,40 @@ namespace antares::commands {
             }
             MOX::return_screen = from;
             MOX::current_screen = (int16_t)screen;
+        }
+
+        // The game menu's New Game and Quit (WP3.3f), as its buttons do after their question
+        // (loadsave.cpp, Do_Main_Game_Popup and the end of _Game_Popup): "main_menu" leaves for
+        // a new game, "desktop" saves to the last slot and quits. The question goes to the
+        // frontend when it answers confirmations; No leaves the galaxy as it was.
+        void Leave_Game(int16_t, const s_args& args, s_out& out) {
+            std::string to;
+            if (!args.Str("to", &to) || (to != "main_menu" && to != "desktop")) {
+                out.Fail("bad_args", "to: \"main_menu\" or \"desktop\"");
+                return;
+            }
+            char text[200];
+            strlcpy(text, HAROLD::H_Message(to == "main_menu" ? 0xBA : 0xBB), sizeof(text));
+            if (GENDRAW::Do_Confirmation_Box(text) == 0) {
+                out.Bool("left", false);
+                return;
+            }
+            if (to == "main_menu") {
+                MOX::game_type = 0;
+                LOADSAVE::Save_Session_Related_Settings();
+                ERIC::Fast_Fade_Out();
+                MOX::current_screen = SCREEN_NEW_GAME;
+            } else {
+                FILEDEF::Save_Game(9);
+                MOX::settings.active_save_slot = 9;
+                LOADSAVE::Save_Session_Related_Settings();
+                if (MOX::game_type == 2 || MOX::game_type == 3) {
+                    NETMOX::Human_Abdicates(static_cast<int32_t>(MOX::PLAYER_NUM));
+                    netcode::Net_Uninit();
+                }
+                MOX::current_screen = SCREEN_EXIT;
+            }
+            out.Bool("left", true);
         }
 
         void Close(int16_t, const s_args&, s_out&) {
@@ -287,6 +362,7 @@ namespace antares::commands {
             out.Int("stardate", MOX::stardate);
             out.Int("player", MOX::PLAYER_NUM);
             out.Str("race", Utf8(player.race_name, sizeof(player.race_name)));
+            out.Int("race_id", player.race); // v3: RACEICON.LBX pictures are race_id * 13 + job * 2
             out.Int("color", player.color);
             out.Int("bc", player.bc);
             out.Int("bc_produced", player.bc_produced);
@@ -380,9 +456,10 @@ namespace antares::commands {
                 {"end_turn", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "", End_Turn},
                 {"open", e_kind::command, ANY_SCREEN, 0, "screen: SCREEN_* number", Open},
                 {"close", e_kind::command, ANY_SCREEN, 0, "", Close},
+                {"leave_game", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "to: main_menu | desktop (asks first)", Leave_Game},
                 {"scrap_ships", e_kind::command, ANY_SCREEN, 0, "ships: [ship id] (one place)", Scrap_Ships},
                 {"set_tax_rate", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "rate: 0..50 in tens", Set_Tax_Rate},
-                {"empire", e_kind::query, ANY_SCREEN, 2, "", Query_Empire},
+                {"empire", e_kind::query, ANY_SCREEN, 3, "", Query_Empire},
                 {"command_points", e_kind::query, ANY_SCREEN, 1, "", Query_Command_Points},
                 {"ships", e_kind::query, ANY_SCREEN, 1, "star: star id (optional)", Query_Ships},
             };

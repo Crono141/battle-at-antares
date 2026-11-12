@@ -3,6 +3,7 @@ class_name Screens
 
 const LEGACY := -1
 const MAIN := 0
+const DESIGN := 3
 const FLEET := 4
 const RACE := 6
 const GAME := 8

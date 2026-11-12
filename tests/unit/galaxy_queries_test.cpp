@@ -63,6 +63,9 @@ namespace {
             for (auto& slot : g_stars_[i].planet_index) {
                 slot = -1;
             }
+            for (auto& officer : g_stars_[i].officer_index) {
+                officer = -1;
+            }
             g_planets_[i] = s_planet_data{};
             g_planets_[i].colony_index = -1;
             g_planets_[i].planet_type = PLANET_TYPE_PLANET;
@@ -258,5 +261,50 @@ DOCTEST_TEST_CASE("the system query shows what the box shows") {
     const std::string potential = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"potential_colony\",\"planet\":0}");
     DOCTEST_CHECK(Contains_(potential, "\"max_population\":12"));
     DOCTEST_CHECK(Contains_(potential, "\"industry_per_worker\":3"));
+    DOCTEST_CHECK(Contains_(potential, "\"planet\":0"));
+    Tear_Down_Galaxy_();
+}
+
+DOCTEST_TEST_CASE("the system query v3: governor, planet words, morale and government (WP3.3f)") {
+    Set_Up_Galaxy_();
+    std::vector<s_leader_data> leaders(MAX_LEADERS);
+    snprintf(leaders[4].name, sizeof(leaders[4].name), "Androgena");
+    snprintf(leaders[4].title, sizeof(leaders[4].title), "Governor");
+    leaders[4].pict_num = 7;
+    s_leader_data* saved_leaders = MOX::leaders;
+    MOX::leaders = leaders.data();
+    // No governor: none in the answer.
+    DOCTEST_CHECK_FALSE(Contains_(Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"system\",\"star\":0}"), "\"governor\""));
+    g_stars_[0].officer_index[0] = 4;
+    g_players_[0].traits[TRAIT_CURRENT_GOVERNMENT] = GOVERNMENT_DEMOCRACY;
+    g_colonies_[0].morale = 6;
+    const std::string full = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"system\",\"star\":0}");
+    DOCTEST_CHECK(Contains_(full, "\"governor\":{\"leader\":4,\"name\":\"Androgena\",\"title\":\"Governor\""));
+    DOCTEST_CHECK(Contains_(full, "\"portrait\":217")); // 0xD2 + 7
+    DOCTEST_CHECK(Contains_(full, "\"size_name\":"));
+    DOCTEST_CHECK(Contains_(full, ("\"government_sprite\":" + std::to_string(0x13 + GOVERNMENT_DEMOCRACY)).c_str()));
+    DOCTEST_CHECK(Contains_(full, "\"morale_icons\":3"));
+    DOCTEST_CHECK(Contains_(full, "\"morale_sprite\":16"));
+    // From Unification up the masks don't show.
+    g_players_[0].traits[TRAIT_CURRENT_GOVERNMENT] = GOVERNMENT_UNIFICATION;
+    DOCTEST_CHECK(Contains_(Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"system\",\"star\":0}"), "\"morale_icons\":0"));
+    MOX::leaders = saved_leaders;
+    Tear_Down_Galaxy_();
+}
+
+DOCTEST_TEST_CASE("the designs query lists the player's design slots (WP3.3f)") {
+    Set_Up_Galaxy_();
+    static char hull_name[] = "Cruiser";
+    TECHDATA::hull_data[SHIP_SIZE_LARGE].name = hull_name;
+    g_players_[0].color = 2;
+    for (auto& design : g_players_[0].ship_designs) {
+        design = s_ship_design{};
+    }
+    snprintf(g_players_[0].ship_designs[2].name, sizeof(g_players_[0].ship_designs[2].name), "Corvette VII");
+    g_players_[0].ship_designs[2].size = SHIP_SIZE_LARGE;
+    g_players_[0].ship_designs[2].picture_num = 5;
+    g_players_[0].ship_designs[2].cost = 529;
+    const std::string designs = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"designs\"}");
+    DOCTEST_CHECK(Contains_(designs, "\"designs\":[{\"slot\":2,\"name\":\"Corvette VII\",\"hull\":2,\"hull_name\":\"Cruiser\",\"picture\":105,\"cost\":529}]"));
     Tear_Down_Galaxy_();
 }

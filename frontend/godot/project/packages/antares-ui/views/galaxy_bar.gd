@@ -1,39 +1,78 @@
 extends PanelContainer
-## The native galaxy's controls (WP3.1b): the turn button, the empire line and launchers for the
-## screens that are still legacy. Each button is a command to the game thread. The empire line
-## shows what the legacy side bar shows (WP3.3d): treasury and income (its menu sets the tax rate,
-## as the side bar's money box does), command points, food, freighters and the research box
-## (click: research).
+## The galaxy's top bar (WP3.1b, WP3.3d; laid out for the design pass, WP3.3f): Game, the stardate
+## and the empire's figures as the legacy side bar shows them, each with the game's own icon, and
+## Turn at the end. Game drops the game menu down from the bar (game_menu). The treasury opens the
+## tax rates when the pointer rests on it (a click pins the menu, as any menu button), as the side
+## bar's money box opens the tax popup; command points open their breakdown, research opens research. The screen launchers are the tabs
+## on the right edge (side_tabs).
 
 signal command(dict: Dictionary)
+signal action(name: String)
 
 const WARNING_COLOR := Color(1.0, 0.45, 0.35)
+## How long the tax menu stays open after the pointer leaves the treasury and the menu.
+const HOVER_CLOSE := 0.4
 
-@onready var date_label: Label = $Rows/Empire/Date
-@onready var money: MenuButton = $Rows/Empire/Money
-@onready var command_label: Label = $Rows/Empire/Command
-@onready var food_label: Label = $Rows/Empire/Food
-@onready var freighters_label: Label = $Rows/Empire/Freighters
-@onready var research: Button = $Rows/Empire/Research
+@onready var date_label: Label = $Row/Date
+@onready var money: MenuButton = $Row/Money
+@onready var command_label: Button = $Row/Command
+@onready var food_label: Label = $Row/Food
+@onready var freighters_label: Label = $Row/Freighters
+@onready var research: Button = $Row/Research
+@onready var game_button: Button = $Row/Game
+
+var art: Node:
+	set(value):
+		art = value
+		preload("sprite_rect.gd").bind_all(self, art)
+
+var _hover_opened := false
+var _away := 0.0
 
 
 func _ready() -> void:
-	for button: Button in $Rows/Row/Screens.get_children():
-		var screen: int = button.get_meta("screen", -1)
-		button.pressed.connect(func(): command.emit({"verb": "open", "screen": screen}))
-	$Rows/Row/Turn.pressed.connect(func(): command.emit({"verb": "end_turn"}))
-	# The legacy side bar's money box opens the tax rate popup (WP3.3d): here, its menu.
+	game_button.pressed.connect(func(): action.emit("game_menu"))
+	$Row/Turn.pressed.connect(func(): command.emit({"verb": "end_turn"}))
 	money.get_popup().id_pressed.connect(func(rate: int):
 		command.emit({"verb": "set_tax_rate", "rate": rate}))
-	# The legacy side bar's research box opens research.
+	money.mouse_entered.connect(_open_on_hover)
+	money.pressed.connect(func(): _hover_opened = false) # a click pins it
 	research.pressed.connect(func(): command.emit({"verb": "open", "screen": int(research.get_meta("screen"))}))
-	# The legacy galaxy's letter keys (WP3.3a), shown in each button's tooltip.
+	command_label.pressed.connect(func(): command.emit({"verb": "open", "screen": int(command_label.get_meta("screen"))}))
 	for button: Button in find_children("*", "Button", true, false):
 		if button.has_meta("key"):
 			var key := InputEventKey.new()
 			key.keycode = OS.find_keycode_from_string(String(button.get_meta("key")))
 			button.shortcut = Shortcut.new()
 			button.shortcut.events = [key]
+
+
+func _open_on_hover() -> void:
+	var popup := money.get_popup()
+	if popup.visible:
+		return
+	money.show_popup()
+	_hover_opened = true
+	_away = 0.0
+
+
+## A menu opened by hovering closes once the pointer has left the treasury and the menu a moment.
+func _process(delta: float) -> void:
+	var popup := money.get_popup()
+	if not _hover_opened or not popup.visible:
+		_hover_opened = false
+		return
+	var mouse := get_viewport().get_mouse_position()
+	var over := money.get_global_rect().has_point(mouse) or Rect2(Vector2(popup.position), Vector2(popup.size)).grow(6.0).has_point(mouse)
+	_away = 0.0 if over else _away + delta
+	if _away > HOVER_CLOSE:
+		popup.hide()
+		_hover_opened = false
+
+
+## Lights Game while its menu is down.
+func show_game_menu(open: bool) -> void:
+	game_button.set_pressed_no_signal(open)
 
 
 ## The `empire` snapshot: what the legacy side bar shows (WP3.3d).
@@ -49,7 +88,7 @@ func show_empire(empire: Dictionary) -> void:
 	var spare := int(empire.command_points) - int(empire.command_points_used)
 	command_label.text = "Command %s (%d)" % [_signed(spare), int(empire.command_points)]
 	_warn(command_label, spare < 0)
-	food_label.text = "Food %s" % _signed(int(empire.surplus_food))
+	food_label.text = _signed(int(empire.surplus_food))
 	_warn(food_label, int(empire.surplus_food) < 0)
 	freighters_label.text = "Freighters %s (%d)" % [_signed(int(empire.surplus_freighters)), int(empire.freighters)]
 	_warn(freighters_label, int(empire.surplus_freighters) < 0)
@@ -74,9 +113,11 @@ func _research_text(box: Dictionary) -> String:
 
 func _warn(control: Control, on: bool) -> void:
 	if on:
-		control.add_theme_color_override("font_color", WARNING_COLOR)
+		for color in ["font_color", "font_hover_color", "font_pressed_color"]:
+			control.add_theme_color_override(color, WARNING_COLOR)
 	else:
-		control.remove_theme_color_override("font_color")
+		for color in ["font_color", "font_hover_color", "font_pressed_color"]:
+			control.remove_theme_color_override(color)
 
 
 static func _signed(value: int) -> String:

@@ -13,6 +13,9 @@ namespace MOX {
     int16_t return_screen;
     int16_t screen_data;
     int16_t temp_star_handle;
+    uint8_t first_design_screen_call;
+    uint8_t refit_ship;
+    uint16_t disallow_saves_code;
     int8_t officer_scrn_type;
     uint8_t auto_turn_exit;
     uint16_t global_exit_field;
@@ -135,7 +138,31 @@ namespace SAVEGAME {
 
 namespace GENDRAW {
     void __cdecl Message_Box(const char*) {}
+    int16_t __cdecl Do_Confirmation_Box(const char*) {
+        return 0; // the game menu's questions (leave_game): No
+    }
 } // namespace GENDRAW
+
+namespace LOADSAVE {
+    uint8_t antares_direct_page;
+    void __cdecl Save_Session_Related_Settings() {}
+} // namespace LOADSAVE
+
+namespace FILEDEF {
+    void __cdecl Save_Game(int16_t) {}
+} // namespace FILEDEF
+
+namespace ERIC {
+    void __cdecl Fast_Fade_Out() {}
+} // namespace ERIC
+
+namespace NETMOX {
+    void __cdecl Human_Abdicates(int) {}
+} // namespace NETMOX
+
+namespace netcode {
+    void __cdecl Net_Uninit() {}
+} // namespace netcode
 
 namespace SYS {
     void __cdecl Clear_System_Display_Loaded_Flag() {}

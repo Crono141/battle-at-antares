@@ -258,17 +258,13 @@ namespace antares::native {
         }
 
         // What Main_Screen does on entry that isn't drawing (mainscr_main.cpp, Main_Screen): star
-        // owners and fleet icons for the map, the fade flags the next screens read, and the message about a
-        // loaded save's packages, which becomes a request.
+        // owners and fleet icons for the map and the fade flags the next screens read. The message
+        // about a loaded save's packages comes once the galaxy is native (Run_Screen).
         void Enter_Galaxy() {
             MAINSCR::Update_Star_Owners();
             // The fleet icons, as Main_Screen builds them on entry: Fleets reuses them.
             SHIPS::Build_Ship_Icons();
             SHIPS::Set_Ship_Icon_XYs();
-            const std::string message = SAVEGAME::Consume_Loaded_Config_Message();
-            if (!message.empty()) {
-                GENDRAW::Message_Box(message.c_str()); // a "message" request when claimed
-            }
             MAINSCR2::main_screen_fade_in_flag = 1;
             MOX::at_least_one_tactical_combat = 0;
             // The galaxy palette, as Main_Screen loads it on entry: the popups that open over the
@@ -520,6 +516,10 @@ namespace antares::native {
         }
     }
 
+    bool Galaxy_Will_Be_Native() {
+        return Frontend() && Claimed(SCREEN_MAIN) && Native_Allowed(SCREEN_MAIN);
+    }
+
     bool Run_Screen(int16_t screen) {
         if (!Frontend()) {
             return false;
@@ -535,6 +535,11 @@ namespace antares::native {
         ++s_native_visit;
         s_native_screen = screen;
         Refresh_Snapshots(screen);
+        // As Main_Screen on entry, the message about a loaded save's packages, but once the native
+        // galaxy is up and has had its first commands (its watches and art) for a moment: asked at
+        // once, it showed over the last legacy frame and then an empty map (owner, 2026-11-11).
+        std::string entry_message = screen == SCREEN_MAIN ? SAVEGAME::Consume_Loaded_Config_Message() : std::string();
+        constexpr uint32_t k_entry_message_ticks = 100; // about half a second
         uint32_t ticks = 0;
         // Commands that arrived for an earlier native screen still run: they were sent while the
         // frontend showed a native view, and each checks the screen it needs.
@@ -567,6 +572,11 @@ namespace antares::native {
                 if (MOX::current_screen == screen) {
                     Refresh_Snapshots(screen);
                 }
+            }
+            if (!entry_message.empty() && ticks >= k_entry_message_ticks && MOX::current_screen == screen) {
+                const std::string message = std::move(entry_message);
+                entry_message.clear();
+                GENDRAW::Message_Box(message.c_str()); // a "message" request when claimed
             }
         }
         if (screen == SCREEN_MAIN) {

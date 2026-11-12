@@ -17,6 +17,7 @@ namespace LOADSAVE {
 
     s_game_popup_fields* game_popup_fields;
     uint8_t loaded_new_game;
+    uint8_t antares_direct_page;
     uint8_t loaded_debug_save;
 
     void __cdecl Allocate_Data_Space_For_Game_Popup() {
@@ -1489,7 +1490,11 @@ namespace LOADSAVE {
                 case 2: Do_Load_Game_Popup(&exit_condition); break;
                 case 3: Do_Save_Game_Popup(&exit_condition); break;
             }
+            if (antares_direct_page != 0 && MOX::screen_data == 0) {
+                exit_condition = 1; // Antares (WP3.3f): back to the galaxy, not the main page
+            }
         } while (exit_condition == 0);
+        antares_direct_page = 0;
 
         if (loaded_debug_save == 0) {
             Update_Game_Settings();

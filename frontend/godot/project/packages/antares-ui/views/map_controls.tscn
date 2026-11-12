@@ -2,110 +2,72 @@
 
 [ext_resource type="Script" path="res://packages/antares-ui/views/map_controls.gd" id="1"]
 
-[node name="MapControls" type="PanelContainer"]
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -196.0
-offset_top = 48.0
-offset_right = -12.0
-offset_bottom = 60.0
-grow_horizontal = 0
+[node name="MapControls" type="VBoxContainer"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -260.0
+offset_top = -84.0
+offset_right = 260.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+alignment = 2
+theme_override_constants/separation = 6
 script = ExtResource("1")
 
-[node name="Box" type="VBoxContainer" parent="."]
+[node name="Distances" type="Button" parent="."]
 layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="Zoom" type="HBoxContainer" parent="Box"]
-layout_mode = 2
-
-[node name="ZoomOut" type="Button" parent="Box/Zoom"]
-layout_mode = 2
-size_flags_horizontal = 3
-tooltip_text = "Zoom out"
+size_flags_horizontal = 4
+tooltip_text = "Distances between stars"
 focus_mode = 0
-text = "−"
-metadata/key = "Minus"
-metadata/action = "zoom_out"
+text = "  Distance  "
+metadata/key = "F9"
 
-[node name="ZoomIn" type="Button" parent="Box/Zoom"]
+[node name="Row" type="HBoxContainer" parent="."]
 layout_mode = 2
-size_flags_horizontal = 3
-tooltip_text = "Zoom in"
-focus_mode = 0
-text = "+"
-metadata/key = "Equal"
-metadata/action = "zoom_in"
+mouse_filter = 2
+alignment = 1
+theme_override_constants/separation = 4
 
-[node name="Colonies" type="HBoxContainer" parent="Box"]
+[node name="FleetPrevious" type="Button" parent="Row"]
+custom_minimum_size = Vector2(110, 0)
 layout_mode = 2
-
-[node name="Previous" type="Button" parent="Box/Colonies"]
-layout_mode = 2
-size_flags_horizontal = 3
-tooltip_text = "Previous colony system"
-focus_mode = 0
-text = "◀ Colony"
-metadata/key = "F6"
-metadata/action = "colony_previous"
-
-[node name="Next" type="Button" parent="Box/Colonies"]
-layout_mode = 2
-size_flags_horizontal = 3
-tooltip_text = "Next colony system"
-focus_mode = 0
-text = "Colony ▶"
-metadata/key = "F5"
-metadata/action = "colony_next"
-
-[node name="Fleets" type="HBoxContainer" parent="Box"]
-layout_mode = 2
-
-[node name="Previous" type="Button" parent="Box/Fleets"]
-layout_mode = 2
-size_flags_horizontal = 3
 tooltip_text = "Previous fleet"
 focus_mode = 0
 text = "◀ Fleet"
 metadata/key = "F1"
 metadata/action = "fleet_previous"
 
-[node name="Next" type="Button" parent="Box/Fleets"]
+[node name="ColonyPrevious" type="Button" parent="Row"]
+custom_minimum_size = Vector2(110, 0)
 layout_mode = 2
-size_flags_horizontal = 3
+tooltip_text = "Previous colony system"
+focus_mode = 0
+text = "◀ Colony"
+metadata/key = "F6"
+metadata/action = "colony_previous"
+
+[node name="Divider" type="VSeparator" parent="Row"]
+layout_mode = 2
+
+[node name="ColonyNext" type="Button" parent="Row"]
+custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
+tooltip_text = "Next colony system"
+focus_mode = 0
+text = "Colony ▶"
+metadata/key = "F5"
+metadata/action = "colony_next"
+
+[node name="FleetNext" type="Button" parent="Row"]
+custom_minimum_size = Vector2(110, 0)
+layout_mode = 2
 tooltip_text = "Next fleet"
 focus_mode = 0
 text = "Fleet ▶"
 metadata/key = "F2"
 metadata/action = "fleet_next"
-
-[node name="Relocations" type="Button" parent="Box"]
-layout_mode = 2
-tooltip_text = "Send all new ships to one star: press, then click the star (right click cancels)"
-focus_mode = 0
-text = "Merge relocations"
-metadata/key = "F4"
-metadata/action = "merge_relocations"
-
-[node name="Influence" type="Button" parent="Box"]
-layout_mode = 2
-tooltip_text = "Show empires' influence: off, filled, borders"
-focus_mode = 0
-text = "Influence: off"
-metadata/key = "Alt+V"
-metadata/action = "influence"
-
-[node name="Distances" type="Button" parent="Box"]
-layout_mode = 2
-tooltip_text = "Distances between stars"
-focus_mode = 0
-text = "Distances"
-metadata/key = "F9"
-
-[node name="Options" type="MenuButton" parent="Box"]
-layout_mode = 2
-tooltip_text = "Game options (Alt+F1 to Alt+F8)"
-focus_mode = 0
-text = "Options"
-flat = false

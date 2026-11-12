@@ -3,10 +3,13 @@ extends Node
 ## The host (res://main.gd) instances this scene when the package is enabled and sets `host`;
 ## everything not listed in `claimed_screens` and `claimed_requests` stays the legacy screen.
 ## The galaxy is the home view (WP3.3a): the game's own art, its stars, fleets and lines from
-## watched queries, and the star system panel. Fleets open the fleet panel (WP3.3c): selected
+## watched queries. A star opens the system pane on the left (WP3.3f): the camera flies to the
+## star and its planets fade in on the map; Back or Esc returns the map. The screen tabs on the
+## right open their screens, Ship Design and Options their flyouts from the right; Game on the bar
+## drops the game menu; fleets and colonies cycle from the bottom row. Fleets open the fleet panel (WP3.3c): selected
 ## ships preview their route on the hovered star and move on a star click. The bar (WP3.3d) shows
 ## the side bar's figures and sets the tax rate. Ctrl+G switches between these views and the
-## legacy ones, for comparing. Views load from views/ beside this scene, so another package's
+## legacy ones, for comparing (a developer key: its button is hidden, WP3.3f). Views load from views/ beside this scene, so another package's
 ## pack can replace any one of them by putting a file at the same path.
 
 ## The game's screens (SCREEN_* values, res://screens.gd) this package draws natively.
@@ -34,6 +37,20 @@ var _pending := {} # command id -> Callable(result)
 var _panel_star := -1 # the star whose system panel is open (reopened after legacy screens)
 var _fleet_ship := -1 # the first ship of the fleet whose panel is open (reopened likewise)
 var _hovered_star := -1
+var _opening_fleet := false # a fleet opens from the system pane: the map stays where it is
+var _race_id := -1
+## The camera's view of an open system: the legacy scale it flies to, and how much of the free
+## area the system's orbits take.
+const SYSTEM_VIEW_SCALE := 7.0
+const SYSTEM_VIEW_SHARE := 0.42
+## The native view comes in whole (owner, 2026-11-12: buttons popped in, the stars a moment
+## later): hidden until the map is placed with its star pictures and the empire's figures are in,
+## then faded in (0.25 s, owner). The wait is capped so a missing picture can't hold it back.
+const REVEAL_WAIT := 4.0
+const REVEAL_TIME := 0.25
+var _revealing := false
+var _revealed := false
+var _have_empire := false
 
 
 func _ready() -> void:
@@ -49,8 +66,12 @@ func _ready() -> void:
 	galaxy.fleet_clicked.connect(_open_fleet)
 	galaxy.star_hovered.connect(_on_star_hovered)
 	galaxy.right_clicked.connect(_end_relocating)
+	galaxy.planet_clicked.connect(_on_planet_clicked)
 	mode_button.pressed.connect(func(): _set_native(not native))
+	$UI/Bar.hide() # the owner's layout (WP3.3f): Ctrl+G stays, the button goes
 	overlay.hide()
+	for item: CanvasItem in _reveal_items():
+		item.modulate.a = 0.0
 	var args := OS.get_cmdline_user_args()
 	_set_native("--native" in args or (start_native and not "--smoke" in args))
 	if "--smoke" in args and "--native" in args:
@@ -107,25 +128,60 @@ func _on_native_screen(screen: int) -> void:
 	bar.visible = screen == Screens.MAIN
 	var controls := _view("map_controls")
 	controls.visible = screen == Screens.MAIN
+	_view("side_tabs").visible = screen == Screens.MAIN
+	var options := _view("options_menu")
+	options.keys_active = screen == Screens.MAIN
+	var game_menu := _view("game_menu")
 	var points := _view("command_points")
 	points.visible = screen == Screens.SHOW_COMMAND_POINTS
-	var system_panel := _view("system_panel")
+	var system_pane := _view("system_pane")
+	var design_list := _view("design_list")
 	var fleet_panel := _view("fleet_panel")
 	if screen == Screens.MAIN:
+		if not _revealed and not _revealing:
+			_reveal()
 		galaxy.camera.make_current()
 		_send({"verb": "query", "what": "view"}, galaxy.place_view)
 		if _panel_star >= 0:
-			_open_system(_panel_star) # refreshed: a colony screen may have changed it
+			_open_system(_panel_star, false) # refreshed: a colony screen may have changed it
+		if design_list.get_meta("was_open", false):
+			design_list.set_meta("was_open", false)
+			design_list.open()
 		if _fleet_ship >= 0:
 			_refresh_fleet()
 	else:
-		system_panel.hide()
+		system_pane.hide() # hidden, not closed: it comes back with the galaxy
+		design_list.set_meta("was_open", design_list.visible or design_list.get_meta("was_open", false))
+		design_list.hide()
+		if options.visible:
+			options.close()
+		if game_menu.visible:
+			game_menu.hide()
+			game_menu.closed.emit()
 		fleet_panel.hide()
 		_end_relocating()
 		if screen == Screens.SHOW_COMMAND_POINTS:
 			_send({"verb": "query", "what": "command_points"}, points.show_result)
 	if screen == Screens.LEGACY:
 		game.grab_focus()
+
+
+## What fades in together: the starfield, the map and the panels.
+func _reveal_items() -> Array[CanvasItem]:
+	return [$Backdrop/Starfield, galaxy, native_layer]
+
+
+func _reveal() -> void:
+	_revealing = true
+	var waited := 0.0
+	while waited < REVEAL_WAIT and not (galaxy.ready_to_show() and _have_empire):
+		await get_tree().create_timer(0.05).timeout
+		waited += 0.05
+	var tween := create_tween().set_parallel()
+	for item: CanvasItem in _reveal_items():
+		tween.tween_property(item, "modulate:a", 1.0, REVEAL_TIME)
+	_revealed = true
+	_revealing = false
 
 
 func _views_dir() -> String:
@@ -147,7 +203,9 @@ func _view(scene_name: String) -> Control:
 		if view.has_signal("action"):
 			view.action.connect(_on_view_action)
 		if view.has_signal("fleet_chosen"):
-			view.fleet_chosen.connect(_open_fleet)
+			view.fleet_chosen.connect(_open_fleet_from_pane)
+		if view.has_signal("planet_selected"):
+			view.planet_selected.connect(_on_pane_planet)
 		if view.has_signal("selection_changed"):
 			view.selection_changed.connect(func(): _on_star_hovered(_hovered_star))
 		native_layer.add_child(view)
@@ -168,19 +226,38 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 
 ## The map controls' view-only actions.
 func _on_view_action(action_name: String) -> void:
-	var center := get_viewport().get_visible_rect().size * 0.5
 	match action_name:
-		"zoom_in":
-			galaxy.zoom_by(1.5, center)
-		"zoom_out":
-			galaxy.zoom_by(1.0 / 1.5, center)
 		"colony_next", "colony_previous":
 			_send({"verb": "cycle_colony_star", "dir": 0 if action_name == "colony_next" else 1}, _on_star_selected)
 		"influence":
 			$Galaxy/Influence.cycle()
-			_view("map_controls").show_influence(galaxy.influence_mode)
+			_view("options_menu").show_influence(galaxy.influence_mode)
 		"fleet_next", "fleet_previous":
 			_cycle_fleet(0 if action_name == "fleet_next" else 1)
+		"designs":
+			var designs := _view("design_list")
+			if designs.visible:
+				designs.close()
+			else:
+				_view("options_menu").close()
+				designs.open()
+				_view("side_tabs").show_open("designs", true)
+		"options":
+			var options := _view("options_menu")
+			if options.visible:
+				options.close()
+			else:
+				_view("design_list").close()
+				options.open()
+				_view("side_tabs").show_open("options", true)
+		"game_menu":
+			var game_menu := _view("game_menu")
+			if game_menu.visible:
+				game_menu.close()
+			else:
+				var bar := _view("galaxy_bar")
+				game_menu.open_at(bar.game_button.get_global_rect().position.x)
+				bar.show_game_menu(true)
 		"merge_relocations":
 			if galaxy.relocating:
 				_end_relocating()
@@ -192,10 +269,19 @@ func _on_view_action(action_name: String) -> void:
 
 
 func _on_view_closed(scene_name: String) -> void:
-	if scene_name == "system_panel":
+	if scene_name == "system_pane":
 		_panel_star = -1
 		galaxy.selected = -1
+		galaxy.hide_system()
+		if not _opening_fleet:
+			galaxy.fly_back()
 		galaxy.redraw()
+	elif scene_name == "design_list":
+		_view("side_tabs").show_open("designs", false)
+	elif scene_name == "options_menu":
+		_view("side_tabs").show_open("options", false)
+	elif scene_name == "game_menu":
+		_view("galaxy_bar").show_game_menu(false)
 	elif scene_name == "fleet_panel":
 		_fleet_ship = -1
 		galaxy.selected_fleet = -1
@@ -223,6 +309,9 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 	match snapshot_name:
 		"empire":
 			_view("galaxy_bar").show_empire(result)
+			_have_empire = _have_empire or result.get("ok", false)
+			_race_id = int(result.get("race_id", -1))
+			_view("system_pane").race_id = _race_id
 		"galaxy":
 			galaxy.set_galaxy(result)
 		"fleets":
@@ -230,7 +319,7 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 			if _fleet_ship >= 0 and native_screen == Screens.MAIN:
 				_refresh_fleet() # a turn, or an order, changed the fleets
 		"options":
-			_view("map_controls").show_options(result)
+			_view("options_menu").show_options(result)
 
 
 func _on_request(id: int, kind: String, request: Dictionary) -> void:
@@ -274,22 +363,50 @@ func _on_star_selected(result: Dictionary) -> void:
 		_view("fleet_panel").dismiss() # the game closed the fleet box for the system box
 	if result.get("ok", false) and result.get("opened", "") == "system":
 		_open_system(int(result.star))
-		if not galaxy.get_viewport_rect().has_point(galaxy.get_global_transform_with_canvas() * galaxy.star_position(int(result.star))):
-			galaxy.focus(int(result.star))
 
 
-func _open_system(star_id: int) -> void:
+## Opens (or refreshes) a star's system pane; `fly` sends the camera to the star, with its planets
+## filling a share of the area right of the pane.
+func _open_system(star_id: int, fly := true) -> void:
 	_send({"verb": "query", "what": "system", "star": star_id}, func(result: Dictionary):
 		if not result.get("ok", false) or native_screen != Screens.MAIN:
 			return
 		_panel_star = star_id
 		galaxy.selected = star_id
+		var pane := _view("system_pane")
+		if fly or galaxy.system_star != star_id:
+			var view := get_viewport().get_visible_rect().size
+			var left := 360.0
+			var right := view.x - 240.0
+			if right - left < view.x * 0.3: # a small window: the panes cover most of it
+				left = 0.0
+				right = view.x
+			var zoom: float = galaxy.zoom_for_scale(SYSTEM_VIEW_SCALE)
+			galaxy.system_scale = SYSTEM_VIEW_SHARE * (right - left) / (288.0 * zoom)
+			galaxy.fly_to(galaxy.star_position(star_id), zoom, Vector2((left + right) * 0.5, view.y * 0.5))
+		galaxy.show_system(star_id, result)
 		galaxy.redraw()
-		var system_panel := _view("system_panel")
-		var was_visible := system_panel.visible
-		system_panel.show_system(result, galaxy.legacy_pixel() * 0.85)
-		if not was_visible:
-			_place_panel(system_panel, star_id))
+		pane.race_id = _race_id
+		pane.show_system(result, String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")"), star_id))
+
+
+## A planet clicked on the map: selected here and in the pane.
+func _on_planet_clicked(planet_id: int) -> void:
+	galaxy.selected_planet = planet_id
+	galaxy.redraw()
+	_view("system_pane").select_planet(planet_id)
+
+
+func _on_pane_planet(planet_id: int) -> void:
+	galaxy.selected_planet = planet_id
+	galaxy.redraw()
+
+
+## A fleet from the system pane: the game closes the system box for the fleet box, and the map
+## stays at the system.
+func _open_fleet_from_pane(ship_id: int) -> void:
+	_opening_fleet = true
+	_open_fleet(ship_id)
 
 
 ## Opens a fleet's panel (a map icon, the system panel's fleets, F1/F2): the game keeps the
@@ -298,7 +415,8 @@ func _open_fleet(ship_id: int) -> void:
 	_send({"verb": "open_fleet", "fleet": ship_id}, func(opened: Dictionary):
 		if not opened.get("ok", false):
 			return
-		_view("system_panel").dismiss()
+		_view("system_pane").dismiss()
+		_opening_fleet = false
 		_send({"verb": "query", "what": "fleet", "ship": int(opened.ship)}, func(result: Dictionary):
 			if not result.get("ok", false) or native_screen != Screens.MAIN:
 				return
@@ -335,12 +453,13 @@ func _cycle_fleet(dir: int) -> void:
 		for fleet: Dictionary in galaxy.fleets:
 			if int(fleet.owner) == int(galaxy.data.get("player", -1)):
 				_open_fleet(int(fleet.ship))
+				galaxy.glide_to(_fleet_position(int(fleet.ship)))
 				return
 		return
 	_send({"verb": "query", "what": "next_fleet", "fleet": from, "dir": dir}, func(result: Dictionary):
 		if result.get("ok", false) and int(result.ship) >= 0:
 			_open_fleet(int(result.ship))
-			galaxy.focus_point(_fleet_position(int(result.ship))))
+			galaxy.glide_to(_fleet_position(int(result.ship))))
 
 
 func _fleet_position(ship_id: int) -> Vector2:
@@ -384,16 +503,6 @@ func _place_fleet_panel(fleet_panel: Control, world: Vector2) -> void:
 	fleet_panel.position = Vector2(x, y)
 
 
-## Beside the star, on the side of the window away from it (the legacy box takes the quadrant away
-## from the star).
-func _place_panel(system_panel: Control, star_id: int) -> void:
-	var view := get_viewport().get_visible_rect().size
-	var star_screen: Vector2 = galaxy.get_global_transform_with_canvas() * galaxy.star_position(star_id)
-	var x := view.x - system_panel.size.x - 24.0 if star_screen.x < view.x * 0.5 else 24.0
-	var y := clampf(star_screen.y - system_panel.size.y * 0.5, 56.0, view.y - system_panel.size.y - 80.0)
-	system_panel.position = Vector2(x, y)
-
-
 ## Headless check of the native bridge (`-- --smoke --native`): the save opens in the native
 ## galaxy, the empire query answers, command points open natively and close, a turn ends by
 ## command and the legacy next-turn screens run until the native galaxy comes back.
@@ -407,6 +516,11 @@ func _smoke_native() -> void:
 		await host.smoke_fail("never reached the native galaxy")
 		return
 	print("smoke: native galaxy after %.1f s, frontend %s, packs %s" % [(Time.get_ticks_msec() - t0) / 1000.0, host.frontend_id, host.loaded_packs])
+	# The loaded save's message comes over the native galaxy a moment after it opens.
+	for i in 30:
+		await get_tree().create_timer(0.1).timeout
+		if _smoke_answer():
+			break
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--flash="):
 			await _smoke_flash(arg.substr(8))
@@ -502,6 +616,16 @@ func _smoke_native() -> void:
 			return
 		empire = await _query("empire")
 		print("smoke: after turn %d (%.0f s): %s" % [turn + 1, waited, empire])
+	if "--quit-by-menu" in OS.get_cmdline_user_args():
+		# The game menu's Quit (WP3.3f): the game's question, answered Yes natively, then it quits.
+		_view("game_menu").get_node("Box/Quit").pressed.emit()
+		for i in 50:
+			await get_tree().create_timer(0.2).timeout
+			if _smoke_answer():
+				print("smoke: quit asked and answered Yes")
+		print("smoke: the game menu's Quit did not end the game")
+		get_tree().quit()
+		return
 	game.request_game_quit()
 	print("smoke: asked the game to quit")
 	await get_tree().create_timer(15.0).timeout
@@ -543,6 +667,17 @@ func _smoke_galaxy(shots: String) -> bool:
 	if star < 0:
 		await host.smoke_fail("no colony star")
 		return false
+	# Prefer one with a governor, to see the portrait (WP3.3f).
+	for s: Dictionary in galaxy.stars:
+		if int(s.owner) != int(galaxy.data.player) or not s.visited:
+			continue
+		var box := {}
+		_send({"verb": "query", "what": "system", "star": int(s.id)}, func(result: Dictionary): box["r"] = result)
+		while not box.has("r"):
+			await get_tree().process_frame
+		if box.r.has("governor"):
+			star = int(s.id)
+			break
 	galaxy.focus(star)
 	galaxy.zoom_by(3.0, get_viewport().get_visible_rect().size * 0.5)
 	_on_view_action("influence")
@@ -550,42 +685,129 @@ func _smoke_galaxy(shots: String) -> bool:
 	if shots != "":
 		await host.shot(shots + "/native-galaxy-zoomed.png")
 	_on_star_clicked(star)
-	var system_panel := _view("system_panel")
+	var pane := _view("system_pane")
 	waited = 0.0
-	while not system_panel.visible and waited < 5.0:
+	while not pane.visible and waited < 5.0:
 		await get_tree().create_timer(0.1).timeout
 		waited += 0.1
-	if not system_panel.visible:
-		await host.smoke_fail("star %d did not open its system panel" % star)
+	if not pane.visible:
+		await host.smoke_fail("star %d did not open its system pane" % star)
 		return false
-	print("smoke: system panel '%s', %d planets, %d fleets" % [system_panel.title.text,
-		system_panel.system.get("planets", []).size(), system_panel.system.get("fleets", []).size()])
-	await get_tree().create_timer(1.5).timeout
-	# Hover the first planet with a picture, then right-click it for its colony information.
-	for planet: Dictionary in system_panel.system.get("planets", []):
-		if int(planet.sprite) >= 0 and planet.type != "gas_giant":
-			var u: float = system_panel._unit()
-			var at: Vector2 = (Vector2(float(planet.box_x), float(planet.box_y)) + Vector2.ONE * float(planet.dimension) * 0.5) * u
-			system_panel._set_hover(system_panel._hit(at))
-			print("smoke: hover '%s'" % system_panel.info_text.text.replace("\n", " | "))
-			_send({"verb": "query", "what": "potential_colony", "planet": int(planet.planet)}, system_panel.show_potential)
-			break
-	await get_tree().create_timer(1.0).timeout
-	print("smoke: colony info '%s'" % system_panel.info_text.text.replace("\n", " | "))
+	await get_tree().create_timer(1.5).timeout # the flight, the fade and the art
+	var governor: Dictionary = pane.system.get("governor", {})
+	print("smoke: system pane '%s', %d planets, %d fleets, governor '%s', camera at scale %.1f, orbits alpha %.2f" % [
+		pane.star_name.text, pane.system.get("planets", []).size(), pane.system.get("fleets", []).size(),
+		governor.get("name", ""), galaxy.legacy_scale(), $Galaxy/Orbits.modulate.a])
+	# Select each colonisable planet in turn (as a map click does); its potential arrives.
+	for planet: Dictionary in pane.system.get("planets", []):
+		if planet.type != "gas_giant":
+			_on_planet_clicked(int(planet.planet))
+			await get_tree().create_timer(0.5).timeout
+			var colony: Dictionary = planet.get("colony", {})
+			print("smoke: planet '%s' (%s %s %s): potential %s, colony %s" % [planet.get("name", ""),
+				planet.get("size_name", ""), planet.get("climate_name", ""), planet.get("minerals_name", ""),
+				pane._potential.get(int(planet.planet), {}).get("max_population", "?"),
+				{} if colony.is_empty() else {"pop": colony.population, "morale": colony.get("morale", "-"), "government": colony.get("government", "-")}])
+	if pane._potential.is_empty():
+		await host.smoke_fail("no colony potential arrived in the pane")
+		return false
 	if shots != "":
-		await host.shot(shots + "/native-system-panel.png")
-	system_panel.close()
+		await host.shot(shots + "/native-system-pane.png")
+	# The governor opens the colony leaders on this system (legacy); Esc comes back to the pane.
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	pane.governor.gui_input.emit(click)
+	if not await _wait_screen(Screens.LEGACY, 10.0):
+		await host.smoke_fail("the governor did not open the leaders")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	if shots != "":
+		game.get_frame_image().save_png(shots + "/legacy-leaders.png")
+	game.send_key(KEY_ESCAPE, false, false, false)
+	if not await _wait_screen(Screens.MAIN, 10.0):
+		await host.smoke_fail("the leaders did not return to the galaxy")
+		return false
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: leaders opened from the governor and closed; pane back: %s" % pane.visible)
+	pane.close()
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: pane closed, camera back at scale %.1f" % galaxy.legacy_scale())
 	_on_view_action("influence")
 	_on_view_action("influence")
-	# F5: the next colony system; with auto-select colony off it opens the panel.
+	# F5: the next colony system; with auto-select colony off it opens the pane.
 	var before: int = galaxy.selected
 	var key := InputEventKey.new()
 	key.keycode = KEY_F5
 	key.pressed = true
 	Input.parse_input_event(key)
 	await get_tree().create_timer(1.0).timeout
-	print("smoke: F5 from %d: panel %s, star %d, screen %d" % [before, system_panel.visible, galaxy.selected, native_screen])
-	system_panel.close()
+	print("smoke: F5 from %d: pane %s, star %d, screen %d" % [before, pane.visible, galaxy.selected, native_screen])
+	pane.close()
+	await get_tree().create_timer(1.0).timeout
+	# Ship Design: the tab slides the design list out from the right.
+	_on_view_action("designs")
+	var designs := _view("design_list")
+	waited = 0.0
+	while designs.rows.get_child_count() == 0 and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: ship designs: %s" % ", ".join(designs.rows.get_children().map(
+		func(row: Control) -> String: return row.find_children("*", "Label", true, false)[0].text)))
+	if designs.rows.get_child_count() == 0:
+		await host.smoke_fail("the design list stayed empty")
+		return false
+	if shots != "":
+		await host.shot(shots + "/native-designs.png")
+	# Edit opens the game's designer on that slot; Cancel (Esc) comes back to the galaxy and the list.
+	var edit: Button = designs.rows.get_child(0).find_children("*", "Button", true, false)[0]
+	edit.pressed.emit()
+	if not await _wait_screen(Screens.LEGACY, 10.0):
+		await host.smoke_fail("Edit did not open the designer")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	if shots != "":
+		game.get_frame_image().save_png(shots + "/legacy-designer.png")
+	game.send_key(KEY_ESCAPE, false, false, false)
+	if not await _wait_screen(Screens.MAIN, 10.0):
+		await host.smoke_fail("the designer did not return to the galaxy")
+		return false
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: designer opened and cancelled; design list back: %s" % designs.visible)
+	designs.close()
+	await get_tree().create_timer(0.5).timeout
+	# Options (WP3.3f): its tab slides out influence, merge relocations and the game options.
+	_on_view_action("options")
+	var options := _view("options_menu")
+	await get_tree().create_timer(0.8).timeout
+	print("smoke: options flyout %s: '%s', %d game options" % [options.visible, options.influence_button.text, options.options_box.get_child_count()])
+	if shots != "":
+		await host.shot(shots + "/native-options.png")
+	if not options.visible or options.options_box.get_child_count() == 0:
+		await host.smoke_fail("the options flyout did not open with the game options")
+		return false
+	_on_view_action("options")
+	# The game menu drops from the bar; Settings opens that page and Esc comes straight back.
+	_on_view_action("game_menu")
+	var game_menu := _view("game_menu")
+	await get_tree().create_timer(0.6).timeout
+	if shots != "":
+		await host.shot(shots + "/native-game-menu.png")
+	print("smoke: game menu %s at %s" % [game_menu.visible, game_menu.position])
+	game_menu.get_node("Box/Settings").pressed.emit()
+	if not await _wait_screen(Screens.LEGACY, 10.0):
+		await host.smoke_fail("Settings did not open")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	if shots != "":
+		game.get_frame_image().save_png(shots + "/legacy-settings.png")
+	game.send_key(KEY_ESCAPE, false, false, false)
+	if not await _wait_screen(Screens.MAIN, 10.0):
+		await host.smoke_fail("Settings did not return to the galaxy")
+		return false
+	print("smoke: settings opened and closed straight back to the galaxy; menu %s" % game_menu.visible)
+	await get_tree().create_timer(0.5).timeout
 	if not await _smoke_fleet(shots):
 		return false
 	galaxy._view_placed = false

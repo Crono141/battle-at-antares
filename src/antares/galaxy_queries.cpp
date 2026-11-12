@@ -36,6 +36,12 @@ namespace antares::commands::internal {
         constexpr int32_t k_box_planet_y = 0x2F + 0x58;
         constexpr int32_t k_portal_icon = 21; // the system box's gate icons
         constexpr int32_t k_artemis_icon = 33;
+        // OFFICER.LBX: colony leaders' portraits (OFFICER::Load_Officer_Picture, picture type 1).
+        constexpr int32_t k_officer_portraits = 0xD2;
+        // COLONY2.LBX: government icons (+ government) and morale masks (COLONY::Govt_Anim, C_Anims).
+        constexpr int32_t k_government_icons = 0x13;
+        constexpr int32_t k_morale_happy = 0x10;
+        constexpr int32_t k_morale_unhappy = 0x11;
         // STARBG.LBX
         constexpr int32_t k_nebula_pictures = 6; // + type * 4 + zoom level
 
@@ -457,6 +463,18 @@ namespace antares::commands::internal {
             }
             out.Str("view", "full");
             out.Str("title", Message_With(0x16a, data.name));
+            // The player's colony leader here (v3): the colony screen's officer
+            // (COLONY::Load_Officer_Anim; portrait OFFICER.LBX 0xD2 + pict_num).
+            const int8_t governor = MOX::star[star].officer_index[MOX::PLAYER_NUM];
+            if (governor >= 0 && governor < MAX_LEADERS && MOX::leaders != nullptr) {
+                const s_leader_data& leader = MOX::leaders[governor];
+                s_out g = out.Add_Object("governor");
+                g.Int("leader", governor);
+                g.Str("name", Utf8(leader.name, sizeof(leader.name)));
+                g.Str("title", Utf8(leader.title, sizeof(leader.title)));
+                g.Int("level", leader.level);
+                g.Int("portrait", k_officer_portraits + leader.pict_num);
+            }
             out.Int("ring_x", k_box_rings_x);
             out.Int("ring_y", k_box_rings_y);
             if (data.wormhole_star_id > -1) {
@@ -492,6 +510,18 @@ namespace antares::commands::internal {
                 item.Int("minerals", planet.mineral_class);
                 item.Int("special", planet.planet_special);
                 item.Int("max_population", COLCALC::Planet_Max_Population_For_Player(const_cast<s_planet_data*>(&planet), MOX::PLAYER_NUM));
+                // The box's words for them (v3; Planet_Lines has them as sentences).
+                if (planet.planet_type == PLANET_TYPE_PLANET) {
+                    item.Str("name", Utf8(HACCESS::Get_Planet_Name_No_Prime(planet_id), 80));
+                    item.Str("size_name", Utf8(MOX::planet_size_string[planet.size], 40));
+                    item.Str("climate_name", Utf8(MOX::planet_climate_string[climate], 40));
+                    item.Str("minerals_name", Utf8(MOX::mineral_class_string[planet.mineral_class], 40));
+                    if (planet.gravity_class != PLANET_GRAVITY_NORMAL_G) {
+                        item.Str("gravity_name", Utf8(MOX::planet_gravity_string[planet.gravity_class], 40));
+                    }
+                } else {
+                    item.Str("name", Message(planet.planet_type == PLANET_TYPE_GAS_GIANT ? 0x15f : 0x160));
+                }
                 // The rotating picture SYS::Get_Rotating_Planet_Segment picks.
                 int8_t size = planet.size;
                 if (size > PLANET_SIZE_LARGE) {
@@ -524,6 +554,17 @@ namespace antares::commands::internal {
                     c.Bool("outpost", colony->outpost_flag != 0);
                     c.Int("population", (uint8_t)colony->n_pops);
                     c.Bool("mine", colony->owner == MOX::PLAYER_NUM);
+                    if (colony->owner == MOX::PLAYER_NUM && colony->outpost_flag == 0) {
+                        // The colony screen's morale row (COLDRAW::Draw_Info_Morale_Both): the
+                        // government's icon, then morale / 2 masks, none from Unification up.
+                        const int8_t government = MOX::player[MOX::PLAYER_NUM].traits[TRAIT_CURRENT_GOVERNMENT];
+                        const int16_t masks = government >= GOVERNMENT_UNIFICATION ? 0 : (int16_t)((int8_t)colony->morale / 2);
+                        c.Int("government", government);
+                        c.Int("government_sprite", k_government_icons + government);
+                        c.Int("morale", (int8_t)colony->morale);
+                        c.Int("morale_icons", masks);
+                        c.Int("morale_sprite", masks >= 0 ? k_morale_happy : k_morale_unhappy);
+                    }
                 }
                 Planet_Lines(planet_id, show_buildings, item);
             }
@@ -567,6 +608,7 @@ namespace antares::commands::internal {
             const int16_t max_population = COLCALC::Planet_Max_Population_For_Player(planet, MOX::PLAYER_NUM);
             char food[16];
             COLCALC::Format_Food2((uint16_t)info.food, food, sizeof(food));
+            out.Int("planet", planet_id); // v2: which planet the answer is for
             out.Str("title", Message_With(0x178, HACCESS::Get_Planet_Name_No_Prime((int16_t)planet_id)));
             out.Int("max_population", max_population);
             out.Str("food_per_farmer", Utf8(food, sizeof(food)));
@@ -593,6 +635,30 @@ namespace antares::commands::internal {
                 line(Message(0x176), "--");
             } else {
                 line(Message(info.worker_bonus > 0 ? 0x18b : 0x18c), std::to_string(abs((int)info.worker_bonus)) + "%");
+            }
+        }
+
+        // The player's ship design slots (s_player::ship_designs; 0-4 are the build list's combat
+        // designs, 5 the Doom Star slot): what a design list shows, and the slot `open` takes.
+        void Query_Designs(int16_t, const s_args&, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            const s_player& player = MOX::player[MOX::PLAYER_NUM];
+            s_out list = out.Add_List("designs");
+            for (int16_t slot = 0; slot < 6; ++slot) {
+                const s_ship_design& design = player.ship_designs[slot];
+                if (design.name[0] == 0 || design.size < 0 || design.size > SHIP_SIZE_DOOM_STAR) {
+                    continue;
+                }
+                s_out item = list.Append_Object();
+                item.Int("slot", slot);
+                item.Str("name", Utf8(design.name, sizeof(design.name)));
+                item.Int("hull", design.size);
+                item.Str("hull_name", TECHDATA::hull_data[design.size].name);
+                // KEN::Do_Get_Ship_Picture_Seg: SHIPS.LBX, picture + the designer's colour * 50.
+                item.Int("picture", design.picture_num + player.color * 50);
+                item.Int("cost", design.cost);
             }
         }
 
@@ -760,8 +826,9 @@ namespace antares::commands::internal {
         table->push_back({"toggle_option", e_kind::command, galaxy, 0, "option: 0-7 (Alt+F1..F8), not 3", Toggle_Option});
         table->push_back({"galaxy", e_kind::query, ANY_SCREEN, 1, "", Query_Galaxy});
         table->push_back({"fleets", e_kind::query, ANY_SCREEN, 2, "", Query_Fleets});
-        table->push_back({"system", e_kind::query, ANY_SCREEN, 2, "star: star id", Query_System});
-        table->push_back({"potential_colony", e_kind::query, ANY_SCREEN, 1, "planet: planet id", Query_Potential_Colony});
+        table->push_back({"system", e_kind::query, ANY_SCREEN, 3, "star: star id", Query_System});
+        table->push_back({"designs", e_kind::query, ANY_SCREEN, 1, "", Query_Designs});
+        table->push_back({"potential_colony", e_kind::query, ANY_SCREEN, 2, "planet: planet id", Query_Potential_Colony});
         table->push_back({"options", e_kind::query, ANY_SCREEN, 1, "", Query_Options});
         table->push_back({"view", e_kind::query, ANY_SCREEN, 1, "", Query_View});
     }
