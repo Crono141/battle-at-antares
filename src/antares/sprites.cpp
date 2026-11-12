@@ -205,8 +205,16 @@ namespace antares::sprites {
         out->height = anim->height;
         uint32_t palette_rgb[256];
         Palette_For(bytes, size, palette_rgb);
-        // Galaxy art keeps the screen's palette (it is drawn there); other art its own, if declared.
-        if (lbx != "BUFFER0.LBX" && lbx != "STARBG.LBX") {
+        if (lbx == "BUFFER0.LBX" || lbx == "STARBG.LBX") {
+            // Galaxy art: the galaxy's palette (FONTS.LBX palette 0, all of it, as
+            // Fade_Into_Main_Screen loads it) under the entry's own, not whatever is loaded now:
+            // exported after a legacy screen, the upper entries were still that screen's
+            // (owner, 2026-11-12: nebulae came back from Colonies with green edges).
+            if (Game_Palette(0, palette_rgb)) {
+                Apply_Embedded_Palette(bytes, size, palette_rgb);
+            }
+        } else {
+            // Other art its own, if declared.
             Declared_Palette_Rgb(lbx, entry, palette_rgb);
         }
 
