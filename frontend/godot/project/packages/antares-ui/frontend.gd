@@ -5,10 +5,11 @@ extends Node
 ## The galaxy is the home view (WP3.3a): the game's own art, its stars, fleets and lines from
 ## watched queries. A star opens the system pane on the left (WP3.3f): the camera flies to the
 ## star and its planets fade in on the map; Back or Esc returns the map. The screen tabs on the
-## right open their screens, Ship Design its list from the right. Fleets open the fleet panel (WP3.3c): selected
+## right open their screens, Ship Design and Options their flyouts from the right; Game on the bar
+## drops the game menu; fleets and colonies cycle from the bottom row. Fleets open the fleet panel (WP3.3c): selected
 ## ships preview their route on the hovered star and move on a star click. The bar (WP3.3d) shows
 ## the side bar's figures and sets the tax rate. Ctrl+G switches between these views and the
-## legacy ones, for comparing. Views load from views/ beside this scene, so another package's
+## legacy ones, for comparing (a developer key: its button is hidden, WP3.3f). Views load from views/ beside this scene, so another package's
 ## pack can replace any one of them by putting a file at the same path.
 
 ## The game's screens (SCREEN_* values, res://screens.gd) this package draws natively.
@@ -59,6 +60,7 @@ func _ready() -> void:
 	galaxy.right_clicked.connect(_end_relocating)
 	galaxy.planet_clicked.connect(_on_planet_clicked)
 	mode_button.pressed.connect(func(): _set_native(not native))
+	$UI/Bar.hide() # the owner's layout (WP3.3f): Ctrl+G stays, the button goes
 	overlay.hide()
 	var args := OS.get_cmdline_user_args()
 	_set_native("--native" in args or (start_native and not "--smoke" in args))
@@ -117,6 +119,9 @@ func _on_native_screen(screen: int) -> void:
 	var controls := _view("map_controls")
 	controls.visible = screen == Screens.MAIN
 	_view("side_tabs").visible = screen == Screens.MAIN
+	var options := _view("options_menu")
+	options.keys_active = screen == Screens.MAIN
+	var game_menu := _view("game_menu")
 	var points := _view("command_points")
 	points.visible = screen == Screens.SHOW_COMMAND_POINTS
 	var system_pane := _view("system_pane")
@@ -136,6 +141,11 @@ func _on_native_screen(screen: int) -> void:
 		system_pane.hide() # hidden, not closed: it comes back with the galaxy
 		design_list.set_meta("was_open", design_list.visible or design_list.get_meta("was_open", false))
 		design_list.hide()
+		if options.visible:
+			options.close()
+		if game_menu.visible:
+			game_menu.hide()
+			game_menu.closed.emit()
 		fleet_panel.hide()
 		_end_relocating()
 		if screen == Screens.SHOW_COMMAND_POINTS:
@@ -186,17 +196,12 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 
 ## The map controls' view-only actions.
 func _on_view_action(action_name: String) -> void:
-	var center := get_viewport().get_visible_rect().size * 0.5
 	match action_name:
-		"zoom_in":
-			galaxy.zoom_by(1.5, center)
-		"zoom_out":
-			galaxy.zoom_by(1.0 / 1.5, center)
 		"colony_next", "colony_previous":
 			_send({"verb": "cycle_colony_star", "dir": 0 if action_name == "colony_next" else 1}, _on_star_selected)
 		"influence":
 			$Galaxy/Influence.cycle()
-			_view("map_controls").show_influence(galaxy.influence_mode)
+			_view("options_menu").show_influence(galaxy.influence_mode)
 		"fleet_next", "fleet_previous":
 			_cycle_fleet(0 if action_name == "fleet_next" else 1)
 		"designs":
@@ -204,8 +209,25 @@ func _on_view_action(action_name: String) -> void:
 			if designs.visible:
 				designs.close()
 			else:
+				_view("options_menu").close()
 				designs.open()
-				_view("side_tabs").show_open("designs")
+				_view("side_tabs").show_open("designs", true)
+		"options":
+			var options := _view("options_menu")
+			if options.visible:
+				options.close()
+			else:
+				_view("design_list").close()
+				options.open()
+				_view("side_tabs").show_open("options", true)
+		"game_menu":
+			var game_menu := _view("game_menu")
+			if game_menu.visible:
+				game_menu.close()
+			else:
+				var bar := _view("galaxy_bar")
+				game_menu.open_at(bar.game_button.get_global_rect().position.x)
+				bar.show_game_menu(true)
 		"merge_relocations":
 			if galaxy.relocating:
 				_end_relocating()
@@ -225,7 +247,11 @@ func _on_view_closed(scene_name: String) -> void:
 			galaxy.fly_back()
 		galaxy.redraw()
 	elif scene_name == "design_list":
-		_view("side_tabs").show_open("")
+		_view("side_tabs").show_open("designs", false)
+	elif scene_name == "options_menu":
+		_view("side_tabs").show_open("options", false)
+	elif scene_name == "game_menu":
+		_view("galaxy_bar").show_game_menu(false)
 	elif scene_name == "fleet_panel":
 		_fleet_ship = -1
 		galaxy.selected_fleet = -1
@@ -262,7 +288,7 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 			if _fleet_ship >= 0 and native_screen == Screens.MAIN:
 				_refresh_fleet() # a turn, or an order, changed the fleets
 		"options":
-			_view("map_controls").show_options(result)
+			_view("options_menu").show_options(result)
 
 
 func _on_request(id: int, kind: String, request: Dictionary) -> void:
@@ -553,6 +579,16 @@ func _smoke_native() -> void:
 			return
 		empire = await _query("empire")
 		print("smoke: after turn %d (%.0f s): %s" % [turn + 1, waited, empire])
+	if "--quit-by-menu" in OS.get_cmdline_user_args():
+		# The game menu's Quit (WP3.3f): the game's question, answered Yes natively, then it quits.
+		_view("game_menu").get_node("Box/Quit").pressed.emit()
+		for i in 50:
+			await get_tree().create_timer(0.2).timeout
+			if _smoke_answer():
+				print("smoke: quit asked and answered Yes")
+		print("smoke: the game menu's Quit did not end the game")
+		get_tree().quit()
+		return
 	game.request_game_quit()
 	print("smoke: asked the game to quit")
 	await get_tree().create_timer(15.0).timeout
@@ -686,6 +722,37 @@ func _smoke_galaxy(shots: String) -> bool:
 	await get_tree().create_timer(1.0).timeout
 	print("smoke: designer opened and cancelled; design list back: %s" % designs.visible)
 	designs.close()
+	await get_tree().create_timer(0.5).timeout
+	# Options (WP3.3f): its tab slides out influence, merge relocations and the game options.
+	_on_view_action("options")
+	var options := _view("options_menu")
+	await get_tree().create_timer(0.8).timeout
+	print("smoke: options flyout %s: '%s', %d game options" % [options.visible, options.influence_button.text, options.options_box.get_child_count()])
+	if shots != "":
+		await host.shot(shots + "/native-options.png")
+	if not options.visible or options.options_box.get_child_count() == 0:
+		await host.smoke_fail("the options flyout did not open with the game options")
+		return false
+	_on_view_action("options")
+	# The game menu drops from the bar; Settings opens that page and Esc comes straight back.
+	_on_view_action("game_menu")
+	var game_menu := _view("game_menu")
+	await get_tree().create_timer(0.6).timeout
+	if shots != "":
+		await host.shot(shots + "/native-game-menu.png")
+	print("smoke: game menu %s at %s" % [game_menu.visible, game_menu.position])
+	game_menu.get_node("Box/Settings").pressed.emit()
+	if not await _wait_screen(Screens.LEGACY, 10.0):
+		await host.smoke_fail("Settings did not open")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	if shots != "":
+		game.get_frame_image().save_png(shots + "/legacy-settings.png")
+	game.send_key(KEY_ESCAPE, false, false, false)
+	if not await _wait_screen(Screens.MAIN, 10.0):
+		await host.smoke_fail("Settings did not return to the galaxy")
+		return false
+	print("smoke: settings opened and closed straight back to the galaxy; menu %s" % game_menu.visible)
 	await get_tree().create_timer(0.5).timeout
 	if not await _smoke_fleet(shots):
 		return false

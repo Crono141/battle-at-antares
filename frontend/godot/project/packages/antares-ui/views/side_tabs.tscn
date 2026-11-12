@@ -26,6 +26,14 @@ script = ExtResource("2")
 label = "Ship Design"
 metadata/action = "designs"
 
+[node name="Options" type="Button" parent="."]
+layout_mode = 2
+focus_mode = 0
+toggle_mode = true
+script = ExtResource("2")
+label = "Options"
+metadata/action = "options"
+
 [node name="Commandpoints" type="Button" parent="."]
 layout_mode = 2
 focus_mode = 0

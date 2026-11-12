@@ -1,11 +1,13 @@
 extends PanelContainer
 ## The galaxy's top bar (WP3.1b, WP3.3d; laid out for the design pass, WP3.3f): Game, the stardate
-## and the empire's figures as the legacy side bar shows them, each with the game's own icon. The
-## treasury opens the tax rates when the pointer rests on it (a click pins the menu, as any menu
-## button), as the side bar's money box opens the tax popup; research opens research. The screen
-## launchers and Turn moved to the right edge (side_tabs, map_controls).
+## and the empire's figures as the legacy side bar shows them, each with the game's own icon, and
+## Turn at the end. Game drops the game menu down from the bar (game_menu). The treasury opens the
+## tax rates when the pointer rests on it (a click pins the menu, as any menu button), as the side
+## bar's money box opens the tax popup; research opens research. The screen launchers are the tabs
+## on the right edge (side_tabs).
 
 signal command(dict: Dictionary)
+signal action(name: String)
 
 const WARNING_COLOR := Color(1.0, 0.45, 0.35)
 ## How long the tax menu stays open after the pointer leaves the treasury and the menu.
@@ -17,6 +19,7 @@ const HOVER_CLOSE := 0.4
 @onready var food_label: Label = $Row/Food
 @onready var freighters_label: Label = $Row/Freighters
 @onready var research: Button = $Row/Research
+@onready var game_button: Button = $Row/Game
 
 var art: Node:
 	set(value):
@@ -28,7 +31,8 @@ var _away := 0.0
 
 
 func _ready() -> void:
-	$Row/Game.pressed.connect(func(): command.emit({"verb": "open", "screen": Screens.GAME}))
+	game_button.pressed.connect(func(): action.emit("game_menu"))
+	$Row/Turn.pressed.connect(func(): command.emit({"verb": "end_turn"}))
 	money.get_popup().id_pressed.connect(func(rate: int):
 		command.emit({"verb": "set_tax_rate", "rate": rate}))
 	money.mouse_entered.connect(_open_on_hover)
@@ -63,6 +67,11 @@ func _process(delta: float) -> void:
 	if _away > HOVER_CLOSE:
 		popup.hide()
 		_hover_opened = false
+
+
+## Lights Game while its menu is down.
+func show_game_menu(open: bool) -> void:
+	game_button.set_pressed_no_signal(open)
 
 
 ## The `empire` snapshot: what the legacy side bar shows (WP3.3d).

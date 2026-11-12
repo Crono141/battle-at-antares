@@ -29,6 +29,9 @@ namespace LOADSAVE {
     extern s_game_anims* game_anims;
 
     extern s_game_popup_fields* game_popup_fields;
+    // Antares (WP3.3f): the popup was opened on one page (Settings, Load or Save) from the native
+    // galaxy's game menu, so leaving that page leaves the popup instead of showing its main page.
+    extern uint8_t antares_direct_page;
     extern uint8_t loaded_new_game;
     extern uint8_t loaded_debug_save;
     extern uint8_t keep_end_of_turn_wait_in_multiplayer;

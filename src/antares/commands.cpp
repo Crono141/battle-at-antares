@@ -161,9 +161,23 @@ namespace antares::commands {
                 case SCREEN_FLEET:
                     MAINSCR::officer_screen_return_screen = SCREEN_FLEET;
                     break;
-                case SCREEN_GAME:
-                    MOX::screen_data = 0;
+                case SCREEN_GAME: {
+                    // The game menu's pages (WP3.3f): 0 the menu itself, 1 settings, 2 load, 3 save.
+                    // A page other than the menu closes back to the galaxy, not to the menu.
+                    int64_t page = 0;
+                    if (args.Has("page") && (!args.Int("page", &page) || page < 0 || page > 3)) {
+                        out.Fail("bad_args", "page: 0 menu, 1 settings, 2 load, 3 save");
+                        return;
+                    }
+                    if (page == 3 && MOX::disallow_saves_code != 0) {
+                        // As the menu's Save button: "can't save now" (loadsave.cpp, Do_Main_Game_Popup).
+                        out.Fail("refused", Utf8(HAROLD::H_Message(0xB9), 200));
+                        return;
+                    }
+                    MOX::screen_data = (int16_t)page;
+                    LOADSAVE::antares_direct_page = page != 0 ? 1 : 0;
                     break;
+                }
                 case SCREEN_TECH_CHANGE:
                     // Tech_Change draws over the page it finds: put the galaxy there, as the legacy
                     // galaxy's research field does (Main_Screen, research_window_field).
@@ -204,6 +218,40 @@ namespace antares::commands {
             }
             MOX::return_screen = from;
             MOX::current_screen = (int16_t)screen;
+        }
+
+        // The game menu's New Game and Quit (WP3.3f), as its buttons do after their question
+        // (loadsave.cpp, Do_Main_Game_Popup and the end of _Game_Popup): "main_menu" leaves for
+        // a new game, "desktop" saves to the last slot and quits. The question goes to the
+        // frontend when it answers confirmations; No leaves the galaxy as it was.
+        void Leave_Game(int16_t, const s_args& args, s_out& out) {
+            std::string to;
+            if (!args.Str("to", &to) || (to != "main_menu" && to != "desktop")) {
+                out.Fail("bad_args", "to: \"main_menu\" or \"desktop\"");
+                return;
+            }
+            char text[200];
+            strlcpy(text, HAROLD::H_Message(to == "main_menu" ? 0xBA : 0xBB), sizeof(text));
+            if (GENDRAW::Do_Confirmation_Box(text) == 0) {
+                out.Bool("left", false);
+                return;
+            }
+            if (to == "main_menu") {
+                MOX::game_type = 0;
+                LOADSAVE::Save_Session_Related_Settings();
+                ERIC::Fast_Fade_Out();
+                MOX::current_screen = SCREEN_NEW_GAME;
+            } else {
+                FILEDEF::Save_Game(9);
+                MOX::settings.active_save_slot = 9;
+                LOADSAVE::Save_Session_Related_Settings();
+                if (MOX::game_type == 2 || MOX::game_type == 3) {
+                    NETMOX::Human_Abdicates(static_cast<int32_t>(MOX::PLAYER_NUM));
+                    netcode::Net_Uninit();
+                }
+                MOX::current_screen = SCREEN_EXIT;
+            }
+            out.Bool("left", true);
         }
 
         void Close(int16_t, const s_args&, s_out&) {
@@ -394,6 +442,7 @@ namespace antares::commands {
                 {"end_turn", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "", End_Turn},
                 {"open", e_kind::command, ANY_SCREEN, 0, "screen: SCREEN_* number", Open},
                 {"close", e_kind::command, ANY_SCREEN, 0, "", Close},
+                {"leave_game", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "to: main_menu | desktop (asks first)", Leave_Game},
                 {"scrap_ships", e_kind::command, ANY_SCREEN, 0, "ships: [ship id] (one place)", Scrap_Ships},
                 {"set_tax_rate", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "rate: 0..50 in tens", Set_Tax_Rate},
                 {"empire", e_kind::query, ANY_SCREEN, 3, "", Query_Empire},

@@ -21,8 +21,10 @@ theme_override_constants/separation = 14
 layout_mode = 2
 tooltip_text = "Save, load, settings and quit"
 focus_mode = 0
+toggle_mode = true
 text = "Game"
 metadata/key = "G"
+metadata/action = "game_menu"
 
 [node name="Date" type="Label" parent="Row"]
 layout_mode = 2
@@ -109,3 +111,11 @@ tooltip_text = "Research per turn and the turns to the next discovery. Click to 
 focus_mode = 0
 text = "RP"
 metadata/screen = 36
+
+[node name="Turn" type="Button" parent="Row"]
+layout_mode = 2
+tooltip_text = "End the turn"
+focus_mode = 0
+theme_override_font_sizes/font_size = 18
+text = "  Turn  "
+metadata/key = "T"

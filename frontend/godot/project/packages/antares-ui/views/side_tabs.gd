@@ -1,6 +1,6 @@
 extends VBoxContainer
 ## The screen tabs on the galaxy's right edge (WP3.3f, owner's layout): each tab opens its screen
-## (still the legacy one) or, for Ship Design, the design list that slides out from the right.
+## (still the legacy one) or, for Ship Design and Options, a flyout that slides out from the right.
 ## A tab's "screen" metadata is the SCREEN_* number it opens, "action" a view action for main.gd,
 ## "key" the legacy galaxy's letter key.
 
@@ -24,8 +24,9 @@ func _ready() -> void:
 			tab.shortcut_in_tooltip = true
 
 
-## Lights the tab whose flyout is open ("" for none).
-func show_open(action_name: String) -> void:
+## Lights or darkens the tab of one flyout.
+func show_open(action_name: String, open: bool) -> void:
 	for tab: Button in get_children():
-		tab.button_pressed = action_name != "" and tab.get_meta("action", "") == action_name
-		tab.queue_redraw()
+		if tab.get_meta("action", "") == action_name:
+			tab.set_pressed_no_signal(open)
+			tab.queue_redraw()
