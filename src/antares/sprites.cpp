@@ -66,11 +66,98 @@ namespace antares::sprites {
         }
     } // namespace
 
+    namespace {
+        // A FONTS.LBX palette (entry N + 1: 256 s_palette_entry {changed, r, g, b}, 6-bit), as
+        // fonts::Load_Palette copies it.
+        bool Game_Palette(int32_t number, uint32_t palette_rgb[256]) {
+            std::vector<uint64_t> storage;
+            size_t size = 0;
+            if (number < 0 || !Read_Entry("FONTS.LBX", number + 1, &storage, &size) || size < 256 * sizeof(s_palette_entry)) {
+                return false;
+            }
+            const auto* entries = reinterpret_cast<const s_palette_entry*>(storage.data());
+            for (int32_t i = 0; i < 256; ++i) {
+                const s_palette_entry& c = entries[i];
+                palette_rgb[i] = ((uint32_t)((c.r & 0x3F) << 2) << 16) | ((uint32_t)((c.g & 0x3F) << 2) << 8) | (uint32_t)((c.b & 0x3F) << 2);
+            }
+            return true;
+        }
+
+        // The palette an art pack's sprite was made under, when the pack says (WP3.3f): views
+        // outside the galaxy show the colony screen's icons and the like, whose indexed HD pixels
+        // need that screen's palette, not the galaxy's. False: use the screen's palette.
+        // Where the pack doesn't say ("inferred"): the palette of the screen that draws the entry.
+        // The colony screen loads FONTS.LBX palette 1 and its planet backdrop's palette
+        // (COLONY::Colony_Screen, colony.cpp:211; PLANETS.LBX); the leaders screen palette 8
+        // (officer.cpp:790), except the colony screen's governor portraits (0xD2 on,
+        // OFFICER::Load_Officer_Picture picture type 1).
+        struct s_home_palette {
+            const char* lbx;
+            int32_t first;
+            int32_t last;
+            int32_t palette;
+            bool planets; // the colony backdrop's palette over it
+        };
+        constexpr s_home_palette k_home_palettes[] = {
+            {"OFFICER.LBX", 0xD2, 0x114, 1, true},
+            {"OFFICER.LBX", 0, 0x7FFF, 8, false},
+            {"COLONY.LBX", 0, 0x7FFF, 1, true},
+            {"COLONY2.LBX", 0, 0x7FFF, 1, true},
+            {"COLSYSDI.LBX", 0, 0x7FFF, 1, true},
+            {"COLPUPS.LBX", 0, 0x7FFF, 1, true},
+            {"RACEICON.LBX", 0, 0x7FFF, 1, true},
+        };
+
+        bool Home_Palette(const std::string& lbx, int32_t entry, std::vector<render::s_palette_layer>* layers) {
+            for (const s_home_palette& home : k_home_palettes) {
+                if (lbx == home.lbx && entry >= home.first && entry <= home.last) {
+                    render::s_palette_layer base;
+                    base.palette = home.palette;
+                    layers->assign(1, base);
+                    if (home.planets) {
+                        render::s_palette_layer backdrop;
+                        backdrop.lbx = "PLANETS.LBX";
+                        backdrop.entry = 0;
+                        layers->push_back(backdrop);
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        bool Declared_Palette_Rgb(const std::string& lbx, int32_t entry, uint32_t palette_rgb[256]) {
+            std::vector<render::s_palette_layer> layers;
+            if (!render::Declared_Palette(lbx.c_str(), entry, &layers) && !Home_Palette(lbx, entry, &layers)) {
+                return false;
+            }
+            for (const render::s_palette_layer& layer : layers) {
+                if (layer.palette >= 0) {
+                    if (!Game_Palette(layer.palette, palette_rgb)) {
+                        return false;
+                    }
+                    continue;
+                }
+                std::vector<uint64_t> storage;
+                size_t size = 0;
+                if (!Read_Entry(layer.lbx, layer.entry, &storage, &size)) {
+                    return false;
+                }
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(storage.data()), size, palette_rgb);
+            }
+            return true;
+        }
+    } // namespace
+
     void Palette_For(const uint8_t* entry_bytes, size_t size, uint32_t palette_rgb[256]) {
         for (int32_t i = 0; i < 256; ++i) {
             const s_palette_entry& c = video::current_palette[i];
             palette_rgb[i] = ((uint32_t)(c.r << 2) << 16) | ((uint32_t)(c.g << 2) << 8) | (uint32_t)(c.b << 2);
         }
+        Apply_Embedded_Palette(entry_bytes, size, palette_rgb);
+    }
+
+    void Apply_Embedded_Palette(const uint8_t* entry_bytes, size_t size, uint32_t palette_rgb[256]) {
         if (entry_bytes == nullptr || size < sizeof(s_animation_header)) {
             return;
         }
@@ -118,6 +205,10 @@ namespace antares::sprites {
         out->height = anim->height;
         uint32_t palette_rgb[256];
         Palette_For(bytes, size, palette_rgb);
+        // Galaxy art keeps the screen's palette (it is drawn there); other art its own, if declared.
+        if (lbx != "BUFFER0.LBX" && lbx != "STARBG.LBX") {
+            Declared_Palette_Rgb(lbx, entry, palette_rgb);
+        }
 
         render::Register_Load(bytes, (int32_t)size, lbx.c_str(), entry);
         std::vector<render::s_exported_frame> art;

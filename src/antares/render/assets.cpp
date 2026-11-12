@@ -538,6 +538,56 @@ namespace render {
         return Add_Asset(asset, key);
     }
 
+    bool Declared_Palette(const char* lbx_name, int32_t entry, std::vector<s_palette_layer>* layers) {
+        layers->clear();
+        char key[64];
+        snprintf(key, sizeof(key), "%s/%03d", lbx_name, (int)entry);
+        for (char* c = key; *c != '\0'; ++c) {
+            if (*c >= 'a' && *c <= 'z') {
+                *c = (char)(*c - 'a' + 'A');
+            }
+        }
+        const auto listed = index_entries.find(key);
+        yyjson_val* stack = listed != index_entries.end() ? yyjson_obj_get(listed->second.meta, "palette") : nullptr;
+        // The index (tools/hdindex.py) leaves the palette out: then the sprite's own sprite.json.
+        yyjson_doc* own = nullptr;
+        if (!yyjson_is_arr(stack)) {
+            for (const char* root : ART_ROOTS) {
+                std::vector<uint8_t> json;
+                if (Read_Vfs_File((std::string(root) + "/" + key + "/sprite.json").c_str(), &json)) {
+                    own = yyjson_read(reinterpret_cast<const char*>(json.data()), json.size(), 0);
+                    stack = own != nullptr ? yyjson_obj_get(yyjson_doc_get_root(own), "palette") : nullptr;
+                    break;
+                }
+            }
+        }
+        const auto free_own = [&]() { yyjson_doc_free(own); };
+        if (!yyjson_is_arr(stack)) {
+            free_own();
+            return false;
+        }
+        size_t index = 0;
+        size_t max = 0;
+        yyjson_val* layer = nullptr;
+        yyjson_arr_foreach(stack, index, max, layer) {
+            yyjson_val* kind = yyjson_arr_get(layer, 0);
+            s_palette_layer out;
+            if (yyjson_equals_str(kind, "pal") && yyjson_is_int(yyjson_arr_get(layer, 1))) {
+                out.palette = (int32_t)yyjson_get_int(yyjson_arr_get(layer, 1));
+            } else if (yyjson_equals_str(kind, "emb") && yyjson_is_str(yyjson_arr_get(layer, 1)) && yyjson_is_int(yyjson_arr_get(layer, 2))) {
+                out.lbx = yyjson_get_str(yyjson_arr_get(layer, 1));
+                out.entry = (int32_t)yyjson_get_int(yyjson_arr_get(layer, 2));
+            } else {
+                layers->clear(); // a layer the engine can't rebuild ("ramp"): use the screen's palette
+                free_own();
+                return false;
+            }
+            layers->push_back(out);
+        }
+        free_own();
+        return !layers->empty();
+    }
+
     int32_t Find_Or_Create_Known_Asset(const char* key) {
         const auto found = asset_by_key.find(key);
         if (found != asset_by_key.end()) {

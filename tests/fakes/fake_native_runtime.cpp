@@ -13,6 +13,8 @@ namespace MOX {
     int16_t return_screen;
     int16_t screen_data;
     int16_t temp_star_handle;
+    uint8_t first_design_screen_call;
+    uint8_t refit_ship;
     int8_t officer_scrn_type;
     uint8_t auto_turn_exit;
     uint16_t global_exit_field;

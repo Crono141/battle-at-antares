@@ -1,5 +1,5 @@
 extends PanelContainer
-## The galaxy's own controls (WP3.3a), each one a legacy key made visible (owner, 2026-11-05: every
+## The galaxy's own controls (WP3.3a; Turn moved here from the bar, WP3.3f), each one a legacy key made visible (owner, 2026-11-05: every
 ## hidden key gets a control, its key in the tooltip): zoom (+ / -), the previous and next colony
 ## systems (F6 / F5), the previous and next fleets (F1 / F2, WP3.3c), merging relocations (F4),
 ## the influence view (Alt+V), the distance tool (F9) and the game options (Alt+F1..F8). A
@@ -21,6 +21,7 @@ func _ready() -> void:
 			button.shortcut = _shortcut(String(button.get_meta("key")))
 		if button.has_meta("action"):
 			button.pressed.connect(func(): action.emit(String(button.get_meta("action"))))
+	$Box/Turn.pressed.connect(func(): command.emit({"verb": "end_turn"}))
 	$Box/Distances.pressed.connect(func(): command.emit({"verb": "open", "screen": Screens.DISTANCE_BETWEEN_STARS}))
 	options_button.get_popup().id_pressed.connect(func(option: int):
 		command.emit({"verb": "toggle_option", "option": option}))

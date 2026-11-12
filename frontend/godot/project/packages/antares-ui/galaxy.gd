@@ -17,6 +17,7 @@ signal star_clicked(star_id: int)
 signal fleet_clicked(ship_id: int)
 signal star_hovered(star_id: int)
 signal right_clicked
+signal planet_clicked(planet_id: int)
 
 ## Banner colours by the game's player colour index (s_player.color).
 const PLAYER_COLORS := [
@@ -47,6 +48,17 @@ var influence_mode := 0 # as the legacy V key: 0 off, 1 filled, 2 borders only
 var selected_fleet := -1 # the first ship of the fleet whose panel is open
 var preview := {} # the route preview: {"star": id, "line": "ok" or "blocked"}
 var relocating := false # F4: the next star click merges relocations there
+## The open system on the map (WP3.3f): its `system` query, star, scale and selected planet;
+## the Orbits layer draws it.
+var system := {}
+var system_star := -1
+var system_scale := 0.25 # world units per system box pixel
+var selected_planet := -1
+## How long a camera flight takes, and the view it left (Back returns to it).
+const FLIGHT_TIME := 0.7
+var _flying := false
+var _flight: Tween
+var _saved_view := {}
 var _hovered_star := -1
 
 var _view_placed := false
@@ -165,6 +177,9 @@ func _screen_to_world(screen: Vector2) -> Vector2:
 
 
 func _process(delta: float) -> void:
+	if _flying:
+		redraw()
+		return
 	var z := camera.zoom.x
 	if absf(z - _target_zoom) < 0.0001:
 		return
@@ -291,3 +306,61 @@ func focus_point(world: Vector2) -> void:
 	_anchor_world = camera.position
 	_anchor_screen = get_viewport_rect().size * 0.5
 	redraw()
+
+
+# ---- The open system (WP3.3f) ----
+
+## Shows a system's planets around its star, fading in (the `system` query's answer).
+func show_system(star_id: int, result: Dictionary) -> void:
+	var fresh := star_id != system_star
+	system = result
+	system_star = star_id
+	if fresh:
+		selected_planet = -1
+		$Orbits.modulate.a = 0.0
+		create_tween().tween_property($Orbits, "modulate:a", 1.0, 0.6).set_delay(FLIGHT_TIME * 0.5)
+	$Orbits.queue_redraw()
+
+
+func hide_system() -> void:
+	if system.is_empty():
+		return
+	var fade := create_tween()
+	fade.tween_property($Orbits, "modulate:a", 0.0, 0.3)
+	fade.tween_callback(func():
+		system = {}
+		system_star = -1
+		selected_planet = -1
+		$Orbits.queue_redraw())
+
+
+## Flies the camera to `world` at `zoom`, so that `world` ends at `screen` (a point in the area the
+## panes leave free). The first flight remembers the view to come back to.
+func fly_to(world: Vector2, zoom: float, screen: Vector2) -> void:
+	if _saved_view.is_empty():
+		_saved_view = {"position": camera.position, "zoom": camera.zoom.x}
+	var center := world - (screen - get_viewport_rect().size * 0.5) / zoom
+	_fly(center, zoom)
+
+
+## Back to the view before the first flight.
+func fly_back() -> void:
+	if _saved_view.is_empty():
+		return
+	_fly(_saved_view.position, _saved_view.zoom)
+	_saved_view = {}
+
+
+func _fly(center: Vector2, zoom: float) -> void:
+	if _flight:
+		_flight.kill()
+	_flying = true
+	_target_zoom = zoom
+	_flight = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	_flight.tween_property(camera, "position", center, FLIGHT_TIME)
+	_flight.tween_property(camera, "zoom", Vector2.ONE * zoom, FLIGHT_TIME)
+	_flight.chain().tween_callback(func():
+		_flying = false
+		_anchor_world = camera.position
+		_anchor_screen = get_viewport_rect().size * 0.5
+		redraw())

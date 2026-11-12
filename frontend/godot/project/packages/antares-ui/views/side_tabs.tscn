@@ -1,0 +1,89 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://packages/antares-ui/views/side_tabs.gd" id="1"]
+[ext_resource type="Script" path="res://packages/antares-ui/views/side_tab.gd" id="2"]
+
+[node name="SideTabs" type="VBoxContainer"]
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -40.0
+offset_top = 48.0
+offset_right = -4.0
+offset_bottom = -8.0
+grow_horizontal = 0
+mouse_filter = 2
+alignment = 2
+theme_override_constants/separation = 4
+script = ExtResource("1")
+
+[node name="ShipDesign" type="Button" parent="."]
+layout_mode = 2
+focus_mode = 0
+toggle_mode = true
+script = ExtResource("2")
+label = "Ship Design"
+metadata/action = "designs"
+
+[node name="Commandpoints" type="Button" parent="."]
+layout_mode = 2
+focus_mode = 0
+script = ExtResource("2")
+label = "Command points"
+metadata/screen = 43
+
+[node name="Research" type="Button" parent="."]
+layout_mode = 2
+focus_mode = 0
+script = ExtResource("2")
+label = "Research"
+metadata/screen = 36
+
+[node name="Info" type="Button" parent="."]
+layout_mode = 2
+focus_mode = 0
+script = ExtResource("2")
+label = "Info"
+metadata/screen = 9
+metadata/key = "I"
+
+[node name="Races" type="Button" parent="."]
+layout_mode = 2
+focus_mode = 0
+script = ExtResource("2")
+label = "Races"
+metadata/screen = 6
+metadata/key = "R"
+
+[node name="Leaders" type="Button" parent="."]
+layout_mode = 2
+focus_mode = 0
+script = ExtResource("2")
+label = "Leaders"
+metadata/screen = 29
+metadata/key = "L"
+
+[node name="Fleets" type="Button" parent="."]
+layout_mode = 2
+focus_mode = 0
+script = ExtResource("2")
+label = "Fleets"
+metadata/screen = 4
+metadata/key = "F"
+
+[node name="Planets" type="Button" parent="."]
+layout_mode = 2
+focus_mode = 0
+script = ExtResource("2")
+label = "Planets"
+metadata/screen = 32
+metadata/key = "P"
+
+[node name="Colonies" type="Button" parent="."]
+layout_mode = 2
+focus_mode = 0
+script = ExtResource("2")
+label = "Colonies"
+metadata/screen = 20
+metadata/key = "C"

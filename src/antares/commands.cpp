@@ -177,6 +177,19 @@ namespace antares::commands {
                     video::Set_Refresh_Stencil();
                     MAINSCR::clear_fleet_fields = 0;
                     break;
+                case SCREEN_DESIGN: {
+                    // The designer on one slot, as the build list's Design button enters it
+                    // (colbldg.cpp:644-647, 1718-1719): first entry, no refit; it returns here.
+                    int64_t slot = -1;
+                    if (!args.Int("slot", &slot) || slot < 0 || slot > SHIP_SIZE_DOOM_STAR) {
+                        out.Fail("bad_args", "slot: a design slot 0-5 (the designs query)");
+                        return;
+                    }
+                    MOX::refit_ship = 0;
+                    MOX::first_design_screen_call = 1;
+                    MOX::temp_star_handle = (int16_t)slot;
+                    break;
+                }
                 case SCREEN_OFFICERS:
                     MOX::temp_star_handle = MOX::officer_scrn_type == LEADER_TYPE_SHIP
                         ? MAINSCR::Get_Ship_Stack_For_Officers_Screen()
@@ -287,6 +300,7 @@ namespace antares::commands {
             out.Int("stardate", MOX::stardate);
             out.Int("player", MOX::PLAYER_NUM);
             out.Str("race", Utf8(player.race_name, sizeof(player.race_name)));
+            out.Int("race_id", player.race); // v3: RACEICON.LBX pictures are race_id * 13 + job * 2
             out.Int("color", player.color);
             out.Int("bc", player.bc);
             out.Int("bc_produced", player.bc_produced);
@@ -382,7 +396,7 @@ namespace antares::commands {
                 {"close", e_kind::command, ANY_SCREEN, 0, "", Close},
                 {"scrap_ships", e_kind::command, ANY_SCREEN, 0, "ships: [ship id] (one place)", Scrap_Ships},
                 {"set_tax_rate", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "rate: 0..50 in tens", Set_Tax_Rate},
-                {"empire", e_kind::query, ANY_SCREEN, 2, "", Query_Empire},
+                {"empire", e_kind::query, ANY_SCREEN, 3, "", Query_Empire},
                 {"command_points", e_kind::query, ANY_SCREEN, 1, "", Query_Command_Points},
                 {"ships", e_kind::query, ANY_SCREEN, 1, "star: star id (optional)", Query_Ships},
             };
