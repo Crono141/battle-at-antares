@@ -45,9 +45,9 @@ const SYSTEM_VIEW_SCALE := 7.0
 const SYSTEM_VIEW_SHARE := 0.42
 ## The native view comes in whole (owner, 2026-11-12: buttons popped in, the stars a moment
 ## later): hidden until the map is placed with its star pictures and the empire's figures are in,
-## then faded in. The wait is capped so a missing picture can't hold it back.
+## then faded in (0.25 s, owner). The wait is capped so a missing picture can't hold it back.
 const REVEAL_WAIT := 4.0
-const REVEAL_TIME := 0.5
+const REVEAL_TIME := 0.25
 var _revealing := false
 var _revealed := false
 var _have_empire := false
