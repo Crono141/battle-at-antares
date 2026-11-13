@@ -142,6 +142,8 @@ namespace antares::native {
     // other fields carry its data (JSON members, without braces). False when no frontend claims
     // "popup": the legacy window then draws. `answer`: the frontend's value (a button's index).
     bool Popup(const char* popup, const char* text, const std::string& fields, int32_t* answer);
+    // A frontend answers "popup" requests (a legacy window can skip its own drawing up front).
+    bool Popups_Native();
     // A leader's card as JSON (name, title, level, type, portrait, skills), for popups' fields.
     std::string Leader_Json(int16_t leader, int16_t owner);
     // A game string as a JSON string (quoted, UTF-8).

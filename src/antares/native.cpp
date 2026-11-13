@@ -797,6 +797,10 @@ namespace antares::native {
         return true;
     }
 
+    bool Popups_Native() {
+        return Claimed_Kind(KIND_POPUP);
+    }
+
     std::string Leader_Json(int16_t leader, int16_t owner) {
         if (MOX::leaders == nullptr || leader < 0 || leader >= MAX_LEADERS) {
             return "{}";
