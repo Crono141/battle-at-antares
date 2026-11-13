@@ -1212,6 +1212,18 @@ func _smoke_native() -> void:
 			return
 		empire = await _query("empire")
 		print("smoke: after turn %d (%.0f s): %s" % [turn + 1, waited, empire])
+	# The turn summary again from the galaxy (WP3.4c): a native popup, then back to the galaxy.
+	var summary_visit := int(game.get_native_visit())
+	_send({"verb": "open", "screen": 40})
+	var summary_wait := 0.0
+	var summary_seen := false
+	while summary_wait < 20.0 and not (summary_seen and native_screen == Screens.MAIN and int(game.get_native_visit()) > summary_visit):
+		if overlay.visible and String(_views["dialog"].popup_name) == "turn_summary":
+			summary_seen = true
+		_smoke_answer()
+		await get_tree().create_timer(0.25).timeout
+		summary_wait += 0.25
+	print("smoke: turn summary from the galaxy: shown natively %s, back on the galaxy %s" % [summary_seen, native_screen == Screens.MAIN])
 	if "--quit-by-menu" in OS.get_cmdline_user_args():
 		# The game menu's Quit (WP3.3f): the game's question, answered Yes natively, then it quits.
 		_view("game_menu").get_node("Fit/Box/Quit").pressed.emit()

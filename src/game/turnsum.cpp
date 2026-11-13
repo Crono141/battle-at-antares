@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/native.h"
 
 namespace {
     int16_t turn_sum_list_y[16] = {
@@ -118,6 +119,40 @@ namespace TURNSUM {
                 MOX::current_screen = SCREEN_REPORTS;
             }
             return;
+        }
+
+        // Antares (owner, 2026-11-13): the summary as a native popup over the native galaxy: the
+        // messages in the window's order, each with its text; a click on one with a colony goes
+        // to that colony as the window's list does, and the summary comes back after.
+        {
+            const int16_t first = MSG_::First_Msg_For_Player(MOX::PLAYER_NUM);
+            uint8_t order[MAX_MESSAGES];
+            REPORT::Order_Turn_Summary_Messages(order, first, num_msgs, REPORT::sort_serious_turn_summary_first);
+            std::string items;
+            for (int16_t pos = 0; pos < num_msgs; ++pos) {
+                char text[256];
+                MSG_::sprintf_msg(text, sizeof(text), &MSG_::msgs[order[pos]]);
+                items += std::string(pos == 0 ? "" : ",") + "{\"msg\":" + std::to_string(order[pos]) + ",\"text\":" +
+                    antares::native::Quote(text) + ",\"serious\":" + (REPORT::Is_Serious_Msg(MSG_::msgs[order[pos]]) ? "true" : "false") + "}";
+            }
+            const std::string fields = "\"title\":\"Turn Summary\",\"items\":[" + items + "],\"buttons\":[\"OK\"]";
+            int32_t answer = 0;
+            while (antares::native::Popup("turn_summary", "", fields, &answer)) {
+                if (answer >= 100 && answer - 100 < MAX_MESSAGES) {
+                    const uint8_t msg_idx = (uint8_t)(answer - 100);
+                    if (MSG_::Goto_Msg_Colony(&MSG_::msgs[msg_idx]) != 0) {
+                        MOX::current_screen = SCREEN_COLONY;
+                        MOX::return_screen = SCREEN_TURN_SUMMARY;
+                        g_turn_message_ix = msg_idx;
+                        return;
+                    }
+                    continue; // nowhere to go: the summary stays
+                }
+                if (MOX::current_screen == SCREEN_MAIN && MOX::return_screen != SCREEN_MAIN) {
+                    MOX::current_screen = SCREEN_REPORTS; // as the window: on to the reports
+                }
+                return;
+            }
         }
 
         if (MOX::return_screen == SCREEN_REPORTS) {

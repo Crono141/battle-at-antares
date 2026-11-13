@@ -165,6 +165,11 @@ namespace antares::commands {
                 case SCREEN_FLEET:
                     MAINSCR::officer_screen_return_screen = SCREEN_FLEET;
                     break;
+                case SCREEN_TURN_SUMMARY:
+                    // The turn's summary again, from the galaxy (WP3.4c; the to-do list's): back
+                    // to the galaxy after, not to the reports.
+                    MOX::return_screen = SCREEN_MAIN;
+                    break;
                 case SCREEN_GAME: {
                     // The game menu's pages (WP3.3f): 0 the menu itself, 1 settings, 2 load, 3 save.
                     // A page other than the menu closes back to the galaxy, not to the menu.

@@ -62,6 +62,8 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 	if popup:
 		if request.has("leader"):
 			_extra.add_child(_leader_card(request.leader))
+		if request.has("items"):
+			_extra.add_child(_item_list(request.items))
 		var buttons: Array = request.get("buttons", ["OK"])
 		for i in buttons.size():
 			var b := Button.new()
@@ -76,6 +78,7 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 		entry.grab_focus()
 		entry.select_all()
 	reset_size() # as tall as its text: OK as far from the bottom as the text from the top (owner)
+	_centre.call_deferred()
 
 
 func _answer(value: int) -> void:
@@ -138,3 +141,37 @@ func _leader_card(leader: Dictionary) -> Control:
 				line.accept_event())
 		names.add_child(line)
 	return row
+
+
+## A popup's list (the turn summary's messages): one row each, serious ones in red; a click
+## answers 100 + the item's "msg".
+func _item_list(items: Array) -> Control:
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(560, minf(420.0, 34.0 * items.size() + 8.0))
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 2)
+	scroll.add_child(list)
+	for item: Dictionary in items:
+		var row := Button.new()
+		row.flat = true
+		row.theme_type_variation = &"ListItem"
+		row.focus_mode = Control.FOCUS_NONE
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.text = String(item.get("text", ""))
+		row.custom_minimum_size.y = 30
+		if item.get("serious", false):
+			for state in ["font_color", "font_hover_color", "font_pressed_color"]:
+				row.add_theme_color_override(state, Color(1.0, 0.45, 0.35))
+		var value := 100 + int(item.get("msg", 0))
+		row.pressed.connect(func(): _answer(value))
+		list.add_child(row)
+	return scroll
+
+
+## Centred on the screen once sized: a tall one (the turn summary) grew down from the middle.
+func _centre() -> void:
+	var area := get_parent_area_size()
+	position = ((area - size) * 0.5).floor()
