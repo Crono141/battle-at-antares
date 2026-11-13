@@ -50,8 +50,18 @@ func show_designs(result: Dictionary) -> void:
 		return
 	for child in rows.get_children():
 		child.queue_free()
+	# Only the designs the build list offers (owner, 2026-11-13: pre-warp it has none).
+	var shown := 0
 	for design: Dictionary in result.designs:
-		rows.add_child(_row(design))
+		if design.get("buildable", true):
+			rows.add_child(_row(design))
+			shown += 1
+	if shown == 0:
+		var none := Label.new()
+		none.theme_type_variation = &"Dim"
+		none.text = "No ships can be built yet: they need a drive to reach the stars."
+		none.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		rows.add_child(none)
 	if not visible:
 		_slide(true)
 

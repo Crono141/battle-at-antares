@@ -15,6 +15,7 @@ signal command(dict: Dictionary)
 signal closed
 signal committed
 
+const Themes := preload("../themes.gd")
 const SLIDE_TIME := 0.25
 const WIDTH := 660.0
 const REPEAT := -10
@@ -307,7 +308,7 @@ func _show_refit_ships() -> void:
 			var row := HBoxContainer.new()
 			row.add_theme_constant_override("separation", 6)
 			var pic: Dictionary = ship.get("picture", {})
-			row.add_child(_sprite(String(pic.get("lbx", "")), int(pic.get("entry", -1)), Vector2(40, 30)))
+			row.add_child(_picture(pic, Vector2(40, 30)))
 			var b := Button.new()
 			b.text = String(ship.name)
 			b.flat = true
@@ -382,7 +383,7 @@ func _drag_preview(item: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.modulate.a = 0.85
 	var pic: Dictionary = item.get("picture", {})
-	row.add_child(_sprite(String(pic.get("lbx", "")), int(pic.get("entry", -1)), Vector2(40, 30)))
+	row.add_child(_picture(pic, Vector2(40, 30)))
 	var l := Label.new()
 	l.theme_type_variation = &"Name"
 	l.text = String(item.get("name", ""))
@@ -481,7 +482,7 @@ func _show_queue() -> void:
 			row.add_child(r)
 		else:
 			var pic: Dictionary = entry.get("picture", {})
-			row.add_child(_sprite(String(pic.get("lbx", "")), int(pic.get("entry", -1)), Vector2(34, 26)))
+			row.add_child(_picture(pic, Vector2(34, 26)))
 			var name_button := Button.new()
 			name_button.text = String(entry.name)
 			name_button.flat = true
@@ -522,7 +523,7 @@ func _show_detail(item: Dictionary) -> void:
 		return
 	var pic: Dictionary = item.get("picture", {})
 	detail_scroll.scroll_vertical = 0
-	var picture := _sprite(String(pic.get("lbx", "")), int(pic.get("entry", -1)), Vector2(180, 120))
+	var picture := _picture(pic, Vector2(180, 120))
 	picture.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	detail.add_child(picture)
 	var name_label := Label.new()
@@ -561,6 +562,14 @@ func _show_detail(item: Dictionary) -> void:
 		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		d.add_theme_font_size_override("font_size", 16)
 		detail.add_child(d)
+
+
+## An item's picture: a game sprite {lbx, entry}, or the interface's own {icon} (trade goods).
+func _picture(pic: Dictionary, min_size: Vector2) -> TextureRect:
+	var rect := _sprite(String(pic.get("lbx", "")), int(pic.get("entry", -1)), min_size)
+	if pic.has("icon"):
+		rect.texture = Themes.icon(String(pic.icon), int(min_size.y * 0.6))
+	return rect
 
 
 func _sprite(lbx: String, entry: int, min_size: Vector2) -> TextureRect:

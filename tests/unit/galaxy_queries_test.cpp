@@ -320,8 +320,15 @@ DOCTEST_TEST_CASE("the designs query lists the player's design slots (WP3.3f)") 
     g_players_[0].ship_designs[2].size = SHIP_SIZE_LARGE;
     g_players_[0].ship_designs[2].picture_num = 5;
     g_players_[0].ship_designs[2].cost = 529;
+    // Pre-warp (no range, no speed): the build list offers no designs, so neither does the list.
+    g_players_[0].ship_range = 0;
+    g_players_[0].ship_speed = 0;
+    const std::string prewarp = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"designs\"}");
+    DOCTEST_CHECK(Contains_(prewarp, "\"cost\":529,\"buildable\":false}]"));
+    g_players_[0].ship_range = 4;
+    g_players_[0].ship_speed = 2;
     const std::string designs = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"designs\"}");
-    DOCTEST_CHECK(Contains_(designs, "\"designs\":[{\"slot\":2,\"name\":\"Corvette VII\",\"hull\":2,\"hull_name\":\"Cruiser\",\"picture\":105,\"cost\":529}]"));
+    DOCTEST_CHECK(Contains_(designs, "\"designs\":[{\"slot\":2,\"name\":\"Corvette VII\",\"hull\":2,\"hull_name\":\"Cruiser\",\"picture\":105,\"cost\":529,\"buildable\":true}],\"color\":2"));
     Tear_Down_Galaxy_();
 }
 
@@ -361,7 +368,7 @@ DOCTEST_TEST_CASE("the research query and choose_research follow the change-rese
     p.research_breakthrough = 1;
     const std::string research = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"research\"}");
     DOCTEST_CHECK(Contains_(research, "\"field\":30,\"app\":11,\"accumulated\":500"));
-    DOCTEST_CHECK(Contains_(research, "{\"group\":4,\"area\":\"Construction\",\"field\":30,\"field_name\":\"Field 30\",\"cost\":2500,\"all\":false,\"apps\":[{\"app\":11,\"name\":\"App 11\"}]}"));
+    DOCTEST_CHECK(Contains_(research, "{\"group\":4,\"area\":\"Construction\",\"field\":30,\"field_name\":\"Field 30\",\"cost\":2500,\"all\":false,\"apps\":[{\"app\":11,\"name\":\"App 11\",\"description\":\"\"}]}"));
     p.traits[TRAIT_CREATIVE] = 1; // creative: every application of the field
     DOCTEST_CHECK(Contains_(Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"research\"}"), "\"cost\":2500,\"all\":true"));
     p.traits[TRAIT_CREATIVE] = 0;

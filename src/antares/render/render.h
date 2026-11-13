@@ -295,9 +295,11 @@ namespace render {
     };
     // Game thread. `loaded_entry` is the entry's bytes, registered with Register_Load. False when
     // the HD pack has no art for the entry, or it didn't decode within `max_ms`: the caller then
-    // uses the 1x frames.
+    // uses the 1x frames. `shade_masks`: full-colour pixels masked as a palette index take that
+    // index's colour from `palette_rgb`, keeping their brightness (as the twin planes draw them:
+    // ships' player markings); otherwise the art's own colours.
     bool Export_Art(const char* lbx_name, int32_t entry, const s_animation_header* loaded_entry, const uint32_t* palette_rgb,
-        std::vector<s_exported_frame>* frames, uint32_t max_ms);
+        std::vector<s_exported_frame>* frames, uint32_t max_ms, bool shade_masks = false);
 
     // The palette an art pack's sprite was made under (its sprite.json "palette", from the art
     // index): FONTS.LBX palettes and LBX entries' embedded palettes, applied in order. False when

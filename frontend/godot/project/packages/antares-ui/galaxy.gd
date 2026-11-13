@@ -266,7 +266,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				if pressed_here and not _drag_moved:
 					var fleet := _pick_fleet(button.position)
 					var star := pick(button.position)
-					if fleet >= 0 and not relocating:
+					# A planet of the open system (owner, 2026-11-13: a colony's planet opens its
+					# colony pane, as its row in the system pane does).
+					var planet: int = -1 if relocating else $Orbits.pick(_screen_to_world(button.position))
+					if planet >= 0:
+						planet_clicked.emit(planet)
+					elif fleet >= 0 and not relocating:
 						fleet_clicked.emit(fleet)
 					elif star >= 0:
 						star_clicked.emit(star)

@@ -59,3 +59,16 @@ func pick(world: Vector2) -> int:
 		if world.distance_to(center) <= float(planet.dimension) * 0.5 * k + 3.0 * k:
 			return int(planet.planet)
 	return -1
+
+
+## A planet's centre in world units (the smoke's map clicks), or Vector2.INF.
+func center_of(planet_id: int) -> Vector2:
+	var system: Dictionary = galaxy.system
+	if system.is_empty():
+		return Vector2.INF
+	var k: float = galaxy.system_scale
+	var origin: Vector2 = galaxy.star_position(galaxy.system_star) - BOX_CENTER * k
+	for planet: Dictionary in system.planets:
+		if int(planet.planet) == planet_id and int(planet.sprite) >= 0:
+			return origin + (Vector2(float(planet.box_x), float(planet.box_y)) + Vector2.ONE * float(planet.dimension) * 0.5) * k
+	return Vector2.INF

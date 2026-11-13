@@ -33,9 +33,17 @@ func hover(i: int) -> void:
 const WIDTH := 18.0
 
 
+## The arrow pulses slowly, as the game's does (owner, 2026-11-13).
+const PULSE_TIME := 0.9
+const PULSE_DIM := 0.35
+
+
 func _ready() -> void:
 	custom_minimum_size.x = WIDTH
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pulse := create_tween().set_loops().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	pulse.tween_property(self, "modulate:a", PULSE_DIM, PULSE_TIME)
+	pulse.tween_property(self, "modulate:a", 1.0, PULSE_TIME)
 
 
 func _draw() -> void:

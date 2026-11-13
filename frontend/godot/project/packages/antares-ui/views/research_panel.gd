@@ -113,9 +113,25 @@ func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
 				b.add_theme_color_override(state, picked_color)
 		var row := list.get_child_count()
 		b.mouse_entered.connect(func(): branch.hover(row))
-		b.mouse_exited.connect(func(): branch.hover(-1))
+		b.button_down.connect(func(): branch.hover(row)) # held, it still shows what it would give
+		b.mouse_exited.connect(func():
+			if not b.is_pressed():
+				branch.hover(-1))
+		b.button_up.connect(func():
+			if not b.is_hovered():
+				branch.hover(-1))
+		# Picked: the choice is sent and the drop-down goes back up (owner, 2026-11-13).
 		b.pressed.connect(func():
-			command.emit({"verb": "choose_research", "field": field, "app": id, "_reply_to": "_chosen"}))
+			command.emit({"verb": "choose_research", "field": field, "app": id, "_reply_to": "_chosen"})
+			close())
+		# A right click: the application's help, as the game's research screen gives it.
+		var app_name := String(app.name)
+		var help := String(app.get("description", ""))
+		b.gui_input.connect(func(event: InputEvent):
+			var mb := event as InputEventMouseButton
+			if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
+				_show_info(b, app_name, help)
+				b.accept_event())
 		list.add_child(b)
 		branch.rows.append(b)
 		chosen.append(on)
@@ -123,6 +139,15 @@ func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
 	branch.color = picked_color
 	list.resized.connect(branch.queue_redraw)
 	return panel
+
+
+var _info_popup: Popup
+
+
+func _show_info(at: Control, title: String, text: String) -> void:
+	if is_instance_valid(_info_popup):
+		_info_popup.queue_free()
+	_info_popup = preload("info_popup.gd").open(self, at, title, text)
 
 
 func _chosen(result: Dictionary) -> void:

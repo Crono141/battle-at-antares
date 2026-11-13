@@ -217,10 +217,22 @@ namespace antares::sprites {
             // Other art its own, if declared.
             Declared_Palette_Rgb(lbx, entry, palette_rgb);
         }
+        if (lbx == "SHIPS.LBX" && entry >= 0 && entry < 400 && entry % 50 != 49) {
+            // A ship's player markings (0xC0-0xDF) take its colour set's palette, entry
+            // colour * 50 + 49, as KEN::Load_Player_Ship_Palette loads it for the design screen
+            // (owner, 2026-11-13: every player's ships came out red).
+            std::vector<uint64_t> set_palette;
+            size_t set_size = 0;
+            if (Read_Entry(lbx, entry / 50 * 50 + 49, &set_palette, &set_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(set_palette.data()), set_size, palette_rgb);
+            }
+        }
 
         render::Register_Load(bytes, (int32_t)size, lbx.c_str(), entry);
         std::vector<render::s_exported_frame> art;
-        if (render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms)) {
+        // Ships' markings follow their colour set's palette (the masks say which pixels).
+        const bool shade_masks = lbx == "SHIPS.LBX";
+        if (render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms, shade_masks)) {
             for (render::s_exported_frame& frame : art) {
                 s_frame copy;
                 copy.width = frame.width;

@@ -249,6 +249,16 @@ func _reveal() -> void:
 	_revealing = false
 
 
+## The screen's fixed parts over the panes, so panes slide out from behind them (owner,
+## 2026-11-13: they slid in over the top bar): the bar and the side tabs, then the frame over all.
+## The map controls' pocket stays under the panes, which reach the bottom of the screen.
+func _raise_chrome() -> void:
+	for chrome in ["galaxy_bar", "side_tabs"]:
+		if _views.has(chrome):
+			(_views[chrome] as Control).move_to_front()
+	_frame_view.move_to_front()
+
+
 ## Fills one of the bar's drop-downs from its query and slides it down under `center`.
 func _drop_down(action_name: String, panel: Control, research_text: String, center: float) -> void:
 	if action_name == "command_points":
@@ -524,7 +534,7 @@ func _view(scene_name: String) -> Control:
 		if view.has_signal("selection_changed"):
 			view.selection_changed.connect(func(): _on_star_hovered(_hovered_star))
 		native_layer.add_child(view)
-		_frame_view.move_to_front() # the frame stays over every view
+		_raise_chrome() # the bar, the pockets, the tabs and the frame stay over every view
 		_views[scene_name] = view
 		if scene_name == "side_tabs": # their column limits the scale
 			_apply_saved_scale.call_deferred()
@@ -560,7 +570,7 @@ func _bring_up(view: Control) -> void:
 		if other != null and other != view and other.visible:
 			other.close()
 	view.move_to_front()
-	_frame_view.move_to_front()
+	_raise_chrome()
 
 
 ## The map controls' view-only actions.
@@ -812,7 +822,7 @@ func _on_colony_chosen(colony_id: int) -> void:
 		pane.close() # its `closed` re-frames the system
 		return
 	pane.move_to_front()
-	_frame_view.move_to_front()
+	_raise_chrome()
 	pane.open(colony_id)
 	if not was_open and _panel_star >= 0:
 		_frame_system(_panel_star) # the free area narrowed
@@ -836,7 +846,7 @@ func _open_build_pane(colony_id: int, bought: bool) -> void:
 				right = minf(right, (b as Control).get_global_rect().position.x - gap)
 	pane.place_at(colony_pane.get_global_rect().end.x + gap, right)
 	pane.move_to_front()
-	_frame_view.move_to_front()
+	_raise_chrome()
 	pane.open(colony_id, bought)
 
 
@@ -1231,6 +1241,50 @@ func _smoke_galaxy(shots: String) -> bool:
 	if pane._potential.is_empty():
 		await host.smoke_fail("no colony potential arrived in the pane")
 		return false
+	# A colony's planet clicked on the map (owner, 2026-11-13: it did nothing): its colony pane.
+	for planet: Dictionary in pane.system.get("planets", []):
+		var colony_id: int = pane._player_colony(int(planet.planet))
+		var world: Vector2 = $Galaxy/Orbits.center_of(int(planet.planet))
+		if colony_id < 0 or not world.is_finite():
+			continue
+		_on_planet_clicked(-1)
+		_on_colony_chosen(-1)
+		await get_tree().create_timer(0.6).timeout
+		var at: Vector2 = galaxy.get_global_transform_with_canvas() * world * get_window().content_scale_factor
+		_smoke_mouse(true, at)
+		await get_tree().process_frame
+		_smoke_mouse(false, at)
+		await get_tree().create_timer(1.0).timeout
+		var colony_pane: Control = _view("colony_pane")
+		print("smoke: map click on planet %d: selected %d, colony pane %s on colony %d (expected %d)" % [int(planet.planet),
+			galaxy.selected_planet, colony_pane.visible, colony_pane.colony_id, colony_id])
+		if colony_pane.colony_id != colony_id:
+			await host.smoke_fail("a colony's planet clicked on the map did not open its colony pane")
+			return false
+		# A right click's help (owner: the colony pane had almost none): the population line.
+		var label: Control = colony_pane.population
+		var help_at: Vector2 = label.get_global_rect().get_center() * get_window().content_scale_factor
+		for pressed in [true, false]:
+			var right := InputEventMouseButton.new()
+			right.button_index = MOUSE_BUTTON_RIGHT
+			right.pressed = pressed
+			right.position = help_at
+			Input.parse_input_event(right)
+			await get_tree().process_frame
+		await get_tree().create_timer(0.8).timeout
+		var popup: Popup = colony_pane._info_popup
+		var shown := is_instance_valid(popup) and popup.visible
+		print("smoke: colony help on a right click: shown %s, '%s'" % [shown,
+			(popup.find_children("*", "Label", true, false)[0] as Label).text if shown else ""])
+		if shots != "":
+			await host.shot(shots + "/native-colony-help.png")
+		if not shown:
+			await host.smoke_fail("no help on a right click in the colony pane")
+			return false
+		colony_pane._close_info()
+		_on_colony_chosen(-1)
+		await get_tree().create_timer(0.6).timeout
+		break
 	if shots != "":
 		await host.shot(shots + "/native-system-pane.png")
 	# The colony pane (WP3.4): the first of the player's colonies here opens beside the pane.
@@ -1491,6 +1545,13 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 	await get_tree().create_timer(0.8).timeout
 	if shots != "":
 		await host.shot(shots + "/native-build-pane.png")
+		# Trade goods and housing (owner, 2026-11-13: blank, and the dimensional portal).
+		for special in [[-2, "trade-goods"], [-3, "housing"]]:
+			if build._names.has(special[0]):
+				print("smoke: build picture of %s: %s" % [special[1], build._names[special[0]].get("picture", {})])
+				build._show_detail(build._names[special[0]])
+				await get_tree().create_timer(1.0).timeout
+				await host.shot(shots + "/native-build-%s.png" % special[1])
 	build.cancel()
 	await get_tree().create_timer(0.6).timeout
 	var after_cancel: Array = (await _query_args({"what": "colony", "colony": int(c.colony)})).build.queue
@@ -1892,7 +1953,48 @@ func _smoke_new_game(shots: String) -> void:
 	await get_tree().create_timer(0.3).timeout
 	if shots != "":
 		await host.shot(shots + "/native-research-hover.png")
+	# A real click on a give-all field's second application (owner, 2026-11-13: while the button
+	# was held the arrow fell back to one, and picking left the drop-down open).
+	for branch in research.areas_box.find_children("*", "Control", true, false):
+		if branch.get_script() != preload("views/research_branch.gd") or not branch.gives_all or branch.rows.size() < 2:
+			continue
+		var factor := get_window().content_scale_factor
+		var click_at: Vector2 = (branch.rows[1] as Control).get_global_rect().get_center() * factor
+		var motion := InputEventMouseMotion.new()
+		motion.position = click_at
+		Input.parse_input_event(motion)
+		await get_tree().create_timer(0.3).timeout
+		var hovered: Array = branch.pointed.duplicate()
+		_smoke_mouse(true, click_at)
+		await get_tree().create_timer(0.3).timeout
+		print("smoke: research click: hovered %s, held %s" % [hovered, branch.pointed])
+		if shots != "":
+			await host.shot(shots + "/native-research-held.png")
+		_smoke_mouse(false, click_at)
+		await get_tree().create_timer(1.0).timeout
+		print("smoke: research picked: drop-down still shown %s" % (research.visible and not research._closing))
+		break
 	research.close()
+	# Ship designs pre-warp (owner, 2026-11-13): the flyout shows none until the build list
+	# would; their art in the player's colour, not red.
+	var designs: Dictionary = await _query("designs")
+	var buildable: Array = designs.get("designs", []).map(func(d: Dictionary) -> bool: return d.get("buildable", false))
+	print("smoke: new game designs: colour %d, buildable %s" % [int(designs.get("color", -1)), buildable])
+	_on_view_action("designs")
+	await get_tree().create_timer(1.0).timeout
+	var listed: int = _view("design_list").rows.get_children().filter(func(c: Node) -> bool: return c is PanelContainer).size()
+	print("smoke: design list shows %d designs" % listed)
+	if shots != "":
+		await host.shot(shots + "/native-designs-prewarp.png")
+		if not designs.get("designs", []).is_empty():
+			var picture := int(designs.designs[0].picture)
+			art.sprite("SHIPS.LBX", picture)
+			await get_tree().create_timer(2.0).timeout
+			var tex: Texture2D = art.texture("SHIPS.LBX", picture)
+			if tex:
+				tex.get_image().save_png(shots + "/ship-%d.png" % picture)
+				print("smoke: saved ship art %d" % picture)
+	_view("design_list").close()
 	game.request_game_quit()
 	print("smoke: asked the game to quit")
 

@@ -11,6 +11,8 @@ namespace antares::commands::internal {
 
     // Game text (CP850, with colour and layout control bytes) as clean UTF-8.
     std::string Utf8(const char* text, size_t max_length);
+    // An application's help text (HELP.LBX), empty if none (colony_queries.cpp).
+    std::string Application_Help(int16_t app);
     // Fails `out` with "no_game" when no game is loaded.
     bool Have_Game(s_out& out);
 

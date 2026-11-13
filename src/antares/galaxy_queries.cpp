@@ -718,6 +718,12 @@ namespace antares::commands::internal {
                 return;
             }
             const s_player& player = MOX::player[MOX::PLAYER_NUM];
+            // As the build list offers them (COLBLDG::Calculate_Military_Array): no designs until the
+            // empire has a range and a speed (pre-warp: none), Titans and Doom Stars with their tech.
+            const bool can_fly = player.ship_range > 0 && player.ship_speed != 0;
+            auto researched = [&](int16_t app) {
+                return player.tech_applications[app] == TECH_RESEARCH_STATUS_RESEARCHED;
+            };
             s_out list = out.Add_List("designs");
             for (int16_t slot = 0; slot < 6; ++slot) {
                 const s_ship_design& design = player.ship_designs[slot];
@@ -732,7 +738,17 @@ namespace antares::commands::internal {
                 // KEN::Do_Get_Ship_Picture_Seg: SHIPS.LBX, picture + the designer's colour * 50.
                 item.Int("picture", design.picture_num + player.color * 50);
                 item.Int("cost", design.cost);
+                bool buildable = can_fly;
+                if (buildable && MOX::settings.strategic_combat_flag != 0) {
+                    if (design.size == SHIP_SIZE_TITAN) {
+                        buildable = researched(TECH_APP_TITAN_CONSTRUCTION);
+                    } else if (design.size == SHIP_SIZE_DOOM_STAR) {
+                        buildable = researched(TECH_APP_DOOM_STAR_CONSTRUCTION);
+                    }
+                }
+                item.Bool("buildable", buildable);
             }
+            out.Int("color", player.color); // the player's flag colour (SHIPS.LBX: picture + color * 50)
         }
 
         // The legacy map's view, saved with the game: where a native view starts.
@@ -851,6 +867,7 @@ namespace antares::commands::internal {
                     s_out a = apps.Append_Object();
                     a.Int("app", app);
                     a.Str("name", Utf8(TECH::Technology_Applications_Name(app, MOX::PLAYER_NUM), 64));
+                    a.Str("description", Application_Help(app)); // the right click's help
                 }
                 if (choice.apps.empty()) {
                     item.Str("none", Utf8(none, sizeof(none)));

@@ -145,6 +145,15 @@ DOCTEST_TEST_CASE("the colony query reads the colony screen's values (WP3.4)") {
     DOCTEST_CHECK(Has_(c, "\"buildings\":[{\"building\":22,\"name\":\"B22\",\"sellable\":true,\"refund\":150,"));
 }
 
+DOCTEST_TEST_CASE("the help query reads a help record by topic (the right click's help)") {
+    Set_Up_();
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"help\"}"), "bad_args"));
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"help\",\"topic\":-1}"), "bad_args"));
+    const std::string help = Run_("{\"verb\":\"query\",\"what\":\"help\",\"topic\":483}");
+    DOCTEST_CHECK(Has_(help, "\"topic\":483"));
+    DOCTEST_CHECK(Has_(help, "\"title\":")); // no HELP.LBX in the tests: empty, but there
+}
+
 DOCTEST_TEST_CASE("move_colonist and buy are the colony screen's actions (WP3.4)") {
     Set_Up_();
     // A farmer to research.

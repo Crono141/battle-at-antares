@@ -21,6 +21,7 @@ signal closed
 ## CHANGE: the build pane opens on this colony (`bought`: its front item is bought).
 signal change_build(colony_id: int, bought: bool)
 
+const Themes := preload("../themes.gd")
 const SLIDE_TIME := 0.25
 const WIDTH := 340.0
 const ICON := Vector2(24, 24)
@@ -30,6 +31,16 @@ const BIG_ICON := Vector2(28, 28)
 const JOB_ROWS := ["food", "industry", "research"]
 const JOB_NAMES := ["Farmers", "Workers", "Scientists"]
 const SHORT_COLOR := Color(1.0, 0.35, 0.3)
+## HELP.LBX records of the colony screen's parts (ERICHELP::colony_screen_help_list).
+const HELP_NAME := 485
+const HELP_POPULATION := 486
+const HELP_PRODUCTION := 488
+const HELP_BC := 489
+const HELP_JOBS := [492, 493, 494] # farmers, workers, scientists
+const HELP_COLONISTS := 495
+const HELP_UNITS := 496
+const HELP_CHANGE := 497
+const HELP_BUY := 498
 
 @onready var box: VBoxContainer = $Scroll/Box
 @onready var name_label: Label = $Scroll/Box/Header/Names/Name
@@ -49,6 +60,14 @@ func _ready() -> void:
 	$Scroll/Box/Header/Close.pressed.connect(close)
 	$Scroll/Box/Transport.pressed.connect(_open_original)
 	$Scroll/Box/View.pressed.connect(_open_landscape)
+	# The right click's help on the colony screen's parts (ERICHELP::colony_screen_help_list).
+	name_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	population.mouse_filter = Control.MOUSE_FILTER_PASS
+	_help_on(name_label, HELP_NAME)
+	_help_on(population, HELP_POPULATION)
+	_help_on($Scroll/Box/Money, HELP_BC)
+	_help_on($Scroll/Box/Build, HELP_PRODUCTION)
+	_help_on($Scroll/Box/Garrison, HELP_UNITS)
 	_restyle()
 
 
@@ -180,6 +199,8 @@ func _build_box(build: Dictionary) -> Control:
 	v.add_child(top)
 	var picture: Dictionary = build.get("picture", {})
 	var pic := _sprite(String(picture.get("lbx", "")), int(picture.get("entry", -1)), Vector2(96, 72), "")
+	if picture.has("icon"): # trade goods: the interface's coin
+		pic.texture = Themes.icon(String(picture.icon), 44)
 	top.add_child(pic)
 	var info := VBoxContainer.new()
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -229,6 +250,7 @@ func _build_box(build: Dictionary) -> Control:
 		buy.tooltip_text = "Finish it next turn for BC"
 	buy.pressed.connect(func(): command.emit({"verb": "buy", "colony": colony_id, "_reply_to": "_after_command"}))
 	buttons.add_child(buy)
+	_help_on(buy, HELP_BUY)
 	var change := Button.new()
 	change.text = "CHANGE"
 	change.tooltip_text = "Change what is built: the build list slides out"
@@ -237,6 +259,7 @@ func _build_box(build: Dictionary) -> Control:
 	change.custom_minimum_size.y = 32
 	change.pressed.connect(func(): change_build.emit(colony_id, int(build.get("bought", 0)) > 0))
 	buttons.add_child(change) # on the right, where the build pane will slide out
+	_help_on(change, HELP_CHANGE)
 	return v
 
 
@@ -251,6 +274,7 @@ func _show_jobs() -> void:
 		var panel := PanelContainer.new()
 		panel.theme_type_variation = &"Row"
 		_job_panels[job] = panel
+		_help_on(panel, HELP_JOBS[job])
 		var rows := VBoxContainer.new()
 		rows.add_theme_constant_override("separation", 2)
 		rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -274,6 +298,9 @@ func _show_jobs() -> void:
 				var mb := event as InputEventMouseButton
 				if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and _carry.is_empty():
 					_pick_up(cluster, job)
+					accept_event()
+				elif mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT and _carry.is_empty():
+					_ask_help(HELP_COLONISTS, icon)
 					accept_event())
 			people.add_child(icon)
 		if colonists.is_empty():
@@ -364,36 +391,34 @@ func _buildings_list() -> Control:
 ## A building's help text (the original's right click on the landscape), beside its row.
 func _show_info(b: Dictionary, at: Control) -> void:
 	_close_info()
-	_info_popup = Popup.new()
-	_info_popup.transparent_bg = true
-	_info_popup.transparent = true
-	var panel := PanelContainer.new()
-	panel.theme_type_variation = &"Pane"
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 6)
-	panel.add_child(box)
-	var title := Label.new()
-	title.theme_type_variation = &"Name"
-	title.text = String(b.name)
-	box.add_child(title)
-	var text := Label.new()
-	text.text = String(b.get("description", ""))
-	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	text.custom_minimum_size.x = 360
-	text.add_theme_font_size_override("font_size", 16)
-	box.add_child(text)
+	var footer := ""
 	if bool(b.get("sellable", false)):
-		var sell := Label.new()
-		sell.theme_type_variation = &"Dim"
-		sell.text = "Click to sell for %s BC" % _thousands(int(b.get("refund", 0)))
-		box.add_child(sell)
-	_info_popup.add_child(panel)
-	add_child(_info_popup)
-	var size_now := panel.get_combined_minimum_size()
-	var place := Vector2(at.get_screen_position().x + at.size.x + 8, at.get_screen_position().y)
-	var screen := get_viewport().get_visible_rect().size
-	place.y = minf(place.y, screen.y - size_now.y - 8)
-	_info_popup.popup(Rect2i(Vector2i(place), Vector2i(size_now)))
+		footer = "Click to sell for %s BC" % _thousands(int(b.get("refund", 0)))
+	_info_popup = preload("info_popup.gd").open(self, at, String(b.name), String(b.get("description", "")), footer)
+
+
+## A right click on `control` opens help record `topic` beside it.
+func _help_on(control: Control, topic: int) -> void:
+	control.gui_input.connect(func(event: InputEvent) -> void:
+		var mb := event as InputEventMouseButton
+		if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT and _carry.is_empty():
+			_ask_help(topic, control)
+			control.accept_event())
+
+
+var _help_at: Control
+
+
+func _ask_help(topic: int, at: Control) -> void:
+	_help_at = at
+	command.emit({"verb": "query", "what": "help", "topic": topic, "_reply_to": "_show_help"})
+
+
+func _show_help(result: Dictionary) -> void:
+	if not result.get("ok", false) or not is_instance_valid(_help_at) or not visible:
+		return
+	_close_info()
+	_info_popup = preload("info_popup.gd").open(self, _help_at, String(result.title).strip_edges(), String(result.text).strip_edges())
 
 
 func _close_info() -> void:

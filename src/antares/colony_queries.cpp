@@ -158,12 +158,7 @@ namespace antares::commands::internal {
                     }
                     break;
             }
-            if (app < 0) {
-                return {};
-            }
-            char lbx[20];
-            TEXTBOX::Get_Help_Lbx_Name(lbx, sizeof(lbx));
-            return Lbx_Record(lbx, 0, (uint16_t)app, offsetof(s_help_record, body), sizeof(s_help_record::body));
+            return Application_Help(app);
         }
 
         // An item's name as COLBLDG::Selection_Name gives it, without its refit cache.
@@ -191,12 +186,19 @@ namespace antares::commands::internal {
         // The build box's picture: {lbx, entry} as the colony screen draws the item (Draw_Info_Build).
         void Item_Picture(const s_colony& colony, int16_t id, s_out item) {
             const int32_t race = Race_Of(colony.owner);
-            if (id == COLONY_PRODUCTION_HOUSING) {
-                id = BUILDING_DIMENSIONAL_PORTAL; // the screen draws housing with building 14's art
+            if (id == COLONY_PRODUCTION_TRADE_GOODS) {
+                item.Str("icon", "coin"); // the screen draws nothing; the interface's coin
+                return;
+            }
+            const bool housing = id == COLONY_PRODUCTION_HOUSING;
+            if (housing) {
+                // The screen draws housing with building 14's BLDG art (Draw_Current_Building2), not
+                // the dimensional portal's satellite that building 14 shows elsewhere.
+                id = BUILDING_DIMENSIONAL_PORTAL;
             }
             if (COLBLDG::Colony_Production_Is_Building(id)) {
                 const int16_t satellite = COLONY::Satellite_Anim_Pic(id);
-                if (TECHDATA::buildings[id].group == 7 && satellite >= 0) {
+                if (!housing && TECHDATA::buildings[id].group == 7 && satellite >= 0) {
                     item.Str("lbx", "COLONY.LBX");
                     item.Int("entry", k_satellite_pictures + satellite);
                     return;
@@ -246,6 +248,21 @@ namespace antares::commands::internal {
                 return k_android_icon;
             }
             return race * k_raceicon_stride + job * 2 + 1;
+        }
+
+        // Any help record (HELP.LBX's table: applications 0-211, then the screens' help, e.g. the
+        // colony screen's 483-500 in ERICHELP::colony_screen_help_list): the right click's help.
+        void Query_Help(int16_t, const s_args& args, s_out& out) {
+            int64_t topic = -1;
+            if (!args.Int("topic", &topic) || topic < 0 || topic > 0xFFFF) {
+                out.Fail("bad_args", "topic: a help record");
+                return;
+            }
+            char lbx[20];
+            TEXTBOX::Get_Help_Lbx_Name(lbx, sizeof(lbx));
+            out.Int("topic", topic);
+            out.Str("title", Lbx_Record(lbx, 0, (uint16_t)topic, 0, sizeof(s_help_record::title)));
+            out.Str("text", Lbx_Record(lbx, 0, (uint16_t)topic, offsetof(s_help_record, body), sizeof(s_help_record::body)));
         }
 
         void Query_Colony(int16_t, const s_args& args, s_out& out) {
@@ -842,9 +859,20 @@ namespace antares::commands::internal {
 
     } // namespace
 
+    // An application's help text, as the game's help popup shows it (HELP.LBX's record body).
+    std::string Application_Help(int16_t app) {
+        if (app < 0) {
+            return {};
+        }
+        char lbx[20];
+        TEXTBOX::Get_Help_Lbx_Name(lbx, sizeof(lbx));
+        return Lbx_Record(lbx, 0, (uint16_t)app, offsetof(s_help_record, body), sizeof(s_help_record::body));
+    }
+
     void Add_Colony_Entries(std::vector<s_entry>* table) {
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);
         table->push_back({"colony", e_kind::query, ANY_SCREEN, 1, "colony: colony id (the player's)", Query_Colony});
+        table->push_back({"help", e_kind::query, ANY_SCREEN, 1, "topic: a help record (HELP.LBX)", Query_Help});
         table->push_back({"move_colonist", e_kind::command, galaxy, 0, "colony, pop or pops (a cluster), job (0-2)", Move_Colonist});
         table->push_back({"sell_building", e_kind::command, galaxy, 0, "colony, building", Sell_Building});
         table->push_back({"buy", e_kind::command, galaxy, 0, "colony", Buy});
