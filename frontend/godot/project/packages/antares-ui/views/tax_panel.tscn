@@ -4,8 +4,8 @@
 [ext_resource type="Script" path="res://packages/antares-ui/views/fit_scroll.gd" id="fit"]
 
 [node name="TaxPanel" type="PanelContainer"]
-custom_minimum_size = Vector2(240, 0)
-offset_right = 240.0
+custom_minimum_size = Vector2(160, 0)
+offset_right = 160.0
 offset_bottom = 40.0
 theme_type_variation = &"Pane"
 script = ExtResource("1")

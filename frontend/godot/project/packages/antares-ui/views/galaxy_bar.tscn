@@ -65,12 +65,11 @@ metadata/passive = true
 
 [node name="Freighters" type="Button" parent="Row"]
 layout_mode = 2
-tooltip_text = "Freighters: spare (total)"
+tooltip_text = "Freighters: spare (total). Click to scrap some"
 focus_mode = 0
 theme_type_variation = &"SlotButton"
 text = "Freighters"
 metadata/icon = "freighter"
-metadata/passive = true
 
 [node name="Research" type="Button" parent="Row"]
 layout_mode = 2

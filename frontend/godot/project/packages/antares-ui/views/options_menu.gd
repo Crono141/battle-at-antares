@@ -325,7 +325,7 @@ static func shortcut_for(text: String) -> Shortcut:
 
 
 ## SYSTEM ZOOM (owner, 2026-11-13): how long the flight into and out of a system takes.
-const FLIGHT_CHOICES := [["SLOW", 1.0], ["MEDIUM", 0.5], ["FAST", 0.25], ["INSTANT", 0.0]]
+const FLIGHT_CHOICES := [["SLOW", 1.5], ["MEDIUM", 1.0], ["FAST", 0.5], ["INSTANT", 0.0]]
 var _flight_buttons: Array[Button] = []
 
 

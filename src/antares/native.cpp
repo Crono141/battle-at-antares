@@ -406,7 +406,7 @@ namespace antares::native {
         // check); more means something waits for the player (a leader for hire) on the legacy
         // galaxy, with the same screen id.
         std::atomic<uint64_t> s_turn_notice_polls{0};
-        constexpr uint64_t k_turn_polls = 2;
+        constexpr uint64_t k_turn_polls = 6;
     } // namespace
 
     void Stop_Auto_Turns() {
@@ -425,6 +425,16 @@ namespace antares::native {
         if (!utf8.empty()) {
             Refresh_Snapshots(SCREEN_MAIN); // the bar's stardate, fleets on the move
             host::On_Publish();
+            // About three turns a second at most (owner, 2026-11-13: they flew by with no chance to
+            // stop them); the game keeps ticking meanwhile, and a click is taken at the turn's
+            // input check right after.
+            static uint64_t last_notice = 0;
+            constexpr uint64_t k_turn_ms = 333;
+            while (last_notice != 0 && SDL_GetTicks() - last_notice < k_turn_ms && !s_stop_auto_turns) {
+                Serve_Sprites(5);
+                Tick();
+            }
+            last_notice = SDL_GetTicks();
         }
         if (utf8.empty()) {
             s_stop_auto_turns = false; // stopped already

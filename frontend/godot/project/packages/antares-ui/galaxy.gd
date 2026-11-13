@@ -59,8 +59,8 @@ var system_star := -1
 var system_scale := 0.25 # world units per system box pixel
 var selected_planet := -1
 ## How long a camera flight takes, and the view it left (Back returns to it).
-const FLIGHT_TIME := 0.5
-## The system flight's length in seconds (Options: slow 1, medium 0.5, fast 0.25, instant 0).
+const FLIGHT_TIME := 1.0
+## The system flight's length in seconds (Options: slow 1.5, medium 1, fast 0.5, instant 0).
 var flight_time := FLIGHT_TIME
 ## The other stars' opacity while a system is open (they fade to OTHERS_IN_SYSTEM).
 var others_alpha := 1.0:

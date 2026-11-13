@@ -63,7 +63,8 @@ var _turn_over_galaxy := false # quiet turns passing by themselves, shown over t
 var _turn_notice: PanelContainer
 var _turn_stopping := false # a click asked the turns to stop: Esc again until they do
 var _turn_clearing := -1.0 # seconds since the notice cleared, while the hand-back waits (-1: none)
-const TURN_HANDBACK_DELAY := 0.6
+var _end_turn_at := -100000 # when TURN was last sent (ms): its first legacy frame may be a quiet turn's
+const TURN_HANDBACK_DELAY := 1.0
 var _turn_stop_wait := 0.0
 var _legacy_after_frame := -1 # the frame count the legacy view waits past to come back, or -1
 var _stale_frame: PackedByteArray # the legacy frame held while the question was up
@@ -225,6 +226,10 @@ func _process(delta: float) -> void:
 
 func _on_native_screen(screen: int) -> void:
 	_legacy_after_frame = -1
+	# Just after TURN the galaxy stays a moment: if the turns pass by themselves their notices
+	# follow, and the legacy frame before the first one flashed (owner, 2026-11-13).
+	var held: bool = screen == Screens.LEGACY and native_screen == Screens.MAIN and native and \
+		Time.get_ticks_msec() - _end_turn_at < 3000 and not galaxy.stars.is_empty()
 	if screen == Screens.MAIN:
 		_galaxy_behind = true
 	elif screen == Screens.LEGACY:
@@ -240,6 +245,14 @@ func _on_native_screen(screen: int) -> void:
 	controls.visible = screen == Screens.MAIN
 	_view("side_tabs").visible = screen == Screens.MAIN
 	_frame_view.visible = screen == Screens.MAIN
+	if held:
+		_turn_over_galaxy = true
+		_turn_clearing = 0.0 # handed back after the delay unless a notice comes
+		legacy.hide()
+		galaxy.show()
+		_frame_view.show()
+		for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
+			_view(chrome).show()
 	var options := _view("options_menu")
 	options.keys_active = screen == Screens.MAIN
 	var game_menu := _view("game_menu")
@@ -866,6 +879,8 @@ func _on_view_closed(scene_name: String) -> void:
 
 
 func _send(command: Dictionary, on_result: Callable = Callable()) -> void:
+	if String(command.get("verb", "")) == "end_turn":
+		_end_turn_at = Time.get_ticks_msec()
 	var id: int = game.send_command(command)
 	if on_result.is_valid():
 		_pending[id] = on_result
@@ -1046,15 +1061,17 @@ func _open_system(star_id: int, fly := true) -> void:
 func _frame_system(star_id: int) -> void:
 	var view := get_viewport().get_visible_rect().size
 	var left := 360.0
+	# Where the panes rest when open, not where they are now: they slide by moving, and a pane
+	# still off-screen from the last close gave the whole screen (owner, 2026-11-13).
 	var system_pane: Control = _views.get("system_pane")
 	if system_pane != null:
-		left = system_pane.offset_right
+		left = float(system_pane._shown_left) + 372.0
 	# The zoom is the one that fits the space right of both panes, open or not (owner,
 	# 2026-11-13: the colony pane changed it); only the centre moves when it opens or closes.
 	var colony_pane: Control = _views.get("colony_pane")
 	var left_both := left + 6.0 + 340.0
 	if colony_pane != null:
-		left_both = colony_pane.offset_right
+		left_both = float(colony_pane._shown_left) + float(colony_pane.WIDTH)
 	if colony_pane != null and colony_pane.colony_id >= 0:
 		left = left_both
 	# The free area runs to the side tabs (owner, 2026-11-13: the star sat near the screen's centre
