@@ -386,6 +386,68 @@ namespace antares::native {
         return s_control_attached;
     }
 
+    namespace {
+        std::string s_turn_notice;     // under s_mutex
+        std::string s_turn_notice_taken; // what the frontend last got (frontend thread)
+    } // namespace
+
+    namespace {
+        std::atomic<bool> s_stop_auto_turns{false};
+        // The input polls when the notice was posted: a quiet turn polls once (the auto mode's
+        // check); more means something waits for the player (a leader for hire) on the legacy
+        // galaxy, with the same screen id.
+        std::atomic<uint64_t> s_turn_notice_polls{0};
+        constexpr uint64_t k_turn_polls = 2;
+    } // namespace
+
+    void Stop_Auto_Turns() {
+        s_stop_auto_turns = true;
+    }
+
+    bool Take_Auto_Turn_Stop() {
+        return s_stop_auto_turns.exchange(false);
+    }
+
+    void Set_Turn_Notice(const char* text) {
+        if (!Frontend()) {
+            return;
+        }
+        const std::string utf8 = text != nullptr ? Utf8(text) : std::string();
+        if (!utf8.empty()) {
+            Refresh_Snapshots(SCREEN_MAIN); // the bar's stardate, fleets on the move
+            host::On_Publish();
+        }
+        if (utf8.empty()) {
+            s_stop_auto_turns = false; // stopped already
+        }
+        s_turn_notice_polls = input_trace::Polls();
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_turn_notice = utf8;
+    }
+
+    bool Take_Turn_Notice(std::string* text) {
+        std::string now;
+        {
+            std::lock_guard<std::mutex> lock(s_mutex);
+            now = s_turn_notice;
+        }
+        // Another screen than the turn's (read from this thread: a 16-bit value the game thread
+        // writes; at worst a frame late).
+        const int16_t screen = *static_cast<volatile int16_t*>(&MOX::current_screen);
+        if (screen != SCREEN_MAIN && screen != SCREEN_MAIN_NEXT_TURN && screen != SCREEN_REPORTS) {
+            now.clear();
+        }
+        if (input_trace::Polls() > s_turn_notice_polls + k_turn_polls) {
+            now.clear(); // a legacy popup waits for input
+        }
+        if (now == s_turn_notice_taken) {
+            return false;
+        }
+        s_turn_notice_taken = now;
+        *text = now;
+        return true;
+    }
+
     bool Take_Snapshot(std::string* json) {
         std::lock_guard<std::mutex> lock(s_mutex);
         if (s_snapshots.empty()) {
@@ -552,6 +614,10 @@ namespace antares::native {
         host::On_Publish();
         ++s_native_visit;
         s_native_screen = screen;
+        {
+            std::lock_guard<std::mutex> lock(s_mutex);
+            s_turn_notice.clear(); // the turns stopped: a screen of its own
+        }
         Refresh_Snapshots(screen);
         // As Main_Screen on entry, the message about a loaded save's packages, but once the native
         // galaxy is up and has had its first commands (its watches and art) for a moment: asked at

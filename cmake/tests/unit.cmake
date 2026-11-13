@@ -540,12 +540,14 @@ orion2re_add_unit_test(test_native_bridge
         tests/unit/galaxy_queries_test.cpp
         tests/unit/fleet_orders_test.cpp
         tests/unit/colony_queries_test.cpp
+        tests/unit/save_queries_test.cpp
     PRODUCTION_SOURCES
         src/antares/native.cpp
         src/antares/commands.cpp
         src/antares/galaxy_queries.cpp
         src/antares/fleet_orders.cpp
         src/antares/colony_queries.cpp
+        src/antares/save_queries.cpp
         src/config/text_encoding.cpp
         vendors/yyjson/src/yyjson.c
     FAKE_SOURCES
@@ -553,6 +555,7 @@ orion2re_add_unit_test(test_native_bridge
         tests/fakes/fake_galaxy_runtime.cpp
         tests/fakes/fake_fleet_runtime.cpp
         tests/fakes/fake_colony_runtime.cpp
+        tests/fakes/fake_save_runtime.cpp
     LIBRARIES
         miniz
     LINK_SDL

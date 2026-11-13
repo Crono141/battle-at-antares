@@ -58,6 +58,10 @@ var _have_empire := false
 ## native galaxy instead.
 const GALAXY_BEHIND_SCREENS := [Screens.MAIN, Screens.MAIN_NEXT_TURN, Screens.REPORTS, Screens.TURN_SUMMARY]
 var _question_over_galaxy := false
+var _turn_over_galaxy := false # quiet turns passing by themselves, shown over the native galaxy
+var _turn_notice: PanelContainer
+var _turn_stopping := false # a click asked the turns to stop: Esc again until they do
+var _turn_stop_wait := 0.0
 var _legacy_after_frame := -1 # the frame count the legacy view waits past to come back, or -1
 var _stale_frame: PackedByteArray # the legacy frame held while the question was up
 var _legacy_waited := 0.0
@@ -82,6 +86,8 @@ func _ready() -> void:
 	game.command_result.connect(_on_result)
 	game.request.connect(_on_request)
 	game.snapshot.connect(_on_snapshot)
+	if game.has_signal("turn_notice"):
+		game.turn_notice.connect(_on_turn_notice)
 	galaxy.star_clicked.connect(_on_star_clicked)
 	galaxy.fleet_clicked.connect(_open_fleet)
 	galaxy.star_hovered.connect(_on_star_hovered)
@@ -125,6 +131,17 @@ func packs_changed() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	# Turns passing by themselves: a click or Esc stops them (the legacy galaxy's exit field).
+	if _turn_over_galaxy and overlay.visible == false:
+		var stop_click := event as InputEventMouseButton
+		var stop_key := event as InputEventKey
+		if (stop_click and stop_click.pressed) or (stop_key and stop_key.pressed and stop_key.keycode == KEY_ESCAPE):
+			# Asked again until the turns stop (_process).
+			_turn_stop_wait = 0.0
+			_turn_stopping = true
+			game.stop_auto_turns()
+			get_viewport().set_input_as_handled()
+			return
 	var key := event as InputEventKey
 	if key and key.pressed and not key.echo and key.ctrl_pressed and key.keycode == KEY_G:
 		_set_native(not native)
@@ -145,6 +162,14 @@ func _set_native(on: bool) -> void:
 
 
 func _process(delta: float) -> void:
+	if _turn_stopping:
+		if not _turn_over_galaxy or native_screen == Screens.MAIN or overlay.visible:
+			_turn_stopping = native_screen != Screens.MAIN and _turn_over_galaxy # a question: later
+		else:
+			_turn_stop_wait += delta
+			if _turn_stop_wait >= 0.25:
+				_turn_stop_wait = 0.0
+				game.stop_auto_turns()
 	if _legacy_after_frame < 0:
 		return
 	_legacy_waited += delta
@@ -157,7 +182,7 @@ func _process(delta: float) -> void:
 	if image != null and image.get_data() == _stale_frame and _legacy_waited < 3.0:
 		return
 	_legacy_after_frame = -1
-	if native_screen == Screens.LEGACY and not _question_over_galaxy:
+	if native_screen == Screens.LEGACY and not _question_over_galaxy and not _turn_over_galaxy:
 		galaxy.hide()
 		legacy.show()
 
@@ -700,6 +725,46 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 				_refresh_fleet() # a turn, or an order, changed the fleets
 		"options":
 			_view("options_menu").show_options(result)
+
+
+## Quiet turns passing by themselves (End Of Turn Wait off): the game's "<race>: Stardate N"
+## each turn, over the native galaxy instead of the legacy one (owner, 2026-11-13). "" when the
+## turns stop or another screen takes over (a combat): the legacy view comes back with its next
+## frame. A click or Esc stops the turns, as on the legacy galaxy.
+func _on_turn_notice(text: String) -> void:
+	if text != "" and native and not galaxy.stars.is_empty():
+		if not _turn_over_galaxy:
+			_turn_over_galaxy = true
+			var held: Image = game.get_frame_image()
+			_stale_frame = held.get_data() if held != null else PackedByteArray()
+		legacy.hide()
+		galaxy.show()
+		_frame_view.show()
+		if _turn_notice == null:
+			_turn_notice = PanelContainer.new()
+			_turn_notice.theme_type_variation = &"Pane"
+			_turn_notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var label := Label.new()
+			label.theme_type_variation = &"Name"
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			_turn_notice.add_child(label)
+			native_layer.add_child(_turn_notice)
+		(_turn_notice.get_child(0) as Label).text = text
+		_turn_notice.reset_size()
+		_turn_notice.show()
+		_turn_notice.move_to_front()
+		var area := get_viewport().get_visible_rect().size
+		_turn_notice.position = ((area - _turn_notice.size) * 0.5).floor()
+		return
+	_turn_stopping = false
+	if _turn_notice != null:
+		_turn_notice.hide()
+	if _turn_over_galaxy:
+		_turn_over_galaxy = false
+		if native_screen == Screens.LEGACY:
+			_frame_view.hide()
+			_legacy_after_frame = int(game.get_stats().frames)
+			_legacy_waited = 0.0
 
 
 func _on_request(id: int, kind: String, request: Dictionary) -> void:
@@ -1404,18 +1469,48 @@ func _smoke_galaxy(shots: String) -> bool:
 	if shots != "":
 		await host.shot(shots + "/native-game-menu.png")
 	print("smoke: game menu %s at %s" % [game_menu.visible, game_menu.position])
-	game_menu.get_node("Fit/Box/Load").pressed.emit()
-	if not await _wait_screen(Screens.LEGACY, 10.0):
-		await host.smoke_fail("Load did not open")
+	# Save and Load in the menu itself (owner, 2026-11-13: they were the legacy popup): saved to
+	# slot 5 with a description, then loaded from there; the native galaxy comes back.
+	game_menu.get_node("Fit/Box/Save").pressed.emit()
+	await get_tree().create_timer(0.8).timeout
+	var rows: Array = game_menu._slots_box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
+	print("smoke: save page: %d slots shown natively, legacy screen %s" % [rows.size(), native_screen == Screens.LEGACY])
+	if rows.size() != 10 or native_screen != Screens.MAIN:
+		await host.smoke_fail("Save did not show the slots natively")
 		return false
-	await get_tree().create_timer(2.0).timeout
+	(rows[4] as Button).pressed.emit()
+	game_menu._name_edit.text = "Smoke save"
 	if shots != "":
-		game.get_frame_image().save_png(shots + "/legacy-load.png")
-	game.send_key(KEY_ESCAPE, false, false, false)
-	if not await _wait_screen(Screens.MAIN, 10.0):
-		await host.smoke_fail("Load did not return to the galaxy")
+		await host.shot(shots + "/native-save.png")
+	game_menu._save()
+	await get_tree().create_timer(1.5).timeout
+	var saves: Dictionary = await _query("saves")
+	var slot5: Dictionary = saves.get("slots", [{}, {}, {}, {}, {}])[4]
+	print("smoke: saved to slot 5: '%s' (%s), menu closed %s" % [slot5.get("description", ""), slot5.get("date", ""), not game_menu.visible])
+	if String(slot5.get("description", "")) != "Smoke save":
+		await host.smoke_fail("save_game did not save to slot 5")
 		return false
-	print("smoke: load page opened and closed straight back to the galaxy; menu %s" % game_menu.visible)
+	_on_view_action("game_menu")
+	await get_tree().create_timer(0.6).timeout
+	game_menu.get_node("Fit/Box/Load").pressed.emit()
+	await get_tree().create_timer(0.8).timeout
+	rows = game_menu._slots_box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
+	if shots != "":
+		await host.shot(shots + "/native-load.png")
+	var visit := int(game.get_native_visit())
+	(rows[4] as Button).pressed.emit()
+	var left := false
+	var load_wait := 0.0
+	while load_wait < 40.0 and not (left and native_screen == Screens.MAIN and load_wait > 2.0):
+		left = left or int(game.get_native_visit()) > visit # the galaxy was left and entered again
+		_smoke_answer()
+		await get_tree().create_timer(0.25).timeout
+		load_wait += 0.25
+	print("smoke: loaded slot 5: left the galaxy %s, back on the native galaxy %s after %.1f s" % [left, native_screen == Screens.MAIN, load_wait])
+	if not left or native_screen != Screens.MAIN:
+		await host.smoke_fail("load_game did not come back to the native galaxy")
+		return false
+	await get_tree().create_timer(1.0).timeout
 	await get_tree().create_timer(0.5).timeout
 	if not await _smoke_fleet(shots):
 		return false
@@ -1938,6 +2033,9 @@ func _smoke_new_game(shots: String) -> void:
 	if not named or native_screen != Screens.MAIN:
 		await host.smoke_fail("the home star was not renamed natively")
 		return
+	if "--auto-turns" in OS.get_cmdline_user_args():
+		await _smoke_auto_turns(shots)
+		return
 	# Research on the first turn: hovering an application points the arrow at it, or at all of the
 	# field's applications where every race gets them all.
 	_on_view_action("research")
@@ -1995,6 +2093,72 @@ func _smoke_new_game(shots: String) -> void:
 				tex.get_image().save_png(shots + "/ship-%d.png" % picture)
 				print("smoke: saved ship art %d" % picture)
 	_view("design_list").close()
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
+
+
+## Quiet turns passing by themselves (`--new-game --auto-turns`): End Of Turn Wait off, a turn
+## ended; each turn's notice must show over the native galaxy, and a click stops them.
+func _smoke_auto_turns(shots: String) -> void:
+	var opts: Dictionary = await _query("options")
+	for option: Dictionary in opts.get("options", []):
+		if int(option.option) in [0, 1] and option.on:
+			_send({"verb": "toggle_option", "option": int(option.option)}) # summary and wait off
+			await get_tree().create_timer(0.3).timeout
+			_smoke_answer()
+	# Trade goods at the home colony, so its queue never runs dry (that opens the colony screen).
+	for colony_id in 16:
+		var colony: Dictionary = await _query_args({"what": "colony", "colony": colony_id})
+		if colony.get("ok", false):
+			_send({"verb": "build_commit", "colony": colony_id, "edits": [{"add": -2, "repeat": false}], "auto": false})
+			await get_tree().create_timer(0.3).timeout
+			_smoke_answer()
+			break
+	# A long research, so the next turns ask nothing.
+	var research: Dictionary = await _query("research")
+	var longest := {}
+	for area: Dictionary in research.get("areas", []):
+		if not area.get("apps", []).is_empty() and int(area.get("cost", 0)) > int(longest.get("cost", 0)):
+			longest = area
+	if not longest.is_empty():
+		_send({"verb": "choose_research", "field": int(longest.field), "app": int(longest.apps[0].app)})
+	await get_tree().create_timer(0.5).timeout
+	var notices: Array[String] = []
+	var seen := func(text: String) -> void:
+		if text != "":
+			notices.append(text)
+		print("smoke: turn notice '%s': native galaxy %s, legacy %s" % [text, galaxy.visible, legacy.visible])
+	game.turn_notice.connect(seen)
+	_send({"verb": "end_turn"})
+	var waited := 0.0
+	while notices.size() < 3 and waited < 60.0:
+		_smoke_answer()
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	if shots != "":
+		await host.shot(shots + "/native-auto-turn.png")
+	print("smoke: auto turns: %d notices, galaxy shown %s, legacy shown %s" % [notices.size(), galaxy.visible, legacy.visible])
+	var shown_ok := galaxy.visible and not legacy.visible
+	_smoke_mouse(true, get_viewport().get_visible_rect().size * 0.5 * get_window().content_scale_factor)
+	_smoke_mouse(false, get_viewport().get_visible_rect().size * 0.5 * get_window().content_scale_factor)
+	waited = 0.0
+	var count_at_click := notices.size()
+	while native_screen != Screens.MAIN and waited < 30.0 and not (legacy.visible and waited > 3.0):
+		_smoke_answer()
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	# Stopped: back on the native galaxy, or a legacy popup of the last turn (a leader for hire)
+	# with the legacy view up for it; no more notices either way.
+	var stopped := notices.size() <= count_at_click + 2 and (native_screen == Screens.MAIN or legacy.visible)
+	print("smoke: auto turns stopped by a click: %s, native galaxy %s, legacy view %s after %.1f s" % [stopped,
+		native_screen == Screens.MAIN, legacy.visible, waited])
+	if shots != "":
+		var frame: Image = game.get_frame_image()
+		if frame:
+			frame.save_png(shots + "/legacy-after-auto-turns.png")
+	if notices.size() < 2 or not shown_ok or not stopped:
+		await host.smoke_fail("quiet turns did not pass over the native galaxy")
+		return
 	game.request_game_quit()
 	print("smoke: asked the game to quit")
 

@@ -564,6 +564,7 @@ namespace MAINSCR2 {
             mouse::Set_Mouse_List(&MOX::mouse_list_arrow, 1);
             MAINSCR::next_turn_hit = 0;
             fields::Clear_Fields();
+            antares::native::Set_Turn_Notice(""); // the turns stop here
 
         } else {
             MAINSCR::check_next_turn_exit_field = 1;
@@ -583,6 +584,7 @@ namespace MAINSCR2 {
             char* format = (char*)HAROLD::H_Message(0xE9);
 
             snprintf(msg_buffer, sizeof(msg_buffer), format, race_name, stardate_div, stardate_mod);
+            antares::native::Set_Turn_Notice(msg_buffer); // a native galaxy shows it instead
 
             int16_t str_width = fonts::Get_String_Width(msg_buffer);
             int16_t font_height = fonts::Get_Font_Height();

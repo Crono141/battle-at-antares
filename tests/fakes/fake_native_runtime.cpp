@@ -163,12 +163,10 @@ namespace GENDRAW {
 
 namespace LOADSAVE {
     uint8_t antares_direct_page;
-    void __cdecl Save_Session_Related_Settings() {}
+    // Save_Session_Related_Settings: tests/fakes/fake_save_runtime.cpp.
 } // namespace LOADSAVE
 
-namespace FILEDEF {
-    void __cdecl Save_Game(int16_t) {}
-} // namespace FILEDEF
+// FILEDEF::Save_Game: tests/fakes/fake_save_runtime.cpp (it records the slot).
 
 namespace ERIC {
     void __cdecl Fast_Fade_Out() {}

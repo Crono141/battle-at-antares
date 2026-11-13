@@ -22,5 +22,6 @@ namespace antares::commands::internal {
     void Add_Fleet_Entries(std::vector<s_entry>* table);
     // WP3.4: the colony pane (colony_queries.cpp).
     void Add_Colony_Entries(std::vector<s_entry>* table);
+    void Add_Save_Entries(std::vector<s_entry>* table);
 
 } // namespace antares::commands::internal

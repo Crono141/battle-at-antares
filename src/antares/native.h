@@ -80,6 +80,19 @@ namespace antares::native {
     // each one while a native screen runs and posts it when its answer changed.
     bool Take_Snapshot(std::string* json);
 
+    // The auto next turn's notice (owner, 2026-11-13): with End Of Turn Wait off, quiet turns pass
+    // by themselves and the game shows "<race>: Stardate N" over a mini galaxy each turn
+    // (MAINSCR2's auto branch). Set_Turn_Notice (game thread) posts it, refreshing the watched
+    // queries so a native galaxy follows the turns; "" when the turns stop. Take_Turn_Notice
+    // hands a change to the frontend; the notice also ends once the game is on another screen
+    // than the turn's (a combat, the turn summary).
+    void Set_Turn_Notice(const char* text);
+    bool Take_Turn_Notice(std::string* text);
+    // The frontend's click on those turns: they stop at the next turn's input check, as a click
+    // or Esc on the legacy galaxy stops them (MAINSCR's auto mode). Taken once (game thread).
+    void Stop_Auto_Turns();
+    bool Take_Auto_Turn_Stop();
+
     // The game's art as images (antares/sprites.h, WP3.3a): queues one LBX entry; the game thread
     // exports it while a native screen runs, and Take_Sprite hands it out with the request's id.
     uint64_t Request_Sprite(const std::string& lbx, int32_t entry);

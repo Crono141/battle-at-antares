@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "antares/native.h"
 #include "config/config_loader.h"
 #include "config/config_snapshot.h"
 #include "game/build_queue.h"
@@ -2938,6 +2939,9 @@ namespace MAINSCR {
             in_auto_next_turn_mode = 1;
             MISC::Increment_Mouse_Clock_Image();
             int16_t input = fields::Get_Input();
+            if (input == 0 && antares::native::Take_Auto_Turn_Stop()) {
+                input = MOX::global_exit_field != 0 ? (int16_t)MOX::global_exit_field : 1; // a native galaxy's click on the turns
+            }
             MOX::auto_turn_exit = (uint8_t)input;
 
             if (MOX::auto_turn_exit != 0) {

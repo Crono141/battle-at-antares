@@ -97,6 +97,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("get_stats"), &AntaresGame::get_stats);
         ClassDB::bind_method(D_METHOD("send_key", "godot_keycode", "shift", "alt", "ctrl"), &AntaresGame::send_key);
         ClassDB::bind_method(D_METHOD("request_game_quit"), &AntaresGame::request_game_quit);
+        ClassDB::bind_method(D_METHOD("stop_auto_turns"), &AntaresGame::stop_auto_turns);
         ClassDB::bind_method(D_METHOD("claim_screen", "screen", "claimed"), &AntaresGame::claim_screen);
         ClassDB::bind_method(D_METHOD("claim_requests", "kinds"), &AntaresGame::claim_requests);
         ClassDB::bind_method(D_METHOD("send_command", "command"), &AntaresGame::send_command);
@@ -119,6 +120,7 @@ namespace godot {
         ADD_SIGNAL(MethodInfo("request", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::STRING, "kind"), PropertyInfo(Variant::DICTIONARY, "request")));
         ADD_SIGNAL(MethodInfo("snapshot", PropertyInfo(Variant::STRING, "name"), PropertyInfo(Variant::DICTIONARY, "result")));
         ADD_SIGNAL(MethodInfo("resource_packs_changed"));
+        ADD_SIGNAL(MethodInfo("turn_notice", PropertyInfo(Variant::STRING, "text")));
         ADD_SIGNAL(MethodInfo("sprite_ready", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::DICTIONARY, "sprite")));
     }
 
@@ -341,6 +343,10 @@ namespace godot {
             const Variant parsed = JSON::parse_string(String::utf8(request.json.c_str()));
             const Dictionary fields = parsed.get_type() == Variant::DICTIONARY ? Dictionary(parsed) : Dictionary();
             emit_signal("request", (int64_t)request.id, String(request.kind.c_str()), fields);
+        }
+        std::string notice;
+        if (antares::native::Take_Turn_Notice(&notice)) {
+            emit_signal("turn_notice", String::utf8(notice.c_str()));
         }
         while (antares::native::Take_Snapshot(&json)) {
             const Variant parsed = JSON::parse_string(String::utf8(json.c_str()));
@@ -662,6 +668,10 @@ namespace godot {
 
     void AntaresGame::request_game_quit() {
         antares::host::Request_Quit();
+    }
+
+    void AntaresGame::stop_auto_turns() {
+        antares::native::Stop_Auto_Turns();
     }
 
     void AntaresGame::send_key(int64_t godot_keycode, bool shift, bool alt, bool ctrl) {
