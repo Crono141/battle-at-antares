@@ -3,6 +3,7 @@
 #include "antares/native.h"
 
 #include "antares/commands.h"
+#include "antares/commands_internal.h"
 #include "antares/host.h"
 #include "antares/input_trace.h"
 #include "config/text_encoding.h"
@@ -63,7 +64,8 @@ namespace antares::native {
             KIND_CONFIRM = 2,
             KIND_WARNING = 4,
             KIND_CHOOSE = 8,
-            KIND_TEXT = 16 };
+            KIND_TEXT = 16,
+            KIND_POPUP = 32 };
 
         uint32_t Kind_Bit(const std::string& kind) {
             return kind == "message" ? KIND_MESSAGE
@@ -71,6 +73,7 @@ namespace antares::native {
                 : kind == "warning"  ? KIND_WARNING
                 : kind == "choose"   ? KIND_CHOOSE
                 : kind == "text"     ? KIND_TEXT
+                : kind == "popup"    ? KIND_POPUP
                                      : 0;
         }
 
@@ -238,6 +241,7 @@ namespace antares::native {
                         break;
                     }
                 }
+                Serve_Sprites(10); // a popup's art (a leader's portrait) while the turn waits
                 Tick();
             }
             Drop_Legacy_Input();
@@ -778,6 +782,30 @@ namespace antares::native {
                 return true;
             }
         }
+    }
+
+    bool Popup(const char* popup, const char* text, const std::string& fields, int32_t* answer) {
+        if (!Claimed_Kind(KIND_POPUP)) {
+            return false;
+        }
+        const std::string all = "\"popup\":" + Json_Quote(popup) + (fields.empty() ? "" : ",") + fields;
+        const int32_t value = Ask("popup", text != nullptr ? text : "", all);
+        if (answer != nullptr) {
+            *answer = value;
+        }
+        MOX::FULL_DRAW_SCREEN_FLAG = 1; // as the legacy popups leave it
+        return true;
+    }
+
+    std::string Leader_Json(int16_t leader, int16_t owner) {
+        if (MOX::leaders == nullptr || leader < 0 || leader >= MAX_LEADERS) {
+            return "{}";
+        }
+        return commands::internal::Leader_Card_Json(leader, owner);
+    }
+
+    std::string Quote(const char* text) {
+        return Json_Quote(Utf8(text != nullptr ? text : ""));
     }
 
     void Refresh_Snapshots_For_Test(int16_t screen) {

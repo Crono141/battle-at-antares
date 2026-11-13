@@ -23,5 +23,9 @@ namespace antares::commands::internal {
     // WP3.4: the colony pane (colony_queries.cpp).
     void Add_Colony_Entries(std::vector<s_entry>* table);
     void Add_Save_Entries(std::vector<s_entry>* table);
+    // A leader's card for native views and popups (galaxy_queries.cpp): name, title, level, type,
+    // portrait, skills with bonuses for `owner`.
+    void Leader_Card(int16_t leader_idx, int16_t owner, s_out g);
+    std::string Leader_Card_Json(int16_t leader_idx, int16_t owner);
 
 } // namespace antares::commands::internal

@@ -512,41 +512,8 @@ namespace antares::commands::internal {
             // (COLONY::Load_Officer_Anim; portrait OFFICER.LBX 0xD2 + pict_num).
             const int8_t governor = MOX::star[star].officer_index[MOX::PLAYER_NUM];
             if (governor >= 0 && governor < MAX_LEADERS && MOX::leaders != nullptr) {
-                const s_leader_data& leader = MOX::leaders[governor];
                 s_out g = out.Add_Object("governor");
-                g.Int("leader", governor);
-                g.Str("name", Utf8(leader.name, sizeof(leader.name)));
-                g.Str("title", Utf8(leader.title, sizeof(leader.title)));
-                g.Int("level", leader.level);
-                g.Int("portrait", k_officer_portraits + leader.pict_num);
-                // v4: the skills the officer screen lists for a colony leader (OFFICER::
-                // Print_Officer_Data): colony skills, then general ones, each with its icon, its
-                // name and its bonus as the screen prints it.
-                s_out skills = g.Add_List("skills");
-                const int16_t owner = static_cast<int8_t>(leader.player_index);
-                for (int pass = 0; pass < 2; ++pass) {
-                    for (int16_t i = 0; i < 54; ++i) {
-                        const s_skill_data& skill = MOX::skill_data[i];
-                        const bool has = pass == 0
-                            ? skill.skill_type == 2 && OFFICER::Officer_Has_Special_Skill(owner, governor, i)
-                            : skill.skill_type == 0 && OFFICER::Officer_Has_General_Skill(owner, governor, i);
-                        if (!has || skill.name == nullptr) {
-                            continue;
-                        }
-                        char bonus[68] = {};
-                        if (skill.format_str != nullptr) {
-                            snprintf(bonus, sizeof(bonus), skill.format_str,
-                                static_cast<int32_t>(static_cast<int16_t>(OFFICER::Officer_Skill_Bonus(owner, governor, i))));
-                        }
-                        s_out item = skills.Append_Object();
-                        item.Int("skill", i);
-                        item.Str("name", Utf8(skill.name, 64));
-                        item.Str("bonus", Utf8(bonus, sizeof(bonus)));
-                        item.Int("icon", k_officer_skill_icons + i / 2);
-                        item.Str("description", Skill_Description(governor, i,
-                            static_cast<int16_t>(OFFICER::Officer_Skill_Bonus(owner, governor, i))));
-                    }
-                }
+                Leader_Card(governor, static_cast<int8_t>(MOX::leaders[governor].player_index), g);
             }
             out.Int("ring_x", k_box_rings_x);
             out.Int("ring_y", k_box_rings_y);
@@ -1078,6 +1045,56 @@ namespace antares::commands::internal {
             out.Bool("on", values[option] != 0);
         }
     } // namespace
+
+    // A leader as the officer screens show one (OFFICER::Print_Officer_Data): name, title, level,
+    // portrait, then its special skills (colony or ship ones, by its type) and its general ones,
+    // each with its icon, its name, its bonus as printed and its help. `owner` is the player whose
+    // bonuses apply (the player a leader for hire would join).
+    void Leader_Card(int16_t leader_idx, int16_t owner, s_out g) {
+        const s_leader_data& leader = MOX::leaders[leader_idx];
+        g.Int("leader", leader_idx);
+        g.Str("name", Utf8(leader.name, sizeof(leader.name)));
+        g.Str("title", Utf8(leader.title, sizeof(leader.title)));
+        g.Int("level", leader.level);
+        g.Str("type", leader.type == LEADER_TYPE_SHIP ? "ship" : "colony");
+        g.Int("portrait", k_officer_portraits + leader.pict_num);
+        const uint8_t special_type = leader.type == LEADER_TYPE_SHIP ? 1 : 2;
+        s_out skills = g.Add_List("skills");
+        for (int pass = 0; pass < 2; ++pass) {
+            for (int16_t i = 0; i < 54; ++i) {
+                const s_skill_data& skill = MOX::skill_data[i];
+                const bool has = pass == 0
+                    ? skill.skill_type == special_type && OFFICER::Officer_Has_Special_Skill(owner, leader_idx, i)
+                    : skill.skill_type == 0 && OFFICER::Officer_Has_General_Skill(owner, leader_idx, i);
+                if (!has || skill.name == nullptr) {
+                    continue;
+                }
+                const int16_t value = static_cast<int16_t>(OFFICER::Officer_Skill_Bonus(owner, leader_idx, i));
+                char bonus[68] = {};
+                if (skill.format_str != nullptr) {
+                    snprintf(bonus, sizeof(bonus), skill.format_str, static_cast<int32_t>(value));
+                }
+                s_out item = skills.Append_Object();
+                item.Int("skill", i);
+                item.Str("name", Utf8(skill.name, 64));
+                item.Str("bonus", Utf8(bonus, sizeof(bonus)));
+                item.Int("icon", k_officer_skill_icons + i / 2);
+                item.Str("description", Skill_Description(leader_idx, i, value));
+            }
+        }
+    }
+
+    std::string Leader_Card_Json(int16_t leader_idx, int16_t owner) {
+        yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
+        yyjson_mut_val* root = yyjson_mut_obj(doc);
+        yyjson_mut_doc_set_root(doc, root);
+        Leader_Card(leader_idx, owner, s_out(doc, root));
+        char* text = yyjson_mut_write(doc, 0, nullptr);
+        std::string json = text != nullptr ? text : "{}";
+        free(text);
+        yyjson_mut_doc_free(doc);
+        return json;
+    }
 
     void Add_Galaxy_Entries(std::vector<s_entry>* table) {
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);

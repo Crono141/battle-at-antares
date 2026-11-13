@@ -15,7 +15,7 @@ extends Node
 ## The game's screens (SCREEN_* values, res://screens.gd) this package draws natively.
 @export var claimed_screens: Array[int] = [Screens.MAIN, Screens.SHOW_COMMAND_POINTS]
 ## The request kinds its dialog answers; the rest ("choose") keep the legacy popup.
-@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text"]
+@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup"]
 ## Start with the native views on (Ctrl+G switches); `-- --smoke` without `--native` starts off.
 @export var start_native := true
 
@@ -58,6 +58,7 @@ var _have_empire := false
 ## native galaxy instead.
 const GALAXY_BEHIND_SCREENS := [Screens.MAIN, Screens.MAIN_NEXT_TURN, Screens.REPORTS, Screens.TURN_SUMMARY]
 var _question_over_galaxy := false
+var _shot_popups := {} # the smoke's pictures of native popups, by name
 var _turn_over_galaxy := false # quiet turns passing by themselves, shown over the native galaxy
 var _turn_notice: PanelContainer
 var _turn_stopping := false # a click asked the turns to stop: Esc again until they do
@@ -771,6 +772,7 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 	var dialog: Control = _views.get("dialog")
 	if dialog == null:
 		dialog = load(_views_dir() + "/dialog.tscn").instantiate()
+		dialog.art = art
 		dialog.answered.connect(_on_answered)
 		dialog.theme = native_layer.theme
 		$Overlay.add_child(dialog)
@@ -2169,6 +2171,15 @@ func _smoke_answer() -> bool:
 		return false
 	print("smoke: answering request '%s' (native galaxy behind: %s, size %s)" % [_views["dialog"].get_node("Fit/Box/Text").text,
 		galaxy.visible and not legacy.visible, _views["dialog"].size])
+	# A game window shown natively (a "popup"): its picture once, answered on the next call.
+	var popup_name := String(_views["dialog"].popup_name)
+	if popup_name != "" and not _shot_popups.has(popup_name):
+		_shot_popups[popup_name] = true
+		print("smoke: popup '%s' shown natively" % popup_name)
+		for arg in OS.get_cmdline_user_args():
+			if arg.begins_with("--shots="):
+				host.shot(arg.substr(8) + "/native-popup-%s.png" % popup_name)
+		return true
 	if not _shot_question and galaxy.visible and not legacy.visible:
 		_shot_question = true
 		for arg in OS.get_cmdline_user_args():

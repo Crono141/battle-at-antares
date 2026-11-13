@@ -137,6 +137,16 @@ namespace antares::native {
     // (may be null) marks enabled items. *answer is the item, or -1; *selected follows it.
     bool Choose(const char* title, const char* list, int32_t item_size, const uint8_t* flags, int8_t* selected, int16_t* answer);
 
+    // The legacy popups that draw their own window (WP3.4, owner 2026-11-13: leader level, leader
+    // for hire, turn summary, bombing...): a "popup" request whose "popup" field names it and whose
+    // other fields carry its data (JSON members, without braces). False when no frontend claims
+    // "popup": the legacy window then draws. `answer`: the frontend's value (a button's index).
+    bool Popup(const char* popup, const char* text, const std::string& fields, int32_t* answer);
+    // A leader's card as JSON (name, title, level, type, portrait, skills), for popups' fields.
+    std::string Leader_Json(int16_t leader, int16_t owner);
+    // A game string as a JSON string (quoted, UTF-8).
+    std::string Quote(const char* text);
+
     // Called by Screen_Control between screens: refreshes Resource_Packs when packages changed.
     void Update_Packages();
 

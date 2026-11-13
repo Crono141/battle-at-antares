@@ -273,6 +273,7 @@ DOCTEST_TEST_CASE("the system query v4: governor and its skills, planet words, m
     snprintf(leaders[4].name, sizeof(leaders[4].name), "Androgena");
     snprintf(leaders[4].title, sizeof(leaders[4].title), "Governor");
     leaders[4].pict_num = 7;
+    leaders[4].type = LEADER_TYPE_COLONY; // a governor: colony skills
     s_leader_data* saved_leaders = MOX::leaders;
     MOX::leaders = leaders.data();
     // No governor: none in the answer.

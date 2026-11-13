@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/native.h"
 #include "string_overrides.h"
 
 namespace MAINPUPS {
@@ -874,6 +875,38 @@ namespace MAINPUPS {
 
         COLONY::sys_disp_star_handle = star_idx;
 
+        // Antares (owner, 2026-11-13): the turn's offer as a native popup with the leader's card,
+        // the window's text (Draw_Random_New_Officer_Popup) and REJECT / HIRE, or OK when the
+        // treasury can't pay; the tutor's result line after, as a message.
+        if (on_officer_screen_flag == 0) {
+            char tech[200] = {};
+            char message[700] = {};
+            Leader_Technology_String(player_idx, g_officer, tech, sizeof(tech));
+            const char* name = OFFICER::Leader_Name(g_officer, 0);
+            snprintf(message, sizeof(message), ESTRINGS::E_Strings(field_state == 2 ? 5 : 2), name, cost,
+                (int)OFFICER::Officer_Maintenance(player_idx, g_officer), tech);
+            if (tech[0] != '\0' && strstr(message, tech) == nullptr) {
+                strlcat(message, "\n", sizeof(message));
+                strlcat(message, tech, sizeof(message));
+            }
+            const bool can_pay = field_state == 0;
+            const std::string fields = "\"title\":" + antares::native::Quote(OFFICER::Leader_Name(g_officer, 1)) +
+                ",\"leader\":" + antares::native::Leader_Json(g_officer, player_idx) +
+                ",\"star\":" + std::to_string(star_idx) + ",\"cost\":" + std::to_string(cost) +
+                ",\"buttons\":" + (can_pay ? "[\"REJECT\",\"HIRE\"]" : "[\"OK\"]");
+            int32_t answer = 0;
+            if (antares::native::Popup("leader_hire", message, fields, &answer)) {
+                const bool hired = can_pay && answer == 1 && OFFICER::Calculate_Officer_Cost(MOX::PLAYER_NUM, g_officer) <= MOX::player[player_idx].bc;
+                if (can_pay && MOX::settings.game_difficulty == GAME_DIFFICULTY_TUTOR) {
+                    char result[300];
+                    snprintf(result, sizeof(result), ESTRINGS::E_Strings(hired ? 4 : 6), name, cost);
+                    GENDRAW::Message_Box(result);
+                }
+                g_player_n = -1;
+                return hired;
+            }
+        }
+
         fonts::Set_Font_Style_Shadow_Down(1, &colors);
         Clear_New_Officer_Slots();
 
@@ -1097,6 +1130,20 @@ namespace MAINPUPS {
         COLONY::sys_disp_star_handle = star_handle;
         fonts::Set_Font_Style_Shadow_Down(1, &colors);
         g_officer = officer_idx;
+
+        // Antares (owner, 2026-11-13): a native popup with the leader's card and the message the
+        // window prints (Draw_Officer_Gains_Level_Popup), when a frontend claims popups.
+        {
+            char message[500] = {};
+            const int16_t message_id = officer_gains_level_state == 1 ? 584 : (officer_gains_level_state == 2 ? 585 : 1);
+            snprintf(message, sizeof(message), ESTRINGS::E_Strings(message_id), OFFICER::Leader_Name(officer_idx, 0));
+            const std::string fields = "\"title\":" + antares::native::Quote(OFFICER::Leader_Name(officer_idx, 1)) +
+                ",\"leader\":" + antares::native::Leader_Json(officer_idx, static_cast<int8_t>(MOX::leaders[officer_idx].player_index)) +
+                ",\"star\":" + std::to_string(star_handle) + ",\"buttons\":[\"OK\"]";
+            if (antares::native::Popup("leader_level", message, fields, nullptr)) {
+                return;
+            }
+        }
 
         Clear_New_Officer_Slots();
         Load_Officer_Gains_Level_Popup();
