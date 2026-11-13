@@ -17,6 +17,11 @@ var art: Node # the game's art (set by the frontend), for portraits and icons
 var _extra: VBoxContainer # a popup's own content (a leader's card) between title and text
 var _popup_buttons: HBoxContainer
 var _help: Control
+## A popup's options (planets to pick, targets...) answer this plus their index (the game's
+## convention, mainpups.cpp); its buttons answer their own index.
+const OPTION_ANSWER := 1000
+## The options shown, for answers from the map (a planet clicked in the zoomed system).
+var options: Array = []
 
 
 func _ready() -> void:
@@ -50,14 +55,18 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 	if kind == "text":
 		entry.max_length = int(request.get("max_chars", 15))
 		entry.text = String(request.get("value", ""))
+	options = []
 	for child in _extra.get_children():
 		_extra.remove_child(child)
 		child.queue_free()
 	for child in _popup_buttons.get_children():
 		_popup_buttons.remove_child(child)
 		child.queue_free()
-	var popup := kind == "popup"
-	popup_name = String(request.get("popup", "")) if popup else ""
+	# "choose" (the game's pick-from-list window, fields::Get_List_Field) is laid out as a popup:
+	# its items as options (answered with the item's index) and CANCEL (-1).
+	var choose := kind == "choose"
+	var popup := kind == "popup" or choose
+	popup_name = String(request.get("popup", "")) if kind == "popup" else ("choose" if choose else "")
 	$Fit/Box/Buttons.visible = not popup
 	_popup_buttons.visible = popup
 	if popup:
@@ -65,6 +74,17 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 			_extra.add_child(_leader_card(request.leader))
 		if request.has("items"):
 			_extra.add_child(_item_list(request.items))
+		if request.has("special"):
+			_extra.add_child(_special_box(request.special))
+		if request.has("options"):
+			_extra.add_child(_option_list(request.options, 0 if choose else OPTION_ANSWER, int(request.get("selected", -1))))
+		if choose:
+			request = request.merged({"buttons": ["CANCEL"]}, true)
+		if request.has("rows"):
+			# The orbit's invade/bomb window (owner, 2026-11-13: pictures like the window's): only
+			# the bombing's result stays as text under them.
+			_extra.add_child(_combat_rows(request))
+			$Fit/Box/Text.text = String(request.get("summary", ""))
 		# A slider goes under its question; other content (a leader's card) above the text.
 		$Fit/Box.move_child(_extra, $Fit/Box/Text.get_index() + (1 if popup_name == "slider" else 0))
 		if popup_name == "slider":
@@ -79,8 +99,11 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 			var value := i
 			if popup_name == "slider":
 				value = -1 if i == 1 else -2 # OK answers the slider's value
+			elif choose:
+				value = -1
 			b.pressed.connect(func(): _answer(_slider_value if value == -2 else value))
 			_popup_buttons.add_child(b)
+	$Fit/Box/Text.visible = $Fit/Box/Text.text != "" or kind != "popup"
 	show()
 	if kind == "text":
 		entry.grab_focus()
@@ -176,10 +199,130 @@ func _item_list(items: Array) -> Control:
 	return scroll
 
 
+## The invade/bomb window's body (MAINPUPS::Draw_Colony_Combat_Popup): the defenders' rows down
+## the left (buildings, best shield, colonists, troops), the planet's picture in the middle, the
+## attacker's marines and bombardment down the right; each row its icon and line.
+func _combat_rows(request: Dictionary) -> Control:
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 16)
+	var columns := {}
+	for side in ["left", "right"]:
+		var column := VBoxContainer.new()
+		column.add_theme_constant_override("separation", 8)
+		column.custom_minimum_size.x = 210
+		column.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		columns[side] = column
+	body.add_child(columns.left)
+	var picture: Dictionary = request.get("picture", {})
+	var planet: TextureRect = preload("sprite_rect.gd").new()
+	planet.custom_minimum_size = Vector2(150, 150)
+	planet.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	planet.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	planet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if art:
+		planet.bind(art)
+		planet.show_sprite(String(picture.get("lbx", "")), int(picture.get("entry", -1)))
+	body.add_child(planet)
+	body.add_child(columns.right)
+	for r: Dictionary in request.get("rows", []):
+		var right := String(r.get("side", "left")) == "right"
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 8)
+		line.alignment = BoxContainer.ALIGNMENT_END if right else BoxContainer.ALIGNMENT_BEGIN
+		var icon: TextureRect = preload("sprite_rect.gd").new()
+		icon.custom_minimum_size = Vector2(30, 30)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		if art:
+			icon.bind(art)
+			icon.show_sprite(String(r.lbx), int(r.entry))
+		var label := Label.new()
+		label.text = String(r.text).strip_edges()
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.custom_minimum_size.x = 160
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if right else HORIZONTAL_ALIGNMENT_LEFT
+		label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if right:
+			line.add_child(label)
+			line.add_child(icon)
+		else:
+			line.add_child(icon)
+			line.add_child(label)
+		columns[("right" if right else "left")].add_child(line)
+	return body
+
+
+## A popup's choices, one row each (a planet to colonise, a target to attack, a list item): a
+## click answers `base` + the row's index; disabled rows (the game would refuse them) are greyed.
+func _option_list(items: Array, base: int, selected: int) -> Control:
+	options = items
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 2)
+	for i in items.size():
+		var item: Dictionary = items[i]
+		var row := Button.new()
+		row.theme_type_variation = &"ListItem"
+		row.focus_mode = Control.FOCUS_NONE
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.text = String(item.get("text", ""))
+		row.custom_minimum_size = Vector2(320, 30)
+		row.disabled = not bool(item.get("enabled", true))
+		if i == selected:
+			row.add_theme_color_override("font_color", Color(1.0, 0.8, 0.35))
+		var value := base + i
+		row.pressed.connect(func(): _answer(value))
+		list.add_child(row)
+	if items.size() <= 8:
+		return list
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(340, 8 * 32)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list)
+	return scroll
+
+
+## The planet a map click picks, as this popup's answer, or -1 (not one of its enabled options).
+func answer_for_planet(planet_id: int) -> int:
+	for i in options.size():
+		var item: Dictionary = options[i]
+		if int(item.get("planet", -1)) == planet_id and bool(item.get("enabled", true)):
+			return OPTION_ANSWER + i
+	return -1
+
+
+## The special a ship found in a system (SYS::Draw_System_Special_Popup): its name and what it does.
+func _special_box(special: Dictionary) -> Control:
+	var box := PanelContainer.new()
+	box.theme_type_variation = &"Pane"
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 4)
+	var name_label := Label.new()
+	name_label.theme_type_variation = &"Name"
+	name_label.text = String(special.get("name", ""))
+	column.add_child(name_label)
+	var text := Label.new()
+	text.text = String(special.get("text", ""))
+	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	text.custom_minimum_size.x = 380
+	column.add_child(text)
+	box.add_child(column)
+	return box
+
+
 ## Centred on the screen once sized: a tall one (the turn summary) grew down from the middle.
 func _centre() -> void:
 	var area := get_parent_area_size()
 	position = ((area - size) * 0.5).floor()
+	match placement:
+		"left": # beside a system the camera flew into, where the system pane sits
+			position.x = 24.0
+		"top": # over the map while a star is picked on it
+			position.y = 56.0
+
+
+## Where the next popup sits: "" centred, "left" or "top" (set by the frontend before `ask`).
+var placement := ""
 
 
 ## The game's slider (scrapping freighters): a bar and the number, from min to max.

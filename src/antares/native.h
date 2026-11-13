@@ -149,6 +149,9 @@ namespace antares::native {
     void Click_Sound();
     // A leader's card as JSON (name, title, level, type, portrait, skills), for popups' fields.
     std::string Leader_Json(int16_t leader, int16_t owner);
+    /** The `system` query's answer for `star` (planets, orbits, fleets) as JSON, for the popups that
+     * zoom into a system (WP3.4c: queries don't run while a request waits). "{}" without a game. */
+    std::string System_Json(int16_t star);
     // A game string as a JSON string (quoted, UTF-8).
     std::string Quote(const char* text);
 

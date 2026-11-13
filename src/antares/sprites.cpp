@@ -213,6 +213,16 @@ namespace antares::sprites {
             if (Game_Palette(0, palette_rgb)) {
                 Apply_Embedded_Palette(bytes, size, palette_rgb);
             }
+        } else if (lbx == "CMBTPLNT.LBX" && !Declared_Palette_Rgb(lbx, entry, palette_rgb) && Game_Palette(0, palette_rgb)) {
+            // A planet's picture (the orbit's invade/bomb window, MAINPUPS::
+            // Load_Combat_Colony_Picture_To_Screen_Seg): the galaxy's palette under its climate's,
+            // entry climate * 6 + 5, which the window loads with it.
+            std::vector<uint64_t> climate_palette;
+            size_t climate_size = 0;
+            if (Read_Entry(lbx, entry / 6 * 6 + 5, &climate_palette, &climate_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(climate_palette.data()), climate_size, palette_rgb);
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
         } else {
             // Other art its own, if declared.
             Declared_Palette_Rgb(lbx, entry, palette_rgb);

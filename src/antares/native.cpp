@@ -860,6 +860,13 @@ namespace antares::native {
         return commands::internal::Leader_Card_Json(leader, owner);
     }
 
+    std::string System_Json(int16_t star) {
+        if (MOX::star == nullptr || star < 0 || star >= MOX::NUM_STARS) {
+            return "{}";
+        }
+        return commands::internal::System_Json(star);
+    }
+
     std::string Quote(const char* text) {
         return Json_Quote(Utf8(text != nullptr ? text : ""));
     }

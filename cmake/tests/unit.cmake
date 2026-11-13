@@ -548,6 +548,7 @@ orion2re_add_unit_test(test_native_bridge
         src/antares/fleet_orders.cpp
         src/antares/colony_queries.cpp
         src/antares/save_queries.cpp
+        src/antares/popup_preview.cpp
         src/config/text_encoding.cpp
         vendors/yyjson/src/yyjson.c
     FAKE_SOURCES

@@ -1096,6 +1096,26 @@ namespace antares::commands::internal {
         return json;
     }
 
+    std::string System_Json(int16_t star) {
+        yyjson_mut_doc* args_doc = yyjson_mut_doc_new(nullptr);
+        yyjson_mut_val* args_root = yyjson_mut_obj(args_doc);
+        yyjson_mut_doc_set_root(args_doc, args_root);
+        yyjson_mut_obj_add_int(args_doc, args_root, "star", star);
+        yyjson_doc* args_read = yyjson_mut_doc_imut_copy(args_doc, nullptr);
+        yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
+        yyjson_mut_val* root = yyjson_mut_obj(doc);
+        yyjson_mut_doc_set_root(doc, root);
+        s_out out(doc, root);
+        Query_System(0, s_args(yyjson_doc_get_root(args_read)), out);
+        char* text = yyjson_mut_write(doc, 0, nullptr);
+        std::string json = text != nullptr ? text : "{}";
+        free(text);
+        yyjson_mut_doc_free(doc);
+        yyjson_doc_free(args_read);
+        yyjson_mut_doc_free(args_doc);
+        return json;
+    }
+
     namespace {
         // A planet's right click in the system window (MAINSCR's system box: the colony
         // potential, SYS::Potential_Colony_Info_Popup, a Text_Box: a native message when claimed).

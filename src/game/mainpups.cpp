@@ -99,6 +99,70 @@ namespace MAINPUPS {
         Load_Combat_Colony_Picture_To_Screen_Seg(g_data_ptr->colony_idx);
     }
 
+    // ---- Antares (WP3.4c, owner 2026-11-13): the system-zoom popups as native popups ----
+    // A frontend that claims "popup" gets the window's text, the star to fly into ("zoom") with
+    // its `system` answer, and the window's choices as "options" ({text, value, enabled, planet});
+    // an option's answer is 1000 + its index, a button's its index. The rules stay the windows':
+    // the same refusals (as help messages, which are native too) and the same return values.
+    namespace {
+        constexpr int32_t k_option_answer = 1000;
+
+        struct s_native_option {
+            std::string text;
+            int32_t value = -1;
+            bool enabled = true;
+            int16_t planet = -1;
+        };
+
+        std::string Native_Options_Json(const std::vector<s_native_option>& options) {
+            std::string json;
+            for (const s_native_option& o : options) {
+                json += std::string(json.empty() ? "" : ",") + "{\"text\":" + antares::native::Quote(o.text.c_str()) +
+                    ",\"enabled\":" + (o.enabled ? "true" : "false") +
+                    (o.planet >= 0 ? ",\"planet\":" + std::to_string(o.planet) : std::string()) + "}";
+            }
+            return "\"options\":[" + json + "]";
+        }
+
+        std::string Native_Zoom_Json(int16_t star_idx) {
+            return "\"zoom\":" + std::to_string(star_idx) + ",\"system\":" + antares::native::System_Json(star_idx);
+        }
+
+        // The special a just-visited system shows over the window (SYS::Draw_System_Special_Popup):
+        // its name and description, or nothing.
+        std::string Native_Special_Json(int16_t special) {
+            if (special == SYSTEM_SPECIAL_NO_SPECIAL || special == SYSTEM_SPECIAL_MAROONED_HERO || special < 0 ||
+                special >= SYSTEM_SPECIAL_COUNT) {
+                return std::string();
+            }
+            const char* desc = MAINPUPS::System_Special_Desc(special);
+            return ",\"special\":{\"name\":" + antares::native::Quote(MOX::planet_special_string[special]) +
+                ",\"text\":" + antares::native::Quote(desc != nullptr ? desc : "") + "}";
+        }
+
+        // The marooned leader a just-visited system holds joins or doesn't (the windows run it on
+        // their first input): the leader's popups, native too.
+        void Native_Marooned_Hero(int16_t star_idx) {
+            int16_t leader_idx = 0;
+            if (OFFICER::Marooned_Hero_At_Star_Can_Join(star_idx, &leader_idx, MOX::PLAYER_NUM) == 0) {
+                MAINPUPS::Marooned_Officer_Fails_Popup(star_idx, leader_idx);
+            } else {
+                MAINPUPS::Marooned_Officer_Joins_Popup(star_idx, leader_idx);
+            }
+        }
+
+        // The planets of a star, in orbit order (the system display's buttons).
+        std::vector<int16_t> Native_Star_Planets(int16_t star_idx) {
+            std::vector<int16_t> planets;
+            for (const int16_t p : MOX::star[star_idx].planet_index) {
+                if (p >= 0 && p < MOX::planet_count) {
+                    planets.push_back(p);
+                }
+            }
+            return planets;
+        }
+    } // namespace
+
     void __cdecl Load_System_Discovery_Popup() {
         allocate::Push_Block(MOX::screen_seg);
 
@@ -514,6 +578,45 @@ namespace MAINPUPS {
         field_mode = 0;
         last_scanned_field = -1;
 
+        // Antares (WP3.4c): natively, the monster's demand with REFUSE and PAY; paying asks for
+        // the star it attacks instead ("pick_star": the answer is a star, not the one it came
+        // for, or -1). Without the treasury PAY says so and only REFUSE is left, as the window.
+        if (antares::native::Popups_Native()) {
+            char line[300];
+            snprintf(line, sizeof(line), ESTRINGS::E_Strings(555), COMBFIND::dragon_bribe_bc, MOX::player[player_idx].name, MOX::star[star_idx].name);
+            std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + ",\"star\":" +
+                std::to_string(star_idx) + ",\"buttons\":[\"REFUSE\",\"PAY\"]";
+            int32_t answer = 0;
+            if (antares::native::Popup("monster_tribute", line, fields, &answer)) {
+                int16_t result = -1;
+                if (answer == 1) {
+                    if (MOX::player[player_idx].bc >= static_cast<int32_t>(COMBFIND::dragon_bribe_bc)) {
+                        snprintf(line, sizeof(line), ESTRINGS::E_Strings(464), MOX::player[player_idx].name);
+                        fields = "\"pick_star\":true,\"not_star\":" + std::to_string(star_idx) + ",\"buttons\":[\"REFUSE\"]";
+                        while (true) {
+                            int32_t star = -1;
+                            antares::native::Popup("monster_target", line, fields, &star);
+                            star -= k_option_answer;
+                            if (star < 0 || star >= MOX::NUM_STARS) {
+                                break;
+                            }
+                            if (star == star_idx) {
+                                GENDRAW::Help(ESTRINGS::E_Strings(576));
+                                continue;
+                            }
+                            result = (int16_t)star;
+                            break;
+                        }
+                    } else {
+                        snprintf(line, sizeof(line), ESTRINGS::E_Strings(583), COMBFIND::dragon_bribe_bc, MOX::player[player_idx].name, MOX::star[star_idx].name);
+                        antares::native::Popup("monster_tribute", line, "\"star\":" + std::to_string(star_idx) + ",\"buttons\":[\"OK\"]", nullptr);
+                    }
+                }
+                g_player_n = -1;
+                return result;
+            }
+        }
+
         fonts::Set_Font_Style_Shadow_Down(1, &colors);
         Load_Dragon_New_Star_Popup();
         Do_Popup_Setup(star_idx, anims[37]);
@@ -624,6 +727,47 @@ namespace MAINPUPS {
         COLONY::sys_disp_star_handle = star_idx;
         MOX::PLAYER_NUM = player_idx;
         g_player_n = player_idx;
+
+        // Antares (WP3.4c): natively, the camera flies into the system and the targets are the
+        // choices: the other empires' colonies there (colony + 15) and the empires with ships but
+        // no colony there (the player), as the window takes them
+        // (Check_System_Display_Fields_Defense_Selection); CANCEL is -1.
+        if (antares::native::Popups_Native()) {
+            char line[300];
+            snprintf(line, sizeof(line), ESTRINGS::E_Strings(0x45), MOX::player[player_idx].race_name, MOX::star[star_idx].name);
+            std::vector<s_native_option> options;
+            for (int16_t i = 0; i < COMBFIND::target.num_colony_targets && i < 5; ++i) {
+                const int16_t colony_idx = COMBFIND::target.colony_targets[i];
+                if (colony_idx < 0 || MOX::colony[colony_idx].owner == player_idx) {
+                    continue;
+                }
+                s_native_option o;
+                const int16_t owner = (int16_t)MOX::colony[colony_idx].owner;
+                o.text = std::string(HACCESS::Get_Planet_Name(MOX::colony[colony_idx].planet)) + " (" +
+                    (owner >= 0 && owner < MAX_PLAYERS ? MOX::player[owner].race_name : "") + ")";
+                o.value = colony_idx + 15;
+                o.planet = MOX::colony[colony_idx].planet;
+                options.push_back(o);
+            }
+            for (int16_t i = 0; i < COMBFIND::target.num_player_targets && i < 15; ++i) {
+                const int16_t owner = COMBFIND::target.player_targets[i];
+                if (owner < 0 || owner >= MAX_PLAYERS || owner == player_idx ||
+                    Player_Has_Colony_Or_Outpost_At_Star(owner, star_idx) != 0) {
+                    continue;
+                }
+                s_native_option o;
+                o.text = std::string(MOX::player[owner].race_name) + " ships";
+                o.value = owner;
+                options.push_back(o);
+            }
+            const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," +
+                Native_Zoom_Json(star_idx) + "," + Native_Options_Json(options) + ",\"buttons\":[\"CANCEL\"]";
+            int32_t answer = 0;
+            if (antares::native::Popup("attack_target", line, fields, &answer)) {
+                const int32_t pick = answer - k_option_answer;
+                return pick >= 0 && pick < (int32_t)options.size() ? (int16_t)options[(size_t)pick].value : (int16_t)-1;
+            }
+        }
 
         fonts::Set_Font_Style_Shadow_Down(1, &colors);
         Load_Colony_Defense_Selection_Popup();
@@ -802,6 +946,87 @@ namespace MAINPUPS {
         Load_Colony_Fields();
         Set_G_Special_Value(star_idx);
         Clear_System_Special_Slots();
+
+        // Antares (WP3.4c): natively, the camera flies into the system and the planets are the
+        // choices; the window's refusals (Check_System_Display_Fields_Selection) and its
+        // confirmation (New_Colony_Confirmation_Box) stay as they are.
+        if (antares::native::Popups_Native()) {
+            if (g_special == SYSTEM_SPECIAL_MAROONED_HERO) {
+                g_special = SYSTEM_SPECIAL_NO_SPECIAL;
+                Native_Marooned_Hero(star_idx);
+            }
+            int16_t string_id = 0x1cd;
+            switch (selection_state_flag) {
+                case 0: string_id = using_colony_ship != 0 ? 0x1ce : 0x1cd; break;
+                case 1: string_id = 0x1cb; break;
+                case 2: string_id = 0x1cf; break;
+                default: string_id = 0x1cc; break;
+            }
+            char line[300];
+            snprintf(line, sizeof(line), ESTRINGS::E_Strings(string_id), MOX::star[star_idx].name);
+            // The help line the window shows for a planet it refuses, or 0.
+            const auto refusal = [](int16_t planet_idx) -> int16_t {
+                const auto& planet = MOX::planet[planet_idx];
+                const int16_t col = planet.colony_index;
+                switch (selection_state_flag) {
+                    case 0:
+                        return planet.planet_type != PLANET_TYPE_PLANET || (col != -1 && MOX::colony[col].outpost_flag == 0) ? 0x236 : 0;
+                    case 1: return col != -1 ? 0x236 : 0;
+                    case 2:
+                        return col == -1 || MOX::colony[col].outpost_flag != 0 || MOX::colony[col].owner != MOX::PLAYER_NUM ? 0x23b : 0;
+                    case 3: return planet.planet_type == PLANET_TYPE_PLANET ? 0x235 : 0;
+                    default: return 0;
+                }
+            };
+            const std::vector<int16_t> planets = Native_Star_Planets(star_idx);
+            std::vector<s_native_option> options;
+            for (const int16_t p : planets) {
+                s_native_option o;
+                o.text = HACCESS::Get_Planet_Name(p);
+                // What the window's planet box tells (SYS's planet info): size and climate, or the
+                // gas giant / asteroids it is.
+                const auto& planet = MOX::planet[p];
+                if (planet.planet_type == PLANET_TYPE_PLANET) {
+                    o.text += std::string(" (") + MOX::planet_size_string[planet.size] + ", " + MOX::planet_climate_string[planet.climate] + ")";
+                }
+                o.planet = p;
+                o.value = p;
+                o.enabled = refusal(p) == 0;
+                options.push_back(o);
+            }
+            const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," +
+                Native_Zoom_Json(star_idx) + Native_Special_Json(g_special) + "," + Native_Options_Json(options) +
+                ",\"buttons\":[\"CANCEL\"]";
+            g_special = SYSTEM_SPECIAL_NO_SPECIAL;
+            int16_t result = -1;
+            while (true) {
+                int32_t answer = 0;
+                if (!antares::native::Popup("planet_pick", line, fields, &answer)) {
+                    break;
+                }
+                const int32_t pick = answer - k_option_answer;
+                if (pick < 0 || pick >= (int32_t)options.size()) {
+                    break; // CANCEL
+                }
+                const int16_t planet_idx = options[(size_t)pick].planet;
+                const int16_t refused = refusal(planet_idx);
+                if (refused != 0) {
+                    GENDRAW::Help(ESTRINGS::E_Strings(refused));
+                    continue;
+                }
+                if (selection_state_flag == 0 && New_Colony_Confirmation_Box(planet_idx) == 0) {
+                    continue;
+                }
+                result = planet_idx;
+                break;
+            }
+            if (namestar::Can_Change_Star_Name(star_idx) != 0 && MOX::settings.animations_on == 0 && result != -1) {
+                namestar::Change_Star_Name_Popup(namestar::Star_Name_Popup_Screen_Center_X(), namestar::Star_Name_Popup_Screen_Center_Y(), star_idx, 0);
+            }
+            allocate::Pop_Block(MOX::screen_seg); // Load_Colony_Fields' block, as Do_Popup_Cleanup
+            MOX::FULL_DRAW_SCREEN_FLAG = 1;
+            return result;
+        }
 
         s_animation_header* popup_bg = (s_animation_header*)buffer::Buffer_Reload("BUFFER0.LBX", 0x49, MOX::global_cache_seg);
         Do_Popup_Setup(star_idx, popup_bg);
@@ -1056,6 +1281,21 @@ namespace MAINPUPS {
         colors.colors[7] = 0;
 
         COLONY::sys_disp_star_handle = star_idx;
+
+        // Antares (WP3.4c): natively, the camera flies into the system: the window's line, the
+        // special it found, and a marooned leader's popups first, as the window's first input.
+        if (antares::native::Popups_Native()) {
+            if (special_flag == SYSTEM_SPECIAL_MAROONED_HERO) {
+                Native_Marooned_Hero(star_idx);
+            }
+            char line[300];
+            snprintf(line, sizeof(line), ESTRINGS::E_Strings(456), MOX::star[star_idx].name);
+            const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," +
+                Native_Zoom_Json(star_idx) + Native_Special_Json(special_flag) + ",\"buttons\":[\"OK\"]";
+            if (antares::native::Popup("new_system", line, fields, nullptr)) {
+                return;
+            }
+        }
 
         fonts::Set_Font_Style_Shadow_Down(1, &colors);
         Load_System_Discovery_Popup();
@@ -1326,6 +1566,7 @@ namespace MAINPUPS {
         snprintf(line, sizeof(line), ESTRINGS::E_Strings(458), planet);
         const std::string title = line;
         std::string text;
+        std::string summary; // the bombing's result (mode 1), shown under the pictures
         auto add = [&text](const char* l) {
             text += (text.empty() ? "" : "\n") + std::string(l);
         };
@@ -1336,27 +1577,49 @@ namespace MAINPUPS {
             }
             snprintf(line, sizeof(line), "Bombing killed %d population and %d troops, and destroyed %d buildings.",
                 (int)data->bomb->population_killed, (int)(data->bomb->infantry_killed + data->bomb->tanks_killed), (int)buildings);
+            summary = line;
             add(line);
             add("");
         }
+        // The window's rows with their pictures (Draw_Colony_Combat_Popup): the defenders on the
+        // left (buildings, best shield, colonists, armor and marines), the attacker's marines and
+        // the bombardment on the right, around the planet's picture (CMBTPLNT.LBX).
+        std::string rows;
+        auto row = [&](const char* side, const char* lbx, int32_t entry, const char* l) {
+            add(l);
+            rows += std::string(rows.empty() ? "" : ",") + "{\"side\":\"" + side + "\",\"lbx\":\"" + lbx +
+                "\",\"entry\":" + std::to_string(entry) + ",\"text\":" + antares::native::Quote(l) + "}";
+        };
+        // RACEICON.LBX: race * 13 + 6 + variant (COLONY::Player_Troop_Anim, Military_Anims).
+        auto troop_entry = [](int16_t player, int16_t unit) {
+            const int32_t race = (uint8_t)MOX::player[player].race;
+            int32_t variant = 0;
+            if (unit == 0) {
+                variant = MOX::player[player].tech_applications[TECH_APP_BATTLEOIDS] == TECH_RESEARCH_STATUS_RESEARCHED ? 4 : 3;
+            } else if (unit == 1) {
+                variant = MOX::player[player].tech_applications[TECH_APP_POWERED_ARMOR] == TECH_RESEARCH_STATUS_RESEARCHED ? 2 : 1;
+            }
+            return race * 13 + 6 + variant;
+        };
         if (data->n_bldgs > 0) {
             snprintf(line, sizeof(line), ESTRINGS::E_Strings(19), data->n_bldgs);
-            add(line);
+            row("left", "COLONY2.LBX", 47, line);
         }
         if (data->best_shield_bldg != -1) {
             snprintf(line, sizeof(line), ESTRINGS::E_Strings(70), COLONY::CR_Building_Name(data->best_shield_bldg));
-            add(line);
+            row("left", "COLONY2.LBX", 48, line);
         }
         if (data->n_pops > 0) {
             snprintf(line, sizeof(line), ESTRINGS::E_Strings(20), data->n_pops);
-            add(line);
+            const int32_t job = (int32_t)((MOX::colony[data->colony_idx].pop[0] >> 7) & 3);
+            row("left", "RACEICON.LBX", (int32_t)(uint8_t)MOX::player[data->defender_player_id].race * 13 + job * 2 + 1, line);
         }
         for (int16_t unit = 1; unit >= 0; --unit) {
             if (data->defender_unit_counts[unit] > 0) {
                 const uint8_t race = MOX::player[data->defender_player_id].race;
                 snprintf(line, sizeof(line), ESTRINGS::E_Strings(14), data->defender_unit_counts[unit],
                     COLONY::Player_Troop_Name(data->defender_player_id, unit, race));
-                add(line);
+                row("left", "RACEICON.LBX", troop_entry(data->defender_player_id, unit), line);
             }
         }
         if (data->attacker_unit_counts[1] > 0 || data->bombardment_result >= 0) {
@@ -1366,12 +1629,14 @@ namespace MAINPUPS {
             const uint8_t race = MOX::player[data->attacker_player_id].race;
             snprintf(line, sizeof(line), ESTRINGS::E_Strings(14), data->attacker_unit_counts[1],
                 COLONY::Player_Troop_Name(data->attacker_player_id, 1, race));
-            add(line);
+            row("right", "RACEICON.LBX", troop_entry(data->attacker_player_id, 1), line);
         }
         if (data->bombardment_result >= 0) {
             snprintf(line, sizeof(line), ESTRINGS::E_Strings(popup_mode == 0 ? 21 : 18), data->bombardment_result);
-            add(line);
+            row("right", "COLONY2.LBX", 46, line);
         }
+        const int16_t planet_idx = MOX::colony[data->colony_idx].planet;
+        const int32_t planet_picture = MOX::planet[planet_idx].size + MOX::planet[planet_idx].climate * 6;
 
         // The buttons Add_Colony_Combat_Fields would add, with what each returns.
         std::vector<std::pair<std::string, int16_t>> buttons;
@@ -1394,7 +1659,9 @@ namespace MAINPUPS {
         }
         const std::string fields = "\"title\":" + antares::native::Quote(title.c_str()) + ",\"star\":" +
             std::to_string(MOX::planet[MOX::colony[data->colony_idx].planet].star_index) +
-            ",\"colony\":" + std::to_string(data->colony_idx) + ",\"buttons\":[" + labels + "]";
+            ",\"colony\":" + std::to_string(data->colony_idx) + ",\"buttons\":[" + labels + "]" +
+            ",\"picture\":{\"lbx\":\"CMBTPLNT.LBX\",\"entry\":" + std::to_string(planet_picture) + "},\"rows\":[" + rows +
+            "],\"summary\":" + antares::native::Quote(summary.c_str());
         int16_t result = -1;
         while (true) {
             int32_t answer = (int32_t)buttons.size() - 1;

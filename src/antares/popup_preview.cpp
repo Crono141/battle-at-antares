@@ -1,0 +1,110 @@
+#include "pch.h"
+
+#include "antares/commands_internal.h"
+
+#include <string>
+
+// WP3.4c: `preview_popup` shows one of the legacy windows over the galaxy with made-up but valid
+// data, so a frontend's native popup can be seen without staging the game situation (smoke runs,
+// the owner's review). It is a developer verb: the window's answer is reported and thrown away
+// (nothing is colonised, attacked or paid), and what a window reads or consumes on the way (a
+// just-visited system's special) is put back.
+
+namespace antares::commands::internal {
+    namespace {
+
+        bool Star_Arg(const s_args& args, s_out& out, int16_t* star) {
+            int64_t value = -1;
+            if (!args.Int("star", &value) || value < 0 || value >= MOX::NUM_STARS) {
+                out.Fail("bad_args", "star: a star id");
+                return false;
+            }
+            *star = (int16_t)value;
+            return true;
+        }
+
+        void Preview_Popup(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            std::string popup;
+            if (!args.Str("popup", &popup)) {
+                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute or colony_combat");
+                return;
+            }
+            const int16_t player = MOX::PLAYER_NUM;
+            int16_t star = -1;
+            int64_t answer = -1;
+            if (popup == "new_system") {
+                if (!Star_Arg(args, out, &star)) {
+                    return;
+                }
+                MAINPUPS::New_System_Discovery_Popup(star, SYSTEM_SPECIAL_NO_SPECIAL);
+                answer = 0;
+            } else if (popup == "planet_pick" || popup == "outpost_pick") {
+                if (!Star_Arg(args, out, &star)) {
+                    return;
+                }
+                const uint8_t visited = MOX::star[star].just_visited;
+                const auto special = MOX::star[star].system_special;
+                answer = popup == "planet_pick" ? MAINPUPS::New_Colony_Selection_Popup(star, 1) : MAINPUPS::New_Outpost_Selection_Popup(star);
+                MOX::star[star].just_visited = visited;
+                MOX::star[star].system_special = special;
+            } else if (popup == "attack_target") {
+                if (!Star_Arg(args, out, &star)) {
+                    return;
+                }
+                // The targets the turn's combat check would find: the other empires' colonies there.
+                const s_combfind_target saved = COMBFIND::target;
+                COMBFIND::target = s_combfind_target{};
+                for (const int16_t p : MOX::star[star].planet_index) {
+                    if (p < 0 || p >= MOX::planet_count) {
+                        continue;
+                    }
+                    const int16_t colony = MOX::planet[p].colony_index;
+                    if (colony >= 0 && MOX::colony[colony].owner != player && COMBFIND::target.num_colony_targets < 5) {
+                        COMBFIND::target.colony_targets[COMBFIND::target.num_colony_targets++] = colony;
+                    }
+                }
+                answer = MAINPUPS::Defense_Colony_Selection_Popup(star, player);
+                COMBFIND::target = saved;
+            } else if (popup == "monster_tribute") {
+                if (!Star_Arg(args, out, &star)) {
+                    return;
+                }
+                answer = MAINPUPS::Dragon_New_Star_Popup(player, star);
+            } else if (popup == "colony_combat") {
+                int64_t colony = -1;
+                if (!args.Int("colony", &colony) || colony < 0 || colony >= MOX::NUM_COLONIES || MOX::colony[colony].owner < 0) {
+                    out.Fail("bad_args", "colony: a colony id");
+                    return;
+                }
+                s_invasion_side_info attacker{};
+                s_invasion_side_info defender{};
+                attacker.player_id = player;
+                attacker.unit_counts[UNIT_MARINES] = 8;
+                defender.player_id = MOX::colony[colony].owner;
+                defender.unit_counts[UNIT_MARINES] = MOX::colony[colony].military[0];
+                defender.unit_counts[0] = MOX::colony[colony].military[1];
+                answer = MAINPUPS::Colony_Selection_Popup(&attacker, &defender, 0, (int16_t)colony, 3, 0);
+            } else if (popup == "choose") {
+                // The diplomacy screen's lists (fields::Get_List_Field): three items, the last one off.
+                char list[4][50] = {"Propose Treaty", "Form Alliance", "Exchange Technology", ""};
+                uint8_t flags[4] = {1, 1, 0, 0};
+                int8_t selected = 0;
+                answer = fields::Get_List_Field(10, 102, 245, "Diplomacy", &list[0][0], 50, &selected, flags, 17, nullptr, 0, nullptr, 0, nullptr);
+            } else {
+                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute, colony_combat or choose");
+                return;
+            }
+            MOX::PLAYER_NUM = player;
+            out.Int("answer", answer);
+        }
+    } // namespace
+
+    void Add_Preview_Entries(std::vector<s_entry>* table) {
+        table->push_back({"preview_popup", e_kind::command, ANY_SCREEN, 0,
+            "popup (new_system, planet_pick, outpost_pick, attack_target, monster_tribute: star; colony_combat: colony; choose); developer verb", Preview_Popup});
+    }
+
+} // namespace antares::commands::internal

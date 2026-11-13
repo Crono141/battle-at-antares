@@ -15,7 +15,7 @@ extends Node
 ## The game's screens (SCREEN_* values, res://screens.gd) this package draws natively.
 @export var claimed_screens: Array[int] = [Screens.MAIN, Screens.SHOW_COMMAND_POINTS]
 ## The request kinds its dialog answers; the rest ("choose") keep the legacy popup.
-@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup"]
+@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup", "choose"]
 ## Start with the native views on (Ctrl+G switches); `-- --smoke` without `--native` starts off.
 @export var start_native := true
 
@@ -1000,11 +1000,68 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		_stale_frame = held.get_data() if held != null else PackedByteArray()
 		legacy.hide()
 		galaxy.show()
+	_start_popup_map(dialog, request)
 	dialog.ask(id, kind, request)
+
+
+## A popup that works with the map (WP3.4c): a system-zoom one ("zoom": the camera flies into the
+## star, its planets show and a click on one answers, the window beside it) or a star pick
+## ("pick_star": the monster's new target, the window above the map). The shade lets the map's
+## clicks through; the view comes back when it is answered.
+var _popup_zoom := -1
+var _popup_pick_star := false
+
+
+func _start_popup_map(dialog: Control, request: Dictionary) -> void:
+	_popup_zoom = int(request.get("zoom", -1))
+	_popup_pick_star = bool(request.get("pick_star", false))
+	var on_map: bool = (_popup_zoom >= 0 or _popup_pick_star) and galaxy.visible and not galaxy.stars.is_empty()
+	dialog.placement = ("left" if _popup_zoom >= 0 else "top") if on_map else ""
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE if on_map else Control.MOUSE_FILTER_STOP
+	overlay.color.a = 0.0 if on_map else 0.45
+	if not on_map:
+		_popup_zoom = -1
+		_popup_pick_star = false
+		return
+	if _popup_zoom >= 0 and galaxy.system_star != _popup_zoom:
+		galaxy.selected = _popup_zoom
+		_frame_system(_popup_zoom)
+		galaxy.show_system(_popup_zoom, request.get("system", {}))
+		galaxy.redraw()
+
+
+func _end_popup_map() -> void:
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.color.a = 0.45
+	if _popup_zoom >= 0 and _panel_star != _popup_zoom:
+		galaxy.selected = _panel_star
+		galaxy.hide_system()
+		galaxy.fly_back()
+	_popup_zoom = -1
+	_popup_pick_star = false
+
+
+## A map click while a map popup waits: a planet of the zoomed system, or the star picked.
+func _popup_map_click(planet_id: int, star_id: int) -> bool:
+	if not overlay.visible or not _views.has("dialog"):
+		return false
+	var dialog: Control = _views.dialog
+	if _popup_zoom >= 0:
+		if planet_id >= 0:
+			var value: int = dialog.answer_for_planet(planet_id)
+			if value >= 0:
+				dialog._answer(value)
+		return true
+	if _popup_pick_star:
+		if star_id >= 0:
+			dialog._answer(dialog.OPTION_ANSWER + star_id)
+		return true
+	return false
 
 
 func _on_answered(id: int, value: int, text := "") -> void:
 	overlay.hide()
+	_end_popup_map()
 	if _question_over_galaxy:
 		_question_over_galaxy = false
 		if native_screen == Screens.LEGACY and not _turn_over_galaxy:
@@ -1028,6 +1085,8 @@ func _on_answered(id: int, value: int, text := "") -> void:
 ## game decides, as the legacy map does, whether it opens the player's colony there (a legacy
 ## screen for now) or the system panel.
 func _on_star_clicked(star_id: int) -> void:
+	if _popup_map_click(-1, star_id):
+		return
 	if galaxy.relocating:
 		_end_relocating()
 		_send({"verb": "merge_relocations", "star": star_id})
@@ -1110,6 +1169,8 @@ func _frame_system(star_id: int) -> void:
 
 ## A planet clicked on the map: selected here and in the pane.
 func _on_planet_clicked(planet_id: int) -> void:
+	if _popup_map_click(planet_id, -1):
+		return
 	galaxy.selected_planet = planet_id
 	galaxy.redraw()
 	_view("system_pane").select_planet(planet_id)
@@ -1297,6 +1358,9 @@ func _smoke_native() -> void:
 		if arg.begins_with("--flash="):
 			await _smoke_flash(arg.substr(8))
 			return
+	if "--popups" in OS.get_cmdline_user_args():
+		await _smoke_popups(shots)
+		return
 	var empire: Dictionary = await _query("empire")
 	print("smoke: empire %s" % empire)
 	if not await _smoke_tax(int(empire.tax_rate)):
@@ -2460,6 +2524,113 @@ func _smoke_auto_turns(shots: String) -> void:
 			frame.save_png(shots + "/legacy-after-auto-turns.png")
 	if notices.size() < 2 or not shown_ok or not stopped:
 		await host.smoke_fail("quiet turns did not pass over the native galaxy")
+		return
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
+
+
+## `--popups` (WP3.4c): each legacy window over the galaxy previewed natively (`preview_popup`):
+## a system with free planets for the planet pickers, one with another empire's colony for the
+## attack choice and the invade/bomb window, the player's home system for a discovery and the
+## monster's demand. Each is shot (`--shots`), then answered: the pickers by a planet clicked on
+## the zoomed map (the answer comes back as that planet, nothing is colonised), the others by
+## their first button.
+func _smoke_popups(shots: String) -> void:
+	var free_star := -1
+	var enemy_star := -1
+	var enemy_colony := -1
+	var free_planet := -1
+	var own_star := -1
+	for star: Dictionary in galaxy.stars:
+		var sys: Dictionary = await _query_args({"what": "system", "star": int(star.id)})
+		if String(sys.get("view", "")) != "full":
+			continue
+		for planet: Dictionary in sys.get("planets", []):
+			var colony: Dictionary = planet.get("colony", {})
+			if colony.is_empty() and String(planet.get("type", "")) == "planet" and free_star < 0:
+				free_star = int(star.id)
+				free_planet = int(planet.planet)
+			elif not colony.is_empty() and not colony.get("mine", false) and enemy_star < 0:
+				enemy_star = int(star.id)
+				enemy_colony = int(colony.id)
+			elif not colony.is_empty() and colony.get("mine", false) and own_star < 0:
+				own_star = int(star.id)
+		if free_star >= 0 and enemy_star >= 0 and own_star >= 0:
+			break
+	print("smoke: popups: free planet %d at star %d, enemy colony %d at star %d, own star %d" % [free_planet, free_star, enemy_colony, enemy_star, own_star])
+	var cases: Array = []
+	if own_star >= 0:
+		cases.append({"popup": "new_system", "star": own_star})
+		cases.append({"popup": "monster_tribute", "star": own_star})
+		if free_star >= 0 and free_star != own_star:
+			cases.append({"popup": "monster_tribute", "star": own_star, "pick": free_star}) # PAY, then a star
+	if free_star >= 0:
+		cases.append({"popup": "planet_pick", "star": free_star, "click": free_planet})
+		cases.append({"popup": "outpost_pick", "star": free_star, "click": free_planet})
+	cases.append({"popup": "choose"})
+	if enemy_star >= 0:
+		cases.append({"popup": "attack_target", "star": enemy_star})
+		cases.append({"popup": "colony_combat", "colony": enemy_colony})
+	var failed := false
+	for case: Dictionary in cases:
+		var box := {}
+		var verb := {"verb": "preview_popup"}
+		verb.merge(case)
+		verb.erase("click")
+		verb.erase("pick")
+		_send(verb, func(r: Dictionary): box["r"] = r)
+		var waited := 0.0
+		while not overlay.visible and waited < 10.0:
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
+		await get_tree().create_timer(1.2).timeout # the camera's flight
+		var dialog: Control = _views.get("dialog")
+		var shown := overlay.visible and dialog != null and dialog.visible
+		print("smoke: popup %s: shown %s as '%s', zoom %d, placement '%s', %d options" % [case.popup, shown,
+			dialog.popup_name if dialog else "", _popup_zoom, dialog.placement if dialog else "", dialog.options.size() if dialog else 0])
+		if shots != "":
+			await host.shot(shots + "/native-popup-preview-%s.png" % case.popup)
+		if not shown:
+			failed = true
+			continue
+		var expected := -1
+		if case.has("pick"):
+			(dialog._popup_buttons.get_child(1) as Button).pressed.emit() # PAY
+			await get_tree().create_timer(0.8).timeout
+			print("smoke: popup monster_target: shown %s, pick a star %s, placement '%s'" % [overlay.visible, _popup_pick_star, dialog.placement])
+			if shots != "":
+				await host.shot(shots + "/native-popup-preview-monster_target.png")
+			expected = int(case.pick)
+			_on_star_clicked(expected) # as the map's click on that star
+		elif case.has("click") and _popup_zoom >= 0:
+			expected = int(case.click)
+			_on_planet_clicked(expected) # as the map's click on that planet
+			# A colony ship's pick asks to confirm (native too): Yes.
+			await get_tree().create_timer(0.5).timeout
+			while overlay.visible and _views.dialog._kind == "confirm":
+				_views.dialog._answer(1)
+				await get_tree().create_timer(0.5).timeout
+			# The first colony at a star may ask for its name: keep it.
+			while overlay.visible and _views.dialog._kind == "text":
+				_views.dialog._answer(0)
+				await get_tree().create_timer(0.5).timeout
+		else:
+			var buttons: Control = dialog._popup_buttons
+			if buttons.get_child_count() > 0:
+				(buttons.get_child(0) as Button).pressed.emit()
+		waited = 0.0
+		while not box.has("r") and waited < 10.0:
+			if overlay.visible and _views.dialog.visible:
+				_views.dialog._answer(-1) # anything that follows (a help line): closed
+			await get_tree().create_timer(0.2).timeout
+			waited += 0.2
+		var result: Dictionary = box.get("r", {})
+		print("smoke: popup %s answered %s" % [case.popup, result])
+		if not result.get("ok", false) or (expected >= 0 and int(result.get("answer", -1)) != expected):
+			failed = true
+		await get_tree().create_timer(1.0).timeout # the flight back
+	if failed or cases.is_empty():
+		await host.smoke_fail("a native popup did not show or answer")
 		return
 	game.request_game_quit()
 	print("smoke: asked the game to quit")

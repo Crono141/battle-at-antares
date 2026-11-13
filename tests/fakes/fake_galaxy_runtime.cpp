@@ -304,3 +304,17 @@ namespace antares::sprites {
 namespace SYS {
     void __cdecl Potential_Colony_Info_Popup(int16_t) {} // planet_info: the game's Text_Box
 } // namespace SYS
+
+// preview_popup (popup_preview.cpp, WP3.4c): the legacy windows it shows answer nothing in tests.
+s_combfind_target COMBFIND::target{};
+namespace MAINPUPS {
+    void __cdecl New_System_Discovery_Popup(int16_t, uint8_t) {}
+    int16_t __cdecl New_Colony_Selection_Popup(int16_t, uint8_t) { return -1; }
+    int16_t __cdecl New_Outpost_Selection_Popup(int16_t) { return -1; }
+    int16_t __cdecl Defense_Colony_Selection_Popup(int16_t, int16_t) { return -1; }
+    int16_t __cdecl Dragon_New_Star_Popup(int16_t, int16_t) { return -1; }
+    int16_t __cdecl Colony_Selection_Popup(s_invasion_side_info*, s_invasion_side_info*, int32_t, int16_t, int16_t, int8_t) { return -1; }
+} // namespace MAINPUPS
+namespace fields {
+    int16_t __cdecl Get_List_Field(int16_t, int16_t, int16_t, const char*, const char*, int32_t, int8_t*, uint8_t*, int16_t, uint8_t*, int32_t, s_animation_header*, int32_t, const char*) { return -1; }
+} // namespace fields
