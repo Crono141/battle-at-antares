@@ -11,7 +11,7 @@ var as_screen := false
 
 
 func _ready() -> void:
-	$Box/Header/Close.pressed.connect(close)
+	$Fit/Box/Header/Close.pressed.connect(close)
 	closed.connect(func():
 		if as_screen:
 			as_screen = false
@@ -19,7 +19,7 @@ func _ready() -> void:
 
 
 func show_result(result: Dictionary) -> void:
-	$Box/Header/Title.text = result.get("title", "Command points")
-	$Box/Text.text = result.get("text", "")
-	$Box/Total.text = "%d of %d command points used" % [
+	$Fit/Box/Header/Title.text = result.get("title", "Command points")
+	$Fit/Box/Text.text = result.get("text", "")
+	$Fit/Box/Total.text = "%d of %d command points used" % [
 		int(result.get("command_points_used", 0)), int(result.get("command_points", 0))]

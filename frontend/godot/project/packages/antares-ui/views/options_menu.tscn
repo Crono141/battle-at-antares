@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://packages/antares-ui/views/options_menu.gd" id="1"]
+[ext_resource type="Script" path="res://packages/antares-ui/views/fit_scroll.gd" id="fit"]
 
 [node name="OptionsMenu" type="PanelContainer"]
 anchors_preset = 1
@@ -14,20 +15,25 @@ grow_horizontal = 0
 theme_type_variation = &"Pane"
 script = ExtResource("1")
 
-[node name="Box" type="VBoxContainer" parent="."]
+[node name="Fit" type="ScrollContainer" parent="."]
+layout_mode = 2
+horizontal_scroll_mode = 0
+script = ExtResource("fit")
+
+[node name="Box" type="VBoxContainer" parent="Fit"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="Header" type="HBoxContainer" parent="Box"]
+[node name="Header" type="HBoxContainer" parent="Fit/Box"]
 layout_mode = 2
 
-[node name="Title" type="Label" parent="Box/Header"]
+[node name="Title" type="Label" parent="Fit/Box/Header"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_type_variation = &"Heading"
 text = "Options"
 
-[node name="Close" type="Button" parent="Box/Header"]
+[node name="Close" type="Button" parent="Fit/Box/Header"]
 custom_minimum_size = Vector2(34, 30)
 layout_mode = 2
 size_flags_vertical = 4
@@ -35,21 +41,21 @@ tooltip_text = "Close (Esc)"
 focus_mode = 0
 text = "X"
 
-[node name="MapTitle" type="Label" parent="Box"]
+[node name="MapTitle" type="Label" parent="Fit/Box"]
 layout_mode = 2
 theme_type_variation = &"Section"
 text = "MAP"
 
-[node name="Influence" type="HBoxContainer" parent="Box"]
+[node name="Influence" type="HBoxContainer" parent="Fit/Box"]
 layout_mode = 2
 tooltip_text = "Show empires' influence: off, filled, borders (Alt+V)"
 
-[node name="Label" type="Label" parent="Box/Influence"]
+[node name="Label" type="Label" parent="Fit/Box/Influence"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Influence"
 
-[node name="Off" type="Button" parent="Box/Influence"]
+[node name="Off" type="Button" parent="Fit/Box/Influence"]
 custom_minimum_size = Vector2(70, 30)
 layout_mode = 2
 focus_mode = 0
@@ -59,7 +65,7 @@ toggle_mode = true
 text = "OFF"
 metadata/action = "influence_off"
 
-[node name="Filled" type="Button" parent="Box/Influence"]
+[node name="Filled" type="Button" parent="Fit/Box/Influence"]
 custom_minimum_size = Vector2(70, 30)
 layout_mode = 2
 focus_mode = 0
@@ -69,7 +75,7 @@ toggle_mode = true
 text = "FILLED"
 metadata/action = "influence_filled"
 
-[node name="Borders" type="Button" parent="Box/Influence"]
+[node name="Borders" type="Button" parent="Fit/Box/Influence"]
 custom_minimum_size = Vector2(70, 30)
 layout_mode = 2
 focus_mode = 0
@@ -79,10 +85,10 @@ toggle_mode = true
 text = "BORDERS"
 metadata/action = "influence_borders"
 
-[node name="Map" type="HBoxContainer" parent="Box"]
+[node name="Map" type="HBoxContainer" parent="Fit/Box"]
 layout_mode = 2
 
-[node name="Relocations" type="Button" parent="Box/Map"]
+[node name="Relocations" type="Button" parent="Fit/Box/Map"]
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -91,7 +97,7 @@ focus_mode = 0
 theme_override_font_sizes/font_size = 13
 text = "MERGE RELOC."
 
-[node name="Distance" type="Button" parent="Box/Map"]
+[node name="Distance" type="Button" parent="Fit/Box/Map"]
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 size_flags_horizontal = 3
@@ -100,29 +106,29 @@ focus_mode = 0
 theme_override_font_sizes/font_size = 13
 text = "DISTANCE"
 
-[node name="GameTitle" type="Label" parent="Box"]
+[node name="GameTitle" type="Label" parent="Fit/Box"]
 layout_mode = 2
 theme_type_variation = &"Section"
 text = "GAME OPTIONS"
 
-[node name="Options" type="VBoxContainer" parent="Box"]
+[node name="Options" type="VBoxContainer" parent="Fit/Box"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="SoundTitle" type="Label" parent="Box"]
+[node name="SoundTitle" type="Label" parent="Fit/Box"]
 layout_mode = 2
 theme_type_variation = &"Section"
 text = "SOUND"
 
-[node name="Music" type="HBoxContainer" parent="Box"]
+[node name="Music" type="HBoxContainer" parent="Fit/Box"]
 layout_mode = 2
 
-[node name="Label" type="Label" parent="Box/Music"]
+[node name="Label" type="Label" parent="Fit/Box/Music"]
 custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 text = "Music"
 
-[node name="Slider" type="HSlider" parent="Box/Music"]
+[node name="Slider" type="HSlider" parent="Fit/Box/Music"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 4
@@ -130,21 +136,21 @@ focus_mode = 0
 tooltip_text = "Music volume (off at the left)"
 step = 5.0
 
-[node name="Value" type="Label" parent="Box/Music"]
+[node name="Value" type="Label" parent="Fit/Box/Music"]
 custom_minimum_size = Vector2(44, 0)
 layout_mode = 2
 text = "0"
 horizontal_alignment = 2
 
-[node name="Sound" type="HBoxContainer" parent="Box"]
+[node name="Sound" type="HBoxContainer" parent="Fit/Box"]
 layout_mode = 2
 
-[node name="Label" type="Label" parent="Box/Sound"]
+[node name="Label" type="Label" parent="Fit/Box/Sound"]
 custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 text = "Sound"
 
-[node name="Slider" type="HSlider" parent="Box/Sound"]
+[node name="Slider" type="HSlider" parent="Fit/Box/Sound"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 4
@@ -152,22 +158,22 @@ focus_mode = 0
 tooltip_text = "Sound effects volume (off at the left)"
 step = 5.0
 
-[node name="Value" type="Label" parent="Box/Sound"]
+[node name="Value" type="Label" parent="Fit/Box/Sound"]
 custom_minimum_size = Vector2(44, 0)
 layout_mode = 2
 text = "0"
 horizontal_alignment = 2
 
-[node name="ScaleTitle" type="Label" parent="Box"]
+[node name="ScaleTitle" type="Label" parent="Fit/Box"]
 layout_mode = 2
 theme_type_variation = &"Section"
 text = "INTERFACE SCALE"
 
-[node name="Scale" type="HBoxContainer" parent="Box"]
+[node name="Scale" type="HBoxContainer" parent="Fit/Box"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="Slider" type="HSlider" parent="Box/Scale"]
+[node name="Slider" type="HSlider" parent="Fit/Box/Scale"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 4
@@ -177,7 +183,7 @@ max_value = 300.0
 step = 5.0
 value = 100.0
 
-[node name="Value" type="SpinBox" parent="Box/Scale"]
+[node name="Value" type="SpinBox" parent="Fit/Box/Scale"]
 custom_minimum_size = Vector2(96, 0)
 layout_mode = 2
 min_value = 50.0
@@ -186,12 +192,12 @@ value = 100.0
 suffix = "%"
 select_all_on_focus = true
 
-[node name="ThemeTitle" type="Label" parent="Box"]
+[node name="ThemeTitle" type="Label" parent="Fit/Box"]
 layout_mode = 2
 theme_type_variation = &"Section"
 text = "THEME"
 
-[node name="Theme" type="OptionButton" parent="Box"]
+[node name="Theme" type="OptionButton" parent="Fit/Box"]
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
 tooltip_text = "The look of these panels: each enabled theme package"

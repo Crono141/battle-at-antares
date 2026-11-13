@@ -12,25 +12,25 @@ var _kind := ""
 
 
 func _ready() -> void:
-	$Box/Buttons/Yes.pressed.connect(func(): _answer(1))
-	$Box/Buttons/No.pressed.connect(func(): _answer(0))
-	$Box/Entry.text_submitted.connect(func(_t: String): _answer(1))
+	$Fit/Box/Buttons/Yes.pressed.connect(func(): _answer(1))
+	$Fit/Box/Buttons/No.pressed.connect(func(): _answer(0))
+	$Fit/Box/Entry.text_submitted.connect(func(_t: String): _answer(1))
 
 
 func ask(id: int, kind: String, request: Dictionary) -> void:
 	request_id = id
-	$Box/Text.text = request.get("text", "")
+	$Fit/Box/Text.text = request.get("text", "")
 	var title: String = request.get("title", "")
 	if title == "":
 		title = "Warning" if kind == "warning" else ("Confirm" if kind == "confirm" else "")
-	$Box/Title.text = title
-	$Box/Title.visible = $Box/Title.text != ""
+	$Fit/Box/Title.text = title
+	$Fit/Box/Title.visible = $Fit/Box/Title.text != ""
 	_kind = kind
-	var entry: LineEdit = $Box/Entry
+	var entry: LineEdit = $Fit/Box/Entry
 	entry.visible = kind == "text"
-	$Box/Buttons/Yes.text = "YES" if kind == "confirm" else "OK"
-	$Box/Buttons/No.text = "CANCEL" if kind == "text" else "NO"
-	$Box/Buttons/No.visible = kind == "confirm" or kind == "text"
+	$Fit/Box/Buttons/Yes.text = "YES" if kind == "confirm" else "OK"
+	$Fit/Box/Buttons/No.text = "CANCEL" if kind == "text" else "NO"
+	$Fit/Box/Buttons/No.visible = kind == "confirm" or kind == "text"
 	if kind == "text":
 		entry.max_length = int(request.get("max_chars", 15))
 		entry.text = String(request.get("value", ""))
@@ -43,4 +43,4 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 
 func _answer(value: int) -> void:
 	hide()
-	answered.emit(request_id, value, $Box/Entry.text if _kind == "text" else "")
+	answered.emit(request_id, value, $Fit/Box/Entry.text if _kind == "text" else "")

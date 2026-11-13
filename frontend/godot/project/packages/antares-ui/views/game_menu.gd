@@ -14,7 +14,7 @@ var _closing := false
 
 
 func _ready() -> void:
-	for button: Button in $Box.get_children().filter(func(child: Node) -> bool: return child is Button):
+	for button: Button in $Fit/Box.get_children().filter(func(child: Node) -> bool: return child is Button):
 		if button.has_meta("page"):
 			var page: int = button.get_meta("page")
 			button.pressed.connect(func():
@@ -31,8 +31,8 @@ func _ready() -> void:
 func show_result(result: Dictionary) -> void:
 	if result.get("ok", false):
 		return
-	$Box/Note.text = String(result.get("message", result.get("error", "")))
-	$Box/Note.show()
+	$Fit/Box/Note.text = String(result.get("message", result.get("error", "")))
+	$Fit/Box/Note.show()
 	open_at(position.x)
 
 
@@ -56,7 +56,7 @@ func open_at(x: float) -> void:
 func close() -> void:
 	if not visible or _closing:
 		return
-	$Box/Note.hide()
+	$Fit/Box/Note.hide()
 	if _tween:
 		_tween.kill()
 	_closing = true

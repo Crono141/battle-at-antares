@@ -19,13 +19,13 @@ const WIDTH := 352.0
 ## Set by the frontend: the galaxy is the current screen, so the keys are live.
 var keys_active := false
 
-@onready var influence_buttons: Array[Button] = [$Box/Influence/Off, $Box/Influence/Filled, $Box/Influence/Borders]
-@onready var options_box: VBoxContainer = $Box/Options
-@onready var theme_button: OptionButton = $Box/Theme
-@onready var music_slider: HSlider = $Box/Music/Slider
-@onready var sound_slider: HSlider = $Box/Sound/Slider
-@onready var scale_slider: HSlider = $Box/Scale/Slider
-@onready var scale_value: SpinBox = $Box/Scale/Value
+@onready var influence_buttons: Array[Button] = [$Fit/Box/Influence/Off, $Fit/Box/Influence/Filled, $Fit/Box/Influence/Borders]
+@onready var options_box: VBoxContainer = $Fit/Box/Options
+@onready var theme_button: OptionButton = $Fit/Box/Theme
+@onready var music_slider: HSlider = $Fit/Box/Music/Slider
+@onready var sound_slider: HSlider = $Fit/Box/Sound/Slider
+@onready var scale_slider: HSlider = $Fit/Box/Scale/Slider
+@onready var scale_value: SpinBox = $Fit/Box/Scale/Value
 
 var _tween: Tween
 var _shown_right := 0.0 # offset_right when open: a flyout keeps its right edge by the tabs
@@ -33,7 +33,7 @@ var _theme_ids: Array = []
 
 
 func _ready() -> void:
-	$Box/Header/Close.pressed.connect(close)
+	$Fit/Box/Header/Close.pressed.connect(close)
 	var group := ButtonGroup.new()
 	for b in influence_buttons:
 		b.button_group = group
@@ -41,12 +41,12 @@ func _ready() -> void:
 		b.pressed.connect(func(): action.emit(action_name))
 		Themes.glowing(b)
 	show_influence(0)
-	$Box/Map/Relocations.pressed.connect(func():
+	$Fit/Box/Map/Relocations.pressed.connect(func():
 		close() # the star is picked on the map
 		action.emit("merge_relocations"))
-	$Box/Map/Distance.pressed.connect(func(): action.emit("distance"))
+	$Fit/Box/Map/Distance.pressed.connect(func(): action.emit("distance"))
 	# The game menu's volume sliders (WP3.3g): set when let go, the value shown while dragging.
-	for pair in [[music_slider, "music", $Box/Music/Value], [sound_slider, "sound", $Box/Sound/Value]]:
+	for pair in [[music_slider, "music", $Fit/Box/Music/Value], [sound_slider, "sound", $Fit/Box/Sound/Value]]:
 		var slider: HSlider = pair[0]
 		var key: String = pair[1]
 		var value_label: Label = pair[2]
@@ -56,12 +56,12 @@ func _ready() -> void:
 				command.emit({"verb": "set_volume", key: int(slider.value)}))
 	# The interface scale (owner, after a 2560x1600 playtest): live while dragging, kept when let
 	# go; or typed in.
-	scale_slider.value_changed.connect(func(v: float):
-		scale_value.set_value_no_signal(v)
-		scale_changed.emit(v, false))
-	scale_slider.drag_ended.connect(func(_changed: bool): scale_changed.emit(scale_slider.value, true))
+	# The slider is dragged by hand (owner, 2026-11-13): the scale moves the slider itself, so the
+	# pointer is read in window pixels against where the slider was when it was grabbed. Godot's
+	# own drag fed the moved slider back into the value and ran away to either end.
+	scale_slider.gui_input.connect(_on_scale_slider_input)
 	scale_value.value_changed.connect(func(v: float):
-		scale_slider.set_value_no_signal(v)
+		_quietly(scale_slider, v)
 		scale_changed.emit(v, true))
 	theme_button.item_selected.connect(func(index: int):
 		if index >= 0 and index < _theme_ids.size():
@@ -152,12 +152,73 @@ func show_influence(mode: int) -> void:
 	_glow_all()
 
 
-## The scale in use (percent), without sending it back.
-func show_scale(percent: float, largest := 300.0) -> void:
-	scale_slider.max_value = largest
-	scale_value.max_value = largest
-	scale_slider.set_value_no_signal(percent)
-	scale_value.set_value_no_signal(percent)
+## The scale slider's drag: the track in window pixels when grabbed (empty while not dragged).
+var _scale_drag := {}
+
+
+func _on_scale_slider_input(event: InputEvent) -> void:
+	var press := event as InputEventMouseButton
+	if press and press.button_index == MOUSE_BUTTON_LEFT and press.pressed:
+		var factor := get_window().content_scale_factor
+		var track := scale_slider.get_global_rect()
+		_scale_drag = {"left": track.position.x * factor, "width": maxf(track.size.x * factor, 1.0)}
+		_drag_scale(press.global_position.x * factor, false)
+		scale_slider.accept_event()
+	elif event is InputEventMouseMotion or event is InputEventMouseButton:
+		scale_slider.accept_event() # Godot's own drag stays off
+
+
+func _input(event: InputEvent) -> void:
+	if _scale_drag.is_empty():
+		return
+	# Event positions are in the interface's (scaled) pixels; times the scale, window pixels.
+	var factor := get_window().content_scale_factor
+	var motion := event as InputEventMouseMotion
+	if motion:
+		_drag_scale(motion.position.x * factor, false)
+		get_viewport().set_input_as_handled()
+	var release := event as InputEventMouseButton
+	if release and release.button_index == MOUSE_BUTTON_LEFT and not release.pressed:
+		_drag_scale(release.position.x * factor, true)
+		_scale_drag = {} # the release goes on, so the interface lets go of the slider too
+
+
+## Window pixels along the grabbed track to a scale; `final` when let go.
+func _drag_scale(window_x: float, final: bool) -> void:
+	var ratio := clampf((window_x - float(_scale_drag.left)) / float(_scale_drag.width), 0.0, 1.0)
+	var percent := snappedf(lerpf(scale_slider.min_value, scale_slider.max_value, ratio), scale_slider.step)
+	if final or percent != scale_slider.value:
+		_quietly(scale_slider, percent)
+		_quietly(scale_value, percent)
+		scale_changed.emit(percent, final)
+
+
+## The scale in use (percent) and its limits, without sending it back.
+func show_scale(percent: float, largest := 300.0, smallest := 75.0) -> void:
+	# Quietly, limits too: a limit that clamps the value would otherwise send the clamped value
+	# back as the player's choice (a small window saved its largest scale over theirs).
+	for range: Range in [scale_slider, scale_value]:
+		range.set_block_signals(true)
+		range.min_value = smallest
+		range.max_value = largest
+		range.value = percent
+		range.set_block_signals(false)
+	_keep_scale_in_view.call_deferred()
+
+
+## Options scroll when the window is short: the scale stays in view while it changes.
+func _keep_scale_in_view() -> void:
+	await get_tree().process_frame # the scroll has refitted to the new scale
+	if is_inside_tree() and visible:
+		($Fit as ScrollContainer).ensure_control_visible($Fit/Box/Scale)
+
+
+## Sets a value without its signal. Not set_value_no_signal: that leaves a SpinBox's text as it
+## was, so the box showed one scale while another was in use (owner, 2026-11-13).
+static func _quietly(range: Range, value: float) -> void:
+	range.set_block_signals(true)
+	range.value = value
+	range.set_block_signals(false)
 
 
 ## The enabled theme packages, the one in use selected.

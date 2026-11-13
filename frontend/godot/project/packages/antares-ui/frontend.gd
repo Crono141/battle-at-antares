@@ -314,46 +314,120 @@ func _load_themes() -> void:
 	_apply_saved_scale()
 
 
+## The scale slider dragged by pointer events, as a player drags it (owner, 2026-11-13: the
+## scale ran away while dragging, and the number showed another scale than the one in use): to
+## the right end, then to the left end. Each must land where the pointer is, the number must say
+## so, and Options must stay inside the window. The player's saved scale is put back after.
+func _smoke_scale_drag(options: Control, shots: String) -> bool:
+	var saved := Themes.saved_ui_scale()
+	var before := ui_scale
+	var ok := true
+	print("smoke: scale at start %.0f%% (saved %.0f, wanted %.0f, largest %.0f; window %s)" % [ui_scale, saved,
+		_wanted_ui_scale(), max_ui_scale(), get_window().size])
+	for end: float in [1.0, 0.0]:
+		var slider: HSlider = options.scale_slider
+		var factor := get_window().content_scale_factor
+		var track := slider.get_global_rect()
+		var y := track.get_center().y * factor
+		var along := clampf(track.size.x * (slider.value - slider.min_value) / maxf(slider.max_value - slider.min_value, 1.0), 4.0, track.size.x - 4.0)
+		var x := (track.position.x + along) * factor
+		var goal := (track.position.x + track.size.x * end) * factor
+		var expected: float = slider.max_value if end > 0.5 else slider.min_value
+		_smoke_mouse(true, Vector2(x, y))
+		await get_tree().process_frame
+		for i in range(1, 13):
+			var motion := InputEventMouseMotion.new()
+			motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+			motion.position = Vector2(lerpf(x, goal, i / 12.0), y)
+			Input.parse_input_event(motion)
+			await get_tree().process_frame
+			await get_tree().process_frame
+		_smoke_mouse(false, Vector2(goal, y))
+		await get_tree().create_timer(0.5).timeout
+		var used := get_window().content_scale_factor * 100.0
+		var text: String = options.scale_value.get_line_edit().text
+		var bottom: float = options.get_global_rect().end.y
+		var room := get_viewport().get_visible_rect().size.y
+		print("smoke: scale dragged to %s: in use %.0f%%, slider %.0f, box '%s' (expected %.0f; limits %.0f-%.0f); options bottom %.0f of %.0f" % [
+			"the right" if end > 0.5 else "the left", used, slider.value, text, expected, slider.min_value, slider.max_value, bottom, room])
+		if absf(used - expected) > 0.5 or not text.begins_with(str(int(expected))) or bottom > room + 1.0:
+			ok = false
+		if shots != "" and end > 0.5:
+			await host.shot(shots + "/native-options-largest.png")
+	set_ui_scale(before, false)
+	Themes.save_ui_scale(saved)
+	await get_tree().create_timer(0.3).timeout
+	if not ok:
+		await host.smoke_fail("the interface scale did not follow the drag")
+	return ok
+
+
+func _smoke_mouse(pressed: bool, at: Vector2) -> void:
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = pressed
+	click.button_mask = MOUSE_BUTTON_MASK_LEFT if pressed else 0
+	click.position = at
+	Input.parse_input_event(click)
+
+
 ## The interface scale (owner, 2026-11-12, after a friend found everything illegibly small on a
 ## 2560x1600 screen): the window's content scale, so panels, text and the map's labels grow
 ## together and every coordinate stays in one space. Saved in the settings; with none saved, the
-## screen's height decides (1080 lines: 100%), in steps of 5%.
+## screen's height decides (1080 lines: 100%), in steps of 5%. What is used is the wanted scale
+## held to what the window can show (owner, 2026-11-13: the screen's 135% was shown while the
+## start-up window's limit was in use, and the slider ran off the bottom of the screen).
+const MIN_UI_SCALE := 75.0
+const MAX_UI_SCALE := 300.0
+const MIN_LOGICAL := Vector2(1280, 720) # the panes side by side over the galaxy
+
+
 func _apply_saved_scale() -> void:
 	if not get_window().size_changed.is_connected(_on_window_resized):
 		get_window().size_changed.connect(_on_window_resized)
+	set_ui_scale(_wanted_ui_scale(), false)
+
+
+## The player's choice (or the command line's), else the screen's.
+func _wanted_ui_scale() -> float:
 	var percent := Themes.saved_ui_scale()
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--ui-scale="):
 			percent = float(arg.substr(11))
 	if percent <= 0.0:
 		var screen := DisplayServer.screen_get_size(get_window().current_screen)
-		percent = clampf(roundf(float(screen.y) / 1080.0 * 20.0) * 5.0, 100.0, 300.0)
-	set_ui_scale(percent, false)
+		percent = roundf(float(screen.y) / 1080.0 * 20.0) * 5.0
+	return clampf(percent, MIN_UI_SCALE, MAX_UI_SCALE)
 
 
-## The largest scale the window holds: the panes need about 1280x720 logical pixels.
+## The largest scale the window holds: the panes need MIN_LOGICAL, and the side tabs their
+## whole column, in interface pixels.
 func max_ui_scale() -> float:
 	var window := Vector2(get_window().size)
-	return clampf(floorf(minf(window.x / 1280.0, window.y / 720.0) * 20.0) * 5.0, 100.0, 300.0)
+	var need := MIN_LOGICAL
+	if _views.has("side_tabs"):
+		var tabs: Control = _views.side_tabs
+		need.y = maxf(need.y, tabs.get_combined_minimum_size().y + tabs.offset_top - tabs.offset_bottom)
+	var largest := floorf(minf(window.x / need.x, window.y / need.y) * 20.0) * 5.0
+	return clampf(largest, MIN_UI_SCALE, MAX_UI_SCALE)
 
 
-## A smaller window: the scale comes down to what it holds (the saved choice stays).
+## A different window: the wanted scale again, held to what this one holds.
 func _on_window_resized() -> void:
-	var wanted := Themes.saved_ui_scale()
-	if wanted <= 0.0:
-		wanted = ui_scale
-	set_ui_scale(wanted, false)
+	set_ui_scale(_wanted_ui_scale(), false)
 
 
 ## Applies a scale in percent; `remember`: saved as the player's choice.
 func set_ui_scale(percent: float, remember := true) -> void:
-	percent = clampf(percent, 50.0, max_ui_scale())
-	get_window().content_scale_factor = percent / 100.0
-	ui_scale = percent
 	if remember:
-		Themes.save_ui_scale(percent)
+		Themes.save_ui_scale(clampf(percent, MIN_UI_SCALE, MAX_UI_SCALE))
+	var largest := max_ui_scale()
+	percent = clampf(percent, MIN_UI_SCALE, largest)
+	if not is_equal_approx(get_window().content_scale_factor, percent / 100.0):
+		get_window().content_scale_factor = percent / 100.0
+	ui_scale = percent
 	if _views.has("options_menu"):
-		_views.options_menu.show_scale(percent, max_ui_scale())
+		_views.options_menu.show_scale(percent, largest, MIN_UI_SCALE)
 
 
 ## Puts a theme on every native view (the Options flyout's selector calls this).
@@ -415,9 +489,11 @@ func _view(scene_name: String) -> Control:
 		native_layer.add_child(view)
 		_frame_view.move_to_front() # the frame stays over every view
 		_views[scene_name] = view
+		if scene_name == "side_tabs": # their column limits the scale
+			_apply_saved_scale.call_deferred()
 		if scene_name == "options_menu":
 			view.show_themes(_themes, theme_id)
-			view.show_scale(ui_scale, max_ui_scale())
+			view.show_scale(ui_scale, max_ui_scale(), MIN_UI_SCALE)
 		if scene_name in ["galaxy_bar", "map_controls"]: # the frame's joints follow their pockets
 			view.item_rect_changed.connect(_frame_view.queue_redraw)
 			view.visibility_changed.connect(_frame_view.queue_redraw)
@@ -879,8 +955,8 @@ func _smoke_native() -> void:
 		return
 	await get_tree().create_timer(0.5).timeout
 	var points := _view("command_points")
-	print("smoke: command points as a screen: shown %s, '%s' / %s / %s" % [points.visible, points.get_node("Box/Header/Title").text,
-		points.get_node("Box/Total").text, points.get_node("Box/Text").text.replace("\n", " | ")])
+	print("smoke: command points as a screen: shown %s, '%s' / %s / %s" % [points.visible, points.get_node("Fit/Box/Header/Title").text,
+		points.get_node("Fit/Box/Total").text, points.get_node("Fit/Box/Text").text.replace("\n", " | ")])
 	points.close() # sends "close": back to the galaxy
 	if not await _wait_screen(Screens.MAIN, 10.0):
 		await host.smoke_fail("command points did not close")
@@ -889,7 +965,7 @@ func _smoke_native() -> void:
 	# The bar's drop-downs (WP3.3g): command points and research stay on the galaxy.
 	_on_view_action("command_points")
 	await get_tree().create_timer(1.0).timeout
-	print("smoke: command points from the bar: shown %s, screen %d, '%s'" % [points.visible, native_screen, points.get_node("Box/Total").text])
+	print("smoke: command points from the bar: shown %s, screen %d, '%s'" % [points.visible, native_screen, points.get_node("Fit/Box/Total").text])
 	if shots != "":
 		await host.shot(shots + "/native-command-points.png")
 	if not points.visible or native_screen != Screens.MAIN:
@@ -1024,7 +1100,7 @@ func _smoke_native() -> void:
 		print("smoke: after turn %d (%.0f s): %s" % [turn + 1, waited, empire])
 	if "--quit-by-menu" in OS.get_cmdline_user_args():
 		# The game menu's Quit (WP3.3f): the game's question, answered Yes natively, then it quits.
-		_view("game_menu").get_node("Box/Quit").pressed.emit()
+		_view("game_menu").get_node("Fit/Box/Quit").pressed.emit()
 		for i in 50:
 			await get_tree().create_timer(0.2).timeout
 			if _smoke_answer():
@@ -1224,6 +1300,8 @@ func _smoke_galaxy(shots: String) -> bool:
 	if first != "":
 		apply_theme(first, false)
 	await get_tree().create_timer(0.3).timeout
+	if not await _smoke_scale_drag(options, shots):
+		return false
 	if not options.visible or options.options_box.get_child_count() == 0:
 		await host.smoke_fail("the options flyout did not open with the game options")
 		return false
@@ -1235,7 +1313,7 @@ func _smoke_galaxy(shots: String) -> bool:
 	if shots != "":
 		await host.shot(shots + "/native-game-menu.png")
 	print("smoke: game menu %s at %s" % [game_menu.visible, game_menu.position])
-	game_menu.get_node("Box/Load").pressed.emit()
+	game_menu.get_node("Fit/Box/Load").pressed.emit()
 	if not await _wait_screen(Screens.LEGACY, 10.0):
 		await host.smoke_fail("Load did not open")
 		return false
@@ -1729,7 +1807,7 @@ func _smoke_new_game(shots: String) -> void:
 		if dialog != null and dialog.visible and dialog._kind == "text":
 			if native_screen == Screens.MAIN:
 				break
-			print("smoke: new game question '%s' answered with '%s'" % [dialog.get_node("Box/Text").text, dialog.get_node("Box/Entry").text])
+			print("smoke: new game question '%s' answered with '%s'" % [dialog.get_node("Fit/Box/Text").text, dialog.get_node("Fit/Box/Entry").text])
 			if shots != "":
 				await host.shot(shots + "/native-ruler-name.png")
 			dialog._answer(1)
@@ -1744,12 +1822,12 @@ func _smoke_new_game(shots: String) -> void:
 		await host.smoke_fail("no native home star question (screen %d)" % native_screen)
 		return
 	await get_tree().create_timer(1.0).timeout
-	print("smoke: home star question '%s', value '%s', native galaxy %s, behind it the native view %s" % [dialog.get_node("Box/Text").text,
-		dialog.get_node("Box/Entry").text, native_screen == Screens.MAIN, galaxy.visible])
+	print("smoke: home star question '%s', value '%s', native galaxy %s, behind it the native view %s" % [dialog.get_node("Fit/Box/Text").text,
+		dialog.get_node("Fit/Box/Entry").text, native_screen == Screens.MAIN, galaxy.visible])
 	if shots != "":
 		await host.shot(shots + "/native-home-star-name.png")
-	var home := String(dialog.get_node("Box/Entry").text)
-	dialog.get_node("Box/Entry").text = "Smoke Prime"
+	var home := String(dialog.get_node("Fit/Box/Entry").text)
+	dialog.get_node("Fit/Box/Entry").text = "Smoke Prime"
 	dialog._answer(1)
 	await get_tree().create_timer(3.0).timeout
 	# The map's labels (cut to the width the map leaves the name, as the input box would).
@@ -1786,7 +1864,7 @@ func _smoke_new_game(shots: String) -> void:
 func _smoke_answer() -> bool:
 	if not overlay.visible:
 		return false
-	print("smoke: answering request '%s' (native galaxy behind: %s, size %s)" % [_views["dialog"].get_node("Box/Text").text,
+	print("smoke: answering request '%s' (native galaxy behind: %s, size %s)" % [_views["dialog"].get_node("Fit/Box/Text").text,
 		galaxy.visible and not legacy.visible, _views["dialog"].size])
 	if not _shot_question and galaxy.visible and not legacy.visible:
 		_shot_question = true

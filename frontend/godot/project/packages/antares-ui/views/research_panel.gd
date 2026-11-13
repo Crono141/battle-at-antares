@@ -12,14 +12,14 @@ signal command(dict: Dictionary)
 const Themes := preload("../themes.gd")
 const AREA_WIDTH := 340.0
 
-@onready var areas_box: GridContainer = $Box/Areas
-@onready var progress: Label = $Box/Header/Titles/Progress
+@onready var areas_box: GridContainer = $Fit/Box/Areas
+@onready var progress: Label = $Fit/Box/Header/Titles/Progress
 
 var _research_text := ""
 
 
 func _ready() -> void:
-	$Box/Header/Close.pressed.connect(close)
+	$Fit/Box/Header/Close.pressed.connect(close)
 
 
 ## The bar's research figure, under the title ("3,358 RP   11 turns").
