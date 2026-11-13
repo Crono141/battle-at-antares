@@ -53,7 +53,7 @@ var _tween: Tween
 var _shown_left := 0.0
 var _carry := {} # {pops, job, view}: colonists on the pointer
 var _job_panels := {} # job -> its row's panel (drop targets)
-var _info_popup: Popup
+var _info_popup: Control
 
 
 func _ready() -> void:
@@ -423,7 +423,7 @@ func _show_help(result: Dictionary) -> void:
 
 func _close_info() -> void:
 	if is_instance_valid(_info_popup):
-		_info_popup.queue_free()
+		preload("info_popup.gd").close_current()
 	_info_popup = null
 
 

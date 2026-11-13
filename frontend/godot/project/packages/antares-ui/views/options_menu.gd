@@ -13,6 +13,8 @@ signal theme_chosen(id: String)
 signal scale_changed(percent: float, final: bool)
 ## The Automatic switch beside the scale (owner, 2026-11-13).
 signal scale_auto_changed(on: bool)
+## A right click's help on a row (a HELP.LBX record; the frontend shows it).
+signal help_requested(topic: int, at: Control)
 
 const Themes := preload("../themes.gd")
 const SLIDE_TIME := 0.25
@@ -143,6 +145,13 @@ func show_options(result: Dictionary) -> void:
 		switch.toggled.connect(func(_on: bool): command.emit({"verb": "toggle_option", "option": id}))
 		Themes.glowing(switch)
 		line.add_child(switch)
+		# The settings page's right click (EVANHELP options list): records 429 on, by option.
+		row.mouse_filter = Control.MOUSE_FILTER_PASS
+		row.gui_input.connect(func(event: InputEvent):
+			var mb := event as InputEventMouseButton
+			if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
+				help_requested.emit(429 + id, row)
+				row.accept_event())
 		options_box.add_child(row)
 	_fit.call_deferred()
 

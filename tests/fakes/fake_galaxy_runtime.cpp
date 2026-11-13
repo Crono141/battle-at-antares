@@ -300,3 +300,7 @@ namespace antares::sprites {
         return false;
     }
 } // namespace antares::sprites
+
+namespace SYS {
+    void __cdecl Potential_Colony_Info_Popup(int16_t) {} // planet_info: the game's Text_Box
+} // namespace SYS

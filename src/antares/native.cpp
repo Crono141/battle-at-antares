@@ -105,7 +105,12 @@ namespace antares::native {
 
         // Keeps the game alive while it waits on the frontend: exit requests (throws on quit),
         // sound streaming and network traffic, as Get_Input loops do through Mox_Update.
+        std::atomic<int> s_clicks{0}; // the frontend's button clicks to sound (Click_Sound)
+
         void Tick() {
+            for (int pending = s_clicks.exchange(0); pending > 0; --pending) {
+                ERICNET::Mox_Play_Sound(0x28); // the game's button click (fields.cpp)
+            }
             RUSS::Mox_Update();
             SDL_Delay(5);
         }
@@ -692,10 +697,41 @@ namespace antares::native {
         return Frontend() && Claimed(screen) && Native_Allowed(screen);
     }
 
-    bool Message(const char* title, const char* text, uint16_t timeout_ticks) {
+    namespace {
+        // The game's paragraph codes (fmtpara): "\a" settings up to a '.', and "\x1A" + a column
+        // digit. A native box has no columns: the first column starts the line, the next is set
+        // apart by a tab. Used for Text_Box texts like the planet's potential (owner, 2026-11-13).
+        std::string Without_Paragraph_Codes(const char* text) {
+            std::string out;
+            for (const char* c = text; c != nullptr && *c != '\0'; ++c) {
+                if (*c == '\a') {
+                    while (c[1] != '\0' && c[1] != '.') {
+                        ++c;
+                    }
+                    if (c[1] == '.') {
+                        ++c;
+                    }
+                } else if (*c == '\x1A') {
+                    if (c[1] != '\0') {
+                        if (c[1] != '0') {
+                            out += '\t';
+                        }
+                        ++c;
+                    }
+                } else {
+                    out += *c;
+                }
+            }
+            return out;
+        }
+    } // namespace
+
+    bool Message(const char* title, const char* raw_text, uint16_t timeout_ticks) {
         if (!Claimed_Kind(KIND_MESSAGE)) {
             return false;
         }
+        const std::string cleaned = Without_Paragraph_Codes(raw_text);
+        const char* text = cleaned.c_str();
         std::string fields;
         if (title != nullptr) {
             fields += "\"title\":" + Json_Quote(Utf8(title));
@@ -795,6 +831,12 @@ namespace antares::native {
         }
         MOX::FULL_DRAW_SCREEN_FLAG = 1; // as the legacy popups leave it
         return true;
+    }
+
+    void Click_Sound() {
+        if (s_clicks < 4) {
+            ++s_clicks;
+        }
     }
 
     bool Popups_Native() {

@@ -243,3 +243,9 @@ namespace namestar {
         ++TEST_NATIVE::home_star_renames;
     }
 } // namespace namestar
+
+namespace ERICNET {
+    int __cdecl Mox_Play_Sound(int16_t) {
+        return 0; // the frontend's button click (play_sound)
+    }
+} // namespace ERICNET

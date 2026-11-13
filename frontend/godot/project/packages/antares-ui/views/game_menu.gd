@@ -22,15 +22,25 @@ var _name_edit: LineEdit
 var _picked := -1 # save: the slot picked, saved with the description typed
 
 
+var _slots_panel: PanelContainer # beside the menu (owner, 2026-11-13: both in sight)
+
+
 func _ready() -> void:
+	_slots_panel = PanelContainer.new()
+	_slots_panel.theme_type_variation = &"Pane"
+	_slots_panel.hide()
 	_slots_box = VBoxContainer.new()
 	_slots_box.add_theme_constant_override("separation", 4)
-	_slots_box.hide()
-	$Fit/Box.add_child(_slots_box)
+	_slots_panel.add_child(_slots_box)
 	for button: Button in $Fit/Box.get_children().filter(func(child: Node) -> bool: return child is Button):
 		if button.has_meta("page"):
 			var mode := "save" if int(button.get_meta("page")) == 3 else "load"
-			button.pressed.connect(func(): _show_mode(mode))
+			button.toggle_mode = true # armed while its slots are up
+			button.pressed.connect(func():
+				if _mode == mode:
+					_back_to_menu()
+				else:
+					_show_mode(mode))
 		elif button.has_meta("leave"):
 			var to := String(button.get_meta("leave"))
 			button.pressed.connect(func():
@@ -52,13 +62,14 @@ func show_saves(result: Dictionary) -> void:
 		_back_to_menu()
 		show_result({"ok": false, "message": "You can't save the game now."})
 		return
-	for child in $Fit/Box.get_children():
-		if child is Button or child == $Fit/Box/Note:
-			child.hide()
+	_arm_buttons()
 	for child in _slots_box.get_children():
 		_slots_box.remove_child(child)
 		child.queue_free()
-	_slots_box.show()
+	if _slots_panel.get_parent() == null:
+		get_parent().add_child(_slots_panel)
+	_slots_panel.theme = theme
+	_slots_panel.show()
 	var title := Label.new()
 	title.theme_type_variation = &"Name"
 	title.text = "SAVE GAME" if _mode == "save" else "LOAD GAME"
@@ -94,7 +105,26 @@ func show_saves(result: Dictionary) -> void:
 	_slots_box.add_child(buttons)
 	if _mode == "save" and active >= 0 and active < 9:
 		_pick(active, result.slots[active])
-	reset_size()
+	_slots_panel.reset_size()
+	_place_slots.call_deferred()
+
+
+## The slots' panel to the right of the menu, tops aligned.
+func _place_slots() -> void:
+	if _slots_panel.visible:
+		_slots_panel.position = Vector2(position.x + size.x + 6.0, position.y)
+		_slots_panel.move_to_front()
+
+
+func _arm_buttons() -> void:
+	for button: Button in $Fit/Box.get_children().filter(func(child: Node) -> bool: return child is Button and child.has_meta("page")):
+		var mode := "save" if int(button.get_meta("page")) == 3 else "load"
+		button.set_pressed_no_signal(_mode == mode)
+
+
+## The slots' panel is part of the menu (a click there doesn't close it).
+func owns_point(at: Vector2) -> bool:
+	return _slots_panel.visible and _slots_panel.get_global_rect().has_point(at)
 
 
 ## One slot: number, description, stardate and file date; a click loads it, or picks it to save.
@@ -165,11 +195,8 @@ func _saved(result: Dictionary) -> void:
 
 func _back_to_menu() -> void:
 	_mode = ""
-	_slots_box.hide()
-	for child in $Fit/Box.get_children():
-		if child is Button:
-			child.show()
-	reset_size()
+	_slots_panel.hide()
+	_arm_buttons()
 
 
 ## A refusal ("can't save now") comes back in the menu.
@@ -203,7 +230,7 @@ func close() -> void:
 		return
 	$Fit/Box/Note.hide()
 	if _mode != "":
-		_back_to_menu.call_deferred() # the menu again next time
+		_back_to_menu() # the slots go with the menu
 	if _tween:
 		_tween.kill()
 	_closing = true

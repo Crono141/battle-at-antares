@@ -204,27 +204,9 @@ func _on_art_loaded(_key: String) -> void:
 			_fleet_icon(button, int(button.text))
 
 
-## A skill's help in a small native frame by the pointer; a click anywhere closes it.
-func _show_help(title: String, text: String, at: Vector2) -> void:
-	if text == "":
-		return
-	var popup := PopupPanel.new()
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 6)
-	popup.add_child(box)
-	var heading := Label.new()
-	heading.theme_type_variation = &"Name"
-	heading.text = title
-	box.add_child(heading)
-	var body := Label.new()
-	body.text = text
-	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.custom_minimum_size.x = 320
-	box.add_child(body)
-	add_child(popup)
-	popup.popup_hide.connect(popup.queue_free)
-	popup.popup(Rect2i(Vector2i(at) + Vector2i(12, 12), Vector2i.ZERO))
-	popup.reset_size()
+## A right click's help beside `at` (info_popup.gd: one at a time, a left click closes it).
+func _show_help(title: String, text: String, at: Control) -> void:
+	preload("info_popup.gd").open(self, at, title, text)
 
 
 func _show_governor() -> void:
@@ -260,7 +242,7 @@ func _show_governor() -> void:
 		line.gui_input.connect(func(event: InputEvent):
 			var click := event as InputEventMouseButton
 			if click and click.pressed and click.button_index == MOUSE_BUTTON_RIGHT:
-				_show_help(help_title, help_text, click.global_position)
+				_show_help(help_title, help_text, line)
 				line.accept_event())
 		line.add_child(_icon("OFFICER.LBX", int(skill.icon), Vector2(16, 16)))
 		var name_label := _label(String(skill.name), 14)
@@ -294,7 +276,11 @@ func _planet_row(planet: Dictionary) -> Control:
 	panel.gui_input.connect(func(event: InputEvent):
 		var click := event as InputEventMouseButton
 		if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
-			_on_planet_clicked(id))
+			_on_planet_clicked(id)
+		elif click and click.pressed and click.button_index == MOUSE_BUTTON_RIGHT and planet.get("type", "") != "gas_giant":
+			# The system window's right click: the planet's potential (owner, 2026-11-13).
+			command.emit({"verb": "planet_info", "planet": id})
+			panel.accept_event())
 	var rows := VBoxContainer.new()
 	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(rows)

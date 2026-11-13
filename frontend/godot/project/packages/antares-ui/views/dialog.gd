@@ -15,7 +15,7 @@ var popup_name := "" # a popup's name ("leader_level", ...), for the smoke
 var art: Node # the game's art (set by the frontend), for portraits and icons
 var _extra: VBoxContainer # a popup's own content (a leader's card) between title and text
 var _popup_buttons: HBoxContainer
-var _help: Popup
+var _help: Control
 
 
 func _ready() -> void:
@@ -82,8 +82,7 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 
 
 func _answer(value: int) -> void:
-	if is_instance_valid(_help):
-		_help.queue_free()
+	preload("info_popup.gd").close_current()
 	hide()
 	answered.emit(request_id, value, $Fit/Box/Entry.text if _kind == "text" else "")
 
@@ -135,8 +134,6 @@ func _leader_card(leader: Dictionary) -> Control:
 		line.gui_input.connect(func(event: InputEvent):
 			var mb := event as InputEventMouseButton
 			if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
-				if is_instance_valid(_help):
-					_help.queue_free()
 				_help = preload("info_popup.gd").open(self, line, help_title, help_text)
 				line.accept_event())
 		names.add_child(line)

@@ -1096,7 +1096,30 @@ namespace antares::commands::internal {
         return json;
     }
 
+    namespace {
+        // A planet's right click in the system window (MAINSCR's system box: the colony
+        // potential, SYS::Potential_Colony_Info_Popup, a Text_Box: a native message when claimed).
+        void Planet_Info(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t planet = -1;
+            if (!args.Int("planet", &planet) || planet < 0 || planet >= MOX::planet_count) {
+                out.Fail("bad_args", "planet: planet id");
+                return;
+            }
+            if (MOX::planet[planet].planet_type == PLANET_TYPE_GAS_GIANT) {
+                out.Bool("shown", false); // as the window: no potential for a gas giant
+                return;
+            }
+            SYS::Potential_Colony_Info_Popup((int16_t)planet);
+            MOX::FULL_DRAW_SCREEN_FLAG = 1;
+            out.Bool("shown", true);
+        }
+    } // namespace
+
     void Add_Galaxy_Entries(std::vector<s_entry>* table) {
+        table->push_back({"planet_info", e_kind::command, ANY_SCREEN, 0, "planet: planet id (its potential, the right click's)", Planet_Info});
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);
         table->push_back({"select_star", e_kind::command, galaxy, 0, "star: star id", Select_Star});
         table->push_back({"open_colony", e_kind::command, galaxy, 0, "planet: planet id, landscape (only the landscape)", Open_Colony});

@@ -18,6 +18,10 @@ signal fleet_clicked(ship_id: int)
 signal star_hovered(star_id: int)
 signal right_clicked
 signal planet_clicked(planet_id: int)
+## A click on the map that hit nothing (no planet, fleet or star).
+signal empty_clicked
+## A right click on a planet of the open system (its potential, as the system window).
+signal planet_right_clicked(planet_id: int)
 
 ## Banner colours by the game's player colour index (s_player.color).
 const PLAYER_COLORS := [
@@ -245,12 +249,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				zoom_by(1.2 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.2, at)
 			get_viewport().set_input_as_handled()
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
-			# As the legacy map: a right click centres the map there (or cancels F4's mode).
+			# A right click cancels F4's mode, or in a system shows a planet's potential (no panning).
 			if button.pressed:
 				if relocating:
 					right_clicked.emit()
-				elif system.is_empty(): # no panning in a system (owner)
-					focus_point(_screen_to_world(button.position))
+				elif not system.is_empty(): # no right-click panning (owner, 2026-11-13: dropped)
+					var planet: int = $Orbits.pick(_screen_to_world(button.position))
+					if planet >= 0:
+						planet_right_clicked.emit(planet)
 			get_viewport().set_input_as_handled()
 		elif button.button_index == MOUSE_BUTTON_LEFT:
 			if button.pressed:
@@ -275,6 +281,8 @@ func _unhandled_input(event: InputEvent) -> void:
 						fleet_clicked.emit(fleet)
 					elif star >= 0:
 						star_clicked.emit(star)
+					elif not relocating:
+						empty_clicked.emit()
 			get_viewport().set_input_as_handled()
 		return
 	var motion := event as InputEventMouseMotion
@@ -396,10 +404,20 @@ func _fly(center: Vector2, zoom: float) -> void:
 		_flight.kill()
 	_flying = true
 	_target_zoom = zoom
-	_flight = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
-	_flight.tween_property(camera, "position", center, FLIGHT_TIME)
-	_flight.tween_property(camera, "zoom", Vector2.ONE * zoom, FLIGHT_TIME)
-	_flight.chain().tween_callback(func():
+	# One eased clock, two curves (owner, 2026-11-13): flying in, most of the panning comes in the
+	# first half and the fast part is the zoom; flying out is the same path reversed (zoom first,
+	# then the pan). The zoom moves evenly in log space.
+	var from_position := camera.position
+	var from_zoom := camera.zoom.x
+	var zooming_in := zoom > from_zoom
+	_flight = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	_flight.tween_method(func(s: float):
+		var pan := 1.0 - pow(1.0 - s, 3.0) if zooming_in else pow(s, 3.0)
+		var grow := s * s if zooming_in else 1.0 - (1.0 - s) * (1.0 - s)
+		camera.position = from_position.lerp(center, pan)
+		camera.zoom = Vector2.ONE * exp(lerpf(log(from_zoom), log(zoom), grow))
+		redraw(), 0.0, 1.0, FLIGHT_TIME)
+	_flight.tween_callback(func():
 		_flying = false
 		_anchor_world = camera.position
 		_anchor_screen = get_viewport_rect().size * 0.5

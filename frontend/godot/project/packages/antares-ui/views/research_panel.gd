@@ -134,6 +134,9 @@ func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
 				b.accept_event())
 		list.add_child(b)
 		branch.rows.append(b)
+		# Drawn again once laid out: drawn before, every arrowhead sat on the first row (owner,
+		# 2026-11-13: one arrow until hovered, after the drop-down reopened).
+		b.item_rect_changed.connect(branch.queue_redraw)
 		chosen.append(on)
 	branch.set_chosen(chosen)
 	branch.color = picked_color
@@ -141,12 +144,10 @@ func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
 	return panel
 
 
-var _info_popup: Popup
+var _info_popup: Control
 
 
 func _show_info(at: Control, title: String, text: String) -> void:
-	if is_instance_valid(_info_popup):
-		_info_popup.queue_free()
 	_info_popup = preload("info_popup.gd").open(self, at, title, text)
 
 

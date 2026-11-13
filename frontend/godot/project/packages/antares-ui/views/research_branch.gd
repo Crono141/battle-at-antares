@@ -34,7 +34,7 @@ const WIDTH := 18.0
 
 
 ## The arrow pulses slowly, as the game's does (owner, 2026-11-13).
-const PULSE_TIME := 0.9
+const PULSE_TIME := 0.6 # 50% faster than first tried (owner)
 const PULSE_DIM := 0.35
 
 

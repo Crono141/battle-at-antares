@@ -46,6 +46,7 @@ namespace godot {
         Dictionary get_stats() const;
         // Sends a key as the game's SDL path would see it (for buttons that stand for hotkeys).
         void stop_auto_turns();
+        void click_sound();
         void send_key(int64_t godot_keycode, bool shift, bool alt, bool ctrl);
         // Asks the game to exit as its own quit does (game_exited follows).
         void request_game_quit();

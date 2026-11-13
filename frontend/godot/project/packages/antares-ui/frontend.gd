@@ -62,6 +62,8 @@ var _shot_popups := {} # the smoke's pictures of native popups, by name
 var _turn_over_galaxy := false # quiet turns passing by themselves, shown over the native galaxy
 var _turn_notice: PanelContainer
 var _turn_stopping := false # a click asked the turns to stop: Esc again until they do
+var _turn_clearing := -1.0 # seconds since the notice cleared, while the hand-back waits (-1: none)
+const TURN_HANDBACK_DELAY := 0.6
 var _turn_stop_wait := 0.0
 var _legacy_after_frame := -1 # the frame count the legacy view waits past to come back, or -1
 var _stale_frame: PackedByteArray # the legacy frame held while the question was up
@@ -94,6 +96,8 @@ func _ready() -> void:
 	galaxy.star_hovered.connect(_on_star_hovered)
 	galaxy.right_clicked.connect(_end_relocating)
 	galaxy.planet_clicked.connect(_on_planet_clicked)
+	galaxy.empty_clicked.connect(_on_empty_clicked)
+	galaxy.planet_right_clicked.connect(func(planet: int): _send({"verb": "planet_info", "planet": planet}))
 	_frame_view = Control.new()
 	_frame_view.name = "ScreenFrame"
 	_frame_view.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -101,6 +105,11 @@ func _ready() -> void:
 	_frame_view.draw.connect(_draw_frame)
 	native_layer.add_child(_frame_view)
 
+	# The game's click on every native button (owner, 2026-11-13: forgotten), as its buttons
+	# click: the game plays it (it has the sound), now and for every button added later.
+	get_tree().node_added.connect(_add_click)
+	for node in find_children("*", "BaseButton", true, false):
+		_add_click(node)
 	_load_themes()
 	mode_button.pressed.connect(func(): _set_native(not native))
 	$UI/Bar.hide() # the owner's layout (WP3.3f): Ctrl+G stays, the button goes
@@ -111,6 +120,19 @@ func _ready() -> void:
 	_set_native("--native" in args or (start_native and not "--smoke" in args))
 	if "--smoke" in args and "--native" in args:
 		_smoke_native()
+
+
+func _add_click(node: Node) -> void:
+	var button := node as BaseButton
+	if button == null or not is_ancestor_of(button) or button.has_meta("no_click"):
+		return
+	if not button.pressed.is_connected(_click):
+		button.pressed.connect(_click)
+
+
+func _click() -> void:
+	if native:
+		game.click_sound()
 
 
 ## The host is dropping this package (another save's package set, or it was switched off): every
@@ -143,6 +165,14 @@ func _input(event: InputEvent) -> void:
 			game.stop_auto_turns()
 			get_viewport().set_input_as_handled()
 			return
+	# A click outside an open flyout closes it (owner, 2026-11-13); on the map it does only that.
+	# The bar and the side tabs keep their own clicks (they switch or close flyouts themselves),
+	# and an open help pane takes the click first (info_tip.gd).
+	var press := event as InputEventMouseButton
+	if press and press.pressed and press.button_index == MOUSE_BUTTON_LEFT and native_screen == Screens.MAIN:
+		if _close_flyouts_outside(get_viewport().get_mouse_position()):
+			get_viewport().set_input_as_handled()
+			return
 	var key := event as InputEventKey
 	if key and key.pressed and not key.echo and key.ctrl_pressed and key.keycode == KEY_G:
 		_set_native(not native)
@@ -163,6 +193,10 @@ func _set_native(on: bool) -> void:
 
 
 func _process(delta: float) -> void:
+	if _turn_clearing >= 0.0:
+		_turn_clearing += delta
+		if native_screen == Screens.MAIN or _turn_clearing >= TURN_HANDBACK_DELAY or overlay.visible:
+			_end_turn_notice()
 	if _turn_stopping:
 		if not _turn_over_galaxy or native_screen == Screens.MAIN or overlay.visible:
 			_turn_stopping = native_screen != Screens.MAIN and _turn_over_galaxy # a question: later
@@ -409,6 +443,53 @@ func _smoke_scale_drag(options: Control, shots: String) -> bool:
 	return ok
 
 
+## Right-click help and clicks outside (owner, 2026-11-13): a second right click swaps the help, a
+## left click only closes it, a click on the map closes an open flyout.
+func _smoke_tips_and_outside_clicks(options: Control, shots: String) -> bool:
+	var factor := get_window().content_scale_factor
+	var bar := _view("galaxy_bar")
+	var tips := preload("views/info_popup.gd")
+	var first: Control = bar.get_node("Row/Research")
+	var second: Control = bar.get_node("Row/Game") # left of the first: outside its help
+	for target: Control in [first, second]:
+		var at := target.get_global_rect().get_center() * factor
+		for pressed in [true, false]:
+			var right := InputEventMouseButton.new()
+			right.button_index = MOUSE_BUTTON_RIGHT
+			right.pressed = pressed
+			right.position = at
+			Input.parse_input_event(right)
+			await get_tree().process_frame
+		await get_tree().create_timer(0.6).timeout
+		var hovered := get_viewport().gui_get_hovered_control()
+		print("smoke: right click on %s at %s: over %s, help open %s" % [target.name, at, hovered.get_path() if hovered else "nothing", tips.is_open()])
+	var shown_title := ""
+	if tips.is_open():
+		shown_title = (tips._current.find_children("*", "Label", true, false)[0] as Label).text
+		if shots != "":
+			await host.shot(shots + "/native-help-turn.png")
+	var tip_layers := get_tree().root.get_children().filter(func(n: Node) -> bool: return n is CanvasLayer and n.layer == 120).size()
+	# A left click on the map: closes the help only (Options stays open).
+	var map_point := Vector2(get_viewport().get_visible_rect().size.x * 0.3, get_viewport().get_visible_rect().size.y * 0.6) * factor
+	_smoke_mouse(true, map_point)
+	_smoke_mouse(false, map_point)
+	await get_tree().create_timer(0.4).timeout
+	var tip_closed := not tips.is_open()
+	var options_after_tip := options.visible
+	# Another click on the map: now it closes Options.
+	_smoke_mouse(true, map_point)
+	_smoke_mouse(false, map_point)
+	await get_tree().create_timer(0.6).timeout
+	print("smoke: help on right clicks: '%s' (layers %d), left click closed it %s and left Options open %s; a map click closed Options %s" % [
+		shown_title, tip_layers, tip_closed, options_after_tip, not options.visible or options._closing if "_closing" in options else not options.visible])
+	if shown_title != "Game Button" or tip_layers != 1 or not tip_closed or not options_after_tip:
+		await host.smoke_fail("right-click help or the outside click did not behave")
+		return false
+	_on_view_action("options") # open again for the steps after
+	await get_tree().create_timer(0.6).timeout
+	return true
+
+
 func _smoke_mouse(pressed: bool, at: Vector2) -> void:
 	var click := InputEventMouseButton.new()
 	click.button_index = MOUSE_BUTTON_LEFT
@@ -547,6 +628,8 @@ func _view(scene_name: String) -> Control:
 			view.theme_chosen.connect(apply_theme)
 		if view.has_signal("scale_changed"):
 			view.scale_changed.connect(func(percent: float, final: bool): set_ui_scale(percent, final))
+		if view.has_signal("help_requested"):
+			view.help_requested.connect(show_help)
 		if view.has_signal("scale_auto_changed"):
 			view.scale_auto_changed.connect(set_ui_scale_automatic)
 		if view.has_signal("change_build"):
@@ -562,6 +645,7 @@ func _view(scene_name: String) -> Control:
 		native_layer.add_child(view)
 		_raise_chrome() # the bar, the pockets, the tabs and the frame stay over every view
 		_views[scene_name] = view
+		_attach_view_help(scene_name, view)
 		if scene_name == "side_tabs": # their column limits the scale
 			_apply_saved_scale.call_deferred()
 		if scene_name == "options_menu":
@@ -587,6 +671,79 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 ## The drop-downs and slide-outs that buttons open (owner, 2026-11-12): one at a time, over
 ## everything else (the system pane, the fleet panel).
 const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel"]
+
+
+## Closes the flyouts a click at `at` falls outside of; true when the click landed on the map
+## (nothing else to do with it).
+func _close_flyouts_outside(at: Vector2) -> bool:
+	var hovered := get_viewport().gui_get_hovered_control()
+	for chrome in ["galaxy_bar", "side_tabs"]:
+		if hovered and _views.has(chrome) and (_views[chrome] as Control).is_ancestor_of(hovered):
+			return false
+	var closed := false
+	for name in FLYOUTS:
+		if not _views.has(name):
+			continue
+		var flyout: Control = _views[name]
+		if not flyout.visible or flyout.get_global_rect().has_point(at):
+			continue
+		if hovered and (flyout == hovered or flyout.is_ancestor_of(hovered)):
+			continue
+		if flyout.has_method("owns_point") and flyout.owns_point(at):
+			continue # its own side panel (the game menu's slots)
+		flyout.close()
+		closed = true
+	return closed and hovered == null
+
+
+## The original's right-click help on the native views' parts (owner, 2026-11-13: "anywhere there
+## was a right click tooltip in the original game"): HELP.LBX records from the game's help lists
+## (EVANHELP main screen, ERICHELP building queue screen).
+const VIEW_HELP := {
+	"galaxy_bar": {"Row/Game": 285, "Row/Empire": 284, "Row/Money": 286, "Row/Command": 288, "Row/Food": 290,
+		"Row/Freighters": 291, "Row/Research": 292, "Row/Turn": 296},
+	"side_tabs": {"Colonies": 293, "Planets": 294, "Fleets": 295, "Leaders": 297, "Races": 298, "Info": 299},
+	"build_pane": {"Box/Header/Buildings": 501, "Box/Header/Units": 504, "Box/Header/Refit": 508,
+		"Box/Columns/Left/Detail": 505, "Box/Columns/Left/Queue": 506, "Box/Columns/Left/Toggles/Auto": 507,
+		"Box/Columns/Left/Toggles/Repeat": 510, "Box/Buttons/Ok": 511, "Box/Buttons/Cancel": 537},
+}
+
+
+func _attach_view_help(scene_name: String, view: Control) -> void:
+	for path: String in VIEW_HELP.get(scene_name, {}):
+		var control := view.get_node_or_null(path) as Control
+		if control:
+			attach_help(control, int(VIEW_HELP[scene_name][path]))
+	if scene_name == "build_pane":
+		# The list: buildings or units, as the tab shows.
+		var list := view.get_node_or_null("Box/Columns/Right") as Control
+		if list:
+			attach_help(list, func() -> int:
+				return 508 if view.tabs_refit.button_pressed else (501 if view.tabs_buildings.button_pressed else 504))
+
+
+## A right click on `control` shows help record `topic` (or what a Callable returns) beside it.
+func attach_help(control: Control, topic: Variant) -> void:
+	if control.mouse_filter == Control.MOUSE_FILTER_IGNORE:
+		control.mouse_filter = Control.MOUSE_FILTER_PASS
+	control.gui_input.connect(func(event: InputEvent):
+		var mb := event as InputEventMouseButton
+		if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
+			var t: int = int(topic.call()) if topic is Callable else int(topic)
+			show_help(t, control)
+			control.accept_event())
+
+
+func show_help(topic: int, at: Control) -> void:
+	var result: Dictionary = await _query_args({"what": "help", "topic": topic})
+	if result.get("ok", false) and is_instance_valid(at) and at.is_visible_in_tree():
+		preload("views/info_popup.gd").open(at, at, String(result.title).strip_edges(), String(result.text).strip_edges())
+
+
+## A click on empty map in a system: back to the galaxy (owner, 2026-11-13).
+func _on_empty_clicked() -> void:
+	if _panel_star >= 0 and _view("system_pane").visible:
+		_view("system_pane").close()
 
 
 ## Closes the other flyouts and raises `view` over every view (the frame stays on top).
@@ -750,6 +907,7 @@ func _on_turn_notice(text: String) -> void:
 			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			_turn_notice.add_child(label)
 			native_layer.add_child(_turn_notice)
+		_turn_clearing = -1.0 # turns go on: no hand-back to the legacy view
 		(_turn_notice.get_child(0) as Label).text = text
 		_turn_notice.reset_size()
 		_turn_notice.show()
@@ -758,6 +916,16 @@ func _on_turn_notice(text: String) -> void:
 		_turn_notice.position = ((area - _turn_notice.size) * 0.5).floor()
 		return
 	_turn_stopping = false
+	if _turn_over_galaxy and native_screen != Screens.MAIN and _turn_clearing < 0.0:
+		# Not at once: between two quiet turns the notice can clear for a moment, and the legacy
+		# frame flashed up (owner, 2026-11-13). The hand-back waits a little (_process).
+		_turn_clearing = 0.0
+		return
+	_end_turn_notice()
+
+
+func _end_turn_notice() -> void:
+	_turn_clearing = -1.0
 	if _turn_notice != null:
 		_turn_notice.hide()
 	if _turn_over_galaxy:
@@ -862,7 +1030,14 @@ func _frame_system(star_id: int) -> void:
 	var colony_pane: Control = _views.get("colony_pane")
 	if colony_pane != null and colony_pane.colony_id >= 0:
 		left = colony_pane.offset_right
-	var right := view.x - 240.0
+	# The free area runs to the side tabs (owner, 2026-11-13: the star sat near the screen's centre
+	# instead of the middle of what the pane leaves).
+	var right := view.x - 48.0
+	var tabs: Control = _views.get("side_tabs")
+	if tabs != null and tabs.visible:
+		for b in tabs.find_children("*", "Button", true, false):
+			if (b as Control).is_visible_in_tree():
+				right = minf(right, (b as Control).get_global_rect().position.x - 8.0)
 	if right - left < view.x * 0.3: # a small window: the panes cover most of it
 		left = 0.0
 		right = view.x
@@ -1351,8 +1526,8 @@ func _smoke_galaxy(shots: String) -> bool:
 			Input.parse_input_event(right)
 			await get_tree().process_frame
 		await get_tree().create_timer(0.8).timeout
-		var popup: Popup = colony_pane._info_popup
-		var shown := is_instance_valid(popup) and popup.visible
+		var popup: Control = colony_pane._info_popup
+		var shown := is_instance_valid(popup) and popup.visible and not popup.is_queued_for_deletion()
 		print("smoke: colony help on a right click: shown %s, '%s'" % [shown,
 			(popup.find_children("*", "Label", true, false)[0] as Label).text if shown else ""])
 		if shots != "":
@@ -1471,6 +1646,8 @@ func _smoke_galaxy(shots: String) -> bool:
 		apply_theme(first, false)
 	await get_tree().create_timer(0.3).timeout
 	if not await _smoke_scale_drag(options, shots):
+		return false
+	if not await _smoke_tips_and_outside_clicks(options, shots):
 		return false
 	if not options.visible or options.options_box.get_child_count() == 0:
 		await host.smoke_fail("the options flyout did not open with the game options")
