@@ -320,10 +320,12 @@ func _load_themes() -> void:
 ## so, and Options must stay inside the window. The player's saved scale is put back after.
 func _smoke_scale_drag(options: Control, shots: String) -> bool:
 	var saved := Themes.saved_ui_scale()
-	var before := ui_scale
 	var ok := true
-	print("smoke: scale at start %.0f%% (saved %.0f, wanted %.0f, largest %.0f; window %s)" % [ui_scale, saved,
-		_wanted_ui_scale(), max_ui_scale(), get_window().size])
+	print("smoke: scale at start %.0f%% (saved %.0f, automatic %s at %.0f, largest %.0f; window %s; slider editable %s)" % [
+		ui_scale, saved, options.scale_auto.button_pressed, automatic_ui_scale(), max_ui_scale(), get_window().size,
+		options.scale_slider.editable])
+	options.scale_auto.button_pressed = false # the player's own scale: the slider works
+	await get_tree().create_timer(0.3).timeout
 	for end: float in [1.0, 0.0]:
 		var slider: HSlider = options.scale_slider
 		var factor := get_window().content_scale_factor
@@ -354,8 +356,17 @@ func _smoke_scale_drag(options: Control, shots: String) -> bool:
 			ok = false
 		if shots != "" and end > 0.5:
 			await host.shot(shots + "/native-options-largest.png")
-	set_ui_scale(before, false)
+	options.scale_auto.button_pressed = true
+	await get_tree().create_timer(0.5).timeout
+	var expected_auto := clampf(automatic_ui_scale(), MIN_UI_SCALE, max_ui_scale())
+	print("smoke: automatic again: in use %.0f%% (expected %.0f), saved %.0f, slider editable %s, box '%s'" % [
+		get_window().content_scale_factor * 100.0, expected_auto, Themes.saved_ui_scale(), options.scale_slider.editable,
+		options.scale_value.get_line_edit().text])
+	if absf(get_window().content_scale_factor * 100.0 - expected_auto) > 0.5 or options.scale_slider.editable \
+			or Themes.saved_ui_scale() > 0.0:
+		ok = false
 	Themes.save_ui_scale(saved)
+	set_ui_scale(_wanted_ui_scale(), false)
 	await get_tree().create_timer(0.3).timeout
 	if not ok:
 		await host.smoke_fail("the interface scale did not follow the drag")
@@ -388,16 +399,40 @@ func _apply_saved_scale() -> void:
 	set_ui_scale(_wanted_ui_scale(), false)
 
 
-## The player's choice (or the command line's), else the screen's.
+## The player's choice (or the command line's), else automatic.
 func _wanted_ui_scale() -> float:
 	var percent := Themes.saved_ui_scale()
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--ui-scale="):
 			percent = float(arg.substr(11))
 	if percent <= 0.0:
-		var screen := DisplayServer.screen_get_size(get_window().current_screen)
-		percent = roundf(float(screen.y) / 1080.0 * 20.0) * 5.0
+		percent = automatic_ui_scale()
 	return clampf(percent, MIN_UI_SCALE, MAX_UI_SCALE)
+
+
+## Automatic (no scale saved; the Options switch, owner 2026-11-13): what a 1920x1080 window
+## shows at 100%, kept for this window, in steps of 5% and never below 100%. A 2560x1440 screen's
+## window gets 130%, a 2560x1600 one 135%; it follows the window when that changes.
+func automatic_ui_scale() -> float:
+	var window := Vector2(get_window().size)
+	var fits := minf(window.x / 1920.0, window.y / 1080.0)
+	return clampf(roundf(fits * 20.0) * 5.0, 100.0, MAX_UI_SCALE)
+
+
+func is_ui_scale_automatic() -> bool:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--ui-scale="):
+			return false
+	return Themes.saved_ui_scale() <= 0.0
+
+
+## The Automatic switch: on forgets the player's scale, off keeps the one in use as theirs.
+func set_ui_scale_automatic(on: bool) -> void:
+	if on:
+		Themes.save_ui_scale(0.0)
+		set_ui_scale(_wanted_ui_scale(), false)
+	else:
+		set_ui_scale(ui_scale, true)
 
 
 ## The largest scale the window holds: the panes need MIN_LOGICAL, and the side tabs their
@@ -427,7 +462,7 @@ func set_ui_scale(percent: float, remember := true) -> void:
 		get_window().content_scale_factor = percent / 100.0
 	ui_scale = percent
 	if _views.has("options_menu"):
-		_views.options_menu.show_scale(percent, largest, MIN_UI_SCALE)
+		_views.options_menu.show_scale(percent, largest, MIN_UI_SCALE, is_ui_scale_automatic())
 
 
 ## Puts a theme on every native view (the Options flyout's selector calls this).
@@ -476,6 +511,8 @@ func _view(scene_name: String) -> Control:
 			view.theme_chosen.connect(apply_theme)
 		if view.has_signal("scale_changed"):
 			view.scale_changed.connect(func(percent: float, final: bool): set_ui_scale(percent, final))
+		if view.has_signal("scale_auto_changed"):
+			view.scale_auto_changed.connect(set_ui_scale_automatic)
 		if view.has_signal("change_build"):
 			view.change_build.connect(_open_build_pane)
 		if view.has_signal("committed"):
@@ -493,7 +530,7 @@ func _view(scene_name: String) -> Control:
 			_apply_saved_scale.call_deferred()
 		if scene_name == "options_menu":
 			view.show_themes(_themes, theme_id)
-			view.show_scale(ui_scale, max_ui_scale(), MIN_UI_SCALE)
+			view.show_scale(ui_scale, max_ui_scale(), MIN_UI_SCALE, is_ui_scale_automatic())
 		if scene_name in ["galaxy_bar", "map_controls"]: # the frame's joints follow their pockets
 			view.item_rect_changed.connect(_frame_view.queue_redraw)
 			view.visibility_changed.connect(_frame_view.queue_redraw)

@@ -11,6 +11,8 @@ signal closed
 signal theme_chosen(id: String)
 ## The interface scale (percent) changed: `final` once the slider is let go or a number entered.
 signal scale_changed(percent: float, final: bool)
+## The Automatic switch beside the scale (owner, 2026-11-13).
+signal scale_auto_changed(on: bool)
 
 const Themes := preload("../themes.gd")
 const SLIDE_TIME := 0.25
@@ -26,6 +28,7 @@ var keys_active := false
 @onready var sound_slider: HSlider = $Fit/Box/Sound/Slider
 @onready var scale_slider: HSlider = $Fit/Box/Scale/Slider
 @onready var scale_value: SpinBox = $Fit/Box/Scale/Value
+@onready var scale_auto: Button = $Fit/Box/ScaleAuto/Line/Switch
 
 var _tween: Tween
 var _shown_right := 0.0 # offset_right when open: a flyout keeps its right edge by the tabs
@@ -60,6 +63,10 @@ func _ready() -> void:
 	# pointer is read in window pixels against where the slider was when it was grabbed. Godot's
 	# own drag fed the moved slider back into the value and ran away to either end.
 	scale_slider.gui_input.connect(_on_scale_slider_input)
+	scale_auto.toggled.connect(func(on: bool):
+		scale_auto.text = "ON" if on else "OFF"
+		scale_auto_changed.emit(on))
+	Themes.glowing(scale_auto)
 	scale_value.value_changed.connect(func(v: float):
 		_quietly(scale_slider, v)
 		scale_changed.emit(v, true))
@@ -158,6 +165,8 @@ var _scale_drag := {}
 
 func _on_scale_slider_input(event: InputEvent) -> void:
 	var press := event as InputEventMouseButton
+	if not scale_slider.editable:
+		return # Automatic: the slider only shows the scale in use
 	if press and press.button_index == MOUSE_BUTTON_LEFT and press.pressed:
 		var factor := get_window().content_scale_factor
 		var track := scale_slider.get_global_rect()
@@ -194,7 +203,13 @@ func _drag_scale(window_x: float, final: bool) -> void:
 
 
 ## The scale in use (percent) and its limits, without sending it back.
-func show_scale(percent: float, largest := 300.0, smallest := 75.0) -> void:
+func show_scale(percent: float, largest := 300.0, smallest := 75.0, automatic := false) -> void:
+	scale_auto.set_pressed_no_signal(automatic)
+	scale_auto.text = "ON" if automatic else "OFF"
+	scale_slider.editable = not automatic
+	scale_value.editable = not automatic
+	scale_slider.modulate.a = 0.5 if automatic else 1.0
+	scale_value.modulate.a = 0.5 if automatic else 1.0
 	# Quietly, limits too: a limit that clamps the value would otherwise send the clamped value
 	# back as the player's choice (a small window saved its largest scale over theirs).
 	for range: Range in [scale_slider, scale_value]:

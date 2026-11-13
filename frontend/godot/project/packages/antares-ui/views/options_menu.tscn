@@ -169,6 +169,30 @@ layout_mode = 2
 theme_type_variation = &"Section"
 text = "INTERFACE SCALE"
 
+[node name="ScaleAuto" type="PanelContainer" parent="Fit/Box"]
+layout_mode = 2
+theme_type_variation = &"Row"
+
+[node name="Line" type="HBoxContainer" parent="Fit/Box/ScaleAuto"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Fit/Box/ScaleAuto/Line"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 1
+text = "Automatic"
+tooltip_text = "The size that suits the window; follows it when the window changes."
+
+[node name="Switch" type="Button" parent="Fit/Box/ScaleAuto/Line"]
+custom_minimum_size = Vector2(60, 26)
+layout_mode = 2
+size_flags_vertical = 4
+focus_mode = 0
+theme_type_variation = &"Toggle"
+theme_override_font_sizes/font_size = 12
+toggle_mode = true
+text = "OFF"
+
 [node name="Scale" type="HBoxContainer" parent="Fit/Box"]
 layout_mode = 2
 theme_override_constants/separation = 8
