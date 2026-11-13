@@ -86,6 +86,9 @@ func _ready() -> void:
 	legacy = host.legacy
 	art = host.art
 	galaxy.art = art
+	# Art that arrives later (a fleet's first icon) is drawn at once, not at the next zoom (owner,
+	# 2026-11-13: a flag-coloured square until then).
+	art.loaded.connect(func(_key: String): galaxy.redraw())
 	game.native_screen_changed.connect(_on_native_screen)
 	game.command_result.connect(_on_result)
 	game.request.connect(_on_request)
@@ -988,6 +991,11 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 	# frame (owner, 2026-11-12). Other legacy screens (combat, colonies) keep their frame.
 	if native and native_screen == Screens.LEGACY and not galaxy.stars.is_empty() and int(request.get("screen", -1)) in GALAXY_BEHIND_SCREENS:
 		_question_over_galaxy = true
+		# The galaxy as it was behind the question: its bar and tabs too (owner, 2026-11-13: the
+		# freighters' slider blanked them, the count it asks about with them).
+		for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
+			_view(chrome).show()
+		_frame_view.show()
 		var held: Image = game.get_frame_image()
 		_stale_frame = held.get_data() if held != null else PackedByteArray()
 		legacy.hide()
@@ -999,6 +1007,10 @@ func _on_answered(id: int, value: int, text := "") -> void:
 	overlay.hide()
 	if _question_over_galaxy:
 		_question_over_galaxy = false
+		if native_screen == Screens.LEGACY and not _turn_over_galaxy:
+			for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
+				_view(chrome).hide()
+			_frame_view.hide()
 		if native_screen == Screens.LEGACY:
 			# The legacy view still holds its last frame from before the native galaxy (the title
 			# screen after a load): it comes back with the game's next frame (owner, 2026-11-12:
@@ -1058,6 +1070,9 @@ func _open_system(star_id: int, fly := true) -> void:
 
 ## Flies to a system with its orbits filling a share of the area the left panes leave free (the
 ## system pane, and the colony pane when it is open: WP3.4).
+const SYSTEM_ZOOM_CLOSER := 1.2 * 1.2 # two wheel notches (galaxy.gd's 1.2 a notch)
+
+
 func _frame_system(star_id: int) -> void:
 	var view := get_viewport().get_visible_rect().size
 	var left := 360.0
@@ -1088,6 +1103,8 @@ func _frame_system(star_id: int) -> void:
 	var room := right - left_both if right - left_both >= view.x * 0.3 else right - left
 	var zoom: float = galaxy.zoom_for_scale(SYSTEM_VIEW_SCALE)
 	galaxy.system_scale = SYSTEM_VIEW_SHARE * room / (288.0 * zoom)
+	# Two wheel notches closer than the framing (owner, 2026-11-13): the system larger.
+	zoom = minf(zoom * SYSTEM_ZOOM_CLOSER, galaxy.zoom_for_scale(galaxy.MIN_SCALE)) # within the wheel's reach
 	galaxy.fly_to(galaxy.star_position(star_id), zoom, Vector2((left + right) * 0.5, view.y * 0.5))
 
 
@@ -1122,6 +1139,9 @@ func get_theme_constant_from(control: Control, name: String) -> float:
 ## CHANGE (WP3.4b): the build pane slides out beside the colony pane, over the map.
 func _open_build_pane(colony_id: int, bought: bool) -> void:
 	var pane := _view("build_pane")
+	if pane.visible and int(pane.colony_id) == colony_id:
+		pane.cancel() # CHANGE again: closes it, as Cancel (owner, 2026-11-13)
+		return
 	var colony_pane: Control = _view("colony_pane")
 	var gap := maxf(get_theme_constant_from(pane, "pane_gap"), 6.0)
 	# Clear of the side tabs (Glass keeps them on the screen's right edge, beside the panes).
