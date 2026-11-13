@@ -13,6 +13,8 @@ signal theme_chosen(id: String)
 signal scale_changed(percent: float, final: bool)
 ## The Automatic switch beside the scale (owner, 2026-11-13).
 signal scale_auto_changed(on: bool)
+## The system flight's length chosen (seconds; 0 instant).
+signal flight_changed(seconds: float)
 ## A right click's help on a row (a HELP.LBX record; the frontend shows it).
 signal help_requested(topic: int, at: Control)
 
@@ -72,6 +74,7 @@ func _ready() -> void:
 	scale_value.value_changed.connect(func(v: float):
 		_quietly(scale_slider, v)
 		scale_changed.emit(v, true))
+	_add_flight_row()
 	theme_button.item_selected.connect(func(index: int):
 		if index >= 0 and index < _theme_ids.size():
 			theme_chosen.emit(_theme_ids[index]))
@@ -319,3 +322,41 @@ static func shortcut_for(text: String) -> Shortcut:
 	var shortcut := Shortcut.new()
 	shortcut.events = [key]
 	return shortcut
+
+
+## SYSTEM ZOOM (owner, 2026-11-13): how long the flight into and out of a system takes.
+const FLIGHT_CHOICES := [["SLOW", 1.0], ["MEDIUM", 0.5], ["FAST", 0.25], ["INSTANT", 0.0]]
+var _flight_buttons: Array[Button] = []
+
+
+func _add_flight_row() -> void:
+	var box: VBoxContainer = $Fit/Box
+	var title := Label.new()
+	title.theme_type_variation = &"Section"
+	title.text = "SYSTEM ZOOM"
+	box.add_child(title)
+	box.move_child(title, $Fit/Box/ThemeTitle.get_index())
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	box.add_child(row)
+	box.move_child(row, $Fit/Box/ThemeTitle.get_index())
+	var group := ButtonGroup.new()
+	for choice: Array in FLIGHT_CHOICES:
+		var b := Button.new()
+		b.text = String(choice[0])
+		b.toggle_mode = true
+		b.button_group = group
+		b.focus_mode = Control.FOCUS_NONE
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 12)
+		var seconds: float = choice[1]
+		b.pressed.connect(func(): flight_changed.emit(seconds))
+		Themes.glowing(b)
+		row.add_child(b)
+		_flight_buttons.append(b)
+
+
+## The flight length in use, shown armed.
+func show_flight(seconds: float) -> void:
+	for i in FLIGHT_CHOICES.size():
+		_flight_buttons[i].set_pressed_no_signal(is_equal_approx(float(FLIGHT_CHOICES[i][1]), seconds))

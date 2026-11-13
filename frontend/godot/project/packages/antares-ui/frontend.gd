@@ -111,6 +111,7 @@ func _ready() -> void:
 	for node in find_children("*", "BaseButton", true, false):
 		_add_click(node)
 	_load_themes()
+	galaxy.flight_time = Themes.saved_flight_time(galaxy.FLIGHT_TIME)
 	mode_button.pressed.connect(func(): _set_native(not native))
 	$UI/Bar.hide() # the owner's layout (WP3.3f): Ctrl+G stays, the button goes
 	overlay.hide()
@@ -628,6 +629,10 @@ func _view(scene_name: String) -> Control:
 			view.theme_chosen.connect(apply_theme)
 		if view.has_signal("scale_changed"):
 			view.scale_changed.connect(func(percent: float, final: bool): set_ui_scale(percent, final))
+		if view.has_signal("flight_changed"):
+			view.flight_changed.connect(func(seconds: float):
+				galaxy.flight_time = seconds
+				Themes.save_flight_time(seconds))
 		if view.has_signal("help_requested"):
 			view.help_requested.connect(show_help)
 		if view.has_signal("scale_auto_changed"):
@@ -649,6 +654,7 @@ func _view(scene_name: String) -> Control:
 		if scene_name == "side_tabs": # their column limits the scale
 			_apply_saved_scale.call_deferred()
 		if scene_name == "options_menu":
+			view.show_flight(galaxy.flight_time)
 			view.show_themes(_themes, theme_id)
 			view.show_scale(ui_scale, max_ui_scale(), MIN_UI_SCALE, is_ui_scale_automatic())
 		if scene_name in ["galaxy_bar", "map_controls"]: # the frame's joints follow their pockets
@@ -670,7 +676,7 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 
 ## The drop-downs and slide-outs that buttons open (owner, 2026-11-12): one at a time, over
 ## everything else (the system pane, the fleet panel).
-const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel"]
+const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel"]
 
 
 ## Closes the flyouts a click at `at` falls outside of; true when the click landed on the map
@@ -702,7 +708,8 @@ func _close_flyouts_outside(at: Vector2) -> bool:
 const VIEW_HELP := {
 	"galaxy_bar": {"Row/Game": 285, "Row/Empire": 284, "Row/Money": 286, "Row/Command": 288, "Row/Food": 290,
 		"Row/Freighters": 291, "Row/Research": 292, "Row/Turn": 296},
-	"side_tabs": {"Colonies": 293, "Planets": 294, "Fleets": 295, "Leaders": 297, "Races": 298, "Info": 299},
+	"side_tabs": {"Colonies": 293, "Planets": 294, "Fleets": 295, "Leaders": 297, "Races": 298, "Info": 299,
+		"ShipDesign": 509}, # the build screen's Design button's help (owner)
 	"build_pane": {"Box/Header/Buildings": 501, "Box/Header/Units": 504, "Box/Header/Refit": 508,
 		"Box/Columns/Left/Detail": 505, "Box/Columns/Left/Queue": 506, "Box/Columns/Left/Toggles/Auto": 507,
 		"Box/Columns/Left/Toggles/Repeat": 510, "Box/Buttons/Ok": 511, "Box/Buttons/Cancel": 537},
@@ -772,6 +779,15 @@ func _on_view_action(action_name: String) -> void:
 			_send({"verb": "open", "screen": Screens.DISTANCE_BETWEEN_STARS})
 		"fleet_next", "fleet_previous":
 			_cycle_fleet(0 if action_name == "fleet_next" else 1)
+		"tax_rate":
+			var tax := _view("tax_panel")
+			if tax.visible:
+				tax.close()
+			else:
+				_bring_up(tax)
+				var bar := _view("galaxy_bar")
+				tax.show_rate(int(bar.tax_rate))
+				tax.open_at(bar.money.get_global_rect().get_center().x)
 		"command_points", "research":
 			# The bar's drop-downs (WP3.3g): under their figure, on the galaxy.
 			var panel := _view("command_points" if action_name == "command_points" else "research_panel")
@@ -898,6 +914,10 @@ func _on_turn_notice(text: String) -> void:
 		legacy.hide()
 		galaxy.show()
 		_frame_view.show()
+		# The screen as it was (owner, 2026-11-13: only the stars and the notice was jarring); a
+		# click anywhere still only stops the turns (_input).
+		for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
+			_view(chrome).show()
 		if _turn_notice == null:
 			_turn_notice = PanelContainer.new()
 			_turn_notice.theme_type_variation = &"Pane"
@@ -932,6 +952,8 @@ func _end_turn_notice() -> void:
 		_turn_over_galaxy = false
 		if native_screen == Screens.LEGACY:
 			_frame_view.hide()
+			for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
+				_view(chrome).hide()
 			_legacy_after_frame = int(game.get_stats().frames)
 			_legacy_waited = 0.0
 
@@ -1027,9 +1049,14 @@ func _frame_system(star_id: int) -> void:
 	var system_pane: Control = _views.get("system_pane")
 	if system_pane != null:
 		left = system_pane.offset_right
+	# The zoom is the one that fits the space right of both panes, open or not (owner,
+	# 2026-11-13: the colony pane changed it); only the centre moves when it opens or closes.
 	var colony_pane: Control = _views.get("colony_pane")
+	var left_both := left + 6.0 + 340.0
+	if colony_pane != null:
+		left_both = colony_pane.offset_right
 	if colony_pane != null and colony_pane.colony_id >= 0:
-		left = colony_pane.offset_right
+		left = left_both
 	# The free area runs to the side tabs (owner, 2026-11-13: the star sat near the screen's centre
 	# instead of the middle of what the pane leaves).
 	var right := view.x - 48.0
@@ -1041,8 +1068,9 @@ func _frame_system(star_id: int) -> void:
 	if right - left < view.x * 0.3: # a small window: the panes cover most of it
 		left = 0.0
 		right = view.x
+	var room := right - left_both if right - left_both >= view.x * 0.3 else right - left
 	var zoom: float = galaxy.zoom_for_scale(SYSTEM_VIEW_SCALE)
-	galaxy.system_scale = SYSTEM_VIEW_SHARE * (right - left) / (288.0 * zoom)
+	galaxy.system_scale = SYSTEM_VIEW_SHARE * room / (288.0 * zoom)
 	galaxy.fly_to(galaxy.star_position(star_id), zoom, Vector2((left + right) * 0.5, view.y * 0.5))
 
 
@@ -1505,11 +1533,19 @@ func _smoke_galaxy(shots: String) -> bool:
 		_on_colony_chosen(-1)
 		await get_tree().create_timer(0.6).timeout
 		var at: Vector2 = galaxy.get_global_transform_with_canvas() * world * get_window().content_scale_factor
+		var zoom_before: float = galaxy.camera.zoom.x
 		_smoke_mouse(true, at)
 		await get_tree().process_frame
 		_smoke_mouse(false, at)
-		await get_tree().create_timer(1.0).timeout
+		await get_tree().create_timer(1.5).timeout
 		var colony_pane: Control = _view("colony_pane")
+		# The colony pane only pans the system over (owner, 2026-11-13: the zoom changed).
+		var star_x: float = (galaxy.get_global_transform_with_canvas() * galaxy.star_position(galaxy.system_star)).x
+		print("smoke: colony pane opened: zoom %.3f -> %.3f, star at x %.0f (pane edge %.0f, view %.0f)" % [zoom_before,
+			galaxy.camera.zoom.x, star_x, colony_pane.get_global_rect().end.x, get_viewport().get_visible_rect().size.x])
+		if absf(galaxy.camera.zoom.x - zoom_before) > zoom_before * 0.01:
+			await host.smoke_fail("the colony pane changed the system's zoom")
+			return false
 		print("smoke: map click on planet %d: selected %d, colony pane %s on colony %d (expected %d)" % [int(planet.planet),
 			galaxy.selected_planet, colony_pane.visible, colony_pane.colony_id, colony_id])
 		if colony_pane.colony_id != colony_id:
@@ -1838,6 +1874,20 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 				build._show_detail(build._names[special[0]])
 				await get_tree().create_timer(1.0).timeout
 				await host.shot(shots + "/native-build-%s.png" % special[1])
+	# The build pane's right-click help (the build screen's list): Repeat.
+	var repeat: Control = build.get_node("Box/Columns/Left/Toggles/Repeat")
+	var repeat_at := repeat.get_global_rect().get_center() * get_window().content_scale_factor
+	for pressed in [true, false]:
+		var right := InputEventMouseButton.new()
+		right.button_index = MOUSE_BUTTON_RIGHT
+		right.pressed = pressed
+		right.position = repeat_at
+		Input.parse_input_event(right)
+		await get_tree().process_frame
+	await get_tree().create_timer(0.6).timeout
+	var tips := preload("views/info_popup.gd")
+	print("smoke: build pane help on Repeat: %s" % ((tips._current.find_children("*", "Label", true, false)[0] as Label).text if tips.is_open() else "none"))
+	tips.close_current()
 	build.cancel()
 	await get_tree().create_timer(0.6).timeout
 	var after_cancel: Array = (await _query_args({"what": "colony", "colony": int(c.colony)})).build.queue
@@ -2002,19 +2052,26 @@ func _query_args(args: Dictionary) -> Dictionary:
 ## The bar's tax menu (WP3.3d): another rate is checked in the treasury's menu, then the old one
 ## goes back. (The bar doesn't show the rate, WP3.3g.)
 func _smoke_tax(old_rate: int) -> bool:
+	# A click on the treasury drops the rates down (owner, 2026-11-13); a rate is set and the
+	# drop-down goes back up; the bar shows the new rate.
 	var bar := _view("galaxy_bar")
 	var rate := 30 if old_rate != 30 else 40
-	var popup: PopupMenu = bar.money.get_popup()
-	popup.id_pressed.emit(rate)
+	bar.money.pressed.emit()
+	await get_tree().create_timer(0.6).timeout
+	var tax := _view("tax_panel")
+	var shown: bool = tax.visible
+	for b: Button in tax.rates.get_children():
+		if int(b.get_meta("rate")) == rate:
+			b.pressed.emit()
 	var waited := 0.0
-	while not popup.is_item_checked(popup.get_item_index(rate)) and waited < 5.0:
+	while int(bar.tax_rate) != rate and waited < 5.0:
 		await get_tree().create_timer(0.1).timeout
 		waited += 0.1
-	print("smoke: bar after tax %d%%: '%s' | '%s' | '%s' | '%s'" % [rate, bar.money.text, bar.command_label.text, bar.research.text, bar.freighters_label.text])
-	if not popup.is_item_checked(popup.get_item_index(rate)):
-		await host.smoke_fail("the tax rate did not change in the treasury's menu")
+	print("smoke: tax drop-down shown %s; bar after tax %d%%: '%s' | '%s' | '%s' | '%s'" % [shown, rate, bar.money.text, bar.command_label.text, bar.research.text, bar.freighters_label.text])
+	if not shown or int(bar.tax_rate) != rate:
+		await host.smoke_fail("the tax rate did not change from the treasury's drop-down")
 		return false
-	popup.id_pressed.emit(old_rate)
+	_send({"verb": "set_tax_rate", "rate": old_rate})
 	await get_tree().create_timer(0.5).timeout
 	return true
 

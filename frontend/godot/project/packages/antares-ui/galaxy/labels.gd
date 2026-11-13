@@ -22,13 +22,17 @@ func _draw() -> void:
 		var color: Color = galaxy.player_color(_owner_color(int(star.label_owner)))
 		if star.outpost:
 			color = color.darkened(1.0 - OUTPOST_DIM)
+		if int(star.id) != galaxy.system_star and galaxy.others_alpha < 1.0:
+			color.a *= galaxy.others_alpha # faded with its star in a system
+			if galaxy.others_alpha < 0.05:
+				continue
 		var below := Vector2(float(star.x), float(star.y) + galaxy.star_size(star) * 0.5)
 		draw_set_transform(below, 0.0, Vector2(px, px))
 		var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		var at := Vector2(-width * 0.5, font_size + 1.0)
 		var shares: Array = star.get("label_shares", [])
 		if shares.is_empty():
-			draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 4, Color(0, 0, 0, 0.8))
+			draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 4, Color(0, 0, 0, 0.8 * color.a))
 			draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 		else:
 			_draw_shared(font, at, text, font_size, shares)

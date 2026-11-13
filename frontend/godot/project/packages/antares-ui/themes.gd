@@ -162,3 +162,18 @@ static func glowing(button: Button) -> void:
 
 static func _on_toggled(_on: bool, button: Button) -> void:
 	glow(button)
+
+
+## The system flight's length (seconds; Options' SYSTEM ZOOM), saved with the interface settings.
+static func saved_flight_time(default: float) -> float:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS) != OK:
+		return default
+	return float(cfg.get_value("ui", "flight_time", default))
+
+
+static func save_flight_time(seconds: float) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS)
+	cfg.set_value("ui", "flight_time", seconds)
+	cfg.save(SETTINGS)

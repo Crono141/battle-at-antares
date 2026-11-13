@@ -1,0 +1,29 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://packages/antares-ui/views/tax_panel.gd" id="1"]
+[ext_resource type="Script" path="res://packages/antares-ui/views/fit_scroll.gd" id="fit"]
+
+[node name="TaxPanel" type="PanelContainer"]
+custom_minimum_size = Vector2(240, 0)
+offset_right = 240.0
+offset_bottom = 40.0
+theme_type_variation = &"Pane"
+script = ExtResource("1")
+
+[node name="Fit" type="ScrollContainer" parent="."]
+layout_mode = 2
+horizontal_scroll_mode = 0
+script = ExtResource("fit")
+
+[node name="Box" type="VBoxContainer" parent="Fit"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="Fit/Box"]
+layout_mode = 2
+theme_type_variation = &"Heading"
+text = "Tax rate"
+
+[node name="Rates" type="VBoxContainer" parent="Fit/Box"]
+layout_mode = 2
+theme_override_constants/separation = 4

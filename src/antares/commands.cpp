@@ -165,6 +165,11 @@ namespace antares::commands {
                 case SCREEN_FLEET:
                     MAINSCR::officer_screen_return_screen = SCREEN_FLEET;
                     break;
+                case SCREEN_SCRAP_FREIGHTERS:
+                    // The bar's freighters (owner, 2026-11-13): the game's own step, which says
+                    // when none can be scrapped (a native warning) or asks how many (its slider,
+                    // legacy for now).
+                    break;
                 case SCREEN_TURN_SUMMARY:
                     // The turn's summary again, from the galaxy (WP3.4c; the to-do list's): back
                     // to the galaxy after, not to the reports.

@@ -59,7 +59,15 @@ var system_star := -1
 var system_scale := 0.25 # world units per system box pixel
 var selected_planet := -1
 ## How long a camera flight takes, and the view it left (Back returns to it).
-const FLIGHT_TIME := 0.7
+const FLIGHT_TIME := 0.5
+## The system flight's length in seconds (Options: slow 1, medium 0.5, fast 0.25, instant 0).
+var flight_time := FLIGHT_TIME
+## The other stars' opacity while a system is open (they fade to OTHERS_IN_SYSTEM).
+var others_alpha := 1.0:
+	set(value):
+		others_alpha = value
+		redraw()
+const OTHERS_IN_SYSTEM := 0.2
 var _flying := false
 var _flight: Tween
 var _saved_view := {}
@@ -354,8 +362,9 @@ func show_system(star_id: int, result: Dictionary) -> void:
 	system_star = star_id
 	if fresh:
 		selected_planet = -1
+		create_tween().tween_property(self, "others_alpha", OTHERS_IN_SYSTEM, maxf(flight_time, 0.3))
 		$Orbits.modulate.a = 0.0
-		create_tween().tween_property($Orbits, "modulate:a", 1.0, 0.6).set_delay(FLIGHT_TIME * 0.5)
+		create_tween().tween_property($Orbits, "modulate:a", 1.0, maxf(flight_time, 0.3)).set_delay(flight_time * 0.5)
 	$Orbits.queue_redraw()
 
 
@@ -363,6 +372,7 @@ func hide_system() -> void:
 	if system.is_empty():
 		return
 	var fade := create_tween()
+	create_tween().tween_property(self, "others_alpha", 1.0, maxf(flight_time, 0.3))
 	fade.tween_property($Orbits, "modulate:a", 0.0, 0.3)
 	fade.tween_callback(func():
 		system = {}
@@ -375,9 +385,9 @@ func hide_system() -> void:
 ## panes leave free). The first flight remembers the view to come back to.
 func fly_to(world: Vector2, zoom: float, screen: Vector2) -> void:
 	if _saved_view.is_empty():
-		_saved_view = {"position": camera.position, "zoom": camera.zoom.x}
+		_saved_view = {"position": camera.position, "zoom": camera.zoom.x, "anchor": world}
 	var center := world - (screen - get_viewport_rect().size * 0.5) / zoom
-	_fly(center, zoom)
+	_fly(center, zoom, world)
 
 
 ## Moves the camera smoothly to a point at the current zoom (the fleet buttons).
@@ -388,35 +398,50 @@ func glide_to(world: Vector2) -> void:
 ## Leaves a system for its fleet (WP3.3g, owner): the camera glides out a little round `world`
 ## (the system's star), keeping the view it will come back to.
 func step_back(world: Vector2, factor := 0.45) -> void:
-	_fly(world, maxf(camera.zoom.x * factor, furthest_zoom()))
+	_fly(world, maxf(camera.zoom.x * factor, furthest_zoom()), world)
 
 
 ## Back to the view before the first flight.
 func fly_back() -> void:
 	if _saved_view.is_empty():
 		return
-	_fly(_saved_view.position, _saved_view.zoom)
+	_fly(_saved_view.position, _saved_view.zoom, _saved_view.get("anchor", Vector2.INF))
 	_saved_view = {}
 
 
-func _fly(center: Vector2, zoom: float) -> void:
+func _fly(center: Vector2, zoom: float, anchor := Vector2.INF) -> void:
 	if _flight:
 		_flight.kill()
 	_flying = true
 	_target_zoom = zoom
-	# One eased clock, two curves (owner, 2026-11-13): flying in, most of the panning comes in the
-	# first half and the fast part is the zoom; flying out is the same path reversed (zoom first,
-	# then the pan). The zoom moves evenly in log space.
+	# One eased clock, two curves (owner, 2026-11-13): flying in, the star travels to its place on
+	# the screen early and the fast part is the zoom, about the star (`anchor`), so it never heads
+	# for the screen's centre first; flying out is the same path reversed. The zoom moves evenly in
+	# log space. Without an anchor the camera's centre glides.
 	var from_position := camera.position
 	var from_zoom := camera.zoom.x
 	var zooming_in := zoom > from_zoom
-	_flight = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
-	_flight.tween_method(func(s: float):
-		var pan := 1.0 - pow(1.0 - s, 3.0) if zooming_in else pow(s, 3.0)
+	var same_zoom := absf(zoom - from_zoom) <= from_zoom * 0.001 # a pan (a pane opened or closed)
+	var half := get_viewport_rect().size * 0.5
+	var anchored := anchor.is_finite()
+	var from_screen := half + (anchor - from_position) * from_zoom if anchored else Vector2.ZERO
+	var to_screen := half + (anchor - center) * zoom if anchored else Vector2.ZERO
+	var step := func(s: float):
+		var pan := s if same_zoom else (1.0 - pow(1.0 - s, 3.0) if zooming_in else pow(s, 3.0))
 		var grow := s * s if zooming_in else 1.0 - (1.0 - s) * (1.0 - s)
-		camera.position = from_position.lerp(center, pan)
-		camera.zoom = Vector2.ONE * exp(lerpf(log(from_zoom), log(zoom), grow))
-		redraw(), 0.0, 1.0, FLIGHT_TIME)
+		var z := exp(lerpf(log(from_zoom), log(zoom), grow))
+		camera.zoom = Vector2.ONE * z
+		if anchored:
+			camera.position = anchor - (from_screen.lerp(to_screen, pan) - half) / z
+		else:
+			camera.position = from_position.lerp(center, pan)
+		redraw()
+	_flight = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	if flight_time <= 0.0:
+		step.call(1.0) # instant
+		camera.position = center
+	else:
+		_flight.tween_method(step, 0.0, 1.0, flight_time)
 	_flight.tween_callback(func():
 		_flying = false
 		_anchor_world = camera.position

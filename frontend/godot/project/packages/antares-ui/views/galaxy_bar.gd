@@ -2,7 +2,7 @@ extends PanelContainer
 ## The galaxy's top bar (WP3.1b, WP3.3d; laid out for the design pass, WP3.3f; themed, WP3.3g):
 ## Game, the race and stardate, the empire's figures each in its own slot with the game's icon
 ## (treasury, command points, food, freighters, research), and Turn. Game drops the game menu
-## (game_menu). The treasury opens the tax rates when the pointer rests on it (a click pins the
+## (game_menu). A click on the treasury drops the tax rates down (tax_panel; it was opened by hovering, a click pinned the
 ## menu); the rate itself is not on the bar (owner, 2026-11-12). Command points open their
 ## breakdown, research opens research. The bar sits in a pocket of the theme's screen frame.
 
@@ -11,12 +11,10 @@ signal action(name: String)
 
 const Themes := preload("../themes.gd")
 const WARNING_COLOR := Color(1.0, 0.45, 0.35)
-## How long the tax menu stays open after the pointer leaves the treasury and the menu.
-const HOVER_CLOSE := 0.4
 
 @onready var row: HBoxContainer = $Row
 @onready var date_label: Label = $Row/Empire/Date
-@onready var money: MenuButton = $Row/Money
+@onready var money: Button = $Row/Money
 @onready var command_label: Button = $Row/Command
 @onready var food_label: Button = $Row/Food
 @onready var freighters_label: Button = $Row/Freighters
@@ -25,17 +23,16 @@ const HOVER_CLOSE := 0.4
 
 var art: Node # the bar's icons are the theme art's (Themes.icon), not the art service's
 
-var _hover_opened := false
-var _away := 0.0
+var tax_rate := 0 # the rate in force (the tax drop-down arms it)
 
 
 func _ready() -> void:
 	game_button.pressed.connect(func(): action.emit("game_menu"))
 	$Row/Turn.pressed.connect(func(): command.emit({"verb": "end_turn"}))
-	money.get_popup().id_pressed.connect(func(rate: int):
-		command.emit({"verb": "set_tax_rate", "rate": rate}))
-	money.mouse_entered.connect(_open_on_hover)
-	money.pressed.connect(func(): _hover_opened = false) # a click pins it
+	# The tax rate drops down on a click, as command points and research (owner, 2026-11-13).
+	money.pressed.connect(func(): action.emit("tax_rate"))
+	# Freighters: the game's scrap step (SCREEN_SCRAP_FREIGHTERS, 35), as the legacy figure.
+	freighters_label.pressed.connect(func(): command.emit({"verb": "open", "screen": 35}))
 	# Command points and research drop down from the bar and stay on the galaxy (WP3.3g).
 	research.pressed.connect(func(): action.emit("research"))
 	command_label.pressed.connect(func(): action.emit("command_points"))
@@ -80,27 +77,6 @@ func show_game_menu(open: bool) -> void:
 	Themes.glow(game_button)
 
 
-func _open_on_hover() -> void:
-	var popup := money.get_popup()
-	if popup.visible:
-		return
-	money.show_popup()
-	_hover_opened = true
-	_away = 0.0
-
-
-## A menu opened by hovering closes once the pointer has left the treasury and the menu a moment.
-func _process(delta: float) -> void:
-	var popup := money.get_popup()
-	if not _hover_opened or not popup.visible:
-		_hover_opened = false
-		return
-	var mouse := get_viewport().get_mouse_position()
-	var over := money.get_global_rect().has_point(mouse) or Rect2(Vector2(popup.position), Vector2(popup.size)).grow(6.0).has_point(mouse)
-	_away = 0.0 if over else _away + delta
-	if _away > HOVER_CLOSE:
-		popup.hide()
-		_hover_opened = false
 
 
 ## The `empire` snapshot: what the legacy side bar shows (WP3.3d).
@@ -109,11 +85,9 @@ func show_empire(empire: Dictionary) -> void:
 		return
 	date_label.text = "%s   Stardate %.1f" % [empire.race, float(empire.stardate) / 10.0]
 	money.text = "%s BC (%s)" % [_thousands(int(empire.bc)), _signed(int(empire.surplus_bc))]
-	money.tooltip_text = "Treasury and income per turn; tax %d%%. Rest the pointer here (or click) for the tax rate" % int(empire.tax_rate)
+	money.tooltip_text = "Treasury and income per turn; tax %d%%. Click for the tax rate" % int(empire.tax_rate)
+	tax_rate = int(empire.tax_rate)
 	_warn(money, int(empire.bc) < 0 or int(empire.surplus_bc) < 0)
-	var popup := money.get_popup()
-	for i in popup.item_count:
-		popup.set_item_checked(i, popup.get_item_id(i) == int(empire.tax_rate))
 	var spare := int(empire.command_points) - int(empire.command_points_used)
 	command_label.text = "%s (%d)" % [_signed(spare), int(empire.command_points)]
 	_warn(command_label, spare < 0)

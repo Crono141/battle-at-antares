@@ -123,7 +123,18 @@ func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
 		# Picked: the choice is sent and the drop-down goes back up (owner, 2026-11-13).
 		b.pressed.connect(func():
 			command.emit({"verb": "choose_research", "field": field, "app": id, "_reply_to": "_chosen"})
-			close())
+			# The pick flashes three times in half a second, then the drop-down goes up (owner).
+			var picked: Array = branch.rows if gives_all else [b]
+			_flashing = true
+			var flash := create_tween()
+			flash.tween_method(func(t: float):
+				var alpha := 0.15 + 0.85 * (0.5 + 0.5 * cos(t * 3.0 * TAU))
+				for lit in picked:
+					if is_instance_valid(lit):
+						(lit as Control).modulate.a = alpha, 0.0, 1.0, 0.5)
+			flash.tween_callback(func():
+				_flashing = false
+				close()))
 		# A right click: the application's help, as the game's research screen gives it.
 		var app_name := String(app.name)
 		var help := String(app.get("description", ""))
@@ -151,8 +162,11 @@ func _show_info(at: Control, title: String, text: String) -> void:
 	_info_popup = preload("info_popup.gd").open(self, at, title, text)
 
 
+var _flashing := false # a pick flashing before the drop-down goes up: no rebuild meanwhile
+
+
 func _chosen(result: Dictionary) -> void:
-	if result.get("ok", false):
+	if result.get("ok", false) and not _flashing:
 		refresh()
 
 

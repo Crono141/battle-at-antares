@@ -26,8 +26,10 @@ func _draw() -> void:
 		var drawn := false
 		if art_size > 0.0:
 			var scale := size / art_size
+			# In a system the other stars fade back (owner, 2026-11-13: about 20%).
+			var shade := Color(1, 1, 1, galaxy.others_alpha) if int(star.id) != galaxy.system_star else Color.WHITE
 			drawn = galaxy.art.draw(self, "BUFFER0.LBX", int(star.sprite), frame,
-				center - Vector2(art_size, art_size) * 0.5 * scale, scale)
+				center - Vector2(art_size, art_size) * 0.5 * scale, scale, shade)
 		if not drawn:
 			# A stand-in until the picture arrives.
 			draw_circle(center, size * 0.18, Color(1, 1, 1, 0.8))
