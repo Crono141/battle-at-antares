@@ -1,4 +1,6 @@
 #include "pch.h"
+
+#include <algorithm>
 #include "antares/native.h"
 #include "string_overrides.h"
 
@@ -743,6 +745,18 @@ namespace MAINPUPS {
         g_max = max;
         g_msg = msg;
         g_var = initial_value;
+
+        // Antares (owner, 2026-11-13): a native slider (scrapping freighters...): the window's
+        // text, its range and start; OK returns the value, Cancel -1, as the window.
+        {
+            const std::string fields = "\"min\":" + std::to_string(min) + ",\"max\":" + std::to_string(max) +
+                ",\"value\":" + std::to_string(initial_value);
+            int32_t answer = -1;
+            if (antares::native::Popup("slider", msg, fields, &answer)) {
+                g_var = answer < 0 ? -1 : (int16_t)std::clamp<int32_t>(answer, min, max);
+                return g_var;
+            }
+        }
 
         Load_SLIDER_Popup();
         Do_Popup_Setup(popup_style, anims[14]);

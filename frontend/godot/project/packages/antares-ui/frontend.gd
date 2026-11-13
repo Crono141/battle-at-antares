@@ -56,7 +56,7 @@ var _revealed := false
 var _have_empire := false
 ## The game screens whose legacy frame is only the galaxy: a question from one shows over the
 ## native galaxy instead.
-const GALAXY_BEHIND_SCREENS := [Screens.MAIN, Screens.MAIN_NEXT_TURN, Screens.REPORTS, Screens.TURN_SUMMARY]
+const GALAXY_BEHIND_SCREENS := [Screens.MAIN, Screens.MAIN_NEXT_TURN, Screens.REPORTS, Screens.TURN_SUMMARY, 35] # 35: scrapping freighters
 var _question_over_galaxy := false
 var _shot_popups := {} # the smoke's pictures of native popups, by name
 var _turn_over_galaxy := false # quiet turns passing by themselves, shown over the native galaxy
@@ -2073,6 +2073,23 @@ func _smoke_tax(old_rate: int) -> bool:
 		return false
 	_send({"verb": "set_tax_rate", "rate": old_rate})
 	await get_tree().create_timer(0.5).timeout
+	# The freighters (owner, 2026-11-13): the game's scrap step with its slider, native; Cancel.
+	var visit := int(game.get_native_visit())
+	bar.freighters_label.pressed.emit()
+	var seen := false
+	var behind := false
+	var waited_scrap := 0.0
+	while waited_scrap < 15.0 and not (seen and native_screen == Screens.MAIN and int(game.get_native_visit()) > visit):
+		if overlay.visible and String(_views["dialog"].popup_name) == "slider":
+			seen = true
+			behind = galaxy.visible and not legacy.visible
+		_smoke_answer()
+		await get_tree().create_timer(0.25).timeout
+		waited_scrap += 0.25
+	print("smoke: scrap freighters: slider shown natively %s, galaxy behind %s, back on the galaxy %s" % [seen, behind, native_screen == Screens.MAIN])
+	if not seen or native_screen != Screens.MAIN:
+		await host.smoke_fail("the freighters' slider did not show natively")
+		return false
 	return true
 
 
@@ -2431,7 +2448,7 @@ func _smoke_answer() -> bool:
 		for arg in OS.get_cmdline_user_args():
 			if arg.begins_with("--shots="):
 				host.shot(arg.substr(8) + "/native-turn-question.png")
-	_views["dialog"]._answer(1)
+	_views["dialog"]._answer(-1 if popup_name == "slider" else 1) # a slider: Cancel (nothing scrapped)
 	return true
 
 

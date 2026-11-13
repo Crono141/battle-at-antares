@@ -12,6 +12,7 @@ var request_id := 0
 
 var _kind := ""
 var popup_name := "" # a popup's name ("leader_level", ...), for the smoke
+var _slider_value := 0
 var art: Node # the game's art (set by the frontend), for portraits and icons
 var _extra: VBoxContainer # a popup's own content (a leader's card) between title and text
 var _popup_buttons: HBoxContainer
@@ -64,6 +65,11 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 			_extra.add_child(_leader_card(request.leader))
 		if request.has("items"):
 			_extra.add_child(_item_list(request.items))
+		# A slider goes under its question; other content (a leader's card) above the text.
+		$Fit/Box.move_child(_extra, $Fit/Box/Text.get_index() + (1 if popup_name == "slider" else 0))
+		if popup_name == "slider":
+			_extra.add_child(_slider(int(request.get("min", 0)), int(request.get("max", 0)), int(request.get("value", 0))))
+			request = request.merged({"buttons": ["OK", "CANCEL"]}, true)
 		var buttons: Array = request.get("buttons", ["OK"])
 		for i in buttons.size():
 			var b := Button.new()
@@ -71,7 +77,9 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 			b.focus_mode = Control.FOCUS_NONE
 			b.custom_minimum_size = Vector2(140, 36)
 			var value := i
-			b.pressed.connect(func(): _answer(value))
+			if popup_name == "slider":
+				value = -1 if i == 1 else -2 # OK answers the slider's value
+			b.pressed.connect(func(): _answer(_slider_value if value == -2 else value))
 			_popup_buttons.add_child(b)
 	show()
 	if kind == "text":
@@ -172,3 +180,30 @@ func _item_list(items: Array) -> Control:
 func _centre() -> void:
 	var area := get_parent_area_size()
 	position = ((area - size) * 0.5).floor()
+
+
+## The game's slider (scrapping freighters): a bar and the number, from min to max.
+func _slider(low: int, high: int, start: int) -> Control:
+	_slider_value = clampi(start, low, high)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var bar := HSlider.new()
+	bar.min_value = low
+	bar.max_value = high
+	bar.step = 1
+	bar.value = _slider_value
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.custom_minimum_size.x = 300
+	bar.focus_mode = Control.FOCUS_NONE
+	row.add_child(bar)
+	var number := Label.new()
+	number.theme_type_variation = &"Name"
+	number.custom_minimum_size.x = 48
+	number.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	number.text = str(_slider_value)
+	row.add_child(number)
+	bar.value_changed.connect(func(v: float):
+		_slider_value = int(v)
+		number.text = str(_slider_value))
+	return row
