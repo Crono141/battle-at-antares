@@ -1136,9 +1136,109 @@ namespace antares::commands::internal {
             MOX::FULL_DRAW_SCREEN_FLAG = 1;
             out.Bool("shown", true);
         }
+
+        // ---- The governor flyout (owner, 2026-11-13): the colony leaders without the leaders
+        // screen. The leaders screen's rules (OFFICER::Assign_Captain's colony branch): the
+        // player's colony leaders (Leader_Is_Displayed), the turns one takes to get there
+        // (Get_Star_Leader_ETA, outside the screen: none to the home star from the pool, else 5),
+        // the governor there going back to the pool, and the colonies recalculated as on leaving
+        // the screen. The screen's confirmations are the frontend's to show (D25). ----
+
+        bool Player_Has_Colony_At(int16_t star) {
+            for (const int16_t p : MOX::star[star].planet_index) {
+                if (p >= 0 && p < MOX::planet_count) {
+                    const int16_t colony = MOX::planet[p].colony_index;
+                    if (colony >= 0 && MOX::colony[colony].owner == MOX::PLAYER_NUM) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // colony_leaders {star (optional)}: each of the player's colony leaders with the card, where
+        // it is ("star", -1 in the pool; "eta" while on the way) and, for `star`, the turns to get
+        // there ("eta_to").
+        void Query_Colony_Leaders(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out) || MOX::leaders == nullptr) {
+                return;
+            }
+            int64_t star = -1;
+            args.Int("star", &star);
+            if (star >= MOX::NUM_STARS) {
+                star = -1;
+            }
+            s_out list = out.Add_List("leaders");
+            for (int16_t i = 0; i < MAX_LEADERS; ++i) {
+                const s_leader_data& leader = MOX::leaders[i];
+                if (leader.player_index != MOX::PLAYER_NUM || leader.status < 0 || leader.type != LEADER_TYPE_COLONY) {
+                    continue;
+                }
+                s_out item = list.Append_Object();
+                Leader_Card(i, MOX::PLAYER_NUM, item);
+                const bool placed = leader.location >= 0 && leader.location < MOX::NUM_STARS && leader.status != 0;
+                item.Int("star", placed ? leader.location : -1);
+                item.Str("star_name", placed ? Utf8(MOX::star[leader.location].name, sizeof(MOX::star[0].name)) : std::string());
+                item.Int("eta", placed ? leader.eta : 0);
+                if (star >= 0) {
+                    item.Int("eta_to", OFFICER::Get_Star_Leader_ETA(MOX::PLAYER_NUM, i, (int16_t)star));
+                }
+            }
+        }
+
+        // assign_governor {leader, star}: the leader governs the player's system (on the way for
+        // "eta" turns); the governor there goes back to the pool.
+        void Assign_Governor(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t leader = -1;
+            int64_t star = -1;
+            if (!args.Int("leader", &leader) || leader < 0 || leader >= MAX_LEADERS || !args.Int("star", &star) || !Valid_Star(star)) {
+                out.Fail("bad_args", "leader: a colony leader, star: a star id");
+                return;
+            }
+            const s_leader_data& data = MOX::leaders[leader];
+            if (data.player_index != MOX::PLAYER_NUM || data.status < 0 || data.type != LEADER_TYPE_COLONY) {
+                out.Fail("bad_args", "leader: one of the player's colony leaders");
+                return;
+            }
+            if (!Player_Has_Colony_At((int16_t)star)) {
+                out.Fail("not_allowed", "star: a system with one of the player's colonies");
+                return;
+            }
+            const int8_t eta = OFFICER::Get_Star_Leader_ETA(MOX::PLAYER_NUM, (int16_t)leader, (int16_t)star);
+            OFFICER::Assign_Leader_To_Star(&MOX::player[MOX::PLAYER_NUM], &MOX::leaders[leader], &MOX::star[star], eta);
+            COLCALC::Do_Player_Colony_Calculations(MOX::PLAYER_NUM);
+            MOX::FULL_DRAW_SCREEN_FLAG = 1;
+            out.Int("eta", eta);
+        }
+
+        // release_governor {star}: the system's governor goes back to the pool.
+        void Release_Governor(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t star = -1;
+            if (!args.Int("star", &star) || !Valid_Star(star)) {
+                out.Fail("bad_args", "star: a star id");
+                return;
+            }
+            const int8_t leader = MOX::star[star].officer_index[MOX::PLAYER_NUM];
+            if (leader < 0 || leader >= MAX_LEADERS) {
+                out.Bool("released", false);
+                return;
+            }
+            OFFICER::Move_Officer_To_Pool(leader);
+            MOX::FULL_DRAW_SCREEN_FLAG = 1;
+            out.Bool("released", true);
+        }
     } // namespace
 
     void Add_Galaxy_Entries(std::vector<s_entry>* table) {
+        table->push_back({"colony_leaders", e_kind::query, ANY_SCREEN, 1, "star (optional: turns to get there)", Query_Colony_Leaders});
+        table->push_back({"assign_governor", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "leader, star", Assign_Governor});
+        table->push_back({"release_governor", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "star", Release_Governor});
         table->push_back({"planet_info", e_kind::command, ANY_SCREEN, 0, "planet: planet id (its potential, the right click's)", Planet_Info});
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);
         table->push_back({"select_star", e_kind::command, galaxy, 0, "star: star id", Select_Star});

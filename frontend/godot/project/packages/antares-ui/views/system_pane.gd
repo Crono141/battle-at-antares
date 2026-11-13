@@ -53,11 +53,15 @@ func _ready() -> void:
 	$Box/Header/Close.pressed.connect(close)
 	_restyle()
 	$Box/Back.pressed.connect(close)
-	# The governor opens the colony leaders on this system (the legacy leaders screen for now).
+	# The governor opens a flyout of the colony leaders to the right (owner, 2026-11-13: not the
+	# legacy leaders screen); a second click closes it.
 	governor.gui_input.connect(func(event: InputEvent):
 		var click := event as InputEventMouseButton
 		if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
-			command.emit({"verb": "open", "screen": Screens.OFFICERS, "star": star}))
+			if _leaders_flyout and _leaders_flyout.visible:
+				close_leaders()
+			else:
+				command.emit({"verb": "query", "what": "colony_leaders", "star": star, "_reply_to": "show_leaders"}))
 
 
 func _notification(what: int) -> void:
@@ -84,6 +88,7 @@ func show_system(result: Dictionary, name_text: String, star_id: int) -> void:
 	system = result
 	star = star_id
 	if not same:
+		close_leaders()
 		selected_planet = -1
 		_expanded = {}
 		_potential = {}
@@ -98,7 +103,150 @@ func show_system(result: Dictionary, name_text: String, star_id: int) -> void:
 		_slide(true)
 
 
+# ---- The governor's flyout (owner, 2026-11-13): the player's colony leaders, each with its
+# portrait, skills and where it is; a click makes it this system's governor (the turns it takes
+# to get there shown first), RELEASE sends the governor here back to the pool. ----
+
+var _leaders_flyout: PanelContainer
+
+
+## The `colony_leaders` answer: the flyout opens beside the pane, level with the governor block.
+func show_leaders(result: Dictionary) -> void:
+	if not result.get("ok", false) or not visible:
+		return
+	if _leaders_flyout == null:
+		_leaders_flyout = PanelContainer.new()
+		_leaders_flyout.theme_type_variation = &"Pane"
+		_leaders_flyout.name = "LeadersFlyout"
+		_leaders_flyout.top_level = true # the pane is a container: placed by hand, beside it
+		add_child(_leaders_flyout)
+	for child in _leaders_flyout.get_children():
+		_leaders_flyout.remove_child(child)
+		child.queue_free()
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 6)
+	var header := HBoxContainer.new()
+	var title := _label("Colony leaders", 18)
+	title.theme_type_variation = &"Name"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
+	var x := Button.new()
+	x.text = "X"
+	x.focus_mode = Control.FOCUS_NONE
+	x.pressed.connect(close_leaders)
+	header.add_child(x)
+	outer.add_child(header)
+	var current := int(system.get("governor", {}).get("leader", -1))
+	var leaders: Array = result.get("leaders", [])
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 4)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list)
+	if leaders.is_empty():
+		list.add_child(_label("No colony leaders. Leaders offer to join between turns.", 14, 0.8))
+	for leader: Dictionary in leaders:
+		list.add_child(_leader_row(leader, int(leader.leader) == current))
+	outer.add_child(scroll)
+	_leaders_flyout.add_child(outer)
+	_leaders_flyout.custom_minimum_size = Vector2(340, 0)
+	scroll.custom_minimum_size.y = minf(560.0, 30.0 + 96.0 * maxi(leaders.size(), 1))
+	_leaders_flyout.reset_size()
+	# Right of the panes on the left: this one, and the colony pane when it is open beside it.
+	var right := get_global_rect().end.x
+	for sibling in get_parent().get_children():
+		var pane := sibling as Control
+		if pane and pane != self and pane.visible and pane.has_method("close") and pane.get_global_rect().position.x >= right - 12.0 \
+				and pane.get_global_rect().position.x <= right + 12.0 and pane.get_global_rect().size.y > 200.0:
+			right = pane.get_global_rect().end.x
+	_leaders_flyout.global_position = Vector2(right + 6.0, governor.global_position.y)
+	_leaders_flyout.show()
+
+
+func close_leaders() -> void:
+	if _leaders_flyout:
+		_leaders_flyout.hide()
+
+
+func _leader_row(leader: Dictionary, is_governor: bool) -> Control:
+	var row := Button.new()
+	row.theme_type_variation = &"ListItem"
+	row.focus_mode = Control.FOCUS_NONE
+	row.custom_minimum_size = Vector2(320, 0)
+	# A Button doesn't lay out children: a margin box inside it does, and the button takes its height.
+	var margin := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 6)
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(box)
+	margin.minimum_size_changed.connect(func(): row.custom_minimum_size.y = margin.get_combined_minimum_size().y)
+	var picture := _icon("OFFICER.LBX", int(leader.get("portrait", -1)), Vector2(56, 56))
+	picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(picture)
+	var lines := VBoxContainer.new()
+	lines.add_theme_constant_override("separation", 1)
+	lines.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lines.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var name_line := _label(String(leader.name), 15)
+	name_line.add_theme_color_override("font_color", get_theme_color("font_color", "Name"))
+	lines.add_child(name_line)
+	var where := "In the pool"
+	var here := int(leader.get("star", -1))
+	if is_governor:
+		where = "Governs here" if int(leader.get("eta", 0)) <= 0 else "On the way here: %d turns" % int(leader.eta)
+	elif here >= 0:
+		where = ("Governs " if int(leader.get("eta", 0)) <= 0 else "On the way to ") + String(leader.get("star_name", ""))
+	if not is_governor:
+		var eta := int(leader.get("eta_to", 0))
+		where += "  ·  " + ("arrives at once" if eta <= 0 else "arrives in %d turns" % eta)
+	lines.add_child(_label(where, 13, 0.8))
+	for skill: Dictionary in leader.get("skills", []):
+		var skill_line := HBoxContainer.new()
+		skill_line.add_theme_constant_override("separation", 4)
+		skill_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var icon := _icon("OFFICER.LBX", int(skill.icon), Vector2(14, 14))
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		skill_line.add_child(icon)
+		var skill_label := _label("%s %s" % [String(skill.name), String(skill.bonus).strip_edges()], 13)
+		skill_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		skill_line.add_child(skill_label)
+		lines.add_child(skill_line)
+	box.add_child(lines)
+	row.add_child(margin)
+	if is_governor:
+		var release := Button.new()
+		release.text = "RELEASE"
+		release.focus_mode = Control.FOCUS_NONE
+		release.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		release.pressed.connect(func():
+			command.emit({"verb": "release_governor", "star": star, "_reply_to": "governor_changed"}))
+		box.add_child(release)
+		row.disabled = true
+	else:
+		var leader_id := int(leader.leader)
+		row.pressed.connect(func():
+			command.emit({"verb": "assign_governor", "leader": leader_id, "star": star, "_reply_to": "governor_changed"}))
+	return row
+
+
+## A governor assigned or released: the flyout closes and the pane shows the system again.
+func governor_changed(_result: Dictionary) -> void:
+	close_leaders()
+	command.emit({"verb": "query", "what": "system", "star": star, "_reply_to": "refresh_system"})
+
+
+func refresh_system(result: Dictionary) -> void:
+	if result.get("ok", false) and visible:
+		show_system(result, star_name.text, star)
+
+
 func close() -> void:
+	close_leaders()
 	if not visible:
 		return
 	_slide(false)

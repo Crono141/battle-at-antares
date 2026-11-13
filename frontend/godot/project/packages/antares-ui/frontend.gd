@@ -1681,23 +1681,37 @@ func _smoke_galaxy(shots: String) -> bool:
 	# The colony pane (WP3.4): the first of the player's colonies here opens beside the pane.
 	if not await _smoke_colony(pane, shots):
 		return false
-	# The governor opens the colony leaders on this system (legacy); Esc comes back to the pane.
+	# The governor opens the colony leaders' flyout (owner, 2026-11-13); a leader picked there
+	# governs the system (the pane shows it), and the flyout closes.
 	var click := InputEventMouseButton.new()
 	click.button_index = MOUSE_BUTTON_LEFT
 	click.pressed = true
 	pane.governor.gui_input.emit(click)
-	if not await _wait_screen(Screens.LEGACY, 10.0):
-		await host.smoke_fail("the governor did not open the leaders")
-		return false
-	await get_tree().create_timer(2.0).timeout
-	if shots != "":
-		game.get_frame_image().save_png(shots + "/legacy-leaders.png")
-	game.send_key(KEY_ESCAPE, false, false, false)
-	if not await _wait_screen(Screens.MAIN, 10.0):
-		await host.smoke_fail("the leaders did not return to the galaxy")
-		return false
 	await get_tree().create_timer(1.0).timeout
-	print("smoke: leaders opened from the governor and closed; pane back: %s" % pane.visible)
+	var flyout: Control = pane._leaders_flyout
+	var leader_rows: Array = flyout.find_children("*", "Button", true, false).filter(func(b: Button) -> bool: return b.theme_type_variation == &"ListItem") if flyout else []
+	print("smoke: governor flyout: shown %s, %d leaders, screen %d" % [flyout != null and flyout.visible, leader_rows.size(), native_screen])
+	if shots != "":
+		await host.shot(shots + "/native-governor-flyout.png")
+	if flyout == null or not flyout.visible or native_screen != Screens.MAIN:
+		await host.smoke_fail("the governor did not open the leaders' flyout")
+		return false
+	var governor_before := int(pane.system.get("governor", {}).get("leader", -1))
+	var pick: Button = null
+	for leader_row: Button in leader_rows:
+		if not leader_row.disabled:
+			pick = leader_row
+			break
+	if pick:
+		pick.pressed.emit()
+		await get_tree().create_timer(1.0).timeout
+		var after := int(pane.system.get("governor", {}).get("leader", -1))
+		print("smoke: governor assigned from the flyout: %d -> %d, flyout closed %s" % [governor_before, after, not flyout.visible])
+		if after == governor_before or after < 0 or flyout.visible:
+			await host.smoke_fail("the flyout did not assign a governor")
+			return false
+	else:
+		pane.close_leaders()
 	pane.close()
 	await get_tree().create_timer(1.0).timeout
 	print("smoke: pane closed, camera back at scale %.1f" % galaxy.legacy_scale())

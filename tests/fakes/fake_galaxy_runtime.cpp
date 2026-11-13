@@ -318,3 +318,9 @@ namespace MAINPUPS {
 namespace fields {
     int16_t __cdecl Get_List_Field(int16_t, int16_t, int16_t, const char*, const char*, int32_t, int8_t*, uint8_t*, int16_t, uint8_t*, int32_t, s_animation_header*, int32_t, const char*) { return -1; }
 } // namespace fields
+
+// The governor flyout (galaxy_queries.cpp, owner 2026-11-13).
+namespace OFFICER {
+    int8_t __cdecl Get_Star_Leader_ETA(int16_t, int16_t, int16_t) { return 5; }
+    void __cdecl Assign_Leader_To_Star(s_player*, s_leader_data*, s_star_data*, int8_t) {}
+} // namespace OFFICER
