@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/todo.h"
 
 #include "antares/cosmetic_random.h"
 
@@ -167,6 +168,12 @@ namespace REPORT {
                     }
                 }
 
+                if (should_show && antares::todo::Active()) {
+                    // WP3.4d: the summary waits in the to-do list (read there: the native popup).
+                    antares::todo::Note_Summary();
+                    REPORT::displayed_msgs |= (uint8_t)(1u << (uint8_t)player_idx);
+                    return 0;
+                }
                 if (should_show) {
                     result = 4;
                     if (show_summary != 0) {
@@ -188,6 +195,25 @@ namespace REPORT {
         for (int16_t star_idx = 0; star_idx < MOX::NUM_STARS; ++star_idx) {
             if (MOX::star[star_idx].colonize_player == player_idx) {
                 if (struct_::Test_Bit_Field(done_colonize_check, star_idx) == 0) {
+                    // WP3.4d: with the to-do list, a ship's prompt waits there (a colony base's
+                    // planet is still asked at once).
+                    const int8_t status = Colonization_At_Star(player_idx, star_idx, show_dialog, antares::todo::Active());
+                    if (status != 0) {
+                        return status;
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+
+    // One star's colonisation prompt (REPORT::Colonization's loop body): `defer` parks a ship's
+    // prompt in the to-do list instead (the star is marked done for this turn's chain, not
+    // ignored: it comes back next turn if still unanswered).
+    int8_t __cdecl Colonization_At_Star(int16_t player_idx, int16_t star_idx, int8_t show_dialog, bool defer) {
+        {
+            {
+                {
                     s_colony* colony_base = Player_Colony_Base_At_Star(player_idx, star_idx);
                     s_ship_data* colony_ship = Player_Ship_Type_At_Star(player_idx, SHIP_TYPE_COLONY, star_idx, 0);
                     s_ship_data* colony_prompt_ship = colony_ship;
@@ -208,6 +234,11 @@ namespace REPORT {
                     }
 
                     if (colony_base != nullptr || (has_ships && ((MOX::star[star_idx].ignore_colony_ships >> player_idx) & 1) == 0)) {
+                        if (defer && colony_base == nullptr) {
+                            struct_::Set_Bit_Field(done_colonize_check, star_idx);
+                            antares::todo::Note_Colonize(star_idx);
+                            return 0;
+                        }
                         if (show_dialog != 0) {
                             do {
                                 bool is_colony = false;
@@ -517,6 +548,13 @@ namespace REPORT {
         int8_t has_officer = 0;
         int8_t officer_id = MOX::player[player_idx].officer_for_hire;
 
+        if (officer_id != -1 && antares::todo::Active() && hire_flag != 2) {
+            // WP3.4d: the offer waits in the to-do list (todo_hire answers it; 2 = from there);
+            // unanswered, the turn's end declines it.
+            antares::todo::Note_Hire(officer_id);
+            return 0;
+        }
+
         if (officer_id != -1) {
             has_officer = 1;
 
@@ -635,6 +673,25 @@ namespace REPORT {
                 if (MOX::player[player_idx].traits[27] != 0 && has_special == 0) {
                     star->just_visited &= ~(1 << (uint8_t)player_idx);
                     return 0;
+                }
+
+                if (antares::todo::Active()) {
+                    // WP3.4d: the discovery is news in the to-do list. What the window decides
+                    // (a marooned leader joining, MAINPUPS::New_System_Discovery_Popup's first
+                    // input) is decided here, star by star in the window's order.
+                    const int16_t star_idx = (int16_t)(star - MOX::star);
+                    const char special_type = REPORT::Draw_Special(star, player_idx);
+                    int16_t leader_idx = -1;
+                    bool joined = false;
+                    if (special_type == SYSTEM_SPECIAL_MAROONED_HERO) {
+                        joined = OFFICER::Marooned_Hero_At_Star_Can_Join(star_idx, &leader_idx, MOX::PLAYER_NUM);
+                    }
+                    antares::todo::Note_New_System(star_idx, (int16_t)special_type, leader_idx, joined);
+                    star->just_visited &= ~(1 << (uint8_t)player_idx);
+                    if (has_special != 0) {
+                        star->system_special = SYSTEM_SPECIAL_NO_SPECIAL;
+                    }
+                    continue;
                 }
 
                 if (show_popup != 0) {
@@ -872,6 +929,9 @@ namespace REPORT {
     }
 
     int8_t __cdecl Empty_Colony_Queue(int16_t player_idx, int8_t do_jump) {
+        if (antares::todo::Active()) {
+            return 0; // WP3.4d: the to-do list reads empty queues itself and asks at the turn's end
+        }
         s_colony* target_colony = nullptr;
         int16_t num_colonies = MOX::NUM_COLONIES;
 

@@ -69,6 +69,8 @@ namespace REPORT {
      * @param show_dialog Nonzero to show the placement UI.
      */
     int8_t __cdecl Colonization(int16_t player_idx, int8_t show_dialog);
+    // One star's prompt; `defer` parks a ship's prompt in the to-do list (WP3.4d).
+    int8_t __cdecl Colonization_At_Star(int16_t player_idx, int16_t star_idx, int8_t show_dialog, bool defer);
 
     /**
      * Checks for queued reports for a player and optionally displays them.

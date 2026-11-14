@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/todo.h"
 #include "string_overrides.h"
 
 #include "lua/lua_game_ship_identity.h"
@@ -2568,6 +2569,18 @@ namespace OFFICER {
             // Logic to determine if the officer/leader is active or in a pool
             if (((leader->status == 1) && (leader->location != -1)) || (leader->status == 0)) {
                 is_active = true;
+            }
+
+            if (is_active && (leader->player_index == (int8_t)player_idx) && (leader->display_level_popup != 0) && antares::todo::Active()) {
+                // WP3.4d: news in the to-do list, at the leader's star when it has one.
+                int16_t loc = leader->location;
+                if (leader->type == LEADER_TYPE_SHIP && loc > -1) {
+                    loc = MOX::ship[loc].location;
+                    loc = loc < SHIP_LOCATION_MOVING_OFFSET || loc >= SHIP_LOCATION_WORMHOLE_OFFSET ? HAROLD::Absolute_Location(loc) : -1;
+                }
+                antares::todo::Note_Leader_Level(i, loc >= 0 && loc < MOX::NUM_STARS ? loc : -1);
+                leader->display_level_popup = 0;
+                continue;
             }
 
             if (is_active && (leader->player_index == (int8_t)player_idx) && (leader->display_level_popup != 0)) {

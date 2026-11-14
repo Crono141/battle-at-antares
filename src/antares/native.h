@@ -144,6 +144,9 @@ namespace antares::native {
     bool Popup(const char* popup, const char* text, const std::string& fields, int32_t* answer);
     // A frontend answers "popup" requests (a legacy window can skip its own drawing up front).
     bool Popups_Native();
+    // A frontend keeps the start-of-turn to-do list (WP3.4d, "todo"): the reports chain parks its
+    // items instead of showing them one by one (antares/todo.h).
+    bool Todo_Native();
     // A native button was pressed: the game's click sound, played by the game thread while a
     // native screen runs or a request waits (any thread).
     void Click_Sound();

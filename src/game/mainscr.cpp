@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/native.h"
+#include "antares/todo.h"
 #include "config/config_loader.h"
 #include "config/config_snapshot.h"
 #include "game/build_queue.h"
@@ -2895,6 +2896,7 @@ namespace MAINSCR {
     }
 
     void __cdecl Do_Next_Turn(int16_t* exit_flag, int8_t auto_mode) {
+        antares::todo::Before_Next_Turn(); // WP3.4d: what the to-do list leaves open is settled
         MOX::at_least_one_report = 0;
         MOX::previous_report = 0;
         MOX::just_moved_stack = 0;

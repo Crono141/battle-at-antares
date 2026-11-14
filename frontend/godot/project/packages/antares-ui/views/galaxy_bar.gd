@@ -28,7 +28,8 @@ var tax_rate := 0 # the rate in force (the tax drop-down arms it)
 
 func _ready() -> void:
 	game_button.pressed.connect(func(): action.emit("game_menu"))
-	$Row/Turn.pressed.connect(func(): command.emit({"verb": "end_turn"}))
+	# TURN ends the turn, or as TO DO (n) drops the to-do list first (WP3.4d).
+	$Row/Turn.pressed.connect(func(): action.emit("turn"))
 	# The tax rate drops down on a click, as command points and research (owner, 2026-11-13).
 	money.pressed.connect(func(): action.emit("tax_rate"))
 	# Freighters: the game's scrap step (SCREEN_SCRAP_FREIGHTERS, 35), as the legacy figure.
@@ -80,6 +81,11 @@ func show_game_menu(open: bool) -> void:
 
 
 ## The `empire` snapshot: what the legacy side bar shows (WP3.3d).
+## The to-do list's count (WP3.4d): TURN reads TO DO (n) while items wait.
+func show_todo(open: int) -> void:
+	$Row/Turn.text = "TO DO (%d)" % open if open > 0 else "TURN"
+
+
 func show_empire(empire: Dictionary) -> void:
 	if not empire.get("ok", false):
 		return

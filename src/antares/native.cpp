@@ -65,7 +65,8 @@ namespace antares::native {
             KIND_WARNING = 4,
             KIND_CHOOSE = 8,
             KIND_TEXT = 16,
-            KIND_POPUP = 32 };
+            KIND_POPUP = 32,
+            KIND_TODO = 64 };
 
         uint32_t Kind_Bit(const std::string& kind) {
             return kind == "message" ? KIND_MESSAGE
@@ -74,6 +75,7 @@ namespace antares::native {
                 : kind == "choose"   ? KIND_CHOOSE
                 : kind == "text"     ? KIND_TEXT
                 : kind == "popup"    ? KIND_POPUP
+                : kind == "todo"     ? KIND_TODO
                                      : 0;
         }
 
@@ -851,6 +853,10 @@ namespace antares::native {
 
     bool Popups_Native() {
         return Claimed_Kind(KIND_POPUP);
+    }
+
+    bool Todo_Native() {
+        return Claimed_Kind(KIND_TODO);
     }
 
     std::string Leader_Json(int16_t leader, int16_t owner) {

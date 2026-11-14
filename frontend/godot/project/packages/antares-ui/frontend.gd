@@ -15,7 +15,7 @@ extends Node
 ## The game's screens (SCREEN_* values, res://screens.gd) this package draws natively.
 @export var claimed_screens: Array[int] = [Screens.MAIN, Screens.SHOW_COMMAND_POINTS]
 ## The request kinds its dialog answers; the rest ("choose") keep the legacy popup.
-@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup", "choose"]
+@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup", "choose", "todo"]
 ## Start with the native views on (Ctrl+G switches); `-- --smoke` without `--native` starts off.
 @export var start_native := true
 
@@ -192,7 +192,7 @@ func _set_native(on: bool) -> void:
 		game.claim_screen(screen, on)
 	game.claim_requests(claimed_requests if on else PackedStringArray())
 	if on:
-		for what in ["empire", "galaxy", "fleets", "options"]:
+		for what in ["empire", "galaxy", "fleets", "options", "todo"]:
 			_send({"verb": "watch", "what": what})
 	mode_button.text = "Legacy galaxy (Ctrl+G)" if on else "Native galaxy (Ctrl+G)"
 
@@ -690,9 +690,42 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 		_send(dict)
 
 
+## The to-do list's last answer (WP3.4d, a watched query).
+var _todo := {}
+
+
+## A to-do item picked (WP3.4d): what it needs opens; news is marked read.
+func _on_todo_item(item: Dictionary) -> void:
+	_view("todo_panel").close()
+	var star := int(item.get("star", -1))
+	match String(item.get("kind", "")):
+		"build":
+			# The colony and its build list, as the game's jump to the colony screen did.
+			var colony := int(item.colony)
+			_open_system(star)
+			await get_tree().create_timer(0.5).timeout
+			if native_screen != Screens.MAIN:
+				return
+			_on_colony_chosen(colony)
+			await get_tree().create_timer(0.4).timeout
+			if native_screen == Screens.MAIN and not _view("build_pane").visible:
+				_open_build_pane(colony, false)
+		"colonize":
+			_send({"verb": "todo_colonize", "star": star})
+		"hire":
+			_send({"verb": "todo_hire"})
+		"summary":
+			_send({"verb": "todo_read", "item": int(item.item)})
+			_send({"verb": "open", "screen": Screens.TURN_SUMMARY})
+		_: # news: a system explored, a leader's level
+			_send({"verb": "todo_read", "item": int(item.item)})
+			if star >= 0:
+				_open_system(star)
+
+
 ## The drop-downs and slide-outs that buttons open (owner, 2026-11-12): one at a time, over
 ## everything else (the system pane, the fleet panel).
-const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel"]
+const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel"]
 
 
 ## Closes the flyouts a click at `at` falls outside of; true when the click landed on the map
@@ -795,6 +828,22 @@ func _on_view_action(action_name: String) -> void:
 			_send({"verb": "open", "screen": Screens.DISTANCE_BETWEEN_STARS})
 		"fleet_next", "fleet_previous":
 			_cycle_fleet(0 if action_name == "fleet_next" else 1)
+		"turn":
+			# WP3.4d: with items waiting the to-do list drops down (END TURN is in it); otherwise
+			# the turn ends, as before.
+			var todo := _view("todo_panel")
+			if todo.visible:
+				todo.close()
+			elif int(_todo.get("open", 0)) > 0:
+				if not todo.item_chosen.is_connected(_on_todo_item):
+					todo.item_chosen.connect(_on_todo_item)
+					todo.end_turn.connect(func(): _send({"verb": "end_turn"}))
+				_bring_up(todo)
+				todo.show_todo(_todo)
+				var bar := _view("galaxy_bar")
+				todo.open_at(bar.get_node("Row/Turn").get_global_rect().get_center().x)
+			else:
+				_send({"verb": "end_turn"})
 		"tax_rate":
 			var tax := _view("tax_panel")
 			if tax.visible:
@@ -913,6 +962,12 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 			galaxy.set_galaxy(result)
 		"fleets":
 			galaxy.set_fleets(result)
+		"todo":
+			_todo = result
+			_view("galaxy_bar").show_todo(int(result.get("open", 0)))
+			var todo_view: Control = _views.get("todo_panel")
+			if todo_view != null and todo_view.visible:
+				todo_view.show_todo(result)
 			if _fleet_ship >= 0 and native_screen == Screens.MAIN:
 				_refresh_fleet() # a turn, or an order, changed the fleets
 		"options":
@@ -1361,6 +1416,12 @@ func _smoke_native() -> void:
 	if "--popups" in OS.get_cmdline_user_args():
 		await _smoke_popups(shots)
 		return
+	if "--todo-only" in OS.get_cmdline_user_args():
+		# WP3.4d: only the turns and the to-do list (saves whose other steps don't fit).
+		if await _smoke_turns() and await _smoke_todo(shots):
+			game.request_game_quit()
+			print("smoke: asked the game to quit")
+		return
 	var empire: Dictionary = await _query("empire")
 	print("smoke: empire %s" % empire)
 	if not await _smoke_tax(int(empire.tax_rate)):
@@ -1486,36 +1547,12 @@ func _smoke_native() -> void:
 		await host.smoke_fail("research did not close back to the native galaxy")
 		return
 	print("smoke: research opened and closed")
-	var turns := 1
-	for arg in OS.get_cmdline_user_args():
-		if arg.begins_with("--turns="):
-			turns = int(arg.substr(8))
-	for turn in turns:
-		var visit: int = game.get_native_visit()
-		_send({"verb": "end_turn"})
-		# Next-turn processing and reports are legacy: answer them as a player would with Esc,
-		# and native message boxes with OK / Yes.
-		var waited := 0.0
-		while (native_screen != Screens.MAIN or game.get_native_visit() == visit) and waited < 90.0:
-			await get_tree().create_timer(1.0).timeout
-			waited += 1.0
-			if int(waited) % 10 == 0:
-				print("smoke: waiting %.0f s, screen %d, frames %d" % [waited, native_screen, game.get_stats().frames])
-			if not _smoke_answer() and native_screen == Screens.LEGACY:
-				# Turn reports close with their CLOSE button (game 442,352); other prompts with Esc.
-				if int(waited) % 2 == 0:
-					await host.click_game(Vector2(442, 352))
-				else:
-					game.send_key(KEY_ESCAPE, false, false, false)
-		if native_screen != Screens.MAIN or game.get_native_visit() == visit:
-			var frame: Image = game.get_frame_image()
-			if frame:
-				frame.save_png("user://smoke-stuck.png")
-				print("smoke: legacy frame saved to %s" % ProjectSettings.globalize_path("user://smoke-stuck.png"))
-			await host.smoke_fail("the native galaxy did not come back after the turn")
-			return
-		empire = await _query("empire")
-		print("smoke: after turn %d (%.0f s): %s" % [turn + 1, waited, empire])
+	if not await _smoke_turns():
+		return
+	# The to-do list (WP3.4d): the turn's items parked instead of shown one by one; TURN reads
+	# TO DO (n) and drops the list; each kind opens what it needs.
+	if not await _smoke_todo(shots):
+		return
 	# The turn summary again from the galaxy (WP3.4c): a native popup, then back to the galaxy.
 	var summary_visit := int(game.get_native_visit())
 	_send({"verb": "open", "screen": 40})
@@ -1610,7 +1647,7 @@ func _smoke_galaxy(shots: String) -> bool:
 	print("smoke: system pane '%s', %d planets, %d fleets, governor '%s', camera at scale %.1f, orbits alpha %.2f" % [
 		pane.star_name.text, pane.system.get("planets", []).size(), pane.system.get("fleets", []).size(),
 		governor.get("name", ""), galaxy.legacy_scale(), $Galaxy/Orbits.modulate.a])
-	print("smoke: governor skills %s" % governor.get("skills", []))
+	print("smoke: governor skills %s" % str(governor.get("skills", [])))
 	# Select each colonisable planet in turn (as a map click does); its potential arrives.
 	for planet: Dictionary in pane.system.get("planets", []):
 		if planet.type != "gas_giant":
@@ -2648,6 +2685,164 @@ func _smoke_popups(shots: String) -> void:
 		return
 	game.request_game_quit()
 	print("smoke: asked the game to quit")
+
+
+## Ends `--turns=N` turns (default 1), answering what they ask; false when the galaxy did not come back.
+func _smoke_turns() -> bool:
+	var empire := {}
+	var turns := 1
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--turns="):
+			turns = int(arg.substr(8))
+	for turn in turns:
+		var visit: int = game.get_native_visit()
+		_send({"verb": "end_turn"})
+		# Next-turn processing and reports are legacy: answer them as a player would with Esc,
+		# and native message boxes with OK / Yes.
+		var waited := 0.0
+		while (native_screen != Screens.MAIN or game.get_native_visit() == visit) and waited < 90.0:
+			await get_tree().create_timer(1.0).timeout
+			waited += 1.0
+			if int(waited) % 10 == 0:
+				print("smoke: waiting %.0f s, screen %d, frames %d" % [waited, native_screen, game.get_stats().frames])
+			if not _smoke_answer() and native_screen == Screens.LEGACY:
+				# Turn reports close with their CLOSE button (game 442,352); other prompts with Esc.
+				if int(waited) % 2 == 0:
+					await host.click_game(Vector2(442, 352))
+				else:
+					game.send_key(KEY_ESCAPE, false, false, false)
+		if native_screen != Screens.MAIN or game.get_native_visit() == visit:
+			var frame: Image = game.get_frame_image()
+			if frame:
+				frame.save_png("user://smoke-stuck.png")
+				print("smoke: legacy frame saved to %s" % ProjectSettings.globalize_path("user://smoke-stuck.png"))
+			await host.smoke_fail("the native galaxy did not come back after the turn")
+			return false
+		empire = await _query("empire")
+		print("smoke: after turn %d (%.0f s): %s" % [turn + 1, waited, empire])
+	return true
+
+
+func _smoke_todo(shots: String) -> bool:
+	var todo: Dictionary = await _query("todo")
+	var kinds := {}
+	for item: Dictionary in todo.get("items", []):
+		kinds[String(item.kind)] = int(kinds.get(String(item.kind), 0)) + 1
+	var bar_text := String(_view("galaxy_bar").get_node("Row/Turn").text)
+	print("smoke: to-do after the turns: %d open, %d builds, kinds %s, bar '%s'" % [int(todo.get("open", 0)), int(todo.get("builds", 0)), kinds, bar_text])
+	for item: Dictionary in todo.get("items", []):
+		print("smoke: to-do item: %s '%s' done %s" % [item.kind, item.text, item.done])
+	if int(todo.get("open", 0)) > 0 and not bar_text.begins_with("TO DO"):
+		await host.smoke_fail("TURN did not read TO DO (n)")
+		return false
+	if int(todo.get("open", 0)) == 0:
+		return true
+	_on_view_action("turn") # the bar's TO DO: the list drops down
+	await get_tree().create_timer(0.8).timeout
+	var panel := _view("todo_panel")
+	print("smoke: to-do list shown %s with %d rows" % [panel.visible, panel.items_box.get_child_count()])
+	if shots != "":
+		await host.shot(shots + "/native-todo.png")
+	if not panel.visible:
+		await host.smoke_fail("TO DO did not drop the list")
+		return false
+	# END TURN with colonies that have nothing to build asks once first.
+	if int(todo.get("builds", 0)) > 0:
+		panel.end_button.pressed.emit()
+		await get_tree().create_timer(0.3).timeout
+		print("smoke: END TURN with empty queues asks first: %s ('%s')" % [panel.ask.visible, panel.ask.text])
+		if shots != "":
+			await host.shot(shots + "/native-todo-ask.png")
+		panel.back_button.pressed.emit()
+	# A news item: read once (it drops off), its system opened.
+	for item: Dictionary in todo.get("items", []):
+		if bool(item.news) and not bool(item.done) and String(item.kind) != "summary":
+			_on_todo_item(item)
+			await get_tree().create_timer(1.5).timeout
+			var again: Dictionary = await _query("todo")
+			var still := false
+			for other: Dictionary in again.get("items", []):
+				if int(other.item) == int(item.item) and not bool(other.done):
+					still = true
+			print("smoke: to-do news '%s' read: dropped off %s, system pane %s" % [item.text, not still, _view("system_pane").visible])
+			if still:
+				await host.smoke_fail("a read news item stayed on the list")
+				return false
+			_view("system_pane").close()
+			await get_tree().create_timer(0.8).timeout
+			break
+	# A colony with nothing to build: the colony pane and its build list open.
+	for item: Dictionary in todo.get("items", []):
+		if String(item.kind) == "build":
+			_on_todo_item(item)
+			await get_tree().create_timer(2.0).timeout
+			print("smoke: to-do build for colony %d: colony pane %s on %d, build pane %s" % [int(item.colony), _view("colony_pane").visible,
+				int(_view("colony_pane").colony_id), _view("build_pane").visible])
+			if shots != "":
+				await host.shot(shots + "/native-todo-build.png")
+			_view("build_pane").cancel()
+			_view("system_pane").close()
+			await get_tree().create_timer(0.8).timeout
+			break
+	# A colony ship that arrived: the chain's prompt for that star (native popups: a preselected
+	# planet's Yes/No, or the planet picker zoomed into the system), answered to colonise.
+	for item: Dictionary in todo.get("items", []):
+		if String(item.kind) == "colonize" and not bool(item.done):
+			_on_todo_item(item)
+			var waited := 0.0
+			var asked: Array = []
+			while waited < 15.0:
+				await get_tree().create_timer(0.4).timeout
+				waited += 0.4
+				if not overlay.visible:
+					if not asked.is_empty() and waited > 3.0:
+						break
+					continue
+				var dialog: Control = _views["dialog"]
+				asked.append("%s/%s" % [dialog._kind, dialog.popup_name])
+				if shots != "" and asked.size() == 1:
+					await host.shot(shots + "/native-todo-colonize.png")
+				if dialog._kind == "popup" and dialog.options.size() > 0:
+					for i in dialog.options.size():
+						if bool(dialog.options[i].get("enabled", true)):
+							dialog._answer(dialog.OPTION_ANSWER + i)
+							break
+				elif dialog._kind == "text":
+					dialog._answer(0) # keep the star's name
+				else:
+					dialog._answer(1) # Yes / OK
+			# The landing (legacy, with animations on) plays, then the galaxy comes back.
+			var back := 0.0
+			while native_screen != Screens.MAIN and back < 40.0:
+				await get_tree().create_timer(1.0).timeout
+				back += 1.0
+				if not _smoke_answer() and native_screen == Screens.LEGACY and int(back) % 3 == 0:
+					game.send_key(KEY_ESCAPE, false, false, false)
+			await get_tree().create_timer(1.0).timeout
+			var again: Dictionary = await _query("todo")
+			var done := false
+			for other: Dictionary in again.get("items", []):
+				if int(other.item) == int(item.item):
+					done = bool(other.done)
+			print("smoke: to-do colonize '%s': asked %s, done %s, galaxy back after %.0f s" % [item.text, asked, done, back])
+			if not done:
+				await host.smoke_fail("colonising from the to-do list left the item open")
+				return false
+			break
+	# A leader's offer: the native leader_hire popup, answered REJECT.
+	for item: Dictionary in todo.get("items", []):
+		if String(item.kind) == "hire" and not bool(item.done):
+			_on_todo_item(item)
+			var waited := 0.0
+			while not overlay.visible and waited < 5.0:
+				await get_tree().create_timer(0.2).timeout
+				waited += 0.2
+			print("smoke: to-do hire: popup '%s' shown %s" % [_views["dialog"].popup_name if _views.has("dialog") else "", overlay.visible])
+			if overlay.visible:
+				(_views["dialog"]._popup_buttons.get_child(0) as Button).pressed.emit()
+			await get_tree().create_timer(1.0).timeout
+			break
+	return true
 
 
 ## The smoke test answers native message boxes with OK / Yes.

@@ -324,3 +324,20 @@ namespace OFFICER {
     int8_t __cdecl Get_Star_Leader_ETA(int16_t, int16_t, int16_t) { return 5; }
     void __cdecl Assign_Leader_To_Star(s_player*, s_leader_data*, s_star_data*, int8_t) {}
 } // namespace OFFICER
+
+// The to-do list (todo.cpp, WP3.4d): the reports chain's pieces it calls.
+namespace MAINPUPS {
+    const char* __cdecl System_Special_Desc(int16_t) { return ""; }
+} // namespace MAINPUPS
+namespace OFFICER {
+    char* __cdecl Leader_Name(int16_t, char, void*) {
+        static char name[] = "Leader";
+        return name;
+    }
+    void __cdecl Set_Officer_To_Player(int16_t, int16_t, uint8_t) {}
+} // namespace OFFICER
+namespace REPORT {
+    int8_t __cdecl Colonization_At_Star(int16_t, int16_t, int8_t, bool) { return 0; }
+    int8_t __cdecl Has_Officer_For_Hire(int16_t, int8_t) { return 0; }
+    s_ship_data* __cdecl Player_Ship_Type_At_Star(int16_t, int16_t, int16_t, int8_t) { return nullptr; }
+} // namespace REPORT

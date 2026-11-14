@@ -174,6 +174,7 @@ orion2re_add_unit_test(test_mainscr_reload
         src/game/mainscr.cpp
         src/game/mainscr_main.cpp
     FAKE_SOURCES
+        tests/fakes/fake_todo_inactive.cpp
         tests/fakes/fake_main_screen_hud_runtime.cpp
     LINK_SDL
 )
@@ -549,6 +550,7 @@ orion2re_add_unit_test(test_native_bridge
         src/antares/colony_queries.cpp
         src/antares/save_queries.cpp
         src/antares/popup_preview.cpp
+        src/antares/todo.cpp
         src/config/text_encoding.cpp
         vendors/yyjson/src/yyjson.c
     FAKE_SOURCES
@@ -1031,6 +1033,7 @@ orion2re_add_unit_test(test_report
     PRODUCTION_SOURCES
         src/game/report.cpp
     FAKE_SOURCES
+        tests/fakes/fake_todo_inactive.cpp
         tests/fakes/fake_report_runtime.cpp
 )
 
@@ -1282,6 +1285,7 @@ orion2re_add_unit_test(test_ground_commando
         src/game/officer.cpp
         src/lua/lua_game_ship_identity.cpp
     FAKE_SOURCES
+        tests/fakes/fake_todo_inactive.cpp
         tests/fakes/fake_ground_commando_runtime.cpp
 )
 
@@ -1897,6 +1901,7 @@ orion2re_add_unit_test(test_netturn_host_selection
         src/game/serialization.cpp
         src/game/sha256.cpp
     FAKE_SOURCES
+        tests/fakes/fake_todo_inactive.cpp
         tests/fakes/fake_allocate.cpp
         tests/fakes/fake_exitm.cpp
         tests/fakes/fake_fields_helpers_runtime.cpp

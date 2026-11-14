@@ -1,0 +1,53 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://packages/antares-ui/views/todo_panel.gd" id="1"]
+[ext_resource type="Script" path="res://packages/antares-ui/views/fit_scroll.gd" id="fit"]
+
+[node name="TodoPanel" type="PanelContainer"]
+custom_minimum_size = Vector2(400, 0)
+offset_right = 400.0
+offset_bottom = 40.0
+theme_type_variation = &"Pane"
+script = ExtResource("1")
+
+[node name="Fit" type="ScrollContainer" parent="."]
+layout_mode = 2
+horizontal_scroll_mode = 0
+script = ExtResource("fit")
+
+[node name="Box" type="VBoxContainer" parent="Fit"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="Fit/Box"]
+layout_mode = 2
+theme_type_variation = &"Heading"
+text = "To do"
+
+[node name="Items" type="VBoxContainer" parent="Fit/Box"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="Ask" type="Label" parent="Fit/Box"]
+visible = false
+custom_minimum_size = Vector2(380, 0)
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="Buttons" type="HBoxContainer" parent="Fit/Box"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 8
+
+[node name="EndTurn" type="Button" parent="Fit/Box/Buttons"]
+custom_minimum_size = Vector2(150, 34)
+layout_mode = 2
+focus_mode = 0
+text = "END TURN"
+
+[node name="Back" type="Button" parent="Fit/Box/Buttons"]
+visible = false
+custom_minimum_size = Vector2(150, 34)
+layout_mode = 2
+focus_mode = 0
+text = "NOT YET"

@@ -25,6 +25,8 @@ namespace antares::commands::internal {
     void Add_Save_Entries(std::vector<s_entry>* table);
     // WP3.4c: `preview_popup`, a developer verb (popup_preview.cpp).
     void Add_Preview_Entries(std::vector<s_entry>* table);
+    // WP3.4d: the to-do list's query and commands (todo.cpp).
+    void Add_Todo_Entries(std::vector<s_entry>* table);
     // A leader's card for native views and popups (galaxy_queries.cpp): name, title, level, type,
     // portrait, skills with bonuses for `owner`.
     void Leader_Card(int16_t leader_idx, int16_t owner, s_out g);
