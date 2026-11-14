@@ -9,5 +9,8 @@ namespace antares::todo {
     void Note_Summary() {}
     void Note_Colonize(int16_t) {}
     void Note_Hire(int16_t) {}
+    int32_t Open_Count() {
+        return 0;
+    }
     void Before_Next_Turn() {}
 } // namespace antares::todo

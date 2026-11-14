@@ -2,6 +2,7 @@
 
 #include "antares/commands.h"
 #include "antares/commands_internal.h"
+#include "antares/todo.h"
 
 #include "antares/identity.h"
 #include "antares/rng_trace.h"
@@ -137,7 +138,13 @@ namespace antares::commands {
         // ---- Commands ----
 
         // What the legacy galaxy does when the turn button is pressed (Main_Screen, next_button).
-        void End_Turn(int16_t, const s_args&, s_out&) {
+        void End_Turn(int16_t, const s_args&, s_out& out) {
+            // WP3.4d: the turn waits until the to-do list is worked through (owner, 2026-11-13).
+            if (const int32_t open = todo::Open_Count(); open > 0) {
+                out.Int("open", open);
+                out.Fail("refused", std::to_string(open) + (open == 1 ? " to-do item is" : " to-do items are") + " still open");
+                return;
+            }
             RUSS::Assert_Settings();
             MOX::auto_turn_exit = 0;
             MAINSCR::next_turn_hit = 1;

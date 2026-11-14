@@ -2546,6 +2546,7 @@ func _smoke_auto_turns(shots: String) -> void:
 			notices.append(text)
 		print("smoke: turn notice '%s': native galaxy %s, legacy %s" % [text, galaxy.visible, legacy.visible])
 	game.turn_notice.connect(seen)
+	await _smoke_clear_todo()
 	_send({"verb": "end_turn"})
 	var waited := 0.0
 	while notices.size() < 3 and waited < 60.0:
@@ -2695,6 +2696,8 @@ func _smoke_turns() -> bool:
 		if arg.begins_with("--turns="):
 			turns = int(arg.substr(8))
 	for turn in turns:
+		if not await _smoke_clear_todo():
+			return false
 		var visit: int = game.get_native_visit()
 		_send({"verb": "end_turn"})
 		# Next-turn processing and reports are legacy: answer them as a player would with Esc,
@@ -2746,14 +2749,18 @@ func _smoke_todo(shots: String) -> bool:
 	if not panel.visible:
 		await host.smoke_fail("TO DO did not drop the list")
 		return false
-	# END TURN with colonies that have nothing to build asks once first.
-	if int(todo.get("builds", 0)) > 0:
-		panel.end_button.pressed.emit()
-		await get_tree().create_timer(0.3).timeout
-		print("smoke: END TURN with empty queues asks first: %s ('%s')" % [panel.ask.visible, panel.ask.text])
-		if shots != "":
-			await host.shot(shots + "/native-todo-ask.png")
-		panel.back_button.pressed.emit()
+	# Nothing may be ignored: END TURN is locked and the game refuses the turn while items are open.
+	var refused := {}
+	_send({"verb": "end_turn"}, func(result: Dictionary): refused["r"] = result)
+	var waited_refusal := 0.0
+	while not refused.has("r") and waited_refusal < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited_refusal += 0.1
+	var refusal: Dictionary = refused.get("r", {})
+	print("smoke: END TURN locked %s ('%s'); end_turn answered %s" % [panel.end_button.disabled, panel.note.text, refusal])
+	if not panel.end_button.disabled or refusal.get("ok", true) or String(refusal.get("error", "")) != "refused":
+		await host.smoke_fail("the turn could end with to-do items open")
+		return false
 	# A news item: read once (it drops off), its system opened.
 	for item: Dictionary in todo.get("items", []):
 		if bool(item.news) and not bool(item.done) and String(item.kind) != "summary":
@@ -2842,7 +2849,62 @@ func _smoke_todo(shots: String) -> bool:
 				(_views["dialog"]._popup_buttons.get_child(0) as Button).pressed.emit()
 			await get_tree().create_timer(1.0).timeout
 			break
+	# The rest answered (news read, empty queues given trade goods, ships' prompts cancelled):
+	# then the bar reads TURN again and END TURN unlocks.
+	if not await _smoke_clear_todo():
+		return false
+	await get_tree().create_timer(0.5).timeout
+	bar_text = String(_view("galaxy_bar").get_node("Row/Turn").text)
+	print("smoke: to-do worked through: bar '%s'" % bar_text)
+	if bar_text != "TURN":
+		await host.smoke_fail("the bar did not read TURN with the list worked through")
+		return false
 	return true
+
+
+## Answers every open to-do item as a quick player would (news read, trade goods for an empty
+## queue, a colony ship's prompt or a leader's offer cancelled/declined: answers too); false when
+## the list does not empty.
+func _smoke_clear_todo() -> bool:
+	for attempt in 40:
+		var todo: Dictionary = await _query("todo")
+		if int(todo.get("open", 0)) == 0:
+			if attempt > 0:
+				print("smoke: to-do list worked through in %d steps" % attempt)
+			return true
+		var item := {}
+		for it: Dictionary in todo.get("items", []):
+			if not bool(it.get("done", false)):
+				item = it
+				break
+		if item.is_empty():
+			break
+		match String(item.kind):
+			"build":
+				_send({"verb": "build_commit", "colony": int(item.colony), "edits": [{"add": -2, "repeat": false}], "auto": false})
+				await get_tree().create_timer(0.3).timeout
+				_smoke_answer()
+			"colonize", "hire":
+				if String(item.kind) == "colonize":
+					_send({"verb": "todo_colonize", "star": int(item.star)})
+				else:
+					_send({"verb": "todo_hire"})
+				var waited := 0.0
+				var answered := 0
+				while waited < 15.0:
+					await get_tree().create_timer(0.3).timeout
+					waited += 0.3
+					if overlay.visible:
+						_views["dialog"]._answer(0) # CANCEL / NO / REJECT
+						answered += 1
+					elif answered > 0 and native_screen == Screens.MAIN:
+						break
+				print("smoke: to-do %s '%s' answered no (%d prompts)" % [item.kind, item.text, answered])
+			_:
+				_send({"verb": "todo_read", "item": int(item.item)})
+		await get_tree().create_timer(0.3).timeout
+	await host.smoke_fail("the to-do list did not empty")
+	return false
 
 
 ## The smoke test answers native message boxes with OK / Yes.

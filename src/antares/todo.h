@@ -6,7 +6,7 @@
 // it would have shown or asked is parked here for the frontend's TO DO flyout.
 //  - to do: colonies with an empty build queue (computed live), colony and outpost ships that
 //    arrived at a system (REPORT::Colonization without a colony base), the leader for hire;
-//  - news, read once: systems explored (with the special found and a marooned leader joining or
+//  - news, read once (it must be read before the turn ends): systems explored (with the special found and a marooned leader joining or
 //    not), leaders gaining a level, the turn summary.
 // The rest of the chain (research pick, diplomacy, events, spy reports, the Antarans, a colony
 // base's planet, occupation policy) still asks at once.
@@ -25,8 +25,13 @@ namespace antares::todo {
     void Note_Colonize(int16_t star);
     void Note_Hire(int16_t leader);
 
-    // MAINSCR::Do_Next_Turn: what the turn's end settles (a leader for hire still waiting is
-    // declined, as the window's REJECT).
+    // Items still open: colonies with nothing to build, news not read, ships and offers not
+    // answered. The turn may not end while any is open (owner, 2026-11-13: nothing is ignored;
+    // cancelling a colony ship's prompt is an answer). 0 when the list is off.
+    int32_t Open_Count();
+
+    // MAINSCR::Do_Next_Turn: what the turn's end settles. With the list kept, nothing should be
+    // left; an offer still waiting (a turn ended some other way) is declined, as the window's REJECT.
     void Before_Next_Turn();
 
 } // namespace antares::todo

@@ -67,6 +67,10 @@ namespace antares::todo {
             }
         }
 
+        bool Empty_Queue(const s_colony& colony) {
+            return colony.owner == MOX::PLAYER_NUM && colony.outpost_flag == 0 && colony.producing[0] == COLONY_PRODUCTION_NONE;
+        }
+
         std::string Star_Name(int16_t star) {
             return star >= 0 && star < MOX::NUM_STARS ? std::string(MOX::star[star].name) : std::string();
         }
@@ -106,6 +110,21 @@ namespace antares::todo {
         s_item item{e_kind::hire};
         item.leader = leader;
         Add(item);
+    }
+
+    int32_t Open_Count() {
+        if (!Active() || MOX::colony == nullptr) {
+            return 0;
+        }
+        Same_Turn();
+        int32_t open = 0;
+        for (int16_t c = 0; c < MOX::NUM_COLONIES; ++c) {
+            open += Empty_Queue(MOX::colony[c]) ? 1 : 0;
+        }
+        for (const s_item& item : s_items) {
+            open += Resolved(item) ? 0 : 1;
+        }
+        return open;
     }
 
     void Before_Next_Turn() {
@@ -151,10 +170,10 @@ namespace antares::todo {
             s_out list = out.Add_List("items");
             s_out item = list;
             // The colonies with nothing to build (REPORT::Empty_Colony_Queue, read live): the game
-            // took the player to each before the turn went on; here they ask once at its end.
+            // took the player to each before the turn went on; here each must get something.
             for (int16_t c = 0; c < MOX::NUM_COLONIES; ++c) {
                 const s_colony& colony = MOX::colony[c];
-                if (colony.owner == MOX::PLAYER_NUM && colony.outpost_flag == 0 && colony.producing[0] == COLONY_PRODUCTION_NONE) {
+                if (Empty_Queue(colony)) {
                     const int16_t planet = colony.planet;
                     Write_Item(list, "build", std::string(HACCESS::Get_Planet_Name(planet)) + ": nothing to build", -1,
                         MOX::planet[planet].star_index, false, false, &open, &item);
