@@ -64,6 +64,35 @@ namespace antares::sprites {
             out->scale = 1;
             out->hd = false;
         }
+
+        // An RGBA image `factor` times smaller, each pixel the average of its block (colour
+        // weighted by alpha, so transparent pixels don't darken the edges).
+        void Shrink(const std::vector<uint8_t>& rgba, int32_t width, int32_t height, int32_t factor, s_frame* out) {
+            out->width = width / factor;
+            out->height = height / factor;
+            out->rgba.assign((size_t)out->width * out->height * 4, 0);
+            for (int32_t y = 0; y < out->height; ++y) {
+                for (int32_t x = 0; x < out->width; ++x) {
+                    uint32_t r = 0, g = 0, b = 0, a = 0;
+                    for (int32_t dy = 0; dy < factor; ++dy) {
+                        const uint8_t* p = rgba.data() + ((size_t)(y * factor + dy) * width + (size_t)x * factor) * 4;
+                        for (int32_t dx = 0; dx < factor; ++dx, p += 4) {
+                            r += p[0] * p[3];
+                            g += p[1] * p[3];
+                            b += p[2] * p[3];
+                            a += p[3];
+                        }
+                    }
+                    uint8_t* o = out->rgba.data() + ((size_t)y * out->width + x) * 4;
+                    if (a > 0) {
+                        o[0] = (uint8_t)(r / a);
+                        o[1] = (uint8_t)(g / a);
+                        o[2] = (uint8_t)(b / a);
+                    }
+                    o[3] = (uint8_t)(a / (uint32_t)(factor * factor));
+                }
+            }
+        }
     } // namespace
 
     namespace {
@@ -189,10 +218,18 @@ namespace antares::sprites {
         // "LBX@N": the entry under the palette that entry N of the same file holds (a monster's
         // ship picture under its own palette, KEN::Load_Player_Ship_Palette's 413-419).
         std::string lbx = requested;
+        // "LBX:N": HD art at most N times the 1x size (the scene windows' full-screen
+        // animations: 30-odd frames at 4x are 600 MB and more as textures).
+        int32_t max_scale = 0;
+        if (const size_t colon = lbx.find(':'); colon != std::string::npos) {
+            max_scale = (int32_t)strtol(lbx.c_str() + colon + 1, nullptr, 10);
+            lbx.erase(colon);
+        }
+        const std::string requested_lbx = lbx;
         int32_t palette_entry = -1;
-        if (const size_t at = requested.find('@'); at != std::string::npos) {
-            lbx = requested.substr(0, at);
-            palette_entry = (int32_t)strtol(requested.c_str() + at + 1, nullptr, 10);
+        if (const size_t at = requested_lbx.find('@'); at != std::string::npos) {
+            lbx = requested_lbx.substr(0, at);
+            palette_entry = (int32_t)strtol(requested_lbx.c_str() + at + 1, nullptr, 10);
         }
         std::vector<uint64_t> storage;
         size_t size = 0;
@@ -257,16 +294,22 @@ namespace antares::sprites {
         // Ships' markings follow their colour set's palette (the masks say which pixels).
         const bool shade_masks = lbx == "SHIPS.LBX";
         if (render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms, shade_masks)) {
+            const int32_t shrink = max_scale > 0 && max_scale < render::SCALE ? render::SCALE / max_scale : 1;
             for (render::s_exported_frame& frame : art) {
                 s_frame copy;
-                copy.width = frame.width;
-                copy.height = frame.height;
                 copy.origin_x = frame.origin_x;
                 copy.origin_y = frame.origin_y;
-                copy.rgba = std::move(frame.rgba);
+                if (shrink > 1) {
+                    Shrink(frame.rgba, frame.width, frame.height, shrink, &copy);
+                    std::vector<uint8_t>().swap(frame.rgba); // freed as it goes
+                } else {
+                    copy.width = frame.width;
+                    copy.height = frame.height;
+                    copy.rgba = std::move(frame.rgba);
+                }
                 out->frames.push_back(std::move(copy));
             }
-            out->scale = render::SCALE;
+            out->scale = render::SCALE / shrink;
             out->hd = true;
         } else {
             Export_1x(anim, palette_rgb, out);

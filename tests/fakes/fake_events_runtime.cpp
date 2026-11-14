@@ -332,3 +332,13 @@ namespace RUSS {
         return 0;
     }
 }
+// The GNN's native scene window (events.cpp, owner 2026-11-14): no frontend claims popups here.
+#include "antares/native.h"
+namespace antares::native {
+    bool Popups_Native() {
+        return false;
+    }
+    bool Popup(const char*, const char*, const std::string&, int32_t*) {
+        return false;
+    }
+} // namespace antares::native

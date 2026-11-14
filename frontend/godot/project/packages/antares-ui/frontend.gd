@@ -1204,9 +1204,69 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		_stale_frame = held.get_data() if held != null else PackedByteArray()
 		legacy.hide()
 		galaxy.show()
+	if kind == "popup" and String(request.get("popup", "")) in ["scene", "scene_end"]:
+		_on_scene_request(id, request)
+		return
 	_start_popup_map(dialog, request)
 	dialog.race_id = _race_id
 	dialog.ask(id, kind, request)
+
+
+## Smoke: the GNN window from the popup preview (an intro page and one story): it opens, both
+## pages answer to a click, and it closes.
+func _smoke_scene(shots: String) -> bool:
+	var box := {}
+	_send({"verb": "preview_popup", "popup": "gnn", "event": 3}, func(r: Dictionary): box["r"] = r)
+	var waited := 0.0
+	while (_scene_window == null or not _scene_window.visible) and waited < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if _scene_window == null or not _scene_window.visible:
+		print("smoke: FAILED: the GNN window didn't open")
+		return false
+	var heights: Array = []
+	for i in 8:
+		heights.append(roundi(_scene_window._frame.size.y))
+		await get_tree().process_frame
+	print("smoke: scene opening heights %s" % [heights])
+	for page in 2:
+		await get_tree().create_timer(2.5).timeout # the studio's frames arrive
+		print("smoke: scene page %d: request page %s, text '%s'" % [page, _scene_window._request.get("page", -1), String(_scene_window._request.get("text", "")).left(80)])
+		if shots != "":
+			await host.shot(shots + "/native-scene-page-%d.png" % page)
+		_scene_window._frame.gui_input.emit(_smoke_left_click())
+	waited = 0.0
+	while not box.has("r") and waited < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	print("smoke: scene closed %s, overlay %s, answer %s" % [not _scene_window.visible, overlay.visible, box.get("r", {})])
+	return box.has("r") and not _scene_window.visible
+
+
+func _smoke_left_click() -> InputEventMouseButton:
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	return click
+
+
+## The scene window (GNN news; owner, 2026-11-14): its pages are answered by a click, without the
+## galaxy's hand-back between them; "scene_end" closes it and then answers.
+var _scene_window: Control
+
+
+func _on_scene_request(id: int, request: Dictionary) -> void:
+	if _scene_window == null:
+		_scene_window = preload("views/scene_window.gd").new()
+		_scene_window.name = "SceneWindow"
+		_scene_window.art = art
+		_scene_window.theme = native_layer.theme
+		$Overlay.add_child(_scene_window)
+		_scene_window.page_done.connect(func(page_id: int): game.answer_request(page_id, 0))
+	if String(request.popup) == "scene_end":
+		_scene_window.close(func(): _on_answered(id, 0))
+		return
+	_scene_window.show_page(id, request)
 
 
 ## A popup that works with the map (WP3.4c): a system-zoom one ("zoom": the camera flies into the
@@ -2840,7 +2900,7 @@ func _smoke_popups(shots: String) -> void:
 	if enemy_star >= 0:
 		cases.append({"popup": "attack_target", "star": enemy_star})
 		cases.append({"popup": "colony_combat", "colony": enemy_colony})
-	var failed := false
+	var failed := not await _smoke_scene(shots)
 	for case: Dictionary in cases:
 		var box := {}
 		var verb := {"verb": "preview_popup"}

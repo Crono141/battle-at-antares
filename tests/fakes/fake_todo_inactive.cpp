@@ -9,6 +9,7 @@ namespace antares::todo {
     void Note_Summary() {}
     void Note_Colonize(int16_t) {}
     void Note_Hire(int16_t) {}
+    void Note_Report(const char*, bool) {}
     int32_t Open_Count() {
         return 0;
     }
@@ -19,6 +20,13 @@ namespace antares::todo {
 #include "antares/native.h"
 namespace antares::native {
     bool Galaxy_Will_Be_Native() {
+        return false;
+    }
+    // The GNN's native scene window (events.cpp): no frontend claims popups in tests.
+    bool Popups_Native() {
+        return false;
+    }
+    bool Popup(const char*, const char*, const std::string&, int32_t*) {
         return false;
     }
 } // namespace antares::native

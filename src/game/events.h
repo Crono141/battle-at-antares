@@ -158,6 +158,8 @@ namespace EVENTS {
 
     /** Advances event processing and queues any reportable events for display. */
     void __cdecl Check_For_Event();
+    void Preview_Native_Gnn(int16_t event_id, int16_t planet, int16_t star); // Antares: popup_preview
+
 
     /** Initializes the event-report screen state, music, and drawing hooks. */
     void __cdecl Start_Main_Event();

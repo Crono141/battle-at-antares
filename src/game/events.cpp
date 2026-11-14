@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "string_overrides.h"
 
+#include "antares/native.h"
+
 namespace EVENTS {
     namespace {
         int16_t deferred_monster_event_target = -1;
@@ -2048,7 +2050,50 @@ namespace EVENTS {
         }
     }
 
+    // Antares (owner, 2026-11-14): with a native frontend the GNN is a scene window over the
+    // galaxy; the screen's pages go to it as "scene" popups instead of being drawn.
+    namespace {
+        int16_t native_picture = -1; // the story's EVENTS.LBX entry, -1 on the intro pages
+        int16_t native_page = 0;
+
+        bool Native_Scene() {
+            return antares::native::Popups_Native();
+        }
+
+        void Native_Scene_Page() {
+            std::string fields = "\"scene\":\"gnn\",\"page\":" + std::to_string(native_page++) +
+                ",\"backdrop\":{\"lbx\":\"EVENTS.LBX\",\"entry\":1,\"loop_from\":1},\"text_box\":[55,445,550]";
+            if (native_picture >= 0) {
+                fields += ",\"picture\":{\"lbx\":\"EVENTS.LBX\",\"entry\":" + std::to_string(native_picture) + ",\"x\":320,\"y\":14}";
+            }
+            antares::native::Popup("scene", event_message, fields, nullptr);
+        }
+    } // namespace
+
+    // The native GNN window with made-up pages (popup_preview.cpp: smoke runs, the owner's
+    // review): the intro, then `event_id`'s story about `planet` (only its text is read).
+    void Preview_Native_Gnn(int16_t event_id, int16_t planet, int16_t star) {
+        if (!Native_Scene()) {
+            return;
+        }
+        char saved[sizeof(event_message)];
+        memcpy(saved, event_message, sizeof(saved));
+        const int16_t p = MOX::PLAYER_NUM;
+        Start_Main_Event();
+        native_picture = -1;
+        Get_Event_Message(0, 0, 0, planet, 0, 0, p, 0, p, 0, p, star, 0, 0, event_message, sizeof(event_message));
+        Drive_Event_Screen();
+        native_picture = event_id + 2;
+        Get_Event_Message(event_id + 2, 0, 0, planet, 10, 10, p, 0, p, 0, p, star, 0, 0, event_message, sizeof(event_message));
+        Drive_Event_Screen();
+        antares::native::Popup("scene_end", "", "\"scene\":\"gnn\"", nullptr);
+        JIM::Play_Background_Music();
+        MOX2::Put_Auto_Function(&EVENTS::jim_saved_autofunction);
+        memcpy(event_message, saved, sizeof(saved));
+    }
+
     void __cdecl Load_Event_Picture(int16_t event_id) {
+        native_picture = event_id + 2;
         allocate::Mark_Block(MOX::screen_seg);
         event_display_seg = (s_animation_header*)farload::Far_Reload_Next("EVENTS.LBX", event_id + 2, MOX::screen_seg);
         allocate::Release_Block(MOX::screen_seg);
@@ -2070,7 +2115,10 @@ namespace EVENTS {
             fields::Deactivate_Auto_Function();
             fields::Clear_Fields();
             file_ani::Reset_File_Animation_Buffer();
-            if (MOX::settings.show_gnn_report == 1) {
+            const bool native_scene = MOX::settings.show_gnn_report == 1 && Native_Scene();
+            if (native_scene) {
+                antares::native::Popup("scene_end", "", "\"scene\":\"gnn\"", nullptr); // the window closes
+            } else if (MOX::settings.show_gnn_report == 1) {
                 ERIC::Set_Fade_Percent(0);
                 ERIC::Set_Fade_Speed_Percent(10);
                 ERIC::Fast_Fade_Out();
@@ -2348,9 +2396,11 @@ namespace EVENTS {
                 if (current_event == 0) {
                     Start_Main_Event();
                     event_display_seg = 0;
+                    native_picture = -1;
                     Get_Event_Message(0, (int16_t)(game_random::Random(4) - 1), 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, event_message, sizeof(event_message));
                 } else {
                     event_display_seg = 0;
+                    native_picture = -1;
                     Get_Event_Message(1, (int16_t)(game_random::Random(4) - 1), 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, event_message, sizeof(event_message));
                     event_status_flag = 0;
                 }
@@ -2614,6 +2664,10 @@ namespace EVENTS {
     }
 
     void __cdecl Drive_Event_Screen() {
+        if (Native_Scene()) {
+            Native_Scene_Page(); // the frontend's window shows the page until a click
+            return;
+        }
         bool leave_screen = false;
 
         while (true) {
@@ -2652,6 +2706,18 @@ namespace EVENTS {
     }
 
     void __cdecl Start_Main_Event() {
+        if (Native_Scene()) {
+            // The studio, the fades and the pages are the frontend's; the music and the saved
+            // auto function (Check_For_Event puts it back) stay the game's.
+            native_page = 0;
+            fields::Deactivate_Help_List();
+            fields::Deactivate_Auto_Function();
+            fields::Clear_Fields();
+            JIM::Play_Streaming_Music(0x76, -1, 1);
+            MOX2::Get_Auto_Function(&jim_saved_autofunction);
+            fields::Deactivate_Auto_Function();
+            return;
+        }
         fields::Deactivate_Help_List();
         fields::Enable_Draw_All_Fields();
         graphics::Reset_Window();

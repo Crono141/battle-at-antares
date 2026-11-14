@@ -272,14 +272,37 @@ namespace antares::todo {
         // The turn's summary (owner, 2026-11-14: not a to-do item but a notification area that
         // doesn't hold the turn): TURNSUM::Turn_Summary_Popup's messages in its order, each with
         // the colony a click goes to (MSG_::Goto_Msg_Colony's rule), and whether the option is on.
+        // Reports for the SUMMARY panel (Note_Report), kept for the turn they came with.
+        struct s_report_note {
+            int32_t stardate;
+            std::string text;
+            bool serious;
+        };
+        std::vector<s_report_note> s_reports;
+
+        void Forget_Old_Reports() {
+            s_reports.erase(std::remove_if(s_reports.begin(), s_reports.end(),
+                                [](const s_report_note& note) { return note.stardate != (int32_t)MOX::stardate; }),
+                s_reports.end());
+        }
+
         void Query_Turn_Summary(int16_t, const s_args&, s_out& out) {
             if (!commands::internal::Have_Game(out)) {
                 return;
             }
-            out.Bool("on", MOX::settings.end_of_turn_summary != 0);
+            Forget_Old_Reports();
+            const bool summary_on = MOX::settings.end_of_turn_summary != 0;
+            out.Bool("on", summary_on || !s_reports.empty());
             out.Int("stardate", (int64_t)MOX::stardate);
             s_out list = out.Add_List("items");
-            const int16_t count = MSG_::N_Msgs_For_Player(MOX::PLAYER_NUM);
+            for (const s_report_note& note : s_reports) {
+                s_out item = list.Append_Object();
+                item.Int("msg", -1);
+                item.Str("text", commands::internal::Utf8(note.text.c_str(), note.text.size() + 1));
+                item.Bool("serious", note.serious);
+                item.Int("colony", -1);
+            }
+            const int16_t count = summary_on ? MSG_::N_Msgs_For_Player(MOX::PLAYER_NUM) : 0;
             if (count <= 0) {
                 return;
             }
@@ -424,6 +447,11 @@ namespace antares::todo {
             out.Int("star", star);
         }
     } // namespace
+
+    void Note_Report(const char* text, bool serious) {
+        Forget_Old_Reports();
+        s_reports.push_back({(int32_t)MOX::stardate, text != nullptr ? text : "", serious});
+    }
 
 } // namespace antares::todo
 

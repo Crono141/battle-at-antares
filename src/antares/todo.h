@@ -8,7 +8,8 @@
 //    arrived at a system (REPORT::Colonization without a colony base), the leader for hire;
 //  - news, read once (it must be read before the turn ends): systems explored (with the special found and a marooned leader joining or
 //    not), leaders gaining a level, the turn summary.
-// The rest of the chain (research pick, diplomacy, events, spy reports, the Antarans, a colony
+// Spy reports that only inform go to the SUMMARY panel (Note_Report).
+// The rest of the chain (research pick, diplomacy, events, stolen tech, the Antarans, a colony
 // base's planet, occupation policy) still asks at once.
 
 #include <cstdint>
@@ -24,6 +25,10 @@ namespace antares::todo {
     void Note_Summary();
     void Note_Colonize(int16_t star);
     void Note_Hire(int16_t leader);
+    // A report that only informs (REPORT::Has_Report: a spy's sabotage, an enemy's; owner,
+    // 2026-11-14: it blanked the UI as a message box): it goes to the SUMMARY panel with this
+    // turn's summary, shown even with the summary option off. `serious`: bad news.
+    void Note_Report(const char* text, bool serious);
 
     // Items still open: colonies with nothing to build, news not read, ships and offers not
     // answered. The turn may not end while any is open (owner, 2026-11-13: nothing is ignored;

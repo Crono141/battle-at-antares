@@ -2,6 +2,7 @@
 
 #include "antares/commands_internal.h"
 
+#include <algorithm>
 #include <string>
 
 // WP3.4c: `preview_popup` shows one of the legacy windows over the galaxy with made-up but valid
@@ -35,7 +36,15 @@ namespace antares::commands::internal {
             const int16_t player = MOX::PLAYER_NUM;
             int16_t star = -1;
             int64_t answer = -1;
-            if (popup == "new_system") {
+            if (popup == "gnn") {
+                // The GNN window: the intro and one story (`event`, default 0) about the player's
+                // home planet.
+                int64_t event = 0;
+                args.Int("event", &event);
+                const int16_t home = MOX::player[player].home_planet_id;
+                EVENTS::Preview_Native_Gnn((int16_t)std::clamp<int64_t>(event, 0, EVENT_COUNT - 1), home, MOX::planet[home].star_index);
+                answer = 0;
+            } else if (popup == "new_system") {
                 if (!Star_Arg(args, out, &star)) {
                     return;
                 }
@@ -99,7 +108,7 @@ namespace antares::commands::internal {
                 int8_t selected = 0;
                 answer = fields::Get_List_Field(10, 102, 245, "Diplomacy", &list[0][0], 50, &selected, flags, 17, nullptr, 0, nullptr, 0, nullptr);
             } else {
-                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute, colony_combat or choose");
+                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute, colony_combat, choose or gnn");
                 return;
             }
             MOX::PLAYER_NUM = player;
@@ -109,7 +118,7 @@ namespace antares::commands::internal {
 
     void Add_Preview_Entries(std::vector<s_entry>* table) {
         table->push_back({"preview_popup", e_kind::command, ANY_SCREEN, 0,
-            "popup (new_system, planet_pick, outpost_pick, attack_target, monster_tribute: star; colony_combat: colony; choose); developer verb", Preview_Popup});
+            "popup (new_system, planet_pick, outpost_pick, attack_target, monster_tribute: star; colony_combat: colony; choose; gnn: event); developer verb", Preview_Popup});
     }
 
 } // namespace antares::commands::internal

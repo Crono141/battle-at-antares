@@ -309,6 +309,9 @@ namespace SYS {
 
 // preview_popup (popup_preview.cpp, WP3.4c): the legacy windows it shows answer nothing in tests.
 s_combfind_target COMBFIND::target{};
+namespace EVENTS {
+    void Preview_Native_Gnn(int16_t, int16_t, int16_t) {}
+} // namespace EVENTS
 namespace MAINPUPS {
     void __cdecl New_System_Discovery_Popup(int16_t, uint8_t) {}
     int16_t __cdecl New_Colony_Selection_Popup(int16_t, uint8_t) { return -1; }

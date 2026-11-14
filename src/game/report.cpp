@@ -928,7 +928,13 @@ namespace REPORT {
 
                         if (!report_handled) {
                             REPORT::sprintf_report(buf, sizeof(buf), &REPORT::reports[i]);
-                            GENDRAW::Message_Box(buf);
+                            if (antares::todo::Active()) {
+                                // Antares: news for the SUMMARY panel, not a box over the galaxy
+                                // (type 2: an enemy's spy at work here).
+                                antares::todo::Note_Report(buf, REPORT::reports[i].type == 2);
+                            } else {
+                                GENDRAW::Message_Box(buf);
+                            }
                         }
 
                         REPORT::reports[i].player_idx = -1;
