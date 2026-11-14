@@ -1216,6 +1216,9 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		if at != Vector2.INF:
 			dialog.placement = "at"
 			dialog.placement_at = at
+			# Frameless text over the scene (owner, 2026-11-14), the scene left undimmed.
+			dialog.bare_width = _scene_window.list_width()
+			overlay.color.a = 0.0
 		dialog.move_to_front()
 	dialog.race_id = _race_id
 	dialog.ask(id, kind, request)
@@ -1336,6 +1339,7 @@ func _start_popup_map(dialog: Control, request: Dictionary) -> void:
 	_popup_pick_star = bool(request.get("pick_star", false))
 	var on_map: bool = (_popup_zoom >= 0 or _popup_pick_star) and galaxy.visible and not galaxy.stars.is_empty()
 	dialog.placement = ("left" if _popup_zoom >= 0 else "top") if on_map else ""
+	dialog.bare_width = 0.0
 	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE if on_map else Control.MOUSE_FILTER_STOP
 	overlay.color.a = 0.0 if on_map else 0.45
 	if not on_map:

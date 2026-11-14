@@ -1039,9 +1039,6 @@ namespace DIP_SCRN {
                     old_response_message = 0;
                 }
             }
-            if (diplomacy_current_music != -1) {
-                JIM::Play_Streaming_Music(diplomacy_current_music + 100, -1, 1);
-            }
         }
 
         std::string Native_Scene_State() {
@@ -1053,7 +1050,7 @@ namespace DIP_SCRN {
             const std::string room = "{\"lbx\":\"DIPLOMAT.LBX\",\"entry\":" + std::to_string(race * 2 + 13);
             std::string json = "{\"scene\":\"diplomacy\",\"race\":" + std::to_string(race) +
                 ",\"title\":" + antares::native::Quote(title) + ",\"color\":" + std::to_string((int)MOX::player[current_ambassador].color) +
-                ",\"text\":" + antares::native::Quote(diplomacy_message) + ",\"text_box\":[80,440,470],\"list_at\":[10,118,245]" +
+                ",\"text\":" + antares::native::Quote(diplomacy_message) + ",\"text_box\":[80,440,470],\"list_at\":[10,118,160]" +
                 ",\"backdrop\":" + room + ",\"frame\":0}";
             // Refusing to talk: the empty room (the legacy screen draws no ambassador then).
             if (ambassador_option != 0) {
@@ -1067,14 +1064,39 @@ namespace DIP_SCRN {
             return json + "}";
         }
 
+        // The race's theme (or the angry one): JIM's switch fades the old stream down over
+        // several calls before it starts the new one, so it is called while the window waits.
+        void Native_Scene_Music() {
+            if (diplomacy_current_music != -1) {
+                JIM::Play_Streaming_Music(diplomacy_current_music + 100, -1, 1);
+            }
+        }
+
         // The screen opens (Diplomacy_Fade_In's place): the lists, the music and the statement,
-        // no room drawn and no fade.
+        // no room drawn and no fade. Diplomacy_Mouse_Init also loads the room's palette and draws
+        // the race's pointer over the arrow; the native window shows neither (its pointer came out
+        // in the wrong colours and without HD art, owner 2026-11-14), so both are put back.
         void Native_Scene_Begin() {
             native_scene = true;
+            constexpr size_t k_pointer_bytes = 24 * 24; // one mouse image (bitmap.cpp)
+            static s_palette_entry palette[256];
+            static uint8_t pointer[k_pointer_bytes];
+            memcpy(palette, video::current_palette, sizeof(palette));
+            uint8_t* const images = video::mouse_palette;
+            if (images != nullptr) {
+                memcpy(pointer, images, sizeof(pointer));
+            }
             Diplomacy_Mouse_Init(current_ambassador);
+            memcpy(video::current_palette, palette, sizeof(palette));
+            if (images != nullptr && video::mouse_palette == images) {
+                memcpy(images, pointer, sizeof(pointer));
+            }
+            remap::Update_Glass_Remap_Colors();
+            palette::Set_Palette_Changes(0, 0xFF);
+            platform::Update_Cursor_Image();
             mouse::Set_Mouse_List(&MOX::mouse_list_arrow, 1);
             old_response_message = -1;
-            antares::native::Set_Scene(Native_Scene_State);
+            antares::native::Set_Scene(Native_Scene_State, Native_Scene_Music);
         }
 
     } // namespace
@@ -1564,7 +1586,7 @@ namespace DIP_SCRN {
 
     void __cdecl Draw_Diplomacy_Synch_Mode() {
         if (native_scene) {
-            Native_Update_Statement(); // the window draws; only the statement and music here
+            Native_Update_Statement(); // the window draws; only the statement here (music: Native_Scene_Music)
             return;
         }
         video::Set_Page_Off();

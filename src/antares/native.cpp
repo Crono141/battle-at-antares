@@ -108,8 +108,12 @@ namespace antares::native {
         // Keeps the game alive while it waits on the frontend: exit requests (throws on quit),
         // sound streaming and network traffic, as Get_Input loops do through Mox_Update.
         std::atomic<int> s_clicks{0}; // the frontend's button clicks to sound (Click_Sound)
+        std::function<void()> s_scene_tick; // Set_Scene (game thread)
 
         void Tick() {
+            if (s_scene_tick) {
+                s_scene_tick();
+            }
             for (int pending = s_clicks.exchange(0); pending > 0; --pending) {
                 ERICNET::Mox_Play_Sound(0x28); // the game's button click (fields.cpp)
             }
@@ -867,12 +871,14 @@ namespace antares::native {
         return Claimed_Kind(KIND_POPUP);
     }
 
-    void Set_Scene(std::function<std::string()> describe) {
+    void Set_Scene(std::function<std::string()> describe, std::function<void()> tick) {
         s_scene = std::move(describe);
+        s_scene_tick = std::move(tick);
     }
 
     void Clear_Scene() {
         s_scene = nullptr;
+        s_scene_tick = nullptr;
     }
 
     bool Todo_Native() {

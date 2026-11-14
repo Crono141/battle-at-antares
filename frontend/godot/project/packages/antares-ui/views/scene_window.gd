@@ -27,6 +27,7 @@ var art: Node # art.gd
 
 var _frame: Panel # the themed frame
 var _stage: Control # the scene's picture and text, clipped to the frame
+var _black: ColorRect # under the art: its see-through pixels were black on the legacy page
 var _backdrop: TextureRect
 var _intro: TextureRect
 var _actor: TextureRect
@@ -58,6 +59,10 @@ func _ready() -> void:
 	_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.clip_contents = true
 	_frame.add_child(_stage)
+	_black = ColorRect.new()
+	_black.color = Color.BLACK
+	_black.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_stage.add_child(_black)
 	_backdrop = _texture_rect()
 	_stage.add_child(_backdrop)
 	_intro = _texture_rect()
@@ -133,6 +138,14 @@ func list_position() -> Vector2:
 		return Vector2.INF
 	var k := _stage.size.x / SCENE_SIZE.x
 	return _frame_rect().position + _stage.position + Vector2(float(at[0]), float(at[1])) * k
+
+
+## How wide a list over the scene is (its "list_at" width), in this window's pixels; 0 without.
+func list_width() -> float:
+	var at: Array = _state.get("list_at", [])
+	if at.size() < 3 or not _open:
+		return 0.0
+	return float(at[2]) * _stage.size.x / SCENE_SIZE.x
 
 
 ## The scene is over: the window closes, then `done` runs (the game's answer).
@@ -217,6 +230,7 @@ func _layout() -> void:
 	_stage.size = full.size - m.size
 	_stage.position = m.position
 	_backdrop.size = _stage.size
+	_black.size = _stage.size
 	_intro.size = _stage.size
 	var k := _stage.size.x / SCENE_SIZE.x
 	var font := maxi(12, roundi(13.0 * k))

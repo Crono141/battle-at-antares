@@ -152,8 +152,10 @@ namespace antares::native {
     // A scene window open behind the requests (owner, 2026-11-14: diplomacy as a native window):
     // while set, every request carries "scene_state", the JSON object `describe` returns at that
     // moment (the room, the ambassador, the current statement), so a frontend keeps the window
-    // up and current under the scene's lists. Game thread only.
-    void Set_Scene(std::function<std::string()> describe);
+    // up and current under the scene's lists. `tick`, if given, runs as the game waits for each
+    // answer (the scene's music: JIM's stream switch needs calling until it has faded across).
+    // Game thread only.
+    void Set_Scene(std::function<std::string()> describe, std::function<void()> tick = nullptr);
     void Clear_Scene();
     // A frontend keeps the start-of-turn to-do list (WP3.4d, "todo"): the reports chain parks its
     // items instead of showing them one by one (antares/todo.h).

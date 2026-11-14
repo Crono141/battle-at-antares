@@ -48,6 +48,7 @@ func _ready() -> void:
 
 func ask(id: int, kind: String, request: Dictionary) -> void:
 	request_id = id
+	_apply_bare()
 	$Fit/Box/Text.text = request.get("text", "")
 	var title: String = request.get("title", "")
 	if title == "":
@@ -110,7 +111,9 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 						first = int(option.planet)
 						break
 			_show_card(first)
-		if choose:
+		if choose and bare_width > 0.0:
+			request = request.merged({"buttons": []}, true) # Esc or a right click cancels
+		elif choose:
 			request = request.merged({"buttons": ["CANCEL"]}, true)
 		if request.has("rows"):
 			# The orbit's invade/bomb window (owner, 2026-11-13: pictures like the window's): only
@@ -326,6 +329,12 @@ func _option_list(items: Array, base: int, selected: int) -> Control:
 		row.text = String(item.get("text", ""))
 		row.custom_minimum_size = Vector2(320, 30)
 		row.disabled = not bool(item.get("enabled", true))
+		if bare_width > 0.0:
+			row.flat = true
+			row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			row.custom_minimum_size = Vector2(bare_width, 26)
+			_outline(row)
+			row.add_theme_color_override("font_disabled_color", Color(0.62, 0.62, 0.66))
 		if i == selected:
 			row.add_theme_color_override("font_color", Color(1.0, 0.8, 0.35))
 		var value := base + i
@@ -344,7 +353,7 @@ func _option_list(items: Array, base: int, selected: int) -> Control:
 		return list
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size = Vector2(340, 8 * 32)
+	scroll.custom_minimum_size = Vector2(bare_width + 20.0 if bare_width > 0.0 else 340.0, 8 * 32)
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(list)
 	return scroll
@@ -407,6 +416,42 @@ func _centre() -> void:
 ## frontend before `ask`).
 var placement := ""
 var placement_at := Vector2.ZERO
+## A scene's list (diplomacy; owner, 2026-11-14): no frame and no backdrop, just outlined text
+## over the scene, this wide (0: an ordinary dialog). Esc or a right click cancels it.
+var bare_width := 0.0
+
+
+func _apply_bare() -> void:
+	var bare := bare_width > 0.0
+	if bare:
+		add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	else:
+		remove_theme_stylebox_override("panel")
+	custom_minimum_size.x = bare_width if bare else 460.0
+	$Fit/Box/Text.custom_minimum_size.x = bare_width if bare else 420.0
+	for label: Label in [$Fit/Box/Title, $Fit/Box/Text]:
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if bare else HORIZONTAL_ALIGNMENT_CENTER
+		if bare:
+			_outline(label)
+		else:
+			label.remove_theme_constant_override("outline_size")
+			label.remove_theme_color_override("font_outline_color")
+
+
+func _outline(control: Control) -> void:
+	control.add_theme_constant_override("outline_size", 6)
+	control.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+
+
+# _input: a right click on the scene behind would be taken by the scene window first.
+func _input(event: InputEvent) -> void:
+	if not visible or bare_width <= 0.0 or _kind != "choose":
+		return
+	var mb := event as InputEventMouseButton
+	var key := event as InputEventKey
+	if (mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT) or (key and key.pressed and key.keycode == KEY_ESCAPE):
+		get_viewport().set_input_as_handled()
+		_answer(-1)
 
 
 ## The game's slider (scrapping freighters): a bar and the number, from min to max.
