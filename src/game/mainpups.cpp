@@ -141,9 +141,8 @@ namespace MAINPUPS {
                 special >= SYSTEM_SPECIAL_COUNT) {
                 return std::string();
             }
-            const char* desc = MAINPUPS::System_Special_Desc(special);
             return ",\"special\":{\"name\":" + antares::native::Quote(MOX::planet_special_string[special]) +
-                ",\"text\":" + antares::native::Quote(desc != nullptr ? desc : "") + "}";
+                ",\"text\":" + antares::native::Quote_Utf8(antares::native::Special_Description(special)) + "}";
         }
 
         // The marooned leader a just-visited system holds joins or doesn't (the windows run it on

@@ -742,7 +742,17 @@ func _on_todo_item(item: Dictionary) -> void:
 			if star >= 0:
 				_open_system(star)
 			_send({"verb": "todo_level", "item": int(item.item)})
-		_: # news: a system explored, a leader's level
+		"new_system":
+			# The discovery window: the special it found and what it means, a marooned leader
+			# (owner, 2026-11-13: a pirate cache's item only zoomed in). It flies into the system
+			# itself; a plain system just zooms in.
+			if item.has("special") or item.has("leader"):
+				_send({"verb": "todo_system", "item": int(item.item)})
+			else:
+				_send({"verb": "todo_read", "item": int(item.item)})
+				if star >= 0:
+					_open_system(star)
+		_: # other news
 			_send({"verb": "todo_read", "item": int(item.item)})
 			if star >= 0:
 				_open_system(star)
@@ -2669,7 +2679,7 @@ func _smoke_popups(shots: String) -> void:
 	print("smoke: popups: free planet %d at star %d, enemy colony %d at star %d, own star %d" % [free_planet, free_star, enemy_colony, enemy_star, own_star])
 	var cases: Array = []
 	if own_star >= 0:
-		cases.append({"popup": "new_system", "star": own_star})
+		cases.append({"popup": "new_system", "star": own_star, "special": 3}) # a pirate cache: its text shows
 		cases.append({"popup": "monster_tribute", "star": own_star})
 		if free_star >= 0 and free_star != own_star:
 			cases.append({"popup": "monster_tribute", "star": own_star, "pick": free_star}) # PAY, then a star
@@ -2825,6 +2835,15 @@ func _smoke_todo(shots: String) -> bool:
 		if bool(item.news) and not bool(item.done) and String(item.kind) != "summary":
 			_on_todo_item(item)
 			await get_tree().create_timer(1.5).timeout
+			# A discovery with a special or a leader asks its window first (shot, then OK).
+			for step in 6:
+				if not overlay.visible:
+					break
+				print("smoke: to-do news window '%s': %s" % [_views.dialog.popup_name, _views.dialog.get_node("Fit/Box/Text").text])
+				if step == 0:
+					await host.shot(shots + "/native-todo-discovery.png")
+				_smoke_answer()
+				await get_tree().create_timer(0.8).timeout
 			var again: Dictionary = await _query("todo")
 			var still := false
 			for other: Dictionary in again.get("items", []):

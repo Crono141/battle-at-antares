@@ -331,6 +331,8 @@ namespace OFFICER {
 namespace MAINPUPS {
     const char* __cdecl System_Special_Desc(int16_t) { return ""; }
     void __cdecl Officer_Gains_Level_Popup(int16_t, int16_t) {}
+    void __cdecl Marooned_Officer_Joins_Popup(int16_t, int16_t) {}
+    void __cdecl Marooned_Officer_Fails_Popup(int16_t, int16_t) {}
 } // namespace MAINPUPS
 namespace OFFICER {
     char* __cdecl Leader_Name(int16_t, char, void*) {

@@ -161,8 +161,13 @@ namespace antares::native {
     std::string System_Json(int16_t star);
     // The `potential_colony` answer for a planet, or "" for a gas giant.
     std::string Potential_Json(int16_t planet);
+    // A system special's description (read from its file: MAINPUPS::System_Special_Desc's cached
+    // pointer goes stale), UTF-8; "" when there is none.
+    std::string Special_Description(int16_t special);
     // A game string as a JSON string (quoted, UTF-8).
     std::string Quote(const char* text);
+    // Text already in UTF-8 as a JSON string.
+    std::string Quote_Utf8(const std::string& text);
 
     // Called by Screen_Control between screens: refreshes Resource_Packs when packages changed.
     void Update_Packages();

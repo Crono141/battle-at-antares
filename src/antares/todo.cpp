@@ -277,6 +277,38 @@ namespace antares::todo {
             out.Bool("shown", true);
         }
 
+        // A system explored: the discovery window the reports chain would have shown (the native
+        // new_system popup: the special it found and what it means, a marooned leader joining or
+        // staying), then the item is read (owner, 2026-11-13: a pirate cache's item only zoomed in,
+        // never saying what it gave).
+        void Todo_System(int16_t, const s_args& args, s_out& out) {
+            if (!commands::internal::Have_Game(out)) {
+                return;
+            }
+            s_item* item = Item_Arg(args, out);
+            if (item == nullptr) {
+                return;
+            }
+            if (item->kind != e_kind::new_system || item->star < 0 || item->star >= MOX::NUM_STARS) {
+                out.Fail("bad_args", "item: a new_system item");
+                return;
+            }
+            const s_item it = *item;
+            item->read = true;
+            if (it.leader >= 0 && it.leader < MAX_LEADERS) {
+                // Decided when the news was noted (REPORT::Explored_New_Star): only shown here.
+                if (it.joined) {
+                    MAINPUPS::Marooned_Officer_Joins_Popup(it.star, it.leader);
+                } else {
+                    MAINPUPS::Marooned_Officer_Fails_Popup(it.star, it.leader);
+                }
+            }
+            const int16_t special = it.special == SYSTEM_SPECIAL_MAROONED_HERO ? (int16_t)SYSTEM_SPECIAL_NO_SPECIAL : it.special;
+            MAINPUPS::New_System_Discovery_Popup(it.star, (uint8_t)special);
+            MOX::FULL_DRAW_SCREEN_FLAG = 1;
+            out.Bool("shown", true);
+        }
+
         // The leader's offer, as the reports chain would have shown it (the native leader_hire
         // popup and REPORT::Has_Officer_For_Hire's rules).
         void Todo_Hire(int16_t, const s_args&, s_out& out) {
@@ -346,6 +378,7 @@ namespace antares::commands::internal {
         table->push_back({"todo", e_kind::query, ANY_SCREEN, 1, "", todo::Query_Todo});
         table->push_back({"todo_read", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_Read});
         table->push_back({"todo_level", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_Level});
+        table->push_back({"todo_system", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_System});
         table->push_back({"todo_hire", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "", todo::Todo_Hire});
         table->push_back({"todo_colonize", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "star", todo::Todo_Colonize});
     }

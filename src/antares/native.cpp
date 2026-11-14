@@ -889,6 +889,17 @@ namespace antares::native {
         return commands::internal::Potential_Json(planet);
     }
 
+    std::string Special_Description(int16_t special) {
+        if (special <= 0 || special >= SYSTEM_SPECIAL_COUNT) {
+            return std::string();
+        }
+        return commands::internal::Special_Description(special);
+    }
+
+    std::string Quote_Utf8(const std::string& text) {
+        return Json_Quote(text);
+    }
+
     std::string Quote(const char* text) {
         return Json_Quote(Utf8(text != nullptr ? text : ""));
     }

@@ -39,7 +39,12 @@ namespace antares::commands::internal {
                 if (!Star_Arg(args, out, &star)) {
                     return;
                 }
-                MAINPUPS::New_System_Discovery_Popup(star, SYSTEM_SPECIAL_NO_SPECIAL);
+                // An optional special (the window's description of it, e.g. a pirate cache's BC).
+                int64_t special = SYSTEM_SPECIAL_NO_SPECIAL;
+                if (args.Int("special", &special) && (special < 0 || special >= SYSTEM_SPECIAL_COUNT)) {
+                    special = SYSTEM_SPECIAL_NO_SPECIAL;
+                }
+                MAINPUPS::New_System_Discovery_Popup(star, (uint8_t)special);
                 answer = 0;
             } else if (popup == "planet_pick" || popup == "outpost_pick") {
                 if (!Star_Arg(args, out, &star)) {
