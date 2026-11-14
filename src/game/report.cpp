@@ -170,8 +170,8 @@ namespace REPORT {
                 }
 
                 if (should_show && antares::todo::Active()) {
-                    // WP3.4d: the summary waits in the to-do list (read there: the native popup).
-                    antares::todo::Note_Summary();
+                    // The summary is the frontend's notification area (the `turn_summary` query;
+                    // owner, 2026-11-14): it doesn't hold the turn, so no to-do item and no window.
                     REPORT::displayed_msgs |= (uint8_t)(1u << (uint8_t)player_idx);
                     return 0;
                 }

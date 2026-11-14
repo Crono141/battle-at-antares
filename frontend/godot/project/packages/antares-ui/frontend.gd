@@ -265,6 +265,10 @@ func _on_native_screen(screen: int) -> void:
 	controls.visible = screen == Screens.MAIN
 	_view("side_tabs").visible = screen == Screens.MAIN
 	_frame_view.visible = screen == Screens.MAIN
+	var summary_panel := _view("summary_panel")
+	if not summary_panel.item_chosen.is_connected(_on_summary_item):
+		summary_panel.item_chosen.connect(_on_summary_item)
+	summary_panel.set_on_galaxy(screen == Screens.MAIN)
 	if held:
 		_turn_over_galaxy = true
 		_turn_clearing = 0.0 # handed back after the delay unless a notice comes
@@ -610,6 +614,11 @@ func max_ui_scale() -> float:
 ## A different window: the wanted scale again, held to what this one holds.
 func _on_window_resized() -> void:
 	set_ui_scale(_wanted_ui_scale(), false)
+	if _views.has("build_pane") and _views.build_pane.visible:
+		await get_tree().process_frame # the panes and tabs laid out at the new size first
+		await get_tree().process_frame
+		if _views.build_pane.visible:
+			_place_build_pane()
 
 
 ## Applies a scale in percent; `remember`: saved as the player's choice.
@@ -748,6 +757,25 @@ func _todo_may_open() -> bool:
 		if other != null and other.visible:
 			return false
 	return int(_todo.get("open", 0)) > 0
+
+
+## The turn summary's notification area (owner, 2026-11-14): asked again each turn and when the
+## options change.
+func _refresh_summary() -> void:
+	_send({"verb": "query", "what": "turn_summary"}, func(result: Dictionary):
+		if result.get("ok", false):
+			_view("summary_panel").show_summary(result))
+
+
+## A summary message picked: its colony opens (the colony pane, as a to-do build item).
+func _on_summary_item(item: Dictionary) -> void:
+	var colony := int(item.get("colony", -1))
+	if colony < 0 or native_screen != Screens.MAIN:
+		return
+	_open_system(int(item.get("star", -1)))
+	await get_tree().create_timer(0.5).timeout
+	if native_screen == Screens.MAIN:
+		_on_colony_chosen(colony)
 
 
 ## A to-do item picked (WP3.4d): what it needs opens; news is marked read.
@@ -1057,6 +1085,7 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 		"todo":
 			if int(result.get("stardate", -1)) != int(_todo.get("stardate", -1)):
 				_todo_seen = -1 # a new turn's list
+				_refresh_summary() # and its summary
 			_todo = result
 			var open := int(result.get("open", 0))
 			_view("galaxy_bar").show_todo(open)
@@ -1071,6 +1100,7 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 				_refresh_fleet() # a turn, or an order, changed the fleets
 		"options":
 			_view("options_menu").show_options(result)
+			_refresh_summary() # the End of Turn Summary option shows or hides it
 
 
 ## Quiet turns passing by themselves (End Of Turn Wait off): the game's "<race>: Stardate N"
@@ -1390,9 +1420,19 @@ func _open_build_pane(colony_id: int, bought: bool) -> void:
 	if pane.visible and int(pane.colony_id) == colony_id:
 		pane.cancel() # CHANGE again: closes it, as Cancel (owner, 2026-11-13)
 		return
+	_place_build_pane()
+	pane.move_to_front()
+	_raise_chrome()
+	pane.open(colony_id, bought)
+
+
+## Beside the colony pane, clear of the side tabs (Glass keeps them on the screen's right edge,
+## beside the panes); again when the window changes size (owner, 2026-11-14: windowed, it stayed
+## under the side tabs).
+func _place_build_pane() -> void:
+	var pane := _view("build_pane")
 	var colony_pane: Control = _view("colony_pane")
 	var gap := maxf(get_theme_constant_from(pane, "pane_gap"), 6.0)
-	# Clear of the side tabs (Glass keeps them on the screen's right edge, beside the panes).
 	var right := get_viewport().get_visible_rect().size.x
 	var tabs: Control = _view("side_tabs")
 	if tabs.visible:
@@ -1400,9 +1440,6 @@ func _open_build_pane(colony_id: int, bought: bool) -> void:
 			if (b as Control).is_visible_in_tree():
 				right = minf(right, (b as Control).get_global_rect().position.x - gap)
 	pane.place_at(colony_pane.get_global_rect().end.x + gap, right)
-	pane.move_to_front()
-	_raise_chrome()
-	pane.open(colony_id, bought)
 
 
 func _on_pane_planet(planet_id: int) -> void:
@@ -1547,6 +1584,10 @@ func _smoke_native() -> void:
 			return
 	if "--popups" in OS.get_cmdline_user_args():
 		await _smoke_popups(shots)
+		return
+	if "--resize-test" in OS.get_cmdline_user_args():
+		await _smoke_resize(shots)
+		game.request_game_quit()
 		return
 	if "--pan-test" in OS.get_cmdline_user_args():
 		await _smoke_pan(shots)
@@ -2865,6 +2906,21 @@ func _smoke_turns() -> bool:
 
 
 func _smoke_todo(shots: String) -> bool:
+	var summary_panel := _view("summary_panel")
+	var summary: Dictionary = await _query("turn_summary")
+	if not bool(summary.get("on", false)):
+		await _command({"verb": "toggle_option", "option": 0}, true) # End of Turn Summary on
+		await _query("options")
+		await get_tree().create_timer(0.5).timeout
+		summary = await _query("turn_summary")
+	print("smoke: turn summary: option %s, %d messages, panel shown %s ('%s')" % [summary.get("on", "?"), summary.get("items", []).size(),
+		summary_panel.visible, summary_panel.button.text])
+	if summary_panel.visible:
+		summary_panel.button.pressed.emit()
+		await get_tree().create_timer(0.6).timeout
+		if shots != "":
+			await host.shot(shots + "/native-summary.png")
+		summary_panel.button.pressed.emit()
 	var todo: Dictionary = await _query("todo")
 	var kinds := {}
 	for item: Dictionary in todo.get("items", []):
@@ -3241,3 +3297,44 @@ func _smoke_pan(shots: String) -> void:
 			await host.shot(shots + "/pan-star-%d.png" % i)
 		pane.close()
 		await get_tree().create_timer(2.0).timeout
+
+
+## Owner, 2026-11-14: windowed, with the build pane open, dragging the window wider crashed.
+func _smoke_resize(shots: String) -> void:
+	_on_view_action("colony_next")
+	await get_tree().create_timer(2.5).timeout
+	var colony_id := -1
+	for planet: Dictionary in _view("system_pane").system.get("planets", []):
+		var colony: Dictionary = planet.get("colony", {})
+		if not colony.is_empty() and colony.get("mine", false) and not colony.get("outpost", false):
+			colony_id = int(colony.id)
+			break
+	if colony_id >= 0:
+		_on_colony_chosen(colony_id)
+		await get_tree().create_timer(2.0).timeout
+	print("smoke: resize: colony pane %s on %d" % [_view("colony_pane").visible, colony_id])
+	if colony_id >= 0:
+		_open_build_pane(colony_id, false)
+		await get_tree().create_timer(2.0).timeout
+	print("smoke: resize: build pane %s, window %s, mode %d, scale %.2f" % [_view("build_pane").visible, get_window().size,
+		get_window().mode, get_window().content_scale_factor])
+	get_window().mode = Window.MODE_WINDOWED
+	# A drag: one size a frame, as a window manager sends them.
+	for width in range(1200, 1900, 7):
+		get_window().size = Vector2i(width, 1000)
+		await get_tree().process_frame
+	print("smoke: resize: dragged to %s" % get_window().size)
+	for width in range(1900, 1100, -9):
+		get_window().size = Vector2i(width, 1000 - (1900 - width) / 10)
+		await get_tree().process_frame
+	print("smoke: resize: dragged back to %s" % get_window().size)
+	for width in [1300, 1450, 1600, 1750, 1900, 1200, 1000, 1700]:
+		get_window().size = Vector2i(width, 1000)
+		for step in 10:
+			await get_tree().process_frame
+		await get_tree().create_timer(0.6).timeout
+		print("smoke: resize: window %s, scale %.2f, build pane right %.0f of %.0f" % [get_window().size, get_window().content_scale_factor,
+			_view("build_pane").get_global_rect().end.x, get_viewport().get_visible_rect().size.x])
+		if shots != "":
+			await host.shot(shots + "/resize-%d.png" % width)
+

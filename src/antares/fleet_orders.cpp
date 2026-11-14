@@ -417,6 +417,13 @@ namespace antares::commands::internal {
                 const int16_t builder = (int8_t)item_ship.d.previous_owner;
                 const int32_t color = builder >= 0 && builder < MAX_PLAYERS ? MOX::player[builder].color : MAX_PLAYERS;
                 item.Int("picture", item_ship.d.picture_num + color * 50);
+                // A monster's picture takes its own palette (KEN::Load_Player_Ship_Palette, owners
+                // 8-14; owner, 2026-11-14: the Orion Guardian came out green).
+                static const int16_t k_monster_palettes[] = {413, 419, 417, 416, 414, 415, 418};
+                const int16_t monster = (int16_t)((int8_t)item_ship.owner - MAX_PLAYERS);
+                if (monster >= 0 && monster < (int16_t)(sizeof(k_monster_palettes) / sizeof(k_monster_palettes[0]))) {
+                    item.Int("palette", k_monster_palettes[monster]);
+                }
                 item.Bool("orderable", mine && HACCESS::Player_Can_Order_Ship(MOX::PLAYER_NUM, &MOX::ship[id]));
                 item.Int("officer", mine ? item_ship.officer_index : -1);
             }

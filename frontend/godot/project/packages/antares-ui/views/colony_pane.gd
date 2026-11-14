@@ -178,10 +178,11 @@ func _icon_row(runs: Array, width: float) -> Control:
 			row.add_child(gap)
 			continue
 		for i in int(r.count):
-			var icon := _sprite("COLONY2.LBX", int(r.sprite), ICON, "")
 			if r.kind == "short":
-				icon.modulate = SHORT_COLOR
-			elif r.kind == "pollution" or r.kind == "import":
+				row.add_child(_short_icon(int(r.sprite)))
+				continue
+			var icon := _sprite("COLONY2.LBX", int(r.sprite), ICON, "")
+			if r.kind == "pollution" or r.kind == "import":
 				icon.modulate = Color(1, 1, 1, 0.75)
 			row.add_child(icon)
 	if total == 0:
@@ -189,6 +190,32 @@ func _icon_row(runs: Array, width: float) -> Control:
 		none.custom_minimum_size = ICON
 		row.add_child(none)
 	return row
+
+
+## A shortfall: the import icon outlined in red (COLONY::Short_Anims outlines it in colour 0xED):
+## four red silhouettes a pixel and a half out, the icon on top.
+static var _silhouette: ShaderMaterial
+
+
+func _short_icon(sprite: int) -> Control:
+	if _silhouette == null:
+		var shader := Shader.new()
+		shader.code = "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(0.93, 0.18, 0.12, step(0.3, texture(TEXTURE, UV).a)); }\n"
+		_silhouette = ShaderMaterial.new()
+		_silhouette.shader = shader
+	var holder := Control.new()
+	holder.custom_minimum_size = ICON
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for offset in [Vector2(-1.5, 0), Vector2(1.5, 0), Vector2(0, -1.5), Vector2(0, 1.5)]:
+		var edge := _sprite("COLONY2.LBX", sprite, ICON, "")
+		edge.position = offset
+		edge.size = ICON
+		edge.material = _silhouette
+		holder.add_child(edge)
+	var icon := _sprite("COLONY2.LBX", sprite, ICON, "")
+	icon.size = ICON
+	holder.add_child(icon)
+	return holder
 
 
 func _build_box(build: Dictionary) -> Control:
@@ -311,17 +338,14 @@ func _show_jobs() -> void:
 		if colonists.is_empty():
 			var empty := Label.new()
 			empty.theme_type_variation = &"Dim"
-			empty.text = JOB_NAMES[job]
+			# Where the farmers would be (owner, 2026-11-14), as the legacy box says it.
+			empty.text = "No farming here" if job == 0 and int(colony.max_farms) == 0 else JOB_NAMES[job]
 			empty.custom_minimum_size.y = 30
 			people.add_child(empty)
 		rows.add_child(people)
-		if job == 0 and int(colony.max_farms) == 0:
-			var no_farming := Label.new()
-			no_farming.theme_type_variation = &"Dim"
-			no_farming.text = "No farming here"
-			rows.add_child(no_farming)
-		else:
-			rows.add_child(_icon_row(colony.rows[JOB_ROWS[job]].icons, WIDTH - 40.0))
+		# The output below, also with no farming: food brought in (dimmed) or missing (outlined in
+		# red: starving), as the legacy box shows it.
+		rows.add_child(_icon_row(colony.rows[JOB_ROWS[job]].icons, WIDTH - 40.0))
 		jobs_box.add_child(panel)
 
 

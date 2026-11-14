@@ -242,7 +242,9 @@ func _refresh_icons() -> void:
 	for ship: Dictionary in fleet.get("ships", []):
 		var button: Button = _buttons.get(int(ship.id))
 		if button:
-			button.icon = art.texture("SHIPS.LBX", int(ship.picture))
+			# A monster's picture under its own palette ("SHIPS.LBX@<palette entry>").
+			var lbx := "SHIPS.LBX@%d" % int(ship.palette) if ship.has("palette") else "SHIPS.LBX"
+			button.icon = art.texture(lbx, int(ship.picture))
 
 
 func _owner_color() -> Color:

@@ -1072,7 +1072,7 @@ namespace antares::commands::internal {
                 out.Fail("bad_args", "option: 0-7, not 3");
                 return;
             }
-            MAINSCR::Toggle_Game_Option((int16_t)option);
+            MAINSCR::Toggle_Game_Option((int16_t)option, false); // no ON/OFF box: the menu shows it (owner, 2026-11-14)
             const uint8_t values[8] = {MOX::settings.end_of_turn_summary, MOX::settings.end_of_turn_wait, MOX::settings.enemy_moves, 0, MOX::settings.auto_select_ships, MOX::settings.animations_on, MOX::settings.auto_select_colony, MOX::settings.show_relocation_lines};
             out.Int("option", option);
             out.Bool("on", values[option] != 0);

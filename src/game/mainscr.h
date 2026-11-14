@@ -286,7 +286,8 @@ namespace MAINSCR {
 
     void __cdecl Check_Function_Keys(int16_t key, int16_t* flag);
 
-    void __cdecl Toggle_Game_Option(int16_t option_idx);
+    // `announce`: the "<option> ON/OFF" box (the native options menu shows the state itself).
+    void __cdecl Toggle_Game_Option(int16_t option_idx, bool announce = true);
 
     void __cdecl Do_Next_Turn(int16_t* exit_flag, int8_t auto_mode);
 

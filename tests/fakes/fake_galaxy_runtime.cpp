@@ -256,7 +256,7 @@ namespace MAINSCR {
         *x = (int16_t)(100 + star);
         *y = 22;
     }
-    void __cdecl Toggle_Game_Option(int16_t option) {
+    void __cdecl Toggle_Game_Option(int16_t option, bool) {
         TEST_GALAXY::toggles.push_back(option);
         if (option == 6) {
             MOX::settings.auto_select_colony = MOX::settings.auto_select_colony == 0;
@@ -345,7 +345,27 @@ namespace REPORT {
     int8_t __cdecl Colonization_At_Star(int16_t, int16_t, int8_t, bool) { return 0; }
     int8_t __cdecl Has_Officer_For_Hire(int16_t, int8_t) { return 0; }
     s_ship_data* __cdecl Player_Ship_Type_At_Star(int16_t, int16_t, int16_t, int8_t) { return nullptr; }
+    bool Is_Serious_Msg(const s_MSG&) {
+        return false;
+    }
+    void Order_Turn_Summary_Messages(uint8_t*, int16_t, int16_t, bool) {}
     s_colony* __cdecl Player_Colony_Base_At_Star(int16_t, int16_t) {
         return nullptr;
     }
 } // namespace REPORT
+
+// The turn summary query (todo.cpp): no messages.
+namespace MSG_ {
+    s_MSG msgs[MAX_MESSAGES];
+    int16_t __cdecl N_Msgs_For_Player(int16_t) {
+        return 0;
+    }
+    int16_t __cdecl First_Msg_For_Player(int16_t) {
+        return 0;
+    }
+    void __cdecl sprintf_msg(char* out_text, uint32_t out_text_size, s_MSG*) {
+        if (out_text_size > 0) {
+            out_text[0] = '\0';
+        }
+    }
+} // namespace MSG_

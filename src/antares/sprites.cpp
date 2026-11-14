@@ -182,10 +182,18 @@ namespace antares::sprites {
         }
     }
 
-    bool Export(const std::string& lbx, int32_t entry, s_sprite* out) {
+    bool Export(const std::string& requested, int32_t entry, s_sprite* out) {
         *out = s_sprite{};
-        out->lbx = lbx;
+        out->lbx = requested;
         out->entry = entry;
+        // "LBX@N": the entry under the palette that entry N of the same file holds (a monster's
+        // ship picture under its own palette, KEN::Load_Player_Ship_Palette's 413-419).
+        std::string lbx = requested;
+        int32_t palette_entry = -1;
+        if (const size_t at = requested.find('@'); at != std::string::npos) {
+            lbx = requested.substr(0, at);
+            palette_entry = (int32_t)strtol(requested.c_str() + at + 1, nullptr, 10);
+        }
         std::vector<uint64_t> storage;
         size_t size = 0;
         if (!Read_Entry(lbx, entry, &storage, &size)) {
@@ -227,7 +235,13 @@ namespace antares::sprites {
             // Other art its own, if declared.
             Declared_Palette_Rgb(lbx, entry, palette_rgb);
         }
-        if (lbx == "SHIPS.LBX" && entry >= 0 && entry < 400 && entry % 50 != 49) {
+        if (palette_entry >= 0) {
+            std::vector<uint64_t> own_palette;
+            size_t own_size = 0;
+            if (Read_Entry(lbx, palette_entry, &own_palette, &own_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(own_palette.data()), own_size, palette_rgb);
+            }
+        } else if (lbx == "SHIPS.LBX" && entry >= 0 && entry < 400 && entry % 50 != 49) {
             // A ship's player markings (0xC0-0xDF) take its colour set's palette, entry
             // colour * 50 + 49, as KEN::Load_Player_Ship_Palette loads it for the design screen
             // (owner, 2026-11-13: every player's ships came out red).

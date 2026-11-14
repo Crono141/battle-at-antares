@@ -3449,7 +3449,7 @@ namespace MAINSCR {
         game_random::Set_Random_Seed(saved_seed);
     }
 
-    void __cdecl Toggle_Game_Option(int16_t option_idx) {
+    void __cdecl Toggle_Game_Option(int16_t option_idx, bool announce) {
         if (option_idx < 0 || option_idx > 7 || option_idx == 3) {
             return;
         }
@@ -3513,7 +3513,9 @@ namespace MAINSCR {
         snprintf(message, sizeof(message), "%s %s", option_name, status_text);
 
         LOADSAVE::Save_Session_Related_Settings();
-        HAROLD::User_Box(&MOX::draw_main_screen_to_back, message, 0);
+        if (announce) {
+            HAROLD::User_Box(&MOX::draw_main_screen_to_back, message, 0);
+        }
     }
 
     int16_t __cdecl Scan_Fleet_Movement_Box_Fields(int16_t field_id_a, int16_t field_id_b, int16_t* out_chosen_offset, int16_t* out_scanned_icon_idx) {

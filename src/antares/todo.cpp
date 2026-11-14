@@ -266,6 +266,45 @@ namespace antares::todo {
             }
         }
 
+        // The turn's summary (owner, 2026-11-14: not a to-do item but a notification area that
+        // doesn't hold the turn): TURNSUM::Turn_Summary_Popup's messages in its order, each with
+        // the colony a click goes to (MSG_::Goto_Msg_Colony's rule), and whether the option is on.
+        void Query_Turn_Summary(int16_t, const s_args&, s_out& out) {
+            if (!commands::internal::Have_Game(out)) {
+                return;
+            }
+            out.Bool("on", MOX::settings.end_of_turn_summary != 0);
+            out.Int("stardate", (int64_t)MOX::stardate);
+            s_out list = out.Add_List("items");
+            const int16_t count = MSG_::N_Msgs_For_Player(MOX::PLAYER_NUM);
+            if (count <= 0) {
+                return;
+            }
+            uint8_t order[MAX_MESSAGES];
+            REPORT::Order_Turn_Summary_Messages(order, MSG_::First_Msg_For_Player(MOX::PLAYER_NUM), count, REPORT::sort_serious_turn_summary_first);
+            for (int16_t pos = 0; pos < count; ++pos) {
+                s_MSG& msg = MSG_::msgs[order[pos]];
+                char text[256];
+                MSG_::sprintf_msg(text, sizeof(text), &msg);
+                s_out item = list.Append_Object();
+                item.Int("msg", order[pos]);
+                item.Str("text", commands::internal::Utf8(text, sizeof(text)));
+                item.Bool("serious", REPORT::Is_Serious_Msg(msg));
+                int16_t colony = -1;
+                if (msg.msg_type == MSG_TYPE_COLONY) {
+                    const int16_t planet = msg.u.colony.planet_idx;
+                    if (planet >= 0 && planet < MOX::planet_count) {
+                        const int16_t c = MOX::planet[planet].colony_index;
+                        if (c >= 0 && MOX::colony[c].owner == MOX::PLAYER_NUM) {
+                            colony = c;
+                            item.Int("star", MOX::planet[planet].star_index);
+                        }
+                    }
+                }
+                item.Int("colony", colony);
+            }
+        }
+
         // A leader's level: the window the reports chain shows (the native leader_level popup,
         // MAINPUPS::Officer_Gains_Level_Popup), then the item is read (owner, 2026-11-13: the
         // item cleared without showing it).
@@ -388,6 +427,7 @@ namespace antares::todo {
 namespace antares::commands::internal {
     void Add_Todo_Entries(std::vector<s_entry>* table) {
         table->push_back({"todo", e_kind::query, ANY_SCREEN, 1, "", todo::Query_Todo});
+        table->push_back({"turn_summary", e_kind::query, ANY_SCREEN, 1, "", todo::Query_Turn_Summary});
         table->push_back({"todo_read", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_Read});
         table->push_back({"todo_level", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_Level});
         table->push_back({"todo_system", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_System});
