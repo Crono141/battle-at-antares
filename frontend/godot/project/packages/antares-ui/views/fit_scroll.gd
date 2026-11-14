@@ -24,14 +24,31 @@ func _ready() -> void:
 	_queue_fit()
 
 
+## Fits this frame: a fit resizes the pane, and a layout that answers that with another change
+## would loop until Godot's message queue overflows (owner, 2026-11-14: a crash dragging the
+## window). A few a frame is plenty; the rest wait for the next frame.
+var _fit_frame := -1
+var _fits_this_frame := 0
+const MAX_FITS_PER_FRAME := 4
+
+
 func _queue_fit() -> void:
-	if not _fitting:
-		_fitting = true
-		_fit.call_deferred()
+	if _fitting:
+		return
+	_fitting = true
+	if Engine.get_process_frames() == _fit_frame and _fits_this_frame >= MAX_FITS_PER_FRAME:
+		await get_tree().process_frame
+		if not is_inside_tree():
+			return
+	_fit.call_deferred()
 
 
 func _fit() -> void:
 	_fitting = false
+	if Engine.get_process_frames() != _fit_frame:
+		_fit_frame = Engine.get_process_frames()
+		_fits_this_frame = 0
+	_fits_this_frame += 1
 	var content := _content()
 	var pane := get_parent() as Control
 	if content == null or pane == null or not is_inside_tree():

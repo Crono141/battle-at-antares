@@ -181,7 +181,12 @@ func _leader_row(leader: Dictionary, is_governor: bool) -> Control:
 	box.add_theme_constant_override("separation", 8)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(box)
-	margin.minimum_size_changed.connect(func(): row.custom_minimum_size.y = margin.get_combined_minimum_size().y)
+	# Only a real change (a resize answered with a resize loops: owner, 2026-11-14, "Message
+	# queue out of memory" while dragging the window).
+	margin.minimum_size_changed.connect(func():
+		var height := margin.get_combined_minimum_size().y
+		if absf(height - row.custom_minimum_size.y) > 0.5:
+			row.custom_minimum_size.y = height)
 	var picture := _icon("OFFICER.LBX", int(leader.get("portrait", -1)), Vector2(56, 56))
 	picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(picture)

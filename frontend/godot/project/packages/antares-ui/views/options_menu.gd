@@ -230,12 +230,19 @@ func show_scale(percent: float, largest := 300.0, smallest := 75.0, automatic :=
 		range.max_value = largest
 		range.value = percent
 		range.set_block_signals(false)
-	_keep_scale_in_view.call_deferred()
+	if not _keeping_scale_in_view:
+		_keeping_scale_in_view = true
+		_keep_scale_in_view.call_deferred()
 
 
-## Options scroll when the window is short: the scale stays in view while it changes.
+## Options scroll when the window is short: the scale stays in view while it changes (one at a
+## time: a window drag shows a new scale many times a frame).
+var _keeping_scale_in_view := false
+
+
 func _keep_scale_in_view() -> void:
 	await get_tree().process_frame # the scroll has refitted to the new scale
+	_keeping_scale_in_view = false
 	if is_inside_tree() and visible:
 		($Fit as ScrollContainer).ensure_control_visible($Fit/Box/Scale)
 

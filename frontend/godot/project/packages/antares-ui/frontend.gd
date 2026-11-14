@@ -548,6 +548,8 @@ const MAX_UI_SCALE := 300.0
 const MIN_LOGICAL := Vector2(1280, 720) # the panes side by side over the galaxy
 ## Insets, gaps between the panes and the side tabs' column, across (interface pixels).
 const PANES_MARGIN := 110.0
+## The build pane's narrowest layout (its two columns), across (interface pixels).
+const BUILD_PANE_MIN := 560.0
 
 
 func _apply_saved_scale() -> void:
@@ -600,10 +602,10 @@ func max_ui_scale() -> float:
 	# Across: the system, colony and build panes side by side and the side tabs (owner,
 	# 2026-11-14: in a window narrower than 16:9 the build pane ran off the right edge; the
 	# interface now shrinks so the three fit).
-	var build_min := 560.0
-	if _views.has("build_pane"):
-		build_min = maxf(build_min, (_views.build_pane as Control).get_combined_minimum_size().x)
-	need.x = maxf(need.x, 372.0 + 340.0 + build_min + PANES_MARGIN)
+	# A fixed width for the build pane, never its measured one: that changes with the layout the
+	# scale itself gives, and the two fed each other until the message queue overflowed (owner,
+	# 2026-11-14: a crash dragging the window wider with the build pane open).
+	need.x = maxf(need.x, 372.0 + 340.0 + BUILD_PANE_MIN + PANES_MARGIN)
 	if _views.has("side_tabs"):
 		var tabs: Control = _views.side_tabs
 		need.y = maxf(need.y, tabs.get_combined_minimum_size().y + tabs.offset_top - tabs.offset_bottom)
@@ -612,7 +614,16 @@ func max_ui_scale() -> float:
 
 
 ## A different window: the wanted scale again, held to what this one holds.
+## The window's size in pixels when the scale was last worked out.
+var _scaled_for := Vector2i(-1, -1)
+
+
 func _on_window_resized() -> void:
+	# Only a real change of the window: a new interface scale reports a size change too, and
+	# answering that one again could loop (owner, 2026-11-14: "Message queue out of memory").
+	if get_window().size == _scaled_for:
+		return
+	_scaled_for = get_window().size
 	set_ui_scale(_wanted_ui_scale(), false)
 	if _views.has("build_pane") and _views.build_pane.visible:
 		await get_tree().process_frame # the panes and tabs laid out at the new size first
@@ -3320,6 +3331,9 @@ func _smoke_resize(shots: String) -> void:
 		get_window().mode, get_window().content_scale_factor])
 	get_window().mode = Window.MODE_WINDOWED
 	# A drag: one size a frame, as a window manager sends them.
+	for width in range(1330, 1450, 1): # across where the scale steps (about 1382 wide)
+		get_window().size = Vector2i(width, 1000)
+		await get_tree().process_frame
 	for width in range(1200, 1900, 7):
 		get_window().size = Vector2i(width, 1000)
 		await get_tree().process_frame
