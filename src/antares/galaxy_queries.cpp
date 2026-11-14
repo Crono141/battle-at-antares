@@ -540,6 +540,7 @@ namespace antares::commands::internal {
             if (governor >= 0 && governor < MAX_LEADERS && MOX::leaders != nullptr) {
                 s_out g = out.Add_Object("governor");
                 Leader_Card(governor, static_cast<int8_t>(MOX::leaders[governor].player_index), g);
+                g.Int("eta", MOX::leaders[governor].eta); // turns until it arrives (5 from the pool, 0 home)
             }
             out.Int("ring_x", k_box_rings_x);
             out.Int("ring_y", k_box_rings_y);

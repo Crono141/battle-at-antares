@@ -397,7 +397,12 @@ func _show_governor() -> void:
 	portrait.show_sprite("OFFICER.LBX", int(leader.portrait))
 	governor_name.text = leader.name
 	governor_title.text = leader.title
-	governor_title.visible = String(leader.title) != "" # an empty line left a gap (owner)
+	# A leader from the pool takes 5 turns to reach any system but the home one (owner, 2026-11-14:
+	# it looked instant); its bonuses start when it arrives.
+	var eta := int(leader.get("eta", 0))
+	if eta > 0:
+		governor_title.text = "Arrives in %d turn%s" % [eta, "" if eta == 1 else "s"]
+	governor_title.visible = governor_title.text != "" # an empty line left a gap (owner)
 	# The bonuses (system v4): each skill's icon, name and bonus, as the leaders screen lists them.
 	for child in governor_skills.get_children():
 		child.queue_free()

@@ -37,7 +37,7 @@ var _pending := {} # command id -> Callable(result)
 var _panel_star := -1 # the star whose system panel is open (reopened after legacy screens)
 var _fleet_ship := -1 # the first ship of the fleet whose panel is open (reopened likewise)
 var _hovered_star := -1
-var _opening_fleet := false # a fleet opens from the system pane: the map stays where it is
+var _keep_camera := false # the system pane closes for a fleet or a map popup: the map stays where it is
 var _race_id := -1
 ## A fleet opened from inside a system (its pane or its map): the system to go back to when the
 ## fleet panel closes (owner, 2026-11-12), or -1.
@@ -609,6 +609,11 @@ func max_ui_scale() -> float:
 	if _views.has("side_tabs"):
 		var tabs: Control = _views.side_tabs
 		need.y = maxf(need.y, tabs.get_combined_minimum_size().y + tabs.offset_top - tabs.offset_bottom)
+	# The window can't shrink below what the panes need at the smallest scale (owner, 2026-11-14:
+	# narrower windows went on shrinking the panes out of reach).
+	var smallest := Vector2i((need * MIN_UI_SCALE / 100.0).ceil())
+	if get_window().min_size != smallest:
+		get_window().min_size = smallest
 	var largest := floorf(minf(window.x / need.x, window.y / need.y) * 20.0) * 5.0
 	return clampf(largest, MIN_UI_SCALE, MAX_UI_SCALE)
 
@@ -1040,7 +1045,7 @@ func _on_view_closed(scene_name: String) -> void:
 		_view("colony_pane").close()
 		galaxy.selected = -1
 		galaxy.hide_system()
-		if not _opening_fleet:
+		if not _keep_camera:
 			galaxy.fly_back()
 		galaxy.redraw()
 	elif scene_name == "colony_pane":
@@ -1224,6 +1229,13 @@ func _start_popup_map(dialog: Control, request: Dictionary) -> void:
 		_popup_pick_star = false
 		return
 	if _popup_zoom >= 0 and galaxy.system_star != _popup_zoom:
+		# Another system's pane goes first (owner, 2026-11-14: a to-do item's window flew to its
+		# system with the old system's pane still up); the camera flies on from where it is.
+		var system_pane: Control = _views.get("system_pane")
+		if system_pane != null and system_pane.visible:
+			_keep_camera = true # no flight back to the galaxy on its closing
+			system_pane.dismiss()
+			_keep_camera = false
 		galaxy.selected = _popup_zoom
 		_frame_system(_popup_zoom)
 		galaxy.show_system(_popup_zoom, request.get("system", {}))
@@ -1478,7 +1490,7 @@ func _on_pane_planet(planet_id: int) -> void:
 ## A fleet from the system pane: the game closes the system box for the fleet box, and the map
 ## stays at the system.
 func _open_fleet_from_pane(ship_id: int) -> void:
-	_opening_fleet = true
+	_keep_camera = true
 	_open_fleet(ship_id)
 
 
@@ -1487,13 +1499,13 @@ func _open_fleet_from_pane(ship_id: int) -> void:
 func _open_fleet(ship_id: int) -> void:
 	var from_star := _panel_star if _view("system_pane").visible else -1
 	if from_star >= 0:
-		_opening_fleet = true # the pane goes, the map stays at the system
+		_keep_camera = true # the pane goes, the map stays at the system
 	_send({"verb": "open_fleet", "fleet": ship_id}, func(opened: Dictionary):
 		if not opened.get("ok", false):
-			_opening_fleet = false
+			_keep_camera = false
 			return
 		_view("system_pane").dismiss()
-		_opening_fleet = false
+		_keep_camera = false
 		if from_star >= 0:
 			# From a system: out a little round its star, the map free to pick a destination;
 			# closing the fleet panel comes back to the system.
@@ -3047,6 +3059,14 @@ func _smoke_todo(shots: String) -> bool:
 	# planet's Yes/No, or the planet picker zoomed into the system), answered to colonise.
 	for item: Dictionary in todo.get("items", []):
 		if String(item.kind) == "colonize" and not bool(item.done):
+			# Another system open first: its pane must go when the picker flies elsewhere (owner,
+			# 2026-11-14).
+			for other: Dictionary in galaxy.stars:
+				if int(other.id) != int(item.get("star", -1)) and not bool(other.get("black_hole", false)):
+					_open_system(int(other.id))
+					await get_tree().create_timer(2.0).timeout
+					print("smoke: to-do colonize from another system: pane on %d (item's star %d)" % [int(_view("system_pane").star), int(item.get("star", -1))])
+					break
 			_on_todo_item(item)
 			var waited := 0.0
 			var asked: Array = []
@@ -3059,6 +3079,10 @@ func _smoke_todo(shots: String) -> bool:
 					continue
 				var dialog: Control = _views["dialog"]
 				asked.append("%s/%s" % [dialog._kind, dialog.popup_name])
+				if asked.size() == 1:
+					await get_tree().create_timer(1.0).timeout
+					print("smoke: to-do colonize asked: system pane visible %s on %d, galaxy system %d" % [_view("system_pane").visible,
+						int(_view("system_pane").star), galaxy.system_star])
 				if shots != "" and asked.size() == 1:
 					await host.shot(shots + "/native-todo-colonize.png")
 				if dialog._kind == "popup" and dialog.options.size() > 0:

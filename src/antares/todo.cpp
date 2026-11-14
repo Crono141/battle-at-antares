@@ -73,8 +73,11 @@ namespace antares::todo {
             }
         }
 
+        // An auto-building colony isn't asking: the turn fills its queue (COLCALC's production step,
+        // AIBUILD::Player_Colony_Autobuild; owner, 2026-11-14: AUTO BUILD left the item open).
         bool Empty_Queue(const s_colony& colony) {
-            return colony.owner == MOX::PLAYER_NUM && colony.outpost_flag == 0 && colony.producing[0] == COLONY_PRODUCTION_NONE;
+            return colony.owner == MOX::PLAYER_NUM && colony.outpost_flag == 0 && colony.producing[0] == COLONY_PRODUCTION_NONE &&
+                colony.auto_building == 0;
         }
 
         std::string Star_Name(int16_t star) {
