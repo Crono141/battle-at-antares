@@ -2087,6 +2087,7 @@ namespace EVENTS {
         Get_Event_Message(event_id + 2, 0, 0, planet, 10, 10, p, 0, p, 0, p, star, 0, 0, event_message, sizeof(event_message));
         Drive_Event_Screen();
         antares::native::Popup("scene_end", "", "\"scene\":\"gnn\"", nullptr);
+        antares::native::Clear_Scene();
         JIM::Play_Background_Music();
         MOX2::Put_Auto_Function(&EVENTS::jim_saved_autofunction);
         memcpy(event_message, saved, sizeof(saved));
@@ -2118,6 +2119,7 @@ namespace EVENTS {
             const bool native_scene = MOX::settings.show_gnn_report == 1 && Native_Scene();
             if (native_scene) {
                 antares::native::Popup("scene_end", "", "\"scene\":\"gnn\"", nullptr); // the window closes
+                antares::native::Clear_Scene();
             } else if (MOX::settings.show_gnn_report == 1) {
                 ERIC::Set_Fade_Percent(0);
                 ERIC::Set_Fade_Speed_Percent(10);
@@ -2714,6 +2716,9 @@ namespace EVENTS {
             fields::Deactivate_Auto_Function();
             fields::Clear_Fields();
             JIM::Play_Streaming_Music(0x76, -1, 1);
+            // JIM's switch fades over several calls: the legacy screen calls it every frame
+            // (Draw_Event_Screen), the native window while each page waits.
+            antares::native::Set_Scene([] { return std::string(); }, [] { JIM::Play_Streaming_Music(0x76, -1, 1); });
             MOX2::Get_Auto_Function(&jim_saved_autofunction);
             fields::Deactivate_Auto_Function();
             return;

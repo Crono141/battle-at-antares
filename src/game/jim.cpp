@@ -175,11 +175,16 @@ namespace JIM {
             return;
         }
 
+        // Antares: a switch away from the galaxy track left half done (a native scene window
+        // closed before its fade finished; owner 2026-11-14) leaves that track faded to silence:
+        // start one again instead of keeping it.
+        const bool switching_away = jim_fade_music_flag == 1 || jim_fade_music_flag == 2;
         jim_old_music_id = -1;
 
-        if (jim_current_stream == 1 || jim_current_stream == 2 || jim_current_stream == 3) {
+        if (!switching_away && (jim_current_stream == 1 || jim_current_stream == 2 || jim_current_stream == 3)) {
             return;
         }
+        jim_fade_music_flag = -1;
 
         sound::Fade_Stream_Down(25);
 

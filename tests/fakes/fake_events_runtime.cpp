@@ -341,4 +341,6 @@ namespace antares::native {
     bool Popup(const char*, const char*, const std::string&, int32_t*) {
         return false;
     }
+    void Set_Scene(std::function<std::string()>, std::function<void()>) {}
+    void Clear_Scene() {}
 } // namespace antares::native
