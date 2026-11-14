@@ -2994,8 +2994,8 @@ func _smoke_todo(shots: String) -> bool:
 				back += 1.0
 				# The landing waits for a click (owner, 2026-11-14): a key ends it.
 				if not _smoke_answer() and native_screen != Screens.MAIN and back >= 6.0 and int(back) % 3 == 0:
-					print("smoke: ending the landing (screen %d) with a key" % native_screen)
-					game.send_key(KEY_ESCAPE, false, false, false)
+					print("smoke: ending the landing (screen %d) with a click" % native_screen)
+					_smoke_click(get_viewport().get_visible_rect().size * 0.5)
 			await get_tree().create_timer(1.0).timeout
 			var again: Dictionary = await _query("todo")
 			var done := false
@@ -3086,6 +3086,18 @@ func _smoke_clear_todo() -> bool:
 
 
 ## The smoke test answers native message boxes with OK / Yes.
+## A real mouse click at a screen point (the legacy screens take the mouse, not keys, to go on).
+func _smoke_click(at: Vector2) -> void:
+	for pressed in [true, false]:
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = pressed
+		click.position = at
+		click.global_position = at
+		Input.parse_input_event(click)
+		await get_tree().create_timer(0.1).timeout
+
+
 func _smoke_answer() -> bool:
 	if not overlay.visible:
 		return false

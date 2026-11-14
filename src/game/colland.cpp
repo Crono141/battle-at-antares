@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/native.h"
+
 namespace COLLAND {
     s_animation_header* l_anims;
     int32_t pod1l_sfx;
@@ -229,6 +231,16 @@ namespace COLLAND {
 
         MOX2::Put_Auto_Function(&saved_auto_fn);
         COLONY::using_colony_screen_palette = 0;
-        MOX::current_screen = 1; /* SCR_MAIN_VIEW */
+        if (antares::native::Galaxy_Will_Be_Native()) {
+            // Antares (owner, 2026-11-14): back to the native galaxy, where the frontend opens the
+            // new colony's pane, not the legacy colony screen with its "place your orders" box and
+            // build list.
+            if (COLONY::colony_handle >= 0 && MOX::colony[COLONY::colony_handle].just_produced == COLONY_PRODUCTION_JUST_COLONIZED) {
+                MOX::colony[COLONY::colony_handle].just_produced = COLONY_PRODUCTION_NONE;
+            }
+            MOX::current_screen = SCREEN_MAIN;
+            return;
+        }
+        MOX::current_screen = SCREEN_COLONY;
     }
 } // namespace COLLAND
