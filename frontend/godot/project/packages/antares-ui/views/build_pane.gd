@@ -36,6 +36,7 @@ const ROW_HEIGHT := 30.0
 @onready var queue_box: VBoxContainer = $Box/Columns/Left/Queue/Box
 @onready var items_box: VBoxContainer = $Box/Columns/Right/Scroll/Items
 
+var bottom_clear := 0.0 # set_bottom_clear
 var art: Node
 var colony_id := -1
 var bought := false
@@ -89,8 +90,15 @@ func _restyle() -> void:
 	offset_left = inset + gap + 372.0 + step + 340.0 + step
 	offset_right = offset_left + WIDTH
 	offset_top = get_theme_constant("content_top", "Screen")
-	offset_bottom = -(inset + gap)
+	offset_bottom = -maxf(inset + gap, bottom_clear)
 	_shown_left = offset_left
+
+
+## Room kept free under the pane: the map controls (owner, 2026-11-14), as the colony pane does.
+func set_bottom_clear(room: float) -> void:
+	if absf(room - bottom_clear) > 0.5:
+		bottom_clear = room
+		_restyle()
 
 
 ## Its left edge at `x` (the colony pane's actual right edge plus the gap: that pane grows with its

@@ -56,6 +56,9 @@ func _ready() -> void:
 	hover.bg_color = Color(1, 1, 1, 0.08)
 	hover.set_corner_radius_all(3)
 	template.add_theme_stylebox_override("hover", hover)
+	# A ship that can't take orders (another empire's, a monster) is still drawn at full colour:
+	# Godot dims a disabled button's icon (owner, 2026-11-14: the Guardian looked transparent).
+	template.add_theme_color_override("icon_disabled_color", Color.WHITE)
 	if art:
 		art.loaded.connect(func(_key): _refresh_icons())
 

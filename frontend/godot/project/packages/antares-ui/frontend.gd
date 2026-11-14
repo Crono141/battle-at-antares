@@ -722,6 +722,10 @@ func _view(scene_name: String) -> Control:
 		if scene_name in ["galaxy_bar", "map_controls"]: # the frame's joints follow their pockets
 			view.item_rect_changed.connect(_frame_view.queue_redraw)
 			view.visibility_changed.connect(_frame_view.queue_redraw)
+		if scene_name == "map_controls":
+			view.item_rect_changed.connect(_clear_map_controls)
+		if scene_name in ["map_controls", "colony_pane", "build_pane"]:
+			_clear_map_controls.call_deferred()
 	return _views[scene_name]
 
 
@@ -1435,6 +1439,19 @@ func _open_build_pane(colony_id: int, bought: bool) -> void:
 	pane.move_to_front()
 	_raise_chrome()
 	pane.open(colony_id, bought)
+
+
+## The colony and build panes end above the map controls, so the previous/next buttons stay in reach
+## (owner, 2026-11-14).
+func _clear_map_controls() -> void:
+	var controls: Control = _views.get("map_controls")
+	if controls == null:
+		return
+	for pane_name in ["colony_pane", "build_pane"]:
+		var pane: Control = _views.get(pane_name)
+		if pane != null:
+			var gap := maxf(get_theme_constant_from(pane, "pane_gap"), 6.0)
+			pane.set_bottom_clear(get_viewport().get_visible_rect().size.y - controls.get_global_rect().position.y + gap)
 
 
 ## Beside the colony pane, clear of the side tabs (Glass keeps them on the screen's right edge,

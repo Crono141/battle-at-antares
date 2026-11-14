@@ -51,6 +51,8 @@ var colony := {}
 var colony_id := -1
 var _tween: Tween
 var _shown_left := 0.0
+## Room kept free under the pane: the map controls' previous/next buttons (owner, 2026-11-14).
+var bottom_clear := 0.0
 var _carry := {} # {pops, job, view}: colonists on the pointer
 var _job_panels := {} # job -> its row's panel (drop targets)
 var _info_popup: Control
@@ -76,15 +78,23 @@ func _notification(what: int) -> void:
 		_restyle()
 
 
-## Beside the system pane (it sits at the screen's left), under the top bar.
+## Beside the system pane (it sits at the screen's left), under the top bar, its foot above the
+## map controls (set_bottom_clear).
 func _restyle() -> void:
 	var inset := get_theme_constant("inset", "Screen")
 	var gap := get_theme_constant("pane_gap", "Screen")
 	offset_left = inset + gap + 372.0 + maxi(gap, 6)
 	offset_right = offset_left + WIDTH
 	offset_top = get_theme_constant("content_top", "Screen")
-	offset_bottom = -(inset + gap)
+	offset_bottom = -maxf(inset + gap, bottom_clear)
 	_shown_left = offset_left
+
+
+
+func set_bottom_clear(room: float) -> void:
+	if absf(room - bottom_clear) > 0.5:
+		bottom_clear = room
+		_restyle()
 
 
 ## Opens (or refreshes) on a colony: asks the game for it.
