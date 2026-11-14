@@ -1208,6 +1208,15 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		_on_scene_request(id, request)
 		return
 	_start_popup_map(dialog, request)
+	if request.has("scene_state"):
+		# A scene's list (diplomacy): the window stays up behind it, the list where the scene
+		# had it.
+		_scene().show_state(request.scene_state)
+		var at: Vector2 = _scene_window.list_position()
+		if at != Vector2.INF:
+			dialog.placement = "at"
+			dialog.placement_at = at
+		dialog.move_to_front()
 	dialog.race_id = _race_id
 	dialog.ask(id, kind, request)
 
@@ -1231,7 +1240,7 @@ func _smoke_scene(shots: String) -> bool:
 	print("smoke: scene opening heights %s" % [heights])
 	for page in 2:
 		await get_tree().create_timer(2.5).timeout # the studio's frames arrive
-		print("smoke: scene page %d: request page %s, text '%s'" % [page, _scene_window._request.get("page", -1), String(_scene_window._request.get("text", "")).left(80)])
+		print("smoke: scene page %d: request page %s, text '%s'" % [page, _scene_window._state.get("page", -1), String(_scene_window._state.get("text", "")).left(80)])
 		if shots != "":
 			await host.shot(shots + "/native-scene-page-%d.png" % page)
 		_scene_window._frame.gui_input.emit(_smoke_left_click())
@@ -1241,6 +1250,46 @@ func _smoke_scene(shots: String) -> bool:
 		waited += 0.1
 	print("smoke: scene closed %s, overlay %s, answer %s" % [not _scene_window.visible, overlay.visible, box.get("r", {})])
 	return box.has("r") and not _scene_window.visible
+
+
+## Smoke: diplomacy with the first computer player met, as the Races screen opens it: the window
+## opens with the room, the ambassador arrives, the main list sits in the window; EXIT leaves and
+## the window closes. Nothing is proposed.
+func _smoke_diplomacy(shots: String) -> bool:
+	var box := {}
+	_send({"verb": "preview_popup", "popup": "diplomacy"}, func(r: Dictionary): box["r"] = r)
+	var waited := 0.0
+	var steps: Array = []
+	var shot_intro := false
+	while not box.has("r") and waited < 60.0:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+		if _scene_window == null or not _scene_window.visible:
+			continue
+		if not shot_intro and waited > 1.0:
+			shot_intro = true
+			print("smoke: diplomacy scene '%s', title '%s', text '%s'" % [_scene_window._state.get("scene", ""), _scene_window._title.text, _scene_window._text.text.left(80)])
+			if shots != "":
+				await host.shot(shots + "/native-diplomacy-intro.png")
+			await get_tree().create_timer(5.0).timeout # the ambassador's arrival, then the loop
+			waited += 5.0
+		var dialog: Control = _views.get("dialog")
+		if overlay.visible and dialog != null and dialog.visible and dialog._kind == "choose":
+			steps.append("choose %d options at %s" % [dialog.options.size(), dialog.position])
+			if shots != "" and steps.size() == 1:
+				await get_tree().create_timer(1.0).timeout
+				await host.shot(shots + "/native-diplomacy-arriving.png")
+				await get_tree().create_timer(6.0).timeout # the art, the ambassador's arrival
+				print("smoke: diplomacy scene '%s', title '%s', text '%s', intro frame %d, actor %s" % [_scene_window._state.get("scene", ""),
+					_scene_window._title.text, _scene_window._text.text.left(80), _scene_window._intro_frame, _scene_window._actor.texture != null])
+				await host.shot(shots + "/native-diplomacy-list.png")
+			dialog._answer(dialog.options.size() - 1) # EXIT, the last
+			await get_tree().create_timer(0.5).timeout
+		elif _scene_window._id >= 0:
+			steps.append("page '%s'" % _scene_window._text.text.left(40))
+			_scene_window._frame.gui_input.emit(_smoke_left_click())
+	print("smoke: diplomacy steps %s; result %s, window %s" % [steps, box.get("r", {}), _scene_window.visible if _scene_window else false])
+	return box.has("r") and bool(box.r.get("ok", false)) and _scene_window != null and not _scene_window.visible
 
 
 func _smoke_left_click() -> InputEventMouseButton:
@@ -1255,7 +1304,7 @@ func _smoke_left_click() -> InputEventMouseButton:
 var _scene_window: Control
 
 
-func _on_scene_request(id: int, request: Dictionary) -> void:
+func _scene() -> Control:
 	if _scene_window == null:
 		_scene_window = preload("views/scene_window.gd").new()
 		_scene_window.name = "SceneWindow"
@@ -1263,6 +1312,11 @@ func _on_scene_request(id: int, request: Dictionary) -> void:
 		_scene_window.theme = native_layer.theme
 		$Overlay.add_child(_scene_window)
 		_scene_window.page_done.connect(func(page_id: int): game.answer_request(page_id, 0))
+	return _scene_window
+
+
+func _on_scene_request(id: int, request: Dictionary) -> void:
+	_scene()
 	if String(request.popup) == "scene_end":
 		_scene_window.close(func(): _on_answered(id, 0))
 		return
@@ -1332,6 +1386,14 @@ func _popup_map_click(planet_id: int, star_id: int) -> bool:
 
 
 func _on_answered(id: int, value: int, text := "") -> void:
+	if _scene_window != null and _scene_window.is_open():
+		# A list over a scene: the scene goes on (no hand-back to the legacy view between its
+		# requests; scene_end closes it and comes back here).
+		if text != "" or (_views.has("dialog") and _views.dialog._kind == "text"):
+			game.answer_request_text(id, value, text)
+		else:
+			game.answer_request(id, value)
+		return
 	overlay.hide()
 	_end_popup_map()
 	if _question_over_galaxy:
@@ -2901,6 +2963,8 @@ func _smoke_popups(shots: String) -> void:
 		cases.append({"popup": "attack_target", "star": enemy_star})
 		cases.append({"popup": "colony_combat", "colony": enemy_colony})
 	var failed := not await _smoke_scene(shots)
+	if not await _smoke_diplomacy(shots):
+		failed = true
 	for case: Dictionary in cases:
 		var box := {}
 		var verb := {"verb": "preview_popup"}

@@ -312,6 +312,15 @@ s_combfind_target COMBFIND::target{};
 namespace EVENTS {
     void Preview_Native_Gnn(int16_t, int16_t, int16_t) {}
 } // namespace EVENTS
+namespace DIP_SCRN {
+    void __cdecl Diplomacy_Screen(int) {}
+} // namespace DIP_SCRN
+namespace MOX2 {
+    void __cdecl Get_Auto_Function(action_func_t* slot) {
+        *slot = nullptr;
+    }
+    void __cdecl Put_Auto_Function(action_func_t*) {}
+} // namespace MOX2
 namespace MAINPUPS {
     void __cdecl New_System_Discovery_Popup(int16_t, uint8_t) {}
     int16_t __cdecl New_Colony_Selection_Popup(int16_t, uint8_t) { return -1; }

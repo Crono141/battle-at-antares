@@ -399,10 +399,14 @@ func _centre() -> void:
 			position.x = 24.0
 		"top": # over the map while a star is picked on it
 			position.y = 56.0
+		"at": # a scene's list (diplomacy), where the legacy screen had it, kept on the screen
+			position = placement_at.clamp(Vector2.ZERO, (area - size).max(Vector2.ZERO)).floor()
 
 
-## Where the next popup sits: "" centred, "left" or "top" (set by the frontend before `ask`).
+## Where the next popup sits: "" centred, "left", "top" or "at" `placement_at` (set by the
+## frontend before `ask`).
 var placement := ""
+var placement_at := Vector2.ZERO
 
 
 ## The game's slider (scrapping freighters): a bar and the number, from min to max.

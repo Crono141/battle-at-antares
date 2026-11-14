@@ -55,6 +55,16 @@ func draw(item: CanvasItem, lbx: String, entry: int, frame: int, top_left: Vecto
 
 
 ## Art changed (packages loaded): ask again.
+## Drops one sprite (the scene window's large animations when it closes); asked again, it loads anew.
+func forget(lbx: String, entry: int) -> void:
+	var key := "%s/%d" % [lbx, entry]
+	_sprites.erase(key)
+	_failures.erase(key)
+	for id in _pending.keys():
+		if _pending[id] == key:
+			_pending.erase(id)
+
+
 func clear() -> void:
 	_sprites.clear()
 	_pending.clear()
@@ -79,7 +89,10 @@ func _on_sprite_ready(id: int, data: Dictionary) -> void:
 	var origins: Array = []
 	for frame: Dictionary in data.frames:
 		var image: Image = frame.image
-		image.generate_mipmaps()
+		# Full-screen scene frames (about 1280x960) show near their own size: no mipmaps, which
+		# would add a third to tens of MB.
+		if image.get_width() * image.get_height() < 1_000_000:
+			image.generate_mipmaps()
 		frames.append(ImageTexture.create_from_image(image))
 		origins.append(Vector2(frame.origin))
 	_sprites[key] = {

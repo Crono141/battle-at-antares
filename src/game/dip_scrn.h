@@ -101,6 +101,8 @@ namespace DIP_SCRN {
     void __cdecl Set_Opportunity_Attacks();
 
     void __cdecl Diplomacy_Screen(int player_idx);
+    // Antares: the diplomacy screen runs as a native scene window (dip_scrn_main.cpp).
+    bool Native_Scene_Open();
 
     void __cdecl Diplomacy_Fade_In();
 

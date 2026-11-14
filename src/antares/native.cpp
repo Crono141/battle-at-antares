@@ -222,8 +222,11 @@ namespace antares::native {
 
         // Posts a request (the fields after "id" and "kind", as JSON text without braces) and
         // waits on the game thread for its answer, keeping sound, network and exit checks alive.
+        std::function<std::string()> s_scene; // Set_Scene (game thread)
+
         int32_t Ask(const char* kind, const char* text, const std::string& fields) {
             uint64_t id = 0;
+            const std::string scene = s_scene ? s_scene() : std::string();
             {
                 std::lock_guard<std::mutex> lock(s_mutex);
                 id = s_next_id++;
@@ -234,7 +237,7 @@ namespace antares::native {
                 // frontend shows its own galaxy behind the question instead.
                 std::string json = "{\"id\":" + std::to_string(id) + ",\"kind\":\"" + kind + "\",\"text\":" +
                     Json_Quote(utf8) + ",\"screen\":" + std::to_string((int)MOX::current_screen) +
-                    (fields.empty() ? "" : ",") + fields + "}";
+                    (fields.empty() ? "" : ",") + fields + (scene.empty() ? "" : ",\"scene_state\":" + scene) + "}";
                 s_requests.push_back({id, kind, utf8, std::move(json)});
             }
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: request %llu (%s) on screen %d", (unsigned long long)id, kind, (int)MOX::current_screen);
@@ -862,6 +865,14 @@ namespace antares::native {
 
     bool Popups_Native() {
         return Claimed_Kind(KIND_POPUP);
+    }
+
+    void Set_Scene(std::function<std::string()> describe) {
+        s_scene = std::move(describe);
+    }
+
+    void Clear_Scene() {
+        s_scene = nullptr;
     }
 
     bool Todo_Native() {

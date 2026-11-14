@@ -1,12 +1,19 @@
 extends Control
-## The scene window (owner, 2026-11-14): the legacy full-screen scenes (GNN news, then diplomacy)
-## as a window over the galaxy, at the scene's 4:3, in the theme's pane frame. It opens like a
-## monitor switching on: a thin framed line in the centre stretches to the full height, then the
-## picture fades in; closing runs it backwards.
+## The scene window (owner, 2026-11-14): the legacy full-screen scenes (GNN news, diplomacy) as a
+## window over the galaxy, at the scene's 4:3, in the theme's pane frame. It opens like a monitor
+## switching on: a thin framed line in the centre stretches to the full height, then the picture
+## fades in; closing runs it backwards.
 ##
-## The game sends each page as a "scene" popup (events.cpp: the backdrop animation, the story's
-## picture, the text and where the legacy screen printed it); a click anywhere answers it. A
-## "scene_end" popup closes the window, and is answered when the closing has played.
+## What it shows is a scene state (events.cpp, dip_scrn_main.cpp):
+##   backdrop: {lbx, entry, loop_from} an animation looping from that frame, or {.., frame} a still;
+##   intro:    {lbx, entry, from} played once over the backdrop (the ambassador appearing);
+##   actor:    {lbx, entry, loop_from | frame} drawn at its frames' origins after the intro;
+##   picture:  {lbx, entry, x, y} a still at a 1x position (the GNN story);
+##   title, color: the heading at the top, in a player's colour;
+##   text, text_box [x, centre y, width]: the paragraph, where the legacy screen printed it;
+##   list_at [x, y, width]: where the scene's lists sit (the dialog is placed there).
+## A "scene" popup is a page: a click (or Space, Enter, Esc) answers it. Other requests carry the
+## state as "scene_state" and keep the window up behind them. "scene_end" closes it.
 
 signal page_done(id: int)
 
@@ -21,13 +28,19 @@ var art: Node # art.gd
 var _frame: Panel # the themed frame
 var _stage: Control # the scene's picture and text, clipped to the frame
 var _backdrop: TextureRect
+var _intro: TextureRect
+var _actor: TextureRect
 var _picture: TextureRect
+var _title: Label
 var _text: Label
-var _request := {}
-var _id := -1
-var _backdrop_key := ""
-var _frame_index := 0
-var _frame_clock := 0.0
+var _state := {}
+var _id := -1 # the page waiting for a click, or -1
+var _clock := 0.0
+var _backdrop_frame := 0
+var _intro_frame := -1 # -1: the intro is over (or there is none)
+var _intro_key := ""
+var _actor_frame := 0
+var _used := {} # art keys this scene loaded ("LBX:2/entry"), forgotten when it closes
 var _tween: Tween
 var _open := false
 
@@ -46,18 +59,17 @@ func _ready() -> void:
 	_stage.clip_contents = true
 	_frame.add_child(_stage)
 	_backdrop = _texture_rect()
-	_backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_stage.add_child(_backdrop)
+	_intro = _texture_rect()
+	_stage.add_child(_intro)
+	_actor = _texture_rect()
+	_stage.add_child(_actor)
 	_picture = _texture_rect()
 	_stage.add_child(_picture)
-	_text = Label.new()
+	_title = _label()
+	_stage.add_child(_title)
+	_text = _label()
 	_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_text.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_text.add_theme_color_override("font_color", Color(0.95, 0.93, 0.85))
-	_text.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	_text.add_theme_constant_override("outline_size", 6)
 	_stage.add_child(_text)
 	hide()
 	if art:
@@ -73,16 +85,39 @@ func _texture_rect() -> TextureRect:
 	return rect
 
 
-## A page of the scene: opens the window first if it isn't up.
+func _label() -> Label:
+	var label := Label.new()
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_color_override("font_color", Color(0.95, 0.93, 0.85))
+	label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	label.add_theme_constant_override("outline_size", 6)
+	return label
+
+
+## A page of the scene, waiting for a click: opens the window first if it isn't up.
 func show_page(id: int, request: Dictionary) -> void:
+	show_state(request.get("scene_state", request))
 	_id = id
-	_request = request
-	var backdrop: Dictionary = request.get("backdrop", {})
-	var key := "%s:%d/%d" % [backdrop.get("lbx", ""), ART_SCALE, int(backdrop.get("entry", -1))]
-	if key != _backdrop_key:
-		_backdrop_key = key
-		_frame_index = 0
-	_text.text = String(request.get("text", ""))
+
+
+## The scene as it is now (a request's "scene_state"), behind whatever asks over it.
+func show_state(state: Dictionary) -> void:
+	var intro: Dictionary = state.get("intro", {})
+	var new_scene: bool = _state.get("scene", "") != state.get("scene", "") or \
+		_state.get("backdrop", {}).get("entry", -1) != state.get("backdrop", {}).get("entry", -1)
+	_state = state
+	_id = -1
+	if new_scene:
+		_backdrop_frame = int(state.get("backdrop", {}).get("frame", 0))
+		_actor_frame = 0
+		_intro_frame = int(intro.get("from", 0)) if not intro.is_empty() else -1
+		_intro_key = _key(intro) if not intro.is_empty() else ""
+	_text.text = String(state.get("text", ""))
+	_title.text = String(state.get("title", ""))
+	var color := int(state.get("color", -1))
+	_title.add_theme_color_override("font_color", preload("../galaxy.gd").PLAYER_COLORS[color % 8] if color >= 0 else Color(0.95, 0.93, 0.85))
 	_layout()
 	_show_art()
 	if not _open:
@@ -91,12 +126,22 @@ func show_page(id: int, request: Dictionary) -> void:
 		_play_open()
 
 
+## Where a list over the scene goes (its "list_at"), in this window's coordinates; INF without.
+func list_position() -> Vector2:
+	var at: Array = _state.get("list_at", [])
+	if at.is_empty() or not _open:
+		return Vector2.INF
+	var k := _stage.size.x / SCENE_SIZE.x
+	return _frame_rect().position + _stage.position + Vector2(float(at[0]), float(at[1])) * k
+
+
 ## The scene is over: the window closes, then `done` runs (the game's answer).
 func close(done: Callable) -> void:
 	if not _open:
 		done.call()
 		return
 	_open = false
+	_id = -1
 	if _tween:
 		_tween.kill()
 	var full := _frame_rect()
@@ -106,7 +151,14 @@ func close(done: Callable) -> void:
 	_tween.parallel().tween_property(_frame, "size:y", _line_height(), OPEN_TIME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	_tween.tween_callback(func():
 		hide()
-		_backdrop_key = ""
+		_state = {}
+		for texture_rect in [_backdrop, _intro, _actor, _picture]:
+			texture_rect.texture = null
+		# The scene's frames are large (tens of MB at 2x): let them go.
+		for key: String in _used:
+			var at := key.rfind("/")
+			art.forget(key.left(at), int(key.substr(at + 1)))
+		_used.clear()
 		done.call())
 
 
@@ -127,21 +179,26 @@ func _play_open() -> void:
 	_tween.tween_property(_stage, "modulate:a", 1.0, FADE_TIME)
 
 
+func _margins() -> Rect2: # position: left/top, size: left+right / top+bottom
+	var box := _frame.get_theme_stylebox("panel") if _frame else null
+	if box == null:
+		return Rect2()
+	return Rect2(box.get_margin(SIDE_LEFT), box.get_margin(SIDE_TOP),
+		box.get_margin(SIDE_LEFT) + box.get_margin(SIDE_RIGHT), box.get_margin(SIDE_TOP) + box.get_margin(SIDE_BOTTOM))
+
+
 ## The frame's thickness: the opening starts from the frame alone, as a line.
 func _line_height() -> float:
-	var box := _frame.get_theme_stylebox("panel")
-	return maxf(8.0, box.get_margin(SIDE_TOP) + box.get_margin(SIDE_BOTTOM) + 4.0) if box else 12.0
+	return maxf(8.0, _margins().size.y + 4.0)
 
 
 ## The frame's place when open: centred, the stage at 4:3 as large as fits in most of the screen.
 func _frame_rect() -> Rect2:
 	var area := get_viewport_rect().size
-	var box := _frame.get_theme_stylebox("panel")
-	var pad := Vector2(box.get_margin(SIDE_LEFT) + box.get_margin(SIDE_RIGHT), box.get_margin(SIDE_TOP) + box.get_margin(SIDE_BOTTOM)) if box else Vector2.ZERO
+	var pad := _margins().size
 	var room := area * 0.86 - pad
 	var k := minf(room.x / SCENE_SIZE.x, room.y / SCENE_SIZE.y)
-	var stage := (SCENE_SIZE * k).floor()
-	var size_all := stage + pad
+	var size_all := (SCENE_SIZE * k).floor() + pad
 	return Rect2(((area - size_all) * 0.5).floor(), size_all)
 
 
@@ -149,9 +206,7 @@ func _layout() -> void:
 	if _frame == null:
 		return
 	var full := _frame_rect()
-	var box := _frame.get_theme_stylebox("panel")
-	var inset := Vector2(box.get_margin(SIDE_LEFT), box.get_margin(SIDE_TOP)) if box else Vector2.ZERO
-	var pad := Vector2(box.get_margin(SIDE_LEFT) + box.get_margin(SIDE_RIGHT), box.get_margin(SIDE_TOP) + box.get_margin(SIDE_BOTTOM)) if box else Vector2.ZERO
+	var m := _margins()
 	if not (_tween and _tween.is_running()):
 		_frame.position = full.position
 		_frame.size = full.size
@@ -159,65 +214,113 @@ func _layout() -> void:
 	_frame.size.x = full.size.x
 	# The stage keeps its full size and stays centred in the frame while the frame opens (the
 	# frame clips it), so the picture is revealed from the middle.
-	_stage.size = full.size - pad
-	_stage.position = Vector2(inset.x, inset.y)
+	_stage.size = full.size - m.size
+	_stage.position = m.position
+	_backdrop.size = _stage.size
+	_intro.size = _stage.size
 	var k := _stage.size.x / SCENE_SIZE.x
-	var box_info: Array = _request.get("text_box", [55, 445, 550])
-	var text_width := float(box_info[2]) * k
-	_text.add_theme_font_size_override("font_size", maxi(12, roundi(13.0 * k)))
-	_text.size = Vector2(text_width, 90.0 * k)
+	var font := maxi(12, roundi(13.0 * k))
+	var box_info: Array = _state.get("text_box", [55, 445, 550])
+	_text.add_theme_font_size_override("font_size", font)
+	_text.size = Vector2(float(box_info[2]) * k, 90.0 * k)
 	_text.position = Vector2(float(box_info[0]) * k, float(box_info[1]) * k - _text.size.y * 0.5)
+	_title.add_theme_font_size_override("font_size", roundi(font * 1.3))
+	_title.size = Vector2(_stage.size.x, 30.0 * k)
+	_title.position = Vector2(0, 0)
+	_show_art()
+
+
+func _key(layer: Dictionary) -> String:
+	return "%s:%d/%d" % [layer.get("lbx", ""), ART_SCALE, int(layer.get("entry", -1))]
+
+
+## The layer's sprite (at 2x), or {} while it is on its way.
+func _sprite(layer: Dictionary) -> Dictionary:
+	if art == null or layer.is_empty():
+		return {}
+	var key := _key(layer)
+	_used[key] = true
+	return art.sprite("%s:%d" % [layer.get("lbx", ""), ART_SCALE], int(layer.get("entry", -1)))
 
 
 func _process(delta: float) -> void:
 	if not visible:
 		return
 	# While opening, the stage stays centred on the frame's middle.
-	var box := _frame.get_theme_stylebox("panel")
-	var top := box.get_margin(SIDE_TOP) if box else 0.0
-	var full := _frame_rect()
-	_stage.position.y = top - (_frame.position.y - full.position.y)
-	_frame_clock += delta
-	if _frame_clock < FRAME_TIME:
+	_stage.position.y = _margins().position.y - (_frame.position.y - _frame_rect().position.y)
+	_clock += delta
+	if _clock < FRAME_TIME:
 		return
-	_frame_clock = 0.0
-	var backdrop: Dictionary = _request.get("backdrop", {})
-	var s: Dictionary = art.sprite("%s:%d" % [backdrop.get("lbx", ""), ART_SCALE], int(backdrop.get("entry", -1))) if art else {}
-	if s.is_empty():
-		return
-	_frame_index += 1
-	if _frame_index >= s.frames.size():
-		_frame_index = mini(int(backdrop.get("loop_from", 0)), s.frames.size() - 1)
-	_backdrop.texture = s.frames[_frame_index]
+	_clock = 0.0
+	var backdrop: Dictionary = _state.get("backdrop", {})
+	var b := _sprite(backdrop)
+	if not b.is_empty() and backdrop.has("loop_from"):
+		_backdrop_frame += 1
+		if _backdrop_frame >= b.frames.size():
+			_backdrop_frame = mini(int(backdrop.loop_from), b.frames.size() - 1)
+	if _intro_frame >= 0:
+		var i := _sprite(_state.get("intro", {}))
+		if not i.is_empty() and _stage.modulate.a >= 1.0:
+			_intro_frame += 1
+			if _intro_frame >= i.frames.size():
+				_intro_frame = -1 # over: the actor takes its place
+	else:
+		var actor: Dictionary = _state.get("actor", {})
+		var a := _sprite(actor)
+		if not a.is_empty() and actor.has("loop_from"):
+			_actor_frame += 1
+			if _actor_frame >= a.frames.size():
+				_actor_frame = mini(int(actor.loop_from), a.frames.size() - 1)
+		elif actor.has("frame"):
+			_actor_frame = int(actor.frame)
+	_show_art()
 
 
 func _show_art() -> void:
-	if art == null or _request.is_empty():
+	if art == null or _state.is_empty() or _stage == null:
 		return
 	var k := _stage.size.x / SCENE_SIZE.x
-	var backdrop: Dictionary = _request.get("backdrop", {})
-	var s: Dictionary = art.sprite("%s:%d" % [backdrop.get("lbx", ""), ART_SCALE], int(backdrop.get("entry", -1)))
-	if not s.is_empty():
-		_backdrop.texture = s.frames[clampi(_frame_index, 0, s.frames.size() - 1)]
-	var picture: Dictionary = _request.get("picture", {})
+	var b := _sprite(_state.get("backdrop", {}))
+	_backdrop.texture = b.frames[clampi(_backdrop_frame, 0, b.frames.size() - 1)] if not b.is_empty() else null
+	var intro: Dictionary = _state.get("intro", {})
+	_intro.visible = _intro_frame >= 0 and not intro.is_empty()
+	if _intro.visible:
+		var i := _sprite(intro)
+		_intro.texture = i.frames[clampi(_intro_frame, 0, i.frames.size() - 1)] if not i.is_empty() else null
+	var actor: Dictionary = _state.get("actor", {})
+	_actor.visible = _intro_frame < 0 and not actor.is_empty()
+	if _actor.visible:
+		_place(_actor, _sprite(actor), _actor_frame, Vector2.ZERO, k)
+	var picture: Dictionary = _state.get("picture", {})
 	_picture.visible = not picture.is_empty()
-	if picture.is_empty():
+	if _picture.visible:
+		var p: Dictionary = art.sprite(String(picture.lbx), int(picture.entry))
+		_place(_picture, p, 0, Vector2(float(picture.get("x", 0)), float(picture.get("y", 0))), k)
+
+
+## A frame of `s` at `at` (1x pixels) plus the frame's own origin.
+func _place(rect: TextureRect, s: Dictionary, frame: int, at: Vector2, k: float) -> void:
+	if s.is_empty():
+		rect.texture = null
 		return
-	var p: Dictionary = art.sprite(String(picture.lbx), int(picture.entry))
-	if p.is_empty():
-		_picture.texture = null
-		return
-	_picture.texture = p.frames[0]
-	var origin: Vector2 = p.origins[0]
-	_picture.position = (Vector2(float(picture.get("x", 0)), float(picture.get("y", 0))) + origin) * k
-	_picture.size = Vector2(p.frames[0].get_size()) / float(p.scale) * k
+	var f := clampi(frame, 0, s.frames.size() - 1)
+	var texture: Texture2D = s.frames[f]
+	rect.texture = texture
+	rect.position = (at + Vector2(s.origins[f])) * k
+	rect.size = Vector2(texture.get_size()) / float(s.scale) * k
 
 
 func _on_input(event: InputEvent) -> void:
 	var click := event as InputEventMouseButton
-	if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT and _open and _id >= 0:
+	if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT and _open:
 		if _tween and _tween.is_running():
 			return # the window is still opening
+		if _intro_frame >= 0 and not _state.get("intro", {}).is_empty():
+			_intro_frame = -1 # a click skips the ambassador's arrival, as on the legacy screen
+			_frame.accept_event()
+			return
+		if _id < 0:
+			return
 		var id := _id
 		_id = -1
 		_frame.accept_event()

@@ -1,5 +1,9 @@
 #include "pch.h"
 
+#include "antares/native.h"
+
+#include <vector>
+
 namespace DIP_SCRN {
     s_mouse_list diplomacy_hand_mouse = {19, 0, 0, 0, 639, 479};
     s_mouse_list diplomacy_blank_mouse = {0, 0, 0, 0, 639, 479};
@@ -738,6 +742,46 @@ namespace DIP_SCRN {
         }
 
         exit_field_id = fields::Add_Hidden_Field(0xF, 0x8B, 0x9D, 0xA2, s__00551100, 0);
+
+        if (DIP_SCRN::Native_Scene_Open()) {
+            // Antares (owner, 2026-11-14): in the native window the star map's pick is a list of
+            // the systems a click would have taken (the giver's, may be surrendered, no
+            // homeworld), each with its population, and Cancel.
+            constexpr int32_t item_size = 50;
+            std::vector<char> items;
+            std::vector<int16_t> stars;
+            for (int16_t star = 0; star < MOX::NUM_STARS; ++star) {
+                if (DIP_SCRN::Diplomacy_System_Scan(star, giver_idx, &DIP_SCRN::diplomacy_system_homeworld_flag, &DIP_SCRN::diplomacy_system_planet_count, DIP_SCRN::diplomacy_system_planet_list) != giver_idx ||
+                    !COLCALC::May_Surrender_Star(star, giver_idx, receiver_idx) || DIP_SCRN::diplomacy_system_homeworld_flag != -1) {
+                    continue;
+                }
+                char name[0x23];
+                char people[0x1E];
+                JIM::Get_Text_Message(DIP_SCRN::s_jimtext2_lbx, 0x3A, name, sizeof(name));
+                JIM::Decode_Text_System(name, star, sizeof(name));
+                JIM::Get_Text_Message(DIP_SCRN::s_jimtext2_lbx, 0x38, people, sizeof(people));
+                JIM::Decode_Text_Stat(people, COLCALC::Get_System_Population(giver_idx, star), sizeof(people));
+                items.resize(items.size() + item_size, 0);
+                snprintf(&items[items.size() - item_size], item_size, "%s, %s", name, people);
+                stars.push_back(star);
+            }
+            char cancel[20];
+            JIM::Get_Text_Message(s_jimtext_lbx, 46, cancel, sizeof(cancel));
+            items.resize(items.size() + item_size * 2, 0);
+            strlcpy(&items[items.size() - item_size * 2], cancel, item_size);
+            std::vector<uint8_t> flags(stars.size() + 2, 1);
+            int8_t selected = 0;
+            int16_t answer = -1;
+            antares::native::Choose(DIP_SCRN::diplomacy_message, items.data(), item_size, flags.data(), &selected, &answer);
+            if (answer >= 0 && answer < (int16_t)stars.size()) {
+                result_star_idx = stars[(size_t)answer];
+            }
+            fields::Clear_Fields();
+            fields::Deactivate_Auto_Function();
+            MOX::star_bg_seg = saved_star_bg_seg;
+            COLONY::using_colony_screen_palette = 0;
+            return result_star_idx;
+        }
 
         while (true) {
             timer::Mark_Time();

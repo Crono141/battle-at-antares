@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/cosmetic_random.h"
+#include "antares/native.h"
 
 namespace DIP_SCRN {
     /**
@@ -1014,7 +1015,88 @@ namespace DIP_SCRN {
         Npc_Diplomacy_Screen(player_idx, 1);
     }
 
+    // Antares (owner, 2026-11-14): with a native frontend, diplomacy with a computer player is a
+    // scene window over the galaxy. The screen's rules and lists run as they always did (the lists
+    // are native "choose" requests already); the room, the ambassador and the statement go to the
+    // window as each request's "scene_state", a click-to-continue is a "scene" page, and the
+    // window closes with "scene_end". Nothing is drawn or faded here then.
+    namespace {
+        bool native_scene = false;
+
+        bool Native_Diplomacy_Wanted() {
+            return antares::native::Popups_Native() && (MOX::game_type == 0 || MOX::game_type == 1) &&
+                MOX::player[current_ambassador].objectives != PLAYER_OBJECTIVE_HUMAN;
+        }
+
+        // The statement for the current response, as Draw_Diplomacy_Synch_Mode keeps it.
+        void Native_Update_Statement() {
+            if (old_response_message != (int16_t)response_message) {
+                if (response_message < 1000) {
+                    old_response_message = (int16_t)response_message;
+                    Get_Diplomacy_Statement(response_message, MOX::PLAYER_NUM, current_ambassador, diplomacy_message, sizeof(diplomacy_message));
+                } else {
+                    response_message = 0;
+                    old_response_message = 0;
+                }
+            }
+            if (diplomacy_current_music != -1) {
+                JIM::Play_Streaming_Music(diplomacy_current_music + 100, -1, 1);
+            }
+        }
+
+        std::string Native_Scene_State() {
+            Native_Update_Statement();
+            const int race = static_cast<uint8_t>(MOX::player[current_ambassador].race);
+            char title[80];
+            strlcpy(title, player_name_ambassador_buffer != nullptr ? player_name_ambassador_buffer : "", sizeof(title));
+            JIM::Decode_Text_Race(title, current_ambassador, 0x78);
+            const std::string room = "{\"lbx\":\"DIPLOMAT.LBX\",\"entry\":" + std::to_string(race * 2 + 13);
+            std::string json = "{\"scene\":\"diplomacy\",\"race\":" + std::to_string(race) +
+                ",\"title\":" + antares::native::Quote(title) + ",\"color\":" + std::to_string((int)MOX::player[current_ambassador].color) +
+                ",\"text\":" + antares::native::Quote(diplomacy_message) + ",\"text_box\":[80,440,470],\"list_at\":[10,118,245]" +
+                ",\"backdrop\":" + room + ",\"frame\":0}";
+            // Refusing to talk: the empty room (the legacy screen draws no ambassador then).
+            if (ambassador_option != 0) {
+                const bool animate = MOX::settings.animations_on == 1;
+                if (animate) {
+                    json += ",\"intro\":" + room + ",\"from\":1}";
+                }
+                json += ",\"actor\":{\"lbx\":\"DIPLOMAT.LBX\",\"entry\":" + std::to_string(race * 2 + 14) +
+                    (animate ? ",\"loop_from\":1}" : ",\"frame\":0}");
+            }
+            return json + "}";
+        }
+
+        // The screen opens (Diplomacy_Fade_In's place): the lists, the music and the statement,
+        // no room drawn and no fade.
+        void Native_Scene_Begin() {
+            native_scene = true;
+            Diplomacy_Mouse_Init(current_ambassador);
+            mouse::Set_Mouse_List(&MOX::mouse_list_arrow, 1);
+            old_response_message = -1;
+            antares::native::Set_Scene(Native_Scene_State);
+        }
+
+    } // namespace
+
+    bool Native_Scene_Open() {
+        return native_scene;
+    }
+
+    namespace {
+        void Native_Scene_End() {
+            antares::native::Popup("scene_end", "", "\"scene\":\"diplomacy\"", nullptr);
+            antares::native::Clear_Scene();
+            native_scene = false;
+        }
+    } // namespace
+
     void __cdecl Diplomacy_Display_Response() {
+        if (native_scene) {
+            // A click on the window goes on (the scene_state carries the statement).
+            antares::native::Popup("scene", "", "\"scene\":\"diplomacy\",\"page\":0", nullptr);
+            return;
+        }
         bool done = false;
 
         fields::Assign_Auto_Function(Draw_Diplomacy_Synch_Mode, 2);
@@ -1194,9 +1276,11 @@ namespace DIP_SCRN {
         net_diplomacy_esc_pressed = 0;
         current_ambassador = (uint8_t)player_idx;
 
-        ERIC::Set_Fade_Percent(0);
-        ERIC::Set_Fade_Speed_Percent(10);
-        ERIC::Fast_Fade_Out();
+        if (!Native_Diplomacy_Wanted()) { // a native window opens over what is there
+            ERIC::Set_Fade_Percent(0);
+            ERIC::Set_Fade_Speed_Percent(10);
+            ERIC::Fast_Fade_Out();
+        }
 
         fields::Set_Input_Delay(1);
         fields::Clear_Fields();
@@ -1255,15 +1339,21 @@ namespace DIP_SCRN {
             }
         }
 
+        const bool was_native = native_scene;
+        if (was_native) {
+            Native_Scene_End();
+        }
         JIM::jim_current_stream = -1;
         JIM::Play_Background_Music();
         fields::Deactivate_Auto_Function();
         fields::Clear_Fields();
         file_ani::Reset_File_Animation_Buffer();
         RUSS::Release_All_Blocks(MOX::screen_seg);
-        ERIC::Set_Fade_Percent(0);
-        ERIC::Set_Fade_Speed_Percent(10);
-        ERIC::Fast_Fade_Out();
+        if (!was_native) {
+            ERIC::Set_Fade_Percent(0);
+            ERIC::Set_Fade_Speed_Percent(10);
+            ERIC::Fast_Fade_Out();
+        }
     }
 
     void __cdecl Npc_Diplomacy_Screen(int16_t player_idx, int8_t is_sneak_attack) {
@@ -1281,9 +1371,11 @@ namespace DIP_SCRN {
         fields::Clear_Fields();
         current_ambassador = static_cast<uint8_t>(player_idx);
         old_response_message = -1;
-        ERIC::Set_Fade_Percent(0);
-        ERIC::Set_Fade_Speed_Percent(10);
-        ERIC::Fast_Fade_Out();
+        if (!Native_Diplomacy_Wanted()) { // a native window opens over what is there
+            ERIC::Set_Fade_Percent(0);
+            ERIC::Set_Fade_Speed_Percent(10);
+            ERIC::Fast_Fade_Out();
+        }
         fields::Set_Input_Delay(1);
         fields::Clear_Fields();
         video::Set_Refresh_Stencil();
@@ -1451,20 +1543,30 @@ namespace DIP_SCRN {
             }
         }
 
+        const bool was_native = native_scene;
+        if (was_native) {
+            Native_Scene_End();
+        }
         sound::Fade_Stream_Down(10);
         fields::Deactivate_Auto_Function();
         MOX2::Put_Auto_Function(&EVENTS::jim_saved_autofunction);
         fields::Clear_Fields();
         file_ani::Reset_File_Animation_Buffer();
         RUSS::Release_All_Blocks(MOX::screen_seg);
-        ERIC::Set_Fade_Percent(0);
-        ERIC::Set_Fade_Speed_Percent(10);
-        ERIC::Fast_Fade_Out();
+        if (!was_native) {
+            ERIC::Set_Fade_Percent(0);
+            ERIC::Set_Fade_Speed_Percent(10);
+            ERIC::Fast_Fade_Out();
+        }
         JIM::jim_current_stream = -1;
         JIM::Play_Background_Music();
     }
 
     void __cdecl Draw_Diplomacy_Synch_Mode() {
+        if (native_scene) {
+            Native_Update_Statement(); // the window draws; only the statement and music here
+            return;
+        }
         video::Set_Page_Off();
 
         if (MOX::FULL_DRAW_SCREEN_FLAG == 1) {
@@ -1651,6 +1753,21 @@ namespace DIP_SCRN {
         JIM::Get_Text_Message(s_jimtext_lbx, 76, str_prev, 40);
         JIM::Get_Text_Message(s_jimtext_lbx, 77, str_next, 40);
         JIM::Get_Text_Message(s_jimtext_lbx, (mode == 1) ? 70 : 46, str_cancel, 40);
+
+        if (native_scene && num_techs > 0) {
+            // The native window: one list that scrolls, no pages (owner, 2026-11-14).
+            constexpr int32_t item_size = 50;
+            std::vector<char> items((size_t)(num_techs + 2) * item_size, 0);
+            for (int16_t i = 0; i < num_techs; ++i) {
+                snprintf(&items[(size_t)i * item_size], item_size, "%s", TECH::Technology_Applications_Name((uint8_t)tech_ids[i], tech_app_player));
+            }
+            strlcpy(&items[(size_t)num_techs * item_size], str_cancel, item_size);
+            std::vector<uint8_t> flags((size_t)num_techs + 2, 1);
+            int8_t selected = 0;
+            int16_t answer = -1;
+            antares::native::Choose(list_title, items.data(), item_size, flags.data(), &selected, &answer);
+            return answer >= 0 && answer < num_techs ? answer : (int16_t)-1;
+        }
 
         int16_t start_idx = 0;
         int16_t selected_idx = -1;
@@ -1890,6 +2007,10 @@ namespace DIP_SCRN {
     }
 
     void __cdecl Diplomacy_Fade_In() {
+        if (Native_Diplomacy_Wanted()) {
+            Native_Scene_Begin();
+            return;
+        }
         Diplomacy_Mouse_Init(current_ambassador);
         Get_Diplomacy_Statement(response_message, MOX::PLAYER_NUM, current_ambassador, diplomacy_message, sizeof(diplomacy_message));
         Setup_Back_Page();

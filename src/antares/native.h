@@ -24,6 +24,7 @@
 #include "antares/sprites.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -148,6 +149,12 @@ namespace antares::native {
     bool Popup(const char* popup, const char* text, const std::string& fields, int32_t* answer);
     // A frontend answers "popup" requests (a legacy window can skip its own drawing up front).
     bool Popups_Native();
+    // A scene window open behind the requests (owner, 2026-11-14: diplomacy as a native window):
+    // while set, every request carries "scene_state", the JSON object `describe` returns at that
+    // moment (the room, the ambassador, the current statement), so a frontend keeps the window
+    // up and current under the scene's lists. Game thread only.
+    void Set_Scene(std::function<std::string()> describe);
+    void Clear_Scene();
     // A frontend keeps the start-of-turn to-do list (WP3.4d, "todo"): the reports chain parks its
     // items instead of showing them one by one (antares/todo.h).
     bool Todo_Native();

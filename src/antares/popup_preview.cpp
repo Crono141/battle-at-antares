@@ -36,7 +36,33 @@ namespace antares::commands::internal {
             const int16_t player = MOX::PLAYER_NUM;
             int16_t star = -1;
             int64_t answer = -1;
-            if (popup == "gnn") {
+            if (popup == "diplomacy") {
+                // The diplomacy window with a computer player (`player`, default the first one
+                // met), as the Races screen opens it. Unlike the other previews its lists act:
+                // a smoke run only leaves (EXIT).
+                int64_t other = -1;
+                args.Int("player", &other);
+                if (other < 0) {
+                    for (int16_t p = 0; p < MOX::NUM_PLAYERS; ++p) {
+                        if (p != player && MOX::player[p].eliminated == 0 && MOX::player[p].contact[player] != 0) {
+                            other = p;
+                            break;
+                        }
+                    }
+                }
+                if (other < 0 || other >= MOX::NUM_PLAYERS || other == player) {
+                    out.Fail("bad_args", "player: a computer player the player has met");
+                    return;
+                }
+                // The screen leaves its redraw as the auto function (the Races screen sets its own
+                // afterwards); a preview over the galaxy puts the galaxy's back.
+                MOX2::action_func_t saved_auto = nullptr;
+                MOX2::Get_Auto_Function(&saved_auto);
+                DIP_SCRN::Diplomacy_Screen((int)other);
+                MOX2::Put_Auto_Function(&saved_auto);
+                out.Int("player", other);
+                answer = 0;
+            } else if (popup == "gnn") {
                 // The GNN window: the intro and one story (`event`, default 0) about the player's
                 // home planet.
                 int64_t event = 0;
@@ -108,7 +134,7 @@ namespace antares::commands::internal {
                 int8_t selected = 0;
                 answer = fields::Get_List_Field(10, 102, 245, "Diplomacy", &list[0][0], 50, &selected, flags, 17, nullptr, 0, nullptr, 0, nullptr);
             } else {
-                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute, colony_combat, choose or gnn");
+                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute, colony_combat, choose, gnn or diplomacy");
                 return;
             }
             MOX::PLAYER_NUM = player;
@@ -118,7 +144,7 @@ namespace antares::commands::internal {
 
     void Add_Preview_Entries(std::vector<s_entry>* table) {
         table->push_back({"preview_popup", e_kind::command, ANY_SCREEN, 0,
-            "popup (new_system, planet_pick, outpost_pick, attack_target, monster_tribute: star; colony_combat: colony; choose; gnn: event); developer verb", Preview_Popup});
+            "popup (new_system, planet_pick, outpost_pick, attack_target, monster_tribute: star; colony_combat: colony; choose; gnn: event; diplomacy: player); developer verb", Preview_Popup});
     }
 
 } // namespace antares::commands::internal
