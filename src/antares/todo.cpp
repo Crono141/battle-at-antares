@@ -58,11 +58,16 @@ namespace antares::todo {
             return REPORT::Player_Ship_Type_At_Star(MOX::PLAYER_NUM, type, star, 0) != nullptr;
         }
 
-        // Still to do: news unread, a colony ship still there, the offer still open.
+        bool Colony_Base_At(int16_t star) {
+            return REPORT::Player_Colony_Base_At_Star(MOX::PLAYER_NUM, star) != nullptr;
+        }
+
+        // Still to do: news unread, a colony ship (or a colony base) still there, the offer still open.
         bool Resolved(const s_item& item) {
             switch (item.kind) {
                 case e_kind::colonize:
-                    return item.done || (!Ship_Of_Type_At(item.star, SHIP_TYPE_COLONY) && !Ship_Of_Type_At(item.star, SHIP_TYPE_OUTPOST));
+                    return item.done ||
+                        (!Ship_Of_Type_At(item.star, SHIP_TYPE_COLONY) && !Ship_Of_Type_At(item.star, SHIP_TYPE_OUTPOST) && !Colony_Base_At(item.star));
                 case e_kind::hire: return item.done || MOX::player[MOX::PLAYER_NUM].officer_for_hire != item.leader;
                 default: return item.read;
             }
@@ -219,9 +224,15 @@ namespace antares::todo {
                         break;
                     case e_kind::summary: Write_Item(list, "summary", "Turn summary", (int32_t)i, -1, true, resolved, &open, &item); break;
                     case e_kind::colonize:
-                        Write_Item(list, "colonize",
-                            std::string(Ship_Of_Type_At(it.star, SHIP_TYPE_COLONY) ? "Colony ship" : "Outpost ship") + " at " + Star_Name(it.star),
-                            (int32_t)i, it.star, false, resolved, &open, &item);
+                        Write_Item(list, "colonize", std::string(Colony_Base_At(it.star) ? "Colony base" : Ship_Of_Type_At(it.star, SHIP_TYPE_COLONY) ? "Colony ship"
+                                                                                                                                                      : "Outpost ship") +
+                                " at " + Star_Name(it.star),
+                            (int32_t)i,
+                            it.star,
+                            false,
+                            resolved,
+                            &open,
+                            &item);
                         break;
                     case e_kind::hire:
                         Write_Item(list, "hire", std::string(OFFICER::Leader_Name(it.leader, 1)) + " offers to join", (int32_t)i, -1, false,
@@ -232,6 +243,7 @@ namespace antares::todo {
             }
             out.Int("open", open);
             out.Int("builds", builds);
+            out.Int("stardate", (int64_t)MOX::stardate); // a new turn's list (the frontend opens it)
         }
 
         s_item* Item_Arg(const s_args& args, s_out& out) {

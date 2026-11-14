@@ -506,7 +506,9 @@ func _details(planet: Dictionary, colony: Dictionary) -> Control:
 	var box := VBoxContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var potential: Dictionary = _potential.get(int(planet.planet), {})
-	if not potential.is_empty():
+	if planet.type == "asteroids":
+		box.add_child(_label("Uninhabitable: only an outpost can be built here.", 13))
+	if not potential.is_empty() and planet.type == "planet":
 		var line := HBoxContainer.new()
 		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		line.add_theme_constant_override("separation", 4)
@@ -569,7 +571,7 @@ func _on_planet_clicked(planet_id: int) -> void:
 
 func _ask_potential(planet_id: int) -> void:
 	for planet: Dictionary in system.get("planets", []):
-		if int(planet.planet) == planet_id and planet.type != "gas_giant" and not _potential.has(planet_id):
+		if int(planet.planet) == planet_id and planet.type == "planet" and not _potential.has(planet_id):
 			command.emit({"verb": "query", "what": "potential_colony", "planet": planet_id, "_reply_to": "show_potential"})
 
 
@@ -595,7 +597,7 @@ func show_planet_card(planet_id: int, at: Rect2) -> void:
 	var planet := _planet_entry(planet_id)
 	if planet.is_empty():
 		return
-	if planet.get("type", "") == "gas_giant" or _potential.has(planet_id):
+	if planet.get("type", "") != "planet" or _potential.has(planet_id):
 		_open_card(planet_id)
 		return
 	_card_pending = planet_id

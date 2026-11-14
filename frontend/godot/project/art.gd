@@ -13,6 +13,8 @@ signal loaded(key: String)
 var game: AntaresGame
 var _sprites := {} # "LBX/entry" -> sprite Dictionary, or {} while it is on its way
 var _pending := {} # request id -> key
+var _failures := {} # key -> failed exports so far (asked again up to RETRIES times)
+const RETRIES := 2
 
 
 func setup(antares_game: AntaresGame) -> void:
@@ -56,6 +58,7 @@ func draw(item: CanvasItem, lbx: String, entry: int, frame: int, top_left: Vecto
 func clear() -> void:
 	_sprites.clear()
 	_pending.clear()
+	_failures.clear()
 
 
 func _on_sprite_ready(id: int, data: Dictionary) -> void:
@@ -65,7 +68,13 @@ func _on_sprite_ready(id: int, data: Dictionary) -> void:
 	_pending.erase(id)
 	if data.frames.is_empty():
 		push_warning("art: %s: %s" % [key, data.error])
-		return # stays empty: views keep their stand-in
+		# A failed export is asked for again on the next ask, a few times (owner, 2026-11-14: the
+		# build list's freighter picture came once and was missing later); then it stays empty and
+		# views keep their stand-in.
+		_failures[key] = int(_failures.get(key, 0)) + 1
+		if int(_failures[key]) <= RETRIES:
+			_sprites.erase(key)
+		return
 	var frames: Array = []
 	var origins: Array = []
 	for frame: Dictionary in data.frames:

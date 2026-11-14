@@ -246,8 +246,13 @@ func _build_box(build: Dictionary) -> Control:
 		buy.tooltip_text = "Bought: click to take the purchase back"
 		preload("../themes.gd").glow(buy)
 	else:
-		buy.text = "BUY %s" % _thousands(int(build.get("buy_cost", 0))) if int(build.get("buy_cost", 0)) > 0 else "BUY"
+		var buy_cost := int(build.get("buy_cost", 0))
+		buy.text = "BUY %s" % _thousands(buy_cost) if buy_cost > 0 else "BUY"
 		buy.tooltip_text = "Finish it next turn for BC"
+		# Greyed out when the treasury can't pay (owner, 2026-11-14), the price still shown.
+		if build.has("treasury") and buy_cost > int(build.treasury):
+			buy.disabled = true
+			buy.tooltip_text = "Not enough BC: %s in the treasury" % _thousands(int(build.treasury))
 	buy.pressed.connect(func(): command.emit({"verb": "buy", "colony": colony_id, "_reply_to": "_after_command"}))
 	buttons.add_child(buy)
 	_help_on(buy, HELP_BUY)

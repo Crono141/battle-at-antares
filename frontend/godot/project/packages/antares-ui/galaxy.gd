@@ -22,6 +22,8 @@ signal planet_clicked(planet_id: int)
 signal empty_clicked
 ## A right click on a planet of the open system (its potential, as the system window).
 signal planet_right_clicked(planet_id: int)
+## The open system's view was dragged away from it, or framed again (the RECENTER button).
+signal system_panned(away: bool)
 ## The pointer moved onto a planet of the open system, or off them (-1): the system pane lights
 ## its row, a colony ship's window shows it (owner, 2026-11-13).
 signal planet_hovered(planet_id: int)
@@ -59,6 +61,9 @@ var relocating := false # F4: the next star click merges relocations there
 ## the Orbits layer draws it.
 var system := {}
 var system_star := -1
+## The open system's view was dragged (owner, 2026-11-14: panning there is allowed again, with a
+## button to recentre); the way back to the galaxy is then worked out from where the camera is.
+var panned := false
 ## The open system's own fleet icons: faded out while it is open (owner, 2026-11-13: the system
 ## pane lists them; an icon left over the zoomed system was clickable beside its pane), back on
 ## leaving. Not clickable while faded.
@@ -269,7 +274,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			if button.pressed and get_viewport().gui_get_hovered_control() == null:
 				# In a system the wheel zooms about its star, so it can't wander off (owner).
 				var at := button.position
-				if not system.is_empty():
+				if not system.is_empty() and not panned:
 					at = get_global_transform_with_canvas() * star_position(system_star)
 				zoom_by(1.2 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.2, at)
 			get_viewport().set_input_as_handled()
@@ -324,7 +329,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if motion and _dragging:
 		if motion.position.distance_to(_press_pos) > 4.0:
 			_drag_moved = true
-		if _drag_moved and system.is_empty(): # a system's view stays on it (owner, 2026-11-12)
+		if _drag_moved:
+			if not system.is_empty() and not panned:
+				panned = true
+				system_panned.emit(true)
 			camera.position -= motion.relative / camera.zoom.x
 			_clamp_camera()
 			_anchor_world = camera.position
@@ -414,6 +422,11 @@ func hide_system() -> void:
 func fly_to(world: Vector2, zoom: float, screen: Vector2) -> void:
 	if _saved_view.is_empty():
 		_saved_view = {"position": camera.position, "zoom": camera.zoom.x, "anchor": world}
+	elif _saved_view.get("anchor", Vector2.INF) != world:
+		_saved_view.moved = true # another system: the flight in no longer reverses
+	if panned:
+		panned = false
+		system_panned.emit(false)
 	var center := world - (screen - get_viewport_rect().size * 0.5) / zoom
 	_fly(center, zoom, world)
 
@@ -433,8 +446,23 @@ func step_back(world: Vector2, factor := 0.45) -> void:
 func fly_back() -> void:
 	if _saved_view.is_empty():
 		return
-	_fly(_saved_view.position, _saved_view.zoom, _saved_view.get("anchor", Vector2.INF))
+	var to_position: Vector2 = _saved_view.position
+	var to_zoom: float = _saved_view.zoom
+	if panned or _saved_view.get("moved", false):
+		# Worked out from where the camera is now (owner, 2026-11-14: after panning, or other
+		# systems, replaying the flight in backwards went the wrong way): a zoom about the one point
+		# that keeps its place on the screen from this view to the old one.
+		var from_zoom := camera.zoom.x
+		if absf(from_zoom - to_zoom) > from_zoom * 0.001:
+			_fly(to_position, to_zoom, (camera.position * from_zoom - to_position * to_zoom) / (from_zoom - to_zoom))
+		else:
+			_fly(to_position, to_zoom)
+	else:
+		_fly(to_position, to_zoom, _saved_view.get("anchor", Vector2.INF))
 	_saved_view = {}
+	if panned:
+		panned = false
+		system_panned.emit(false)
 
 
 func _fly(center: Vector2, zoom: float, anchor := Vector2.INF) -> void:

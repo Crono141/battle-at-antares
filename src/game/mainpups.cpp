@@ -136,13 +136,17 @@ namespace MAINPUPS {
 
         // The special a just-visited system shows over the window (SYS::Draw_System_Special_Popup):
         // its name and description, or nothing.
-        std::string Native_Special_Json(int16_t special) {
+        std::string Native_Special_Json(int16_t special, int16_t star_idx) {
             if (special == SYSTEM_SPECIAL_NO_SPECIAL || special == SYSTEM_SPECIAL_MAROONED_HERO || special < 0 ||
                 special >= SYSTEM_SPECIAL_COUNT) {
                 return std::string();
             }
+            // Its picture, as System_Special_Anim loads it (owner, 2026-11-14: the window had only
+            // the words): MAINPUPS.LBX special + 4, a space monster's own from 15.
+            const int32_t picture = special == SYSTEM_SPECIAL_SPACE_MONSTER ? RUSS::Star_To_Monster(star_idx) + 15 : special + 4;
             return ",\"special\":{\"name\":" + antares::native::Quote(MOX::planet_special_string[special]) +
-                ",\"text\":" + antares::native::Quote_Utf8(antares::native::Special_Description(special)) + "}";
+                ",\"text\":" + antares::native::Quote_Utf8(antares::native::Special_Description(special)) +
+                ",\"picture\":{\"lbx\":\"MAINPUPS.LBX\",\"entry\":" + std::to_string(picture) + "}}";
         }
 
         // The marooned leader a just-visited system holds joins or doesn't (the windows run it on
@@ -1002,7 +1006,7 @@ namespace MAINPUPS {
                 options.push_back(o);
             }
             const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," +
-                Native_Zoom_Json(star_idx) + Native_Special_Json(g_special) + "," + Native_Options_Json(options) +
+                Native_Zoom_Json(star_idx) + Native_Special_Json(g_special, star_idx) + "," + Native_Options_Json(options) +
                 ",\"buttons\":[\"CANCEL\"]";
             g_special = SYSTEM_SPECIAL_NO_SPECIAL;
             int16_t result = -1;
@@ -1298,7 +1302,7 @@ namespace MAINPUPS {
             char line[300];
             snprintf(line, sizeof(line), ESTRINGS::E_Strings(456), MOX::star[star_idx].name);
             const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," +
-                Native_Zoom_Json(star_idx) + Native_Special_Json(special_flag) + ",\"buttons\":[\"OK\"]";
+                Native_Zoom_Json(star_idx) + Native_Special_Json(special_flag, star_idx) + ",\"buttons\":[\"OK\"]";
             if (antares::native::Popup("new_system", line, fields, nullptr)) {
                 return;
             }

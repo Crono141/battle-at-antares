@@ -45,9 +45,16 @@ static func build(art: Node, planet: Dictionary, potential: Dictionary, race_id:
 		box.add_child(head)
 		if planet.has("special_name"):
 			box.add_child(special_line(planet, width))
+	# Gas giants and asteroid fields can't be colonised, only outposted (owner, 2026-11-14: an
+	# asteroid field's card showed food, industry and research per worker).
+	match String(planet.get("type", "")):
+		"gas_giant":
+			box.add_child(_label("A gas giant: uninhabitable. Only an outpost can be built here.", 14, 0.8))
+			return box
+		"asteroids":
+			box.add_child(_label("An asteroid field: uninhabitable. Only an outpost can be built here.", 14, 0.8))
+			return box
 	if potential.is_empty():
-		if String(planet.get("type", "")) == "gas_giant":
-			box.add_child(_label("A gas giant: no colony can live here.", 14, 0.8))
 		return box
 	var grid := GridContainer.new()
 	grid.columns = 2

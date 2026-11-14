@@ -103,6 +103,10 @@ func _ready() -> void:
 	galaxy.planet_hovered.connect(_on_planet_hovered)
 	galaxy.empty_clicked.connect(_on_empty_clicked)
 	galaxy.planet_right_clicked.connect(_on_planet_right_clicked)
+	galaxy.system_panned.connect(func(away: bool):
+		var controls: Control = _views.get("map_controls")
+		if controls != null:
+			controls.show_recenter(away))
 	_frame_view = Control.new()
 	_frame_view.name = "ScreenFrame"
 	_frame_view.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -205,6 +209,8 @@ var _sounds_held := false
 
 
 func _process(delta: float) -> void:
+	if _todo_pending and _todo_may_open():
+		_open_todo()
 	if _sounds_held and (legacy.visible or overlay.visible or native_screen != Screens.LEGACY):
 		_sounds_held = false
 		game.release_sounds()
@@ -536,6 +542,8 @@ func _smoke_mouse(pressed: bool, at: Vector2) -> void:
 const MIN_UI_SCALE := 75.0
 const MAX_UI_SCALE := 300.0
 const MIN_LOGICAL := Vector2(1280, 720) # the panes side by side over the galaxy
+## Insets, gaps between the panes and the side tabs' column, across (interface pixels).
+const PANES_MARGIN := 110.0
 
 
 func _apply_saved_scale() -> void:
@@ -585,6 +593,13 @@ func set_ui_scale_automatic(on: bool) -> void:
 func max_ui_scale() -> float:
 	var window := Vector2(get_window().size)
 	var need := MIN_LOGICAL
+	# Across: the system, colony and build panes side by side and the side tabs (owner,
+	# 2026-11-14: in a window narrower than 16:9 the build pane ran off the right edge; the
+	# interface now shrinks so the three fit).
+	var build_min := 560.0
+	if _views.has("build_pane"):
+		build_min = maxf(build_min, (_views.build_pane as Control).get_combined_minimum_size().x)
+	need.x = maxf(need.x, 372.0 + 340.0 + build_min + PANES_MARGIN)
 	if _views.has("side_tabs"):
 		var tabs: Control = _views.side_tabs
 		need.y = maxf(need.y, tabs.get_combined_minimum_size().y + tabs.offset_top - tabs.offset_bottom)
@@ -705,6 +720,36 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 var _todo := {}
 
 
+## Owner, 2026-11-14: the list opens by itself when there is something to do (a new turn, or the
+## count changed since it was last shown or closed), once nothing else is in the way: no question
+## up, the galaxy showing, no other drop-down open.
+var _todo_pending := false
+## The open count the list was last shown at or closed by hand at (-1: a new turn).
+var _todo_seen := -1
+
+
+func _open_todo() -> void:
+	var todo := _view("todo_panel")
+	if not todo.item_chosen.is_connected(_on_todo_item):
+		todo.item_chosen.connect(_on_todo_item)
+	_todo_seen = int(_todo.get("open", 0))
+	_todo_pending = false
+	_bring_up(todo)
+	todo.show_todo(_todo)
+	var bar := _view("galaxy_bar")
+	todo.open_at(bar.get_node("Row/Turn").get_global_rect().get_center().x)
+
+
+func _todo_may_open() -> bool:
+	if native_screen != Screens.MAIN or overlay.visible or legacy.visible or not galaxy.visible:
+		return false
+	for scene_name in FLYOUTS:
+		var other: Control = _views.get(scene_name)
+		if other != null and other.visible:
+			return false
+	return int(_todo.get("open", 0)) > 0
+
+
 ## A to-do item picked (WP3.4d): what it needs opens; news is marked read.
 func _on_todo_item(item: Dictionary) -> void:
 	_view("todo_panel").close()
@@ -722,12 +767,26 @@ func _on_todo_item(item: Dictionary) -> void:
 			if native_screen == Screens.MAIN and not _view("build_pane").visible:
 				_open_build_pane(colony, false)
 		"colonize":
-			# The landing screen is skipped natively: the new colony's pane opens instead (owner,
-			# 2026-11-13: it stayed on the legacy screen).
+			# The landing animation plays (owner, 2026-11-14) until a click, as in the original;
+			# back on the galaxy the new colony's pane opens (owner, 2026-11-13: it stayed on the
+			# legacy screen).
 			_send({"verb": "todo_colonize", "star": star}, func(result: Dictionary):
 				var colony := int(result.get("colony", -1))
-				if colony < 0 or native_screen != Screens.MAIN:
+				if colony < 0:
 					return
+				# The answer comes before the landing screen takes over: wait for it to leave
+				# the galaxy (a moment), then to come back.
+				var waited := 0.0
+				while native_screen == Screens.MAIN and waited < 3.0:
+					await get_tree().create_timer(0.1).timeout
+					waited += 0.1
+				waited = 0.0
+				while native_screen != Screens.MAIN and waited < 900.0: # the player takes their time
+					await get_tree().create_timer(0.2).timeout
+					waited += 0.2
+				if native_screen != Screens.MAIN:
+					return
+				await get_tree().create_timer(0.3).timeout
 				_open_system(star)
 				await get_tree().create_timer(0.5).timeout
 				if native_screen == Screens.MAIN:
@@ -850,6 +909,9 @@ func _bring_up(view: Control) -> void:
 ## The map controls' view-only actions.
 func _on_view_action(action_name: String) -> void:
 	match action_name:
+		"recenter":
+			if galaxy.system_star >= 0 and native_screen == Screens.MAIN:
+				_frame_system(galaxy.system_star)
 		"colony_next", "colony_previous":
 			_send({"verb": "cycle_colony_star", "dir": 0 if action_name == "colony_next" else 1}, _on_star_selected)
 		"influence":
@@ -867,16 +929,11 @@ func _on_view_action(action_name: String) -> void:
 			# WP3.4d: with items waiting the to-do list drops down (END TURN is in it); otherwise
 			# the turn ends, as before.
 			var todo := _view("todo_panel")
+			_todo_seen = int(_todo.get("open", 0)) # opened or closed by hand: no reopening for it
 			if todo.visible:
 				todo.close()
 			elif int(_todo.get("open", 0)) > 0:
-				if not todo.item_chosen.is_connected(_on_todo_item):
-					todo.item_chosen.connect(_on_todo_item)
-					todo.end_turn.connect(func(): _send({"verb": "end_turn"}))
-				_bring_up(todo)
-				todo.show_todo(_todo)
-				var bar := _view("galaxy_bar")
-				todo.open_at(bar.get_node("Row/Turn").get_global_rect().get_center().x)
+				_open_todo()
 			else:
 				_send({"verb": "end_turn"})
 		"tax_rate":
@@ -998,11 +1055,18 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 		"fleets":
 			galaxy.set_fleets(result)
 		"todo":
+			if int(result.get("stardate", -1)) != int(_todo.get("stardate", -1)):
+				_todo_seen = -1 # a new turn's list
 			_todo = result
-			_view("galaxy_bar").show_todo(int(result.get("open", 0)))
+			var open := int(result.get("open", 0))
+			_view("galaxy_bar").show_todo(open)
 			var todo_view: Control = _views.get("todo_panel")
 			if todo_view != null and todo_view.visible:
-				todo_view.show_todo(result)
+				if open == 0:
+					todo_view.close() # everything answered (owner, 2026-11-14)
+				else:
+					todo_view.show_todo(result)
+			_todo_pending = open > 0 and open != _todo_seen
 			if _fleet_ship >= 0 and native_screen == Screens.MAIN:
 				_refresh_fleet() # a turn, or an order, changed the fleets
 		"options":
@@ -1258,9 +1322,10 @@ func _frame_system(star_id: int) -> void:
 		right = view.x
 	var room := right - left_both if right - left_both >= view.x * 0.3 else right - left
 	var zoom: float = galaxy.zoom_for_scale(SYSTEM_VIEW_SCALE)
-	galaxy.system_scale = SYSTEM_VIEW_SHARE * room / (288.0 * zoom)
-	# Two wheel notches closer than the framing (owner, 2026-11-13): the system larger.
-	zoom = minf(zoom * SYSTEM_ZOOM_CLOSER, galaxy.zoom_for_scale(galaxy.MIN_SCALE)) # within the wheel's reach
+	# The orbits as they looked two wheel notches closer (owner, 2026-11-13), but the camera (and
+	# so the star) at the framing zoom (owner, 2026-11-14: the star was drawn too large, over the
+	# planets behind it).
+	galaxy.system_scale = SYSTEM_VIEW_SHARE * room / (288.0 * zoom) * SYSTEM_ZOOM_CLOSER
 	galaxy.fly_to(galaxy.star_position(star_id), zoom, Vector2((left + right) * 0.5, view.y * 0.5))
 
 
@@ -2809,16 +2874,26 @@ func _smoke_todo(shots: String) -> bool:
 		return false
 	if int(todo.get("open", 0)) == 0:
 		return true
-	_on_view_action("turn") # the bar's TO DO: the list drops down
-	await get_tree().create_timer(0.8).timeout
+	# The list opens by itself (owner, 2026-11-14); TO DO closes and reopens it.
 	var panel := _view("todo_panel")
-	print("smoke: to-do list shown %s with %d rows" % [panel.visible, panel.items_box.get_child_count()])
+	var waited_open := 0.0
+	while not panel.visible and waited_open < 4.0:
+		await get_tree().create_timer(0.1).timeout
+		waited_open += 0.1
+	var opened_itself: bool = panel.visible
+	_on_view_action("turn")
+	await get_tree().create_timer(0.5).timeout
+	var closed_by_bar: bool = not panel.visible
+	_on_view_action("turn")
+	await get_tree().create_timer(0.8).timeout
+	print("smoke: to-do list opened by itself %s, TO DO closes it %s, reopens %s with %d rows" % [opened_itself,
+		closed_by_bar, panel.visible, panel.items_box.get_child_count()])
 	if shots != "":
 		await host.shot(shots + "/native-todo.png")
-	if not panel.visible:
-		await host.smoke_fail("TO DO did not drop the list")
+	if not opened_itself or not closed_by_bar or not panel.visible:
+		await host.smoke_fail("the to-do list did not open by itself, or TO DO did not toggle it")
 		return false
-	# Nothing may be ignored: END TURN is locked and the game refuses the turn while items are open.
+	# Nothing may be ignored: the game refuses the turn while items are open.
 	var refused := {}
 	_send({"verb": "end_turn"}, func(result: Dictionary): refused["r"] = result)
 	var waited_refusal := 0.0
@@ -2826,8 +2901,8 @@ func _smoke_todo(shots: String) -> bool:
 		await get_tree().create_timer(0.1).timeout
 		waited_refusal += 0.1
 	var refusal: Dictionary = refused.get("r", {})
-	print("smoke: END TURN locked %s ('%s'); end_turn answered %s" % [panel.end_button.disabled, panel.note.text, refusal])
-	if not panel.end_button.disabled or refusal.get("ok", true) or String(refusal.get("error", "")) != "refused":
+	print("smoke: end_turn with items open answered %s" % refusal)
+	if refusal.get("ok", true) or String(refusal.get("error", "")) != "refused":
 		await host.smoke_fail("the turn could end with to-do items open")
 		return false
 	# A news item: read once (it drops off), its system opened.
@@ -2917,7 +2992,9 @@ func _smoke_todo(shots: String) -> bool:
 			while native_screen != Screens.MAIN and back < 40.0:
 				await get_tree().create_timer(1.0).timeout
 				back += 1.0
-				if not _smoke_answer() and native_screen == Screens.LEGACY and int(back) % 3 == 0:
+				# The landing waits for a click (owner, 2026-11-14): a key ends it.
+				if not _smoke_answer() and native_screen != Screens.MAIN and back >= 6.0 and int(back) % 3 == 0:
+					print("smoke: ending the landing (screen %d) with a key" % native_screen)
 					game.send_key(KEY_ESCAPE, false, false, false)
 			await get_tree().create_timer(1.0).timeout
 			var again: Dictionary = await _query("todo")
@@ -2955,9 +3032,9 @@ func _smoke_todo(shots: String) -> bool:
 		return false
 	await get_tree().create_timer(0.5).timeout
 	bar_text = String(_view("galaxy_bar").get_node("Row/Turn").text)
-	print("smoke: to-do worked through: bar '%s'" % bar_text)
-	if bar_text != "TURN":
-		await host.smoke_fail("the bar did not read TURN with the list worked through")
+	print("smoke: to-do worked through: bar '%s', list hidden %s" % [bar_text, not _view("todo_panel").visible])
+	if bar_text != "TURN" or _view("todo_panel").visible:
+		await host.smoke_fail("the bar did not read TURN, or the list stayed open, with the list worked through")
 		return false
 	return true
 

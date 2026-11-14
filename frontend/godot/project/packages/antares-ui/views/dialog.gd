@@ -365,6 +365,18 @@ func _special_box(special: Dictionary) -> Control:
 	box.theme_type_variation = &"Pane"
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
+	# The window's picture of it (MAINPUPS.LBX; owner, 2026-11-14: a vault of gold for a pirate
+	# cache), as the legacy window shows it.
+	var picture: Dictionary = special.get("picture", {})
+	if not picture.is_empty() and art:
+		var rect: TextureRect = preload("sprite_rect.gd").new()
+		rect.custom_minimum_size = Vector2(380, 150)
+		rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		rect.bind(art)
+		rect.show_sprite(String(picture.lbx), int(picture.entry))
+		column.add_child(rect)
 	var name_label := Label.new()
 	name_label.theme_type_variation = &"Name"
 	name_label.text = String(special.get("name", ""))

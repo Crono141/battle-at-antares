@@ -20,31 +20,42 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	draw_layer(self, false)
+
+
+## Draws one of the system's two layers on `canvas` (owner, 2026-11-14: a planet behind the star
+## was drawn over it): the back layer (orbits_back.gd, under the stars) has the rings and the
+## planets on the far half of their orbits (above the star's centre), this node the near ones.
+func draw_layer(canvas: CanvasItem, back: bool) -> void:
 	var system: Dictionary = galaxy.system
 	if system.is_empty() or galaxy.art == null or system.get("view", "full") != "full":
 		return
 	var k: float = galaxy.system_scale
-	var origin: Vector2 = galaxy.star_position(galaxy.system_star) - BOX_CENTER * k
+	var star: Vector2 = galaxy.star_position(galaxy.system_star)
+	var origin: Vector2 = star - BOX_CENTER * k
 	var ring_at := Vector2(float(system.ring_x), float(system.ring_y))
-	for planet: Dictionary in system.planets:
-		galaxy.art.draw(self, "BUFFER0.LBX", int(planet.ring_sprite), int(planet.ring_frame), origin + ring_at * k, k)
+	if back:
+		for planet: Dictionary in system.planets:
+			galaxy.art.draw(canvas, "BUFFER0.LBX", int(planet.ring_sprite), int(planet.ring_frame), origin + ring_at * k, k)
 	for planet: Dictionary in system.planets:
 		if int(planet.sprite) < 0:
 			continue # asteroids: their belt is the ring
+		var at := origin + Vector2(float(planet.box_x), float(planet.box_y)) * k
+		var center := at + Vector2.ONE * float(planet.dimension) * 0.5 * k
+		if (center.y < star.y) != back:
+			continue
 		var sprite: Dictionary = galaxy.art.sprite("BUFFER0.LBX", int(planet.sprite))
 		var frames: int = 1 if sprite.is_empty() else sprite.frames.size()
 		var frame := (int(planet.first_frame) + int(_time * PLANET_FPS)) % maxi(frames, 1)
-		var at := origin + Vector2(float(planet.box_x), float(planet.box_y)) * k
-		galaxy.art.draw(self, "BUFFER0.LBX", int(planet.sprite), frame, at, k)
-		var center := at + Vector2.ONE * float(planet.dimension) * 0.5 * k
+		galaxy.art.draw(canvas, "BUFFER0.LBX", int(planet.sprite), frame, at, k)
 		var radius := float(planet.dimension) * 0.5 * k + 2.0 * k
 		var colony: Dictionary = planet.get("colony", {})
 		if not colony.is_empty():
-			draw_arc(center, radius, 0.0, TAU, 48, galaxy.player_color(int(colony.color)), (1.0 if colony.outpost else 1.6) * k, true)
+			canvas.draw_arc(center, radius, 0.0, TAU, 48, galaxy.player_color(int(colony.color)), (1.0 if colony.outpost else 1.6) * k, true)
 		if int(planet.planet) == galaxy.hovered_planet and int(planet.planet) != galaxy.selected_planet:
-			draw_arc(center, radius + 2.0 * k, 0.0, TAU, 48, Color(1, 1, 1, 0.55), 1.0 * k, true)
+			canvas.draw_arc(center, radius + 2.0 * k, 0.0, TAU, 48, Color(1, 1, 1, 0.55), 1.0 * k, true)
 		if int(planet.planet) == galaxy.selected_planet:
-			draw_arc(center, radius + 2.0 * k, 0.0, TAU, 48, Color(1, 0.4, 0.4, 0.95), 1.4 * k, true)
+			canvas.draw_arc(center, radius + 2.0 * k, 0.0, TAU, 48, Color(1, 0.4, 0.4, 0.95), 1.4 * k, true)
 
 
 ## The planet under a world point, or -1.

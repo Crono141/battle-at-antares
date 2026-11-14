@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://packages/antares-ui/frontend.gd" id="1_frontend"]
 [ext_resource type="Script" path="res://packages/antares-ui/galaxy.gd" id="2_galaxy"]
@@ -10,6 +10,7 @@
 [ext_resource type="Script" path="res://packages/antares-ui/galaxy/fleets.gd" id="10_fleets"]
 [ext_resource type="Script" path="res://packages/antares-ui/galaxy/backdrop.gd" id="11_backdrop"]
 [ext_resource type="Script" path="res://packages/antares-ui/galaxy/orbits.gd" id="12_orbits"]
+[ext_resource type="Script" path="res://packages/antares-ui/galaxy/orbits_back.gd" id="13_orbits_back"]
 
 [node name="AntaresUI" type="Node"]
 script = ExtResource("1_frontend")
@@ -42,6 +43,9 @@ script = ExtResource("6_influence")
 
 [node name="Links" type="Node2D" parent="Galaxy"]
 script = ExtResource("8_links")
+
+[node name="OrbitsBack" type="Node2D" parent="Galaxy"]
+script = ExtResource("13_orbits_back")
 
 [node name="Stars" type="Node2D" parent="Galaxy"]
 script = ExtResource("9_stars")

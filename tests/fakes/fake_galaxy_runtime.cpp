@@ -345,4 +345,7 @@ namespace REPORT {
     int8_t __cdecl Colonization_At_Star(int16_t, int16_t, int8_t, bool) { return 0; }
     int8_t __cdecl Has_Officer_For_Hire(int16_t, int8_t) { return 0; }
     s_ship_data* __cdecl Player_Ship_Type_At_Star(int16_t, int16_t, int16_t, int8_t) { return nullptr; }
+    s_colony* __cdecl Player_Colony_Base_At_Star(int16_t, int16_t) {
+        return nullptr;
+    }
 } // namespace REPORT

@@ -47,6 +47,15 @@ func _ready() -> void:
 	confirm_colony.confirmed.connect(func():
 		command.emit({"verb": "colonize", "fleet": int(fleet.ship), "planet": _confirm_planet, "_reply_to": "order_done"}))
 	title.gui_input.connect(_on_title_input)
+	# A ship that isn't selected is just its picture (owner, 2026-11-14: the theme's button box
+	# behind it was ugly); selected ships keep the blue highlight, hover a faint tint.
+	var empty := StyleBoxEmpty.new()
+	for state in ["normal", "disabled", "focus"]:
+		template.add_theme_stylebox_override(state, empty)
+	var hover := StyleBoxFlat.new()
+	hover.bg_color = Color(1, 1, 1, 0.08)
+	hover.set_corner_radius_all(3)
+	template.add_theme_stylebox_override("hover", hover)
 	if art:
 		art.loaded.connect(func(_key): _refresh_icons())
 

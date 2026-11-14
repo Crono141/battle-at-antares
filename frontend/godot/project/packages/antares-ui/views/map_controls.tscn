@@ -45,6 +45,21 @@ custom_minimum_size = Vector2(10, 0)
 layout_mode = 2
 mouse_filter = 2
 
+[node name="Recenter" type="Button" parent="Row"]
+visible = false
+custom_minimum_size = Vector2(110, 36)
+layout_mode = 2
+tooltip_text = "Back to the open system (the view was dragged away from it)"
+focus_mode = 0
+text = "RECENTER"
+metadata/action = "recenter"
+
+[node name="Divider2" type="Control" parent="Row"]
+visible = false
+custom_minimum_size = Vector2(10, 0)
+layout_mode = 2
+mouse_filter = 2
+
 [node name="ColonyNext" type="Button" parent="Row"]
 custom_minimum_size = Vector2(128, 36)
 layout_mode = 2

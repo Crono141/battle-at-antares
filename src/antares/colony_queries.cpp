@@ -217,6 +217,12 @@ namespace antares::commands::internal {
                 picture = MOX::player[colony.owner].ship_designs[COLBLDG::Colony_Production_Ship_Design_Index(id)].picture_num;
             } else if (id == COLONY_PRODUCTION_FREIGHTERS) {
                 picture = 48;
+            } else if (id == COLONY_PRODUCTION_COLONY_SHIP) {
+                picture = 45; // COLBLDG::Draw_Current_Selection's pictures (owner, 2026-11-14: none shown)
+            } else if (id == COLONY_PRODUCTION_OUTPOST_SHIP) {
+                picture = 46;
+            } else if (id == COLONY_PRODUCTION_TRANSPORT_SHIP) {
+                picture = 47;
             } else if (id == COLONY_PRODUCTION_SPY) {
                 item.Str("lbx", "RACEICON.LBX");
                 item.Int("entry", race * k_raceicon_stride + 11);
@@ -375,6 +381,7 @@ namespace antares::commands::internal {
                 const int16_t turns = COLCALC::Colony_N_Turns_To_Produce(mutable_colony);
                 build.Int("turns", turns < 0 ? 10000 : turns);
                 build.Int("buy_cost", colony.bought_outright != 0 ? 0 : COLCALC::Colony_Cost_To_Buy_Producing_Product(mutable_colony));
+                build.Int("treasury", MOX::player[colony.owner].bc); // BUY is greyed out beyond it (owner, 2026-11-14)
             }
             s_out queue = build.Add_List("queue");
             for (int slot = 0; slot < 7; ++slot) {

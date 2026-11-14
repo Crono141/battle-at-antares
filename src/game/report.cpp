@@ -235,7 +235,7 @@ namespace REPORT {
                     }
 
                     if (colony_base != nullptr || (has_ships && ((MOX::star[star_idx].ignore_colony_ships >> player_idx) & 1) == 0)) {
-                        if (defer && colony_base == nullptr) {
+                        if (defer) { // colony bases too (owner, 2026-11-14: a to-do job like a colony ship)
                             struct_::Set_Bit_Field(done_colonize_check, star_idx);
                             antares::todo::Note_Colonize(star_idx);
                             return 0;
@@ -350,23 +350,9 @@ namespace REPORT {
                                             }
                                         }
 
-                                        // Antares (owner, 2026-11-13): with the native galaxy the landing screen
-                                        // (legacy) is skipped; the frontend opens the new colony's pane. What the
-                                        // landing screen asks still comes: the star's name for its first colony
-                                        // (a native text request); a colony needing an occupation policy keeps
-                                        // the landing screen, which asks it.
-                                        const int16_t new_colony = MOX::planet[planet_idx].colony_index;
-                                        if (MOX::settings.animations_on != 0 && antares::native::Galaxy_Will_Be_Native() &&
-                                            (new_colony < 0 || !COLONY::Colony_Needs_Occupation_Policy(new_colony))) {
-                                            const int16_t star = MOX::planet[planet_idx].star_index;
-                                            if (COLCALC::N_Colonies_And_Outposts_At_Star(star) == 1) {
-                                                namestar::Change_Star_Name_Popup(namestar::Star_Name_Popup_Screen_Center_X(),
-                                                    namestar::Star_Name_Popup_Screen_Center_Y(),
-                                                    star,
-                                                    1);
-                                            }
-                                            return 1;
-                                        }
+                                        // Antares: the landing animation plays with the native galaxy too (owner,
+                                        // 2026-11-14, after skipping it on 2026-11-13); it ends on a click, as
+                                        // in the original, and the frontend opens the new colony.
                                         if (MOX::settings.animations_on != 0) {
                                             MOX::current_screen = 0x21; /* SCR_COLONIZE */
                                             MOX::return_screen = SCREEN_REPORTS;

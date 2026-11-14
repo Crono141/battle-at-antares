@@ -32,3 +32,9 @@ func _restyle() -> void:
 	row.add_theme_constant_override("separation", get_theme_constant("edge_gap", "Screen"))
 	offset_bottom = -(inset - 3) if inset > 0 else -8.0
 	offset_top = offset_bottom - 36.0
+
+
+## The RECENTER button (owner, 2026-11-14): shown while the open system's view is dragged away.
+func show_recenter(on: bool) -> void:
+	$Row/Recenter.visible = on
+	$Row/Divider2.visible = on

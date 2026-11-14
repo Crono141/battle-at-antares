@@ -3,24 +3,18 @@ extends "drop_panel.gd"
 ## items the turn's reports would have walked the player through one by one (the `todo` query):
 ## colonies with nothing to build, colony and outpost ships that arrived, a leader's offer, and
 ## news (systems explored, leaders gaining a level, the turn summary). A click opens what the item
-## needs; done ones drop off (news once read). Nothing may be ignored (owner, 2026-11-13): END TURN
-## stays locked until every item is answered (cancelling a colony ship's prompt is an answer), and
-## the game refuses `end_turn` while any is open.
+## needs; done ones drop off (news once read). Nothing may be ignored (owner, 2026-11-13): the game
+## refuses `end_turn` while any is open (cancelling a colony ship's prompt is an answer). Owner,
+## 2026-11-14: just a short list, opened by itself when there is something to do and hidden once
+## everything is answered (frontend.gd); TURN / TO DO (n) on the bar still opens and closes it.
 
 signal command(dict: Dictionary)
 ## An item picked: the frontend opens what it needs (`item` is the query's entry).
 signal item_chosen(item: Dictionary)
-signal end_turn
 
 @onready var items_box: VBoxContainer = $Fit/Box/Items
-@onready var note: Label = $Fit/Box/Ask
-@onready var end_button: Button = $Fit/Box/Buttons/EndTurn
 
 var todo := {}
-
-
-func _ready() -> void:
-	end_button.pressed.connect(_on_end_turn)
 
 
 ## The `todo` answer: one row per item not yet done, news after the things to do.
@@ -51,16 +45,4 @@ func show_todo(result: Dictionary) -> void:
 		var none := Label.new()
 		none.text = "Nothing waiting this turn."
 		items_box.add_child(none)
-	var open := int(result.get("open", 0))
-	end_button.disabled = open > 0
-	note.visible = open > 0
-	note.text = ("%d items still need an answer before the turn can end." % open) if open > 1 \
-		else "One item still needs an answer before the turn can end."
 	reset_size()
-
-
-func _on_end_turn() -> void:
-	if int(todo.get("open", 0)) > 0:
-		return
-	close()
-	end_turn.emit()
