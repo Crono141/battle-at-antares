@@ -1548,6 +1548,10 @@ func _smoke_native() -> void:
 	if "--popups" in OS.get_cmdline_user_args():
 		await _smoke_popups(shots)
 		return
+	if "--pan-test" in OS.get_cmdline_user_args():
+		await _smoke_pan(shots)
+		game.request_game_quit()
+		return
 	if "--todo-only" in OS.get_cmdline_user_args():
 		# WP3.4d: only the turns and the to-do list (saves whose other steps don't fit).
 		if await _smoke_turns() and await _smoke_todo(shots):
@@ -3165,3 +3169,75 @@ func _smoke_flash(dir: String) -> void:
 	game.request_game_quit()
 	await get_tree().create_timer(15.0).timeout
 	get_tree().quit()
+
+
+## Owner, 2026-11-14: open a system, pan, click another star, back to the galaxy, then a third
+## star: its pane came up blank. Real mouse input: drags and clicks on the map.
+func _smoke_pan(shots: String) -> void:
+	var pane := _view("system_pane")
+	var report := func(step: String):
+		var controls: Control = _views.get("map_controls")
+		print("smoke: pan %s: pane visible %s alpha %.2f x %.0f, star %d, %d planet rows, galaxy system %d, panned %s, recenter %s, camera %s zoom %.4f" % [step,
+			pane.visible, pane.modulate.a, pane.position.x, int(pane.star), pane.planets_box.get_child_count(), galaxy.system_star, galaxy.panned,
+			controls.get_node("Row/Recenter").visible if controls else false, galaxy.camera.position, galaxy.camera.zoom.x])
+	var on_screen := func(star_id: int) -> Vector2:
+		return galaxy.get_global_transform_with_canvas() * galaxy.star_position(star_id)
+	var visible_stars := func() -> Array:
+		var out: Array = []
+		var rect := get_viewport().get_visible_rect().grow(-150)
+		for star: Dictionary in galaxy.stars:
+			var at: Vector2 = on_screen.call(int(star.id))
+			if rect.has_point(at) and at.x > 450 and not bool(star.get("black_hole", false)) and int(star.id) != galaxy.system_star:
+				out.append(int(star.id))
+		return out
+	var first: Array = visible_stars.call()
+	print("smoke: pan stars on screen %s" % [first])
+	await _smoke_click(on_screen.call(first[0]))
+	await get_tree().create_timer(2.5).timeout
+	report.call("first star")
+	# A drag on the map, away from the star.
+	var from := Vector2(900, 800)
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = from
+	press.global_position = from
+	Input.parse_input_event(press)
+	for step in 12:
+		await get_tree().create_timer(0.03).timeout
+		var move := InputEventMouseMotion.new()
+		move.position = from - Vector2(20, 10) * (step + 1)
+		move.global_position = move.position
+		move.relative = Vector2(-20, -10)
+		move.button_mask = MOUSE_BUTTON_MASK_LEFT
+		Input.parse_input_event(move)
+	var release := press.duplicate()
+	release.pressed = false
+	release.position = from - Vector2(240, 120)
+	release.global_position = release.position
+	Input.parse_input_event(release)
+	await get_tree().create_timer(0.8).timeout
+	report.call("panned")
+	if shots != "":
+		await host.shot(shots + "/pan-panned.png")
+	var second: Array = visible_stars.call()
+	print("smoke: pan stars on screen now %s" % [second])
+	if second.is_empty():
+		return
+	await _smoke_click(on_screen.call(second[0]))
+	await get_tree().create_timer(2.5).timeout
+	report.call("second star")
+	await _smoke_click(pane.get_node("Box/Back").get_global_rect().get_center())
+	await get_tree().create_timer(2.5).timeout
+	report.call("back to galaxy")
+	for i in 2:
+		var stars: Array = visible_stars.call()
+		if stars.size() <= i:
+			break
+		await _smoke_click(on_screen.call(stars[i]))
+		await get_tree().create_timer(2.5).timeout
+		report.call("star %d" % i)
+		if shots != "":
+			await host.shot(shots + "/pan-star-%d.png" % i)
+		pane.close()
+		await get_tree().create_timer(2.0).timeout
