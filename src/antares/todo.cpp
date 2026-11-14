@@ -5,6 +5,7 @@
 #include "antares/commands_internal.h"
 #include "antares/native.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -202,10 +203,9 @@ namespace antares::todo {
                         }
                         Write_Item(list, "new_system", text, (int32_t)i, it.star, true, resolved, &open, &item);
                         if (special) {
-                            const char* desc = MAINPUPS::System_Special_Desc(it.special);
                             s_out sp = item.Add_Object("special");
                             sp.Str("name", commands::internal::Utf8(MOX::planet_special_string[it.special], 80));
-                            sp.Str("text", commands::internal::Utf8(desc != nullptr ? desc : "", 600));
+                            sp.Str("text", commands::internal::Special_Description(it.special));
                         }
                         if (leader) {
                             commands::internal::Leader_Card(it.leader, MOX::PLAYER_NUM, item.Add_Object("leader"));
@@ -254,6 +254,29 @@ namespace antares::todo {
             }
         }
 
+        // A leader's level: the window the reports chain shows (the native leader_level popup,
+        // MAINPUPS::Officer_Gains_Level_Popup), then the item is read (owner, 2026-11-13: the
+        // item cleared without showing it).
+        void Todo_Level(int16_t, const s_args& args, s_out& out) {
+            if (!commands::internal::Have_Game(out)) {
+                return;
+            }
+            s_item* item = Item_Arg(args, out);
+            if (item == nullptr) {
+                return;
+            }
+            if (item->kind != e_kind::leader_level || item->leader < 0 || item->leader >= MAX_LEADERS) {
+                out.Fail("bad_args", "item: a leader_level item");
+                return;
+            }
+            const int16_t leader = item->leader;
+            const int16_t star = item->star;
+            item->read = true;
+            MAINPUPS::Officer_Gains_Level_Popup(star, leader);
+            MOX::FULL_DRAW_SCREEN_FLAG = 1;
+            out.Bool("shown", true);
+        }
+
         // The leader's offer, as the reports chain would have shown it (the native leader_hire
         // popup and REPORT::Has_Officer_For_Hire's rules).
         void Todo_Hire(int16_t, const s_args&, s_out& out) {
@@ -286,12 +309,33 @@ namespace antares::todo {
                 out.Fail("bad_args", "star: a star id");
                 return;
             }
+            // The player's colonies there before, so the new one can be named to the frontend (it
+            // opens its pane: the landing screen is skipped with the native galaxy).
+            std::vector<int16_t> before;
+            for (const int16_t p : MOX::star[star].planet_index) {
+                if (p >= 0 && p < MOX::planet_count) {
+                    before.push_back(MOX::planet[p].colony_index);
+                }
+            }
             const int8_t status = REPORT::Colonization_At_Star(MOX::PLAYER_NUM, (int16_t)star, 1, false);
             if (s_item* item = Find(e_kind::colonize, (int16_t)star, -1)) {
                 item->done = true;
             }
+            int16_t founded = -1;
+            for (const int16_t p : MOX::star[star].planet_index) {
+                if (p < 0 || p >= MOX::planet_count) {
+                    continue;
+                }
+                const int16_t c = MOX::planet[p].colony_index;
+                if (c >= 0 && c < MOX::NUM_COLONIES && MOX::colony[c].owner == MOX::PLAYER_NUM && MOX::colony[c].outpost_flag == 0 &&
+                    std::find(before.begin(), before.end(), c) == before.end()) {
+                    founded = c;
+                }
+            }
             MOX::FULL_DRAW_SCREEN_FLAG = 1;
             out.Int("status", status);
+            out.Int("colony", founded); // a colony founded here, or -1
+            out.Int("star", star);
         }
     } // namespace
 
@@ -301,6 +345,7 @@ namespace antares::commands::internal {
     void Add_Todo_Entries(std::vector<s_entry>* table) {
         table->push_back({"todo", e_kind::query, ANY_SCREEN, 1, "", todo::Query_Todo});
         table->push_back({"todo_read", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_Read});
+        table->push_back({"todo_level", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_Level});
         table->push_back({"todo_hire", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "", todo::Todo_Hire});
         table->push_back({"todo_colonize", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "star", todo::Todo_Colonize});
     }

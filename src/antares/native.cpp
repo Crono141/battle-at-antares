@@ -632,6 +632,7 @@ namespace antares::native {
             Enter_Galaxy();
         }
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: screen %d", (int)screen);
+        sound::Release_Held_Sounds(); // back in a native view: what the legacy screen started plays
         host::On_Publish();
         ++s_native_visit;
         s_native_screen = screen;
@@ -698,11 +699,19 @@ namespace antares::native {
             Leave_Galaxy();
         }
         Drop_Legacy_Input();
+        // The frontend shows its view until the legacy screen has drawn (and the turn's screens
+        // may stay behind the galaxy): the legacy screen's sounds wait for its picture
+        // (Release_Sounds; owner, 2026-11-13).
+        sound::Hold_New_Sounds();
         s_leave_polls = input_trace::Polls();
         s_leave_frame = host::Frame_Generation(); // before the screen, so the frontend never misses it
         s_native_screen = -1;
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: screen %d leaves for %d", (int)screen, (int)MOX::current_screen);
         return true;
+    }
+
+    void Release_Sounds() {
+        sound::Release_Held_Sounds();
     }
 
     bool Wants_Screen(int16_t screen) {
@@ -871,6 +880,13 @@ namespace antares::native {
             return "{}";
         }
         return commands::internal::System_Json(star);
+    }
+
+    std::string Potential_Json(int16_t planet) {
+        if (MOX::planet == nullptr || planet < 0 || planet >= MOX::planet_count) {
+            return std::string();
+        }
+        return commands::internal::Potential_Json(planet);
     }
 
     std::string Quote(const char* text) {

@@ -105,6 +105,9 @@ namespace OFFICER {
 }
 
 namespace COLCALC {
+    int16_t __cdecl N_Colonies_And_Outposts_At_Star(int16_t) {
+        return 0; // the native landing branch (never taken in tests)
+    }
     void __cdecl Do_Player_Colony_Calculations(int16_t) {
     }
 
@@ -165,6 +168,10 @@ namespace HACCESS {
 namespace MAINPUPS {
     bool __cdecl Random_New_Officer_Popup(int16_t) {
         return TEST_REPORT::accept_officer_offer;
+    }
+
+    int8_t Native_Colony_Confirm(int16_t, const char*) {
+        return -1; // no native popups in tests: the game's box
     }
 
     int16_t __cdecl New_Colony_Selection_Popup(int16_t, uint8_t) {

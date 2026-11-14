@@ -22,6 +22,14 @@ var _help: Control
 const OPTION_ANSWER := 1000
 ## The options shown, for answers from the map (a planet clicked in the zoomed system).
 var options: Array = []
+## The player's race (empire query), for the planet card's colonists.
+var race_id := -1
+## A zoomed popup's planets (its `system`), by id, and what colonising each gives (its options'
+## or its own `potential`): the planet card under the choices (owner, 2026-11-13).
+var _planets := {}
+var _potentials := {}
+var _card_holder: PanelContainer
+var _card_planet := -1
 
 
 func _ready() -> void:
@@ -76,8 +84,32 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 			_extra.add_child(_item_list(request.items))
 		if request.has("special"):
 			_extra.add_child(_special_box(request.special))
+		_planets = {}
+		_potentials = {}
+		_card_planet = -1
+		_card_holder = null
+		for planet: Dictionary in request.get("system", {}).get("planets", []):
+			_planets[int(planet.planet)] = planet
+		for option: Dictionary in request.get("options", []):
+			if option.has("potential") and option.has("planet"):
+				_potentials[int(option.planet)] = option.potential
+		if request.has("potential") and request.has("planet"):
+			_potentials[int(request.planet)] = request.potential
 		if request.has("options"):
 			_extra.add_child(_option_list(request.options, 0 if choose else OPTION_ANSWER, int(request.get("selected", -1))))
+		if not _potentials.is_empty():
+			# The planet card: the hovered planet's (a row, or the planet on the map), else the
+			# first that can be picked, or the one asked about.
+			_card_holder = PanelContainer.new()
+			_card_holder.theme_type_variation = &"Pane"
+			_extra.add_child(_card_holder)
+			var first := int(request.get("planet", -1))
+			if first < 0:
+				for option: Dictionary in request.get("options", []):
+					if bool(option.get("enabled", true)) and option.has("potential"):
+						first = int(option.planet)
+						break
+			_show_card(first)
 		if choose:
 			request = request.merged({"buttons": ["CANCEL"]}, true)
 		if request.has("rows"):
@@ -252,6 +284,33 @@ func _combat_rows(request: Dictionary) -> Control:
 	return body
 
 
+## Shows a planet's card in the popup (a hovered row or map planet); -1 keeps the current one.
+func _show_card(planet_id: int) -> void:
+	if _card_holder == null or planet_id < 0 or planet_id == _card_planet or not _potentials.has(planet_id):
+		return
+	_card_planet = planet_id
+	for child in _card_holder.get_children():
+		_card_holder.remove_child(child)
+		child.queue_free()
+	_card_holder.add_child(preload("planet_card.gd").build(art, _planets.get(planet_id, {}), _potentials[planet_id], race_id))
+	reset_size.call_deferred()
+
+
+## A planet of the zoomed system hovered on the map (the frontend routes it here).
+func hover_planet(planet_id: int) -> void:
+	_show_card(planet_id)
+
+
+## The right click's card for a planet this popup knows (a row, or the planet on the map); false
+## when it has nothing on it.
+func show_planet_card(planet_id: int, at: Rect2) -> bool:
+	if not _planets.has(planet_id) and not _potentials.has(planet_id):
+		return false
+	var card := preload("planet_card.gd").build(art, _planets.get(planet_id, {}), _potentials.get(planet_id, {}), race_id)
+	_help = preload("info_popup.gd").open_content(self, at, "", card)
+	return true
+
+
 ## A popup's choices, one row each (a planet to colonise, a target to attack, a list item): a
 ## click answers `base` + the row's index; disabled rows (the game would refuse them) are greyed.
 func _option_list(items: Array, base: int, selected: int) -> Control:
@@ -271,6 +330,15 @@ func _option_list(items: Array, base: int, selected: int) -> Control:
 			row.add_theme_color_override("font_color", Color(1.0, 0.8, 0.35))
 		var value := base + i
 		row.pressed.connect(func(): _answer(value))
+		var planet_id := int(item.get("planet", -1))
+		if planet_id >= 0:
+			# Hovering a planet's row shows its card; a right click opens it beside the row.
+			row.mouse_entered.connect(func(): _show_card(planet_id))
+			row.gui_input.connect(func(event: InputEvent):
+				var mb := event as InputEventMouseButton
+				if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
+					if show_planet_card(planet_id, row.get_global_rect()):
+						row.accept_event())
 		list.add_child(row)
 	if items.size() <= 8:
 		return list

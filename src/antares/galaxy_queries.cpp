@@ -372,6 +372,32 @@ namespace antares::commands::internal {
         // entry 1, records of 0xFF bytes, string overrides 28 on) with the leader's name and the
         // bonus (10 and 15 for skills 28 and 29). Read from the file here: the screen's copy is only
         // loaded while the leaders screen is up.
+        // A system special's description, as MAINPUPS::System_Special_Desc loads it (the file E0x170
+        // names, entry = the special, one record of up to 600 bytes, string override entry + 1), read
+        // from the file: that function caches its pointer into the screen segment, stale once the
+        // segment is reused, and a query must not load into it.
+        std::string Read_Special_Description(int16_t special) {
+            const char* lbx = ESTRINGS::E_Strings(0x170);
+            s_vfs_file* file = vfs::fopen_lbx(lbx, special);
+            if (file == nullptr) {
+                return {};
+            }
+            uint16_t header[2] = {};
+            char text[601] = {};
+            bool ok = vfs::fread(header, sizeof(header), 1, file) == 1 && header[0] > 0 && header[1] > 0;
+            if (ok) {
+                const size_t size = header[1] < 600 ? header[1] : 600;
+                ok = vfs::fread(text, size, 1, file) == 1;
+            }
+            vfs::fclose(file);
+            if (!ok) {
+                return {};
+            }
+            text[600] = '\0';
+            string_overrides::Apply_String(lbx, (size_t)special + 1, text, 600);
+            return Utf8(text, sizeof(text));
+        }
+
         std::string Skill_Description(int16_t leader, int16_t skill, int16_t bonus) {
             char lbx[20];
             OFFICER::Get_Skill_Description_LBX_Name(lbx, sizeof(lbx));
@@ -549,6 +575,13 @@ namespace antares::commands::internal {
                 item.Int("gravity", planet.gravity_class);
                 item.Int("minerals", planet.mineral_class);
                 item.Int("special", planet.planet_special);
+                // v5: the special's name and description, as the window shows it on discovery
+                // (owner, 2026-11-13: gem deposits were missing from the system view).
+                if (planet.planet_special > SYSTEM_SPECIAL_NO_SPECIAL && planet.planet_special < SYSTEM_SPECIAL_COUNT &&
+                    planet.planet_special != SYSTEM_SPECIAL_MAROONED_HERO && planet.planet_special != SYSTEM_SPECIAL_ORION_STAR) {
+                    item.Str("special_name", Utf8(MOX::planet_special_string[planet.planet_special], 80));
+                    item.Str("special_text", Read_Special_Description(planet.planet_special));
+                }
                 item.Int("max_population", COLCALC::Planet_Max_Population_For_Player(const_cast<s_planet_data*>(&planet), MOX::PLAYER_NUM));
                 // The box's words for them (v3; Planet_Lines has them as sentences).
                 if (planet.planet_type == PLANET_TYPE_PLANET) {
@@ -1046,6 +1079,10 @@ namespace antares::commands::internal {
         }
     } // namespace
 
+    std::string Special_Description(int16_t special) {
+        return Read_Special_Description(special);
+    }
+
     // A leader as the officer screens show one (OFFICER::Print_Officer_Data): name, title, level,
     // portrait, then its special skills (colony or ship ones, by its type) and its general ones,
     // each with its icon, its name, its bonus as printed and its help. `owner` is the player whose
@@ -1096,24 +1133,40 @@ namespace antares::commands::internal {
         return json;
     }
 
+    namespace {
+        // A query's answer as JSON text, for a popup that carries it (queries don't run while a
+        // request waits).
+        std::string Query_Json(void (*query)(int16_t, const s_args&, s_out&), const char* key, int64_t value) {
+            yyjson_mut_doc* args_doc = yyjson_mut_doc_new(nullptr);
+            yyjson_mut_val* args_root = yyjson_mut_obj(args_doc);
+            yyjson_mut_doc_set_root(args_doc, args_root);
+            yyjson_mut_obj_add_int(args_doc, args_root, key, value);
+            yyjson_doc* args_read = yyjson_mut_doc_imut_copy(args_doc, nullptr);
+            yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
+            yyjson_mut_val* root = yyjson_mut_obj(doc);
+            yyjson_mut_doc_set_root(doc, root);
+            s_out out(doc, root);
+            query(0, s_args(yyjson_doc_get_root(args_read)), out);
+            char* text = yyjson_mut_write(doc, 0, nullptr);
+            std::string json = text != nullptr ? text : "{}";
+            free(text);
+            yyjson_mut_doc_free(doc);
+            yyjson_doc_free(args_read);
+            yyjson_mut_doc_free(args_doc);
+            return json;
+        }
+    } // namespace
+
+    // The `potential_colony` answer for a planet, or "" for a gas giant.
+    std::string Potential_Json(int16_t planet) {
+        if (planet < 0 || planet >= MOX::planet_count || MOX::planet[planet].planet_type == PLANET_TYPE_GAS_GIANT) {
+            return std::string();
+        }
+        return Query_Json(Query_Potential_Colony, "planet", planet);
+    }
+
     std::string System_Json(int16_t star) {
-        yyjson_mut_doc* args_doc = yyjson_mut_doc_new(nullptr);
-        yyjson_mut_val* args_root = yyjson_mut_obj(args_doc);
-        yyjson_mut_doc_set_root(args_doc, args_root);
-        yyjson_mut_obj_add_int(args_doc, args_root, "star", star);
-        yyjson_doc* args_read = yyjson_mut_doc_imut_copy(args_doc, nullptr);
-        yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
-        yyjson_mut_val* root = yyjson_mut_obj(doc);
-        yyjson_mut_doc_set_root(doc, root);
-        s_out out(doc, root);
-        Query_System(0, s_args(yyjson_doc_get_root(args_read)), out);
-        char* text = yyjson_mut_write(doc, 0, nullptr);
-        std::string json = text != nullptr ? text : "{}";
-        free(text);
-        yyjson_mut_doc_free(doc);
-        yyjson_doc_free(args_read);
-        yyjson_mut_doc_free(args_doc);
-        return json;
+        return Query_Json(Query_System, "star", star);
     }
 
     namespace {
@@ -1248,7 +1301,7 @@ namespace antares::commands::internal {
         table->push_back({"toggle_option", e_kind::command, galaxy, 0, "option: 0-7 (Alt+F1..F8), not 3", Toggle_Option});
         table->push_back({"galaxy", e_kind::query, ANY_SCREEN, 1, "", Query_Galaxy});
         table->push_back({"fleets", e_kind::query, ANY_SCREEN, 2, "", Query_Fleets});
-        table->push_back({"system", e_kind::query, ANY_SCREEN, 4, "star: star id", Query_System});
+        table->push_back({"system", e_kind::query, ANY_SCREEN, 5, "star: star id", Query_System});
         table->push_back({"designs", e_kind::query, ANY_SCREEN, 1, "", Query_Designs});
         table->push_back({"potential_colony", e_kind::query, ANY_SCREEN, 2, "planet: planet id", Query_Potential_Colony});
         table->push_back({"options", e_kind::query, ANY_SCREEN, 2, "", Query_Options});

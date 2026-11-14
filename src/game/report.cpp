@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "antares/todo.h"
+#include "antares/native.h"
 
 #include "antares/cosmetic_random.h"
 
@@ -252,7 +253,11 @@ namespace REPORT {
                                     } else if (MOX::planet[planet_idx].colony_index == -1) {
                                         char msg[200];
                                         snprintf(msg, sizeof(msg), outpost_preselected_planet_fmt, HACCESS::Get_Planet_Name(planet_idx));
-                                        if (GENDRAW::Do_Confirmation_Box(msg) == 0) {
+                                        if ([&] {
+                                                // Antares: natively over the zoomed system with the planet's potential.
+                                                const int8_t native_yes = MAINPUPS::Native_Colony_Confirm(planet_idx, msg);
+                                                return native_yes >= 0 ? native_yes == 0 : GENDRAW::Do_Confirmation_Box(msg) == 0;
+                                            }()) {
                                             planet_idx = PLANET_INDEX_NONE;
                                         } else {
                                             if (namestar::Can_Change_Star_Name(star_idx) != 0 && MOX::settings.animations_on == 0) {
@@ -274,7 +279,11 @@ namespace REPORT {
                                             auto_colonized = true;
                                             char msg[200];
                                             snprintf(msg, sizeof(msg), colonize_preselected_planet_fmt, HACCESS::Get_Planet_Name(planet_idx));
-                                            if (GENDRAW::Do_Confirmation_Box(msg) == 0) {
+                                            if ([&] {
+                                                    // Antares: natively over the zoomed system with the planet's potential.
+                                                    const int8_t native_yes = MAINPUPS::Native_Colony_Confirm(planet_idx, msg);
+                                                    return native_yes >= 0 ? native_yes == 0 : GENDRAW::Do_Confirmation_Box(msg) == 0;
+                                                }()) {
                                                 planet_idx = PLANET_INDEX_NONE;
                                             } else {
                                                 if (namestar::Can_Change_Star_Name(star_idx) != 0 && MOX::settings.animations_on == 0) {
@@ -341,6 +350,23 @@ namespace REPORT {
                                             }
                                         }
 
+                                        // Antares (owner, 2026-11-13): with the native galaxy the landing screen
+                                        // (legacy) is skipped; the frontend opens the new colony's pane. What the
+                                        // landing screen asks still comes: the star's name for its first colony
+                                        // (a native text request); a colony needing an occupation policy keeps
+                                        // the landing screen, which asks it.
+                                        const int16_t new_colony = MOX::planet[planet_idx].colony_index;
+                                        if (MOX::settings.animations_on != 0 && antares::native::Galaxy_Will_Be_Native() &&
+                                            (new_colony < 0 || !COLONY::Colony_Needs_Occupation_Policy(new_colony))) {
+                                            const int16_t star = MOX::planet[planet_idx].star_index;
+                                            if (COLCALC::N_Colonies_And_Outposts_At_Star(star) == 1) {
+                                                namestar::Change_Star_Name_Popup(namestar::Star_Name_Popup_Screen_Center_X(),
+                                                    namestar::Star_Name_Popup_Screen_Center_Y(),
+                                                    star,
+                                                    1);
+                                            }
+                                            return 1;
+                                        }
                                         if (MOX::settings.animations_on != 0) {
                                             MOX::current_screen = 0x21; /* SCR_COLONIZE */
                                             MOX::return_screen = SCREEN_REPORTS;

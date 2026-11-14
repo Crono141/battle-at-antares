@@ -27,6 +27,9 @@ var _time := 0.0
 
 func _process(delta: float) -> void:
 	_time += delta
+	if galaxy.system_fleets_alpha > 0.0 and galaxy.system_fleets_alpha < 1.0:
+		queue_redraw() # fading with the system's zoom
+		return
 	for fleet: Dictionary in galaxy.fleets:
 		if fleet.line != "":
 			queue_redraw()
@@ -41,13 +44,13 @@ func _draw() -> void:
 	# Lines first, so icons sit on top of them.
 	for i in galaxy.fleets.size():
 		var fleet: Dictionary = galaxy.fleets[i]
-		if fleet.line != "" and int(fleet.destination) >= 0:
+		if fleet.line != "" and int(fleet.destination) >= 0 and galaxy.fleet_alpha(fleet) > 0.01:
 			var rect: Rect2 = placed[i]
 			Links.dashed_line(self, rect.get_center(), galaxy.star_position(int(fleet.destination)),
 				OWN_LINE if fleet.line == "own" else ENEMY_LINE, px, _time)
 	for i in galaxy.fleets.size():
 		var fleet: Dictionary = galaxy.fleets[i]
-		if int(fleet.ship) != galaxy.selected_fleet:
+		if int(fleet.ship) != galaxy.selected_fleet or galaxy.fleet_alpha(fleet) <= 0.01:
 			continue
 		var rect: Rect2 = placed[i]
 		draw_rect(rect.grow(2.0 * px), SELECTED_FRAME, false, 1.5 * px)
@@ -61,8 +64,12 @@ func _draw() -> void:
 		var fleet: Dictionary = galaxy.fleets[i]
 		var rect: Rect2 = placed[i]
 		var scale := rect.size.x / _art_width(fleet)
-		if not galaxy.art.draw(self, "BUFFER0.LBX", int(fleet.sprite), 0, rect.position, scale):
-			draw_rect(rect, galaxy.player_color(int(fleet.color)))
+		# In an open system its own fleets fade out: the system pane lists them (owner, 2026-11-13).
+		var alpha: float = galaxy.fleet_alpha(fleet)
+		if alpha <= 0.01:
+			continue
+		if not galaxy.art.draw(self, "BUFFER0.LBX", int(fleet.sprite), 0, rect.position, scale, Color(1, 1, 1, alpha)):
+			draw_rect(rect, Color(galaxy.player_color(int(fleet.color)), alpha))
 		if int(fleet.eta) >= 0:
 			var text := "ETA %d" % int(fleet.eta)
 			draw_set_transform(rect.end, 0.0, Vector2(px, px))

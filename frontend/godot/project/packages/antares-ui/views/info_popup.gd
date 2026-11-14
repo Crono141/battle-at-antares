@@ -30,13 +30,35 @@ static func open(owner: Control, at: Control, title: String, text: String, foote
 		line.theme_type_variation = &"Dim"
 		line.text = footer
 		box.add_child(line)
+	return _place(owner, tip, at.get_global_rect())
+
+
+## A pane of the same kind holding `content` (a planet's card) under a title, beside `rect` (screen
+## pixels: a row, or a point on the map).
+static func open_content(owner: Control, rect: Rect2, title: String, content: Control) -> Control:
+	close_current()
+	var tip: PanelContainer = preload("info_tip.gd").new()
+	tip.theme_type_variation = &"Pane"
+	tip.theme = owner.theme if owner.theme else _theme_of(owner)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	tip.add_child(box)
+	if title != "":
+		var heading := Label.new()
+		heading.theme_type_variation = &"Name"
+		heading.text = title
+		box.add_child(heading)
+	box.add_child(content)
+	return _place(owner, tip, rect)
+
+
+static func _place(owner: Control, tip: Control, rect: Rect2) -> Control:
 	# Over everything (the dialogs' overlay too), in the interface's own pixels.
 	var layer := CanvasLayer.new()
 	layer.layer = 120
 	owner.get_tree().root.add_child(layer)
 	layer.add_child(tip)
 	var wanted := tip.get_combined_minimum_size()
-	var rect := at.get_global_rect()
 	var screen := owner.get_viewport().get_visible_rect().size
 	var place := Vector2(rect.end.x + 8.0, rect.position.y)
 	if place.x + wanted.x > screen.x - 8.0:

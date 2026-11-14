@@ -98,6 +98,9 @@ namespace MAINPUPS {
      */
     int16_t __cdecl Check_System_Display_Fields_Selection(int16_t* mouse_x, int16_t* mouse_y, int16_t* selection_confirmed);
 
+    // Antares: the colonise question as a native popup over the zoomed system with the planet's
+    // potential (owner, 2026-11-13): 1 yes, 0 no, -1 when popups aren't native.
+    int8_t Native_Colony_Confirm(int16_t planet_idx, const char* message);
     int8_t __cdecl New_Colony_Confirmation_Box(int16_t planet_idx);
 
     void __cdecl Load_SLIDER_Popup();

@@ -2,6 +2,9 @@
 
 #include "game/stream_source.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace sound {
     void __cdecl Merge_Free_Blocks();
     int32_t __cdecl Get_Free_Sound_Index();
@@ -112,8 +115,25 @@ namespace sound {
             return (channel.flags & 0x0C) != 0;
         }
 
+        // Antares: sounds that start while a frontend still shows the view from before the screen
+        // change wait (paused) until it shows the new one (Hold_New_Sounds; owner, 2026-11-13: the
+        // news and discovery sounds came a few frames before their pictures).
+        bool holdNewSounds = false;
+        uint64_t holdNewSoundsSince = 0;
+        std::vector<SDL_AudioStream*> heldStreams;
+        constexpr uint64_t HOLD_NEW_SOUNDS_MAX_MS = 3000;
+
+        void Release_Held_Streams() {
+            holdNewSounds = false;
+            for (SDL_AudioStream* stream : heldStreams) {
+                SDL_ResumeAudioStreamDevice(stream);
+            }
+            heldStreams.clear();
+        }
+
         void Destroy_SDL_Stream(SDL_AudioStream*& stream) {
             if (stream != nullptr) {
+                heldStreams.erase(std::remove(heldStreams.begin(), heldStreams.end(), stream), heldStreams.end());
                 SDL_AudioStream* destroyed_stream = stream;
                 stream = nullptr;
                 SDL_DestroyAudioStream(destroyed_stream);
@@ -150,6 +170,21 @@ namespace sound {
             if (stream != nullptr) {
                 SDL_ResumeAudioStreamDevice(stream);
             }
+        }
+
+        // A sound starting: at once, or held (paused, a new device stream starts so) until released.
+        void Start_SDL_Stream(SDL_AudioStream* stream) {
+            if (stream == nullptr) {
+                return;
+            }
+            if (holdNewSounds) {
+                if (std::find(heldStreams.begin(), heldStreams.end(), stream) == heldStreams.end()) {
+                    SDL_PauseAudioStreamDevice(stream);
+                    heldStreams.push_back(stream);
+                }
+                return;
+            }
+            SDL_ResumeAudioStreamDevice(stream);
         }
 
         bool Queue_Channel_Data(s_sound_channel& channel, uint32_t bytes_to_queue) {
@@ -378,8 +413,23 @@ namespace sound {
         }
 
         Set_SDL_Stream_Gain(stream, volume_percent);
-        Resume_SDL_Stream(stream);
+        Start_SDL_Stream(stream);
         return stream;
+    }
+
+    void Hold_New_Sounds() {
+        Sound_State_Guard_ guard;
+        if (!holdNewSounds) {
+            holdNewSounds = true;
+            holdNewSoundsSince = SDL_GetTicks();
+        }
+    }
+
+    void Release_Held_Sounds() {
+        Sound_State_Guard_ guard;
+        if (holdNewSounds || !heldStreams.empty()) {
+            Release_Held_Streams();
+        }
     }
 
     void __cdecl Close_Playback_Stream(SDL_AudioStream*& stream) {
@@ -642,6 +692,10 @@ namespace sound {
 
         if (audioInitialized != 1) {
             return;
+        }
+
+        if (holdNewSounds && SDL_GetTicks() - holdNewSoundsSince > HOLD_NEW_SOUNDS_MAX_MS) {
+            Release_Held_Streams(); // never held longer than this, whatever the frontend does
         }
 
         if (sound::soundOn == 1) {
@@ -956,7 +1010,7 @@ namespace sound {
 
         currentStreamVolume = volume_idx;
         Set_SDL_Stream_Gain(stream_data.ds_buffer, volume_idx);
-        Resume_SDL_Stream(stream_data.ds_buffer);
+        Start_SDL_Stream(stream_data.ds_buffer);
 
         audioPlaybackActive = 1;
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "stream: started file=%s entry=%d", currentStreamFilename, currentStreamId);
@@ -1157,7 +1211,7 @@ namespace sound {
         }
 
         SDL_SetAudioStreamFrequencyRatio(soundChannels[channel_idx].buffer, 1.0f);
-        Resume_SDL_Stream(soundChannels[channel_idx].buffer);
+        Start_SDL_Stream(soundChannels[channel_idx].buffer);
 
         return channel_idx;
     }

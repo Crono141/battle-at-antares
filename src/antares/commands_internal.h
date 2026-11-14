@@ -31,7 +31,11 @@ namespace antares::commands::internal {
     // portrait, skills with bonuses for `owner`.
     void Leader_Card(int16_t leader_idx, int16_t owner, s_out g);
     std::string Leader_Card_Json(int16_t leader_idx, int16_t owner);
+    // A system special's description (the discovery window's text), read from its file.
+    std::string Special_Description(int16_t special);
     // The `system` query's answer for a star, as JSON (popups that zoom into a system).
     std::string System_Json(int16_t star);
+    // The `potential_colony` answer for a planet as JSON, or "" for a gas giant (popups carry it).
+    std::string Potential_Json(int16_t planet);
 
 } // namespace antares::commands::internal

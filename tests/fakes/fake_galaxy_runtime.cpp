@@ -70,6 +70,8 @@ namespace sound {
     }
     void __cdecl Sound_On() {}
     void __cdecl Set_Sound_Max_Volume(int32_t) {}
+    void Hold_New_Sounds() {}
+    void Release_Held_Sounds() {}
 } // namespace sound
 
 namespace JIM {
@@ -328,6 +330,7 @@ namespace OFFICER {
 // The to-do list (todo.cpp, WP3.4d): the reports chain's pieces it calls.
 namespace MAINPUPS {
     const char* __cdecl System_Special_Desc(int16_t) { return ""; }
+    void __cdecl Officer_Gains_Level_Popup(int16_t, int16_t) {}
 } // namespace MAINPUPS
 namespace OFFICER {
     char* __cdecl Leader_Name(int16_t, char, void*) {

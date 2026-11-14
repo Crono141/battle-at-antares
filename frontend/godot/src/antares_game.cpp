@@ -98,6 +98,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("send_key", "godot_keycode", "shift", "alt", "ctrl"), &AntaresGame::send_key);
         ClassDB::bind_method(D_METHOD("request_game_quit"), &AntaresGame::request_game_quit);
         ClassDB::bind_method(D_METHOD("stop_auto_turns"), &AntaresGame::stop_auto_turns);
+        ClassDB::bind_method(D_METHOD("release_sounds"), &AntaresGame::release_sounds);
         ClassDB::bind_method(D_METHOD("click_sound"), &AntaresGame::click_sound);
         ClassDB::bind_method(D_METHOD("claim_screen", "screen", "claimed"), &AntaresGame::claim_screen);
         ClassDB::bind_method(D_METHOD("claim_requests", "kinds"), &AntaresGame::claim_requests);
@@ -677,6 +678,10 @@ namespace godot {
 
     void AntaresGame::stop_auto_turns() {
         antares::native::Stop_Auto_Turns();
+    }
+
+    void AntaresGame::release_sounds() {
+        antares::native::Release_Sounds();
     }
 
     void AntaresGame::send_key(int64_t godot_keycode, bool shift, bool alt, bool ctrl) {

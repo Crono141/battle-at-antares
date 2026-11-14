@@ -4,6 +4,12 @@ namespace sound {
     SDL_AudioStream* __cdecl Open_Playback_Stream(uint16_t bits_per_sample, uint16_t channels, uint32_t sample_rate, int32_t volume_percent);
     void __cdecl Close_Playback_Stream(SDL_AudioStream*& stream);
 
+    // Antares: sounds started from now on wait, paused, until Release_Held_Sounds (or 3 s): a
+    // frontend still showing its own view when the game leaves for a legacy screen keeps them for
+    // the moment it shows that screen's picture (antares::native::Run_Screen holds, the host releases).
+    void Hold_New_Sounds();
+    void Release_Held_Sounds();
+
     /**
      * Drives periodic sound and stream maintenance from the multimedia timer.
      * @param timer_id Multimedia timer identifier.

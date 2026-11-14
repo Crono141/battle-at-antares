@@ -112,6 +112,7 @@ namespace MAINPUPS {
             int32_t value = -1;
             bool enabled = true;
             int16_t planet = -1;
+            bool potential = false; // carries the planet's potential (the window's hover card)
         };
 
         std::string Native_Options_Json(const std::vector<s_native_option>& options) {
@@ -119,7 +120,12 @@ namespace MAINPUPS {
             for (const s_native_option& o : options) {
                 json += std::string(json.empty() ? "" : ",") + "{\"text\":" + antares::native::Quote(o.text.c_str()) +
                     ",\"enabled\":" + (o.enabled ? "true" : "false") +
-                    (o.planet >= 0 ? ",\"planet\":" + std::to_string(o.planet) : std::string()) + "}";
+                    (o.planet >= 0 ? ",\"planet\":" + std::to_string(o.planet) : std::string());
+                const std::string potential = o.potential && o.planet >= 0 ? antares::native::Potential_Json(o.planet) : std::string();
+                if (!potential.empty()) {
+                    json += ",\"potential\":" + potential;
+                }
+                json += "}";
             }
             return "\"options\":[" + json + "]";
         }
@@ -991,6 +997,8 @@ namespace MAINPUPS {
                 }
                 o.planet = p;
                 o.value = p;
+                // What colonising it gives, shown as the pointer moves over it (owner, 2026-11-13).
+                o.potential = selection_state_flag == 0 || selection_state_flag == 1;
                 o.enabled = refusal(p) == 0;
                 options.push_back(o);
             }
@@ -2995,6 +3003,26 @@ namespace MAINPUPS {
         OFFICER::Load_Officer_Skill_Icons(MOX::screen_seg);
     }
 
+    int8_t Native_Colony_Confirm(int16_t planet_idx, const char* message) {
+        if (!antares::native::Popups_Native() || planet_idx < 0 || planet_idx >= MOX::planet_count) {
+            return -1;
+        }
+        // Over the zoomed system, with the planet's potential; YES answers 0.
+        const int16_t star_idx = MOX::planet[planet_idx].star_index;
+        std::string fields = "\"title\":" + antares::native::Quote(HACCESS::Get_Planet_Name(planet_idx)) + ",\"planet\":" +
+            std::to_string(planet_idx) + ",\"zoom\":" + std::to_string(star_idx) + ",\"system\":" + antares::native::System_Json(star_idx);
+        const std::string potential = antares::native::Potential_Json(planet_idx);
+        if (!potential.empty()) {
+            fields += ",\"potential\":" + potential;
+        }
+        fields += ",\"buttons\":[\"YES\",\"NO\"]";
+        int32_t answer = 1;
+        if (!antares::native::Popup("colony_confirm", message, fields, &answer)) {
+            return -1;
+        }
+        return (int8_t)(answer == 0 ? 1 : 0);
+    }
+
     int8_t __cdecl New_Colony_Confirmation_Box(int16_t planet_idx) {
         s_potential_colony_info potential_info;
         char msg_buffer[2000];
@@ -3012,6 +3040,13 @@ namespace MAINPUPS {
         char* planet_name = HACCESS::Get_Planet_Name(planet_idx);
         char* format_title = ESTRINGS::E_Strings(0xD1); /* 209 */
         snprintf(msg_buffer, sizeof(msg_buffer), format_title, planet_name);
+
+        // Antares (owner, 2026-11-13): natively, the question with the planet's potential as icons
+        // (the lines below are the box's, with font codes a native box showed as zeros).
+        if (const int8_t native_answer = Native_Colony_Confirm(planet_idx, msg_buffer); native_answer >= 0) {
+            fields::Deactivate_Help_List();
+            return native_answer;
+        }
 
         food_val = potential_info.food;
         food_rem = food_val % 2;

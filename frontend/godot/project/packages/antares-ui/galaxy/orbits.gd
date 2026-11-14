@@ -41,6 +41,8 @@ func _draw() -> void:
 		var colony: Dictionary = planet.get("colony", {})
 		if not colony.is_empty():
 			draw_arc(center, radius, 0.0, TAU, 48, galaxy.player_color(int(colony.color)), (1.0 if colony.outpost else 1.6) * k, true)
+		if int(planet.planet) == galaxy.hovered_planet and int(planet.planet) != galaxy.selected_planet:
+			draw_arc(center, radius + 2.0 * k, 0.0, TAU, 48, Color(1, 1, 1, 0.55), 1.0 * k, true)
 		if int(planet.planet) == galaxy.selected_planet:
 			draw_arc(center, radius + 2.0 * k, 0.0, TAU, 48, Color(1, 0.4, 0.4, 0.95), 1.4 * k, true)
 

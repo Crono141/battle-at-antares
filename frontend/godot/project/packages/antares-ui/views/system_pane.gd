@@ -61,6 +61,8 @@ func _ready() -> void:
 			if _leaders_flyout and _leaders_flyout.visible:
 				close_leaders()
 			else:
+				# The flyout takes the colony pane's place beside this one (owner, 2026-11-13).
+				colony_chosen.emit(-1)
 				command.emit({"verb": "query", "what": "colony_leaders", "star": star, "_reply_to": "show_leaders"}))
 
 
@@ -153,13 +155,8 @@ func show_leaders(result: Dictionary) -> void:
 	_leaders_flyout.custom_minimum_size = Vector2(340, 0)
 	scroll.custom_minimum_size.y = minf(560.0, 30.0 + 96.0 * maxi(leaders.size(), 1))
 	_leaders_flyout.reset_size()
-	# Right of the panes on the left: this one, and the colony pane when it is open beside it.
-	var right := get_global_rect().end.x
-	for sibling in get_parent().get_children():
-		var pane := sibling as Control
-		if pane and pane != self and pane.visible and pane.has_method("close") and pane.get_global_rect().position.x >= right - 12.0 \
-				and pane.get_global_rect().position.x <= right + 12.0 and pane.get_global_rect().size.y > 200.0:
-			right = pane.get_global_rect().end.x
+	# Right of this pane, where the colony pane would be (it closed for the flyout).
+	var right := _shown_left + size.x
 	_leaders_flyout.global_position = Vector2(right + 6.0, governor.global_position.y)
 	_leaders_flyout.show()
 
@@ -269,7 +266,10 @@ func select_planet(planet_id: int) -> void:
 		_expanded[planet_id] = true
 		_ask_potential(planet_id)
 	_show_planets()
-	colony_chosen.emit(_player_colony(planet_id))
+	var colony := _player_colony(planet_id)
+	if colony >= 0:
+		close_leaders() # the colony pane takes the flyout's place
+	colony_chosen.emit(colony)
 
 
 ## The selected planet's row in a glow of the theme's "on" colour (owner): a wrapper whose own
@@ -287,6 +287,24 @@ func _glowing(row: Control, planet_id: int) -> Control:
 	wrapper.add_theme_stylebox_override("panel", style)
 	wrapper.add_child(row)
 	return wrapper
+
+
+## A planet of the system hovered on the map (owner, 2026-11-13): its row lights up, -1 for none.
+var hovered_planet := -1
+
+
+func hover_planet(planet_id: int) -> void:
+	hovered_planet = planet_id
+	for row: Control in planets_box.get_children():
+		if row.is_queued_for_deletion():
+			continue
+		row.modulate = Color(1.3, 1.3, 1.25) if planet_id >= 0 and row.get_meta("planet", -1) == planet_id else Color.WHITE
+	if planet_id >= 0:
+		var rect := planet_row_rect(planet_id)
+		if rect.size == Vector2.ZERO:
+			for row: Control in planets_box.get_children():
+				if row.get_meta("planet", -1) == planet_id:
+					$Box/Scroll.ensure_control_visible(row)
 
 
 ## The screen rect of a planet's row, clipped to the list's visible part (for markers by a row,
@@ -410,7 +428,10 @@ func _show_planets() -> void:
 	for planet: Dictionary in system.get("planets", []):
 		var row := _planet_row(planet)
 		var id := int(planet.planet)
-		planets_box.add_child(_glowing(row, id) if id == selected_planet else row)
+		var shown := _glowing(row, id) if id == selected_planet else row
+		if id == hovered_planet:
+			shown.modulate = Color(1.3, 1.3, 1.25)
+		planets_box.add_child(shown)
 
 
 func _planet_row(planet: Dictionary) -> Control:
@@ -425,9 +446,10 @@ func _planet_row(planet: Dictionary) -> Control:
 		var click := event as InputEventMouseButton
 		if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
 			_on_planet_clicked(id)
-		elif click and click.pressed and click.button_index == MOUSE_BUTTON_RIGHT and planet.get("type", "") != "gas_giant":
-			# The system window's right click: the planet's potential (owner, 2026-11-13).
-			command.emit({"verb": "planet_info", "planet": id})
+		elif click and click.pressed and click.button_index == MOUSE_BUTTON_RIGHT:
+			# The system window's right click: the planet's card, what colonising it gives as
+			# icons (owner, 2026-11-13), beside the row.
+			show_planet_card(id, panel.get_global_rect())
 			panel.accept_event())
 	var rows := VBoxContainer.new()
 	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -453,6 +475,14 @@ func _planet_row(planet: Dictionary) -> Control:
 		words_label.theme_type_variation = &"Dim"
 		words_label.add_theme_font_size_override("font_size", 13)
 		names.add_child(words_label)
+	if planet.has("special_name"):
+		# The special found there (owner, 2026-11-13: gem deposits were missing), its text on
+		# the tooltip and in the right click's card.
+		var special := _label("◆ " + String(planet.special_name), 13)
+		special.add_theme_color_override("font_color", preload("planet_card.gd").SPECIAL_COLOR)
+		special.tooltip_text = String(planet.get("special_text", ""))
+		special.mouse_filter = Control.MOUSE_FILTER_PASS
+		names.add_child(special)
 	var colony: Dictionary = planet.get("colony", {})
 	var right := VBoxContainer.new()
 	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -549,6 +579,39 @@ func show_potential(result: Dictionary) -> void:
 		return
 	_potential[int(result.planet)] = result
 	_show_planets()
+	if _card_pending == int(result.planet):
+		_card_pending = -1
+		_open_card(int(result.planet))
+
+
+## A planet's card (planet_card.gd) beside `at` (a row, or the point clicked on the map): its
+## picture and words, its special, and what colonising it gives; asks the potential first.
+var _card_pending := -1
+var _card_rect := Rect2()
+
+
+func show_planet_card(planet_id: int, at: Rect2) -> void:
+	_card_rect = at
+	var planet := _planet_entry(planet_id)
+	if planet.is_empty():
+		return
+	if planet.get("type", "") == "gas_giant" or _potential.has(planet_id):
+		_open_card(planet_id)
+		return
+	_card_pending = planet_id
+	_ask_potential(planet_id)
+
+
+func _open_card(planet_id: int) -> void:
+	var card := preload("planet_card.gd").build(art, _planet_entry(planet_id), _potential.get(planet_id, {}), race_id)
+	preload("info_popup.gd").open_content(self, _card_rect, "", card)
+
+
+func _planet_entry(planet_id: int) -> Dictionary:
+	for planet: Dictionary in system.get("planets", []):
+		if int(planet.planet) == planet_id:
+			return planet
+	return {}
 
 
 func _colony_text(planet: Dictionary, colony: Dictionary) -> String:

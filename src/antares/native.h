@@ -122,6 +122,10 @@ namespace antares::native {
     // can be left between inputs (Main_Screen) checks it and returns to the dispatcher.
     bool Wants_Screen(int16_t screen);
 
+    // The frontend shows the legacy screen's picture (or a question over its own view): the sounds
+    // held since the game left the native view play now (sound::Hold_New_Sounds).
+    void Release_Sounds();
+
     // Requests from the game's generic dialogs (WP3.2b). Each returns true when the frontend
     // answered, so the legacy popup is skipped; false when no frontend claimed that kind.
     // TEXTBOX::Do_Text_Box (GENDRAW::Message_Box, Text_Box, Timed_Text_Box, User_Box 0, 2, 4, 5):
@@ -155,6 +159,8 @@ namespace antares::native {
     /** The `system` query's answer for `star` (planets, orbits, fleets) as JSON, for the popups that
      * zoom into a system (WP3.4c: queries don't run while a request waits). "{}" without a game. */
     std::string System_Json(int16_t star);
+    // The `potential_colony` answer for a planet, or "" for a gas giant.
+    std::string Potential_Json(int16_t planet);
     // A game string as a JSON string (quoted, UTF-8).
     std::string Quote(const char* text);
 

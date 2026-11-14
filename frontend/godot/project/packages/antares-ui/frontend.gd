@@ -100,8 +100,9 @@ func _ready() -> void:
 	galaxy.star_hovered.connect(_on_star_hovered)
 	galaxy.right_clicked.connect(_end_relocating)
 	galaxy.planet_clicked.connect(_on_planet_clicked)
+	galaxy.planet_hovered.connect(_on_planet_hovered)
 	galaxy.empty_clicked.connect(_on_empty_clicked)
-	galaxy.planet_right_clicked.connect(func(planet: int): _send({"verb": "planet_info", "planet": planet}))
+	galaxy.planet_right_clicked.connect(_on_planet_right_clicked)
 	_frame_view = Control.new()
 	_frame_view.name = "ScreenFrame"
 	_frame_view.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -197,7 +198,16 @@ func _set_native(on: bool) -> void:
 	mode_button.text = "Legacy galaxy (Ctrl+G)" if on else "Native galaxy (Ctrl+G)"
 
 
+## The game holds the sounds a legacy screen starts until its picture shows (owner, 2026-11-13:
+## the news and discovery sounds came a few frames early): released once the legacy view (or a
+## question over the galaxy) is up.
+var _sounds_held := false
+
+
 func _process(delta: float) -> void:
+	if _sounds_held and (legacy.visible or overlay.visible or native_screen != Screens.LEGACY):
+		_sounds_held = false
+		game.release_sounds()
 	if _turn_clearing >= 0.0:
 		_turn_clearing += delta
 		if native_screen == Screens.MAIN or _turn_clearing >= TURN_HANDBACK_DELAY or overlay.visible:
@@ -237,6 +247,7 @@ func _on_native_screen(screen: int) -> void:
 		_galaxy_behind = true
 	elif screen == Screens.LEGACY:
 		_galaxy_behind = false
+		_sounds_held = true
 	native_screen = screen
 	var in_galaxy := screen == Screens.MAIN or (screen != Screens.LEGACY and _galaxy_behind)
 	legacy.visible = not in_galaxy and screen == Screens.LEGACY
@@ -711,12 +722,26 @@ func _on_todo_item(item: Dictionary) -> void:
 			if native_screen == Screens.MAIN and not _view("build_pane").visible:
 				_open_build_pane(colony, false)
 		"colonize":
-			_send({"verb": "todo_colonize", "star": star})
+			# The landing screen is skipped natively: the new colony's pane opens instead (owner,
+			# 2026-11-13: it stayed on the legacy screen).
+			_send({"verb": "todo_colonize", "star": star}, func(result: Dictionary):
+				var colony := int(result.get("colony", -1))
+				if colony < 0 or native_screen != Screens.MAIN:
+					return
+				_open_system(star)
+				await get_tree().create_timer(0.5).timeout
+				if native_screen == Screens.MAIN:
+					_on_colony_chosen(colony))
 		"hire":
 			_send({"verb": "todo_hire"})
 		"summary":
 			_send({"verb": "todo_read", "item": int(item.item)})
 			_send({"verb": "open", "screen": Screens.TURN_SUMMARY})
+		"leader_level":
+			# The level-up window (marks it read), over the leader's system when it has one.
+			if star >= 0:
+				_open_system(star)
+			_send({"verb": "todo_level", "item": int(item.item)})
 		_: # news: a system explored, a leader's level
 			_send({"verb": "todo_read", "item": int(item.item)})
 			if star >= 0:
@@ -1056,6 +1081,7 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		legacy.hide()
 		galaxy.show()
 	_start_popup_map(dialog, request)
+	dialog.race_id = _race_id
 	dialog.ask(id, kind, request)
 
 
@@ -1171,6 +1197,12 @@ func _open_system(star_id: int, fly := true) -> void:
 	_send({"verb": "query", "what": "system", "star": star_id}, func(result: Dictionary):
 		if not result.get("ok", false) or native_screen != Screens.MAIN:
 			return
+		# A system and a fleet don't share the screen (owner, 2026-11-13: a fleet's panel stayed
+		# over the system the to-do list flew into): the fleet panel closes, without coming back.
+		var fleet_panel := _view("fleet_panel")
+		if fleet_panel.visible:
+			_fleet_from_system = -1
+			fleet_panel.close()
 		_panel_star = star_id
 		galaxy.selected = star_id
 		var pane := _view("system_pane")
@@ -1223,6 +1255,31 @@ func _frame_system(star_id: int) -> void:
 
 
 ## A planet clicked on the map: selected here and in the pane.
+## A planet's right click on the map: its card (planet_card.gd) by the pointer, from the colony
+## ship's window while one waits (it carries the planets), else from the system pane; the game's
+## own box only without either.
+func _on_planet_right_clicked(planet_id: int) -> void:
+	var at := Rect2(get_viewport().get_mouse_position() + Vector2(12, -12), Vector2.ONE)
+	if overlay.visible and _views.has("dialog") and _views.dialog.show_planet_card(planet_id, at):
+		return
+	var pane := _view("system_pane")
+	if pane.visible and not pane._planet_entry(planet_id).is_empty():
+		pane.show_planet_card(planet_id, at)
+		return
+	if not overlay.visible:
+		_send({"verb": "planet_info", "planet": planet_id})
+
+
+## A planet of the open system under the pointer (or -1): its row in the system pane lights up;
+## a colony ship's window over the system shows it (owner, 2026-11-13).
+func _on_planet_hovered(planet_id: int) -> void:
+	if overlay.visible and _popup_zoom >= 0 and _views.has("dialog"):
+		_views.dialog.hover_planet(planet_id)
+	var pane := _view("system_pane")
+	if pane.visible:
+		pane.hover_planet(planet_id)
+
+
 func _on_planet_clicked(planet_id: int) -> void:
 	if _popup_map_click(planet_id, -1):
 		return
@@ -2659,8 +2716,10 @@ func _smoke_popups(shots: String) -> void:
 			_on_planet_clicked(expected) # as the map's click on that planet
 			# A colony ship's pick asks to confirm (native too): Yes.
 			await get_tree().create_timer(0.5).timeout
-			while overlay.visible and _views.dialog._kind == "confirm":
-				_views.dialog._answer(1)
+			while overlay.visible and (_views.dialog._kind == "confirm" or _views.dialog.popup_name == "colony_confirm"):
+				if shots != "" and _views.dialog.popup_name == "colony_confirm":
+					await host.shot(shots + "/native-popup-preview-colony_confirm.png")
+				_views.dialog._answer(0 if _views.dialog.popup_name == "colony_confirm" else 1) # YES
 				await get_tree().create_timer(0.5).timeout
 			# The first colony at a star may ask for its name: keep it.
 			while overlay.visible and _views.dialog._kind == "text":
@@ -2787,6 +2846,17 @@ func _smoke_todo(shots: String) -> bool:
 				int(_view("colony_pane").colony_id), _view("build_pane").visible])
 			if shots != "":
 				await host.shot(shots + "/native-todo-build.png")
+			# A planet's right click card (planet_card.gd) from the system pane.
+			var sp := _view("system_pane")
+			for planet: Dictionary in sp.system.get("planets", []):
+				if String(planet.type) == "planet":
+					sp.show_planet_card(int(planet.planet), sp.planet_row_rect(int(planet.planet)))
+					await get_tree().create_timer(1.5).timeout
+					print("smoke: planet card for %d shown %s" % [int(planet.planet), preload("views/info_popup.gd").is_open()])
+					if shots != "":
+						await host.shot(shots + "/native-planet-card.png")
+					preload("views/info_popup.gd").close_current()
+					break
 			_view("build_pane").cancel()
 			_view("system_pane").close()
 			await get_tree().create_timer(0.8).timeout
@@ -2814,6 +2884,11 @@ func _smoke_todo(shots: String) -> bool:
 						if bool(dialog.options[i].get("enabled", true)):
 							dialog._answer(dialog.OPTION_ANSWER + i)
 							break
+				elif dialog._kind == "popup" and dialog.popup_name == "colony_confirm":
+					if shots != "":
+						await get_tree().create_timer(1.5).timeout # the flight into the system
+						await host.shot(shots + "/native-todo-colony-confirm.png")
+					dialog._answer(0) # YES
 				elif dialog._kind == "text":
 					dialog._answer(0) # keep the star's name
 				else:
@@ -2831,7 +2906,13 @@ func _smoke_todo(shots: String) -> bool:
 			for other: Dictionary in again.get("items", []):
 				if int(other.item) == int(item.item):
 					done = bool(other.done)
-			print("smoke: to-do colonize '%s': asked %s, done %s, galaxy back after %.0f s" % [item.text, asked, done, back])
+			await get_tree().create_timer(1.5).timeout
+			print("smoke: to-do colonize '%s': asked %s, done %s, galaxy back after %.0f s, colony pane %s on %d" % [item.text, asked, done, back,
+				_view("colony_pane").visible, int(_view("colony_pane").colony_id)])
+			if shots != "":
+				await host.shot(shots + "/native-todo-colonized.png")
+			_view("system_pane").close()
+			await get_tree().create_timer(0.8).timeout
 			if not done:
 				await host.smoke_fail("colonising from the to-do list left the item open")
 				return false
@@ -2895,7 +2976,8 @@ func _smoke_clear_todo() -> bool:
 					await get_tree().create_timer(0.3).timeout
 					waited += 0.3
 					if overlay.visible:
-						_views["dialog"]._answer(0) # CANCEL / NO / REJECT
+						# CANCEL / NO / REJECT (the colonise question's NO is its second button)
+						_views["dialog"]._answer(1 if _views["dialog"].popup_name == "colony_confirm" else 0)
 						answered += 1
 					elif answered > 0 and native_screen == Screens.MAIN:
 						break

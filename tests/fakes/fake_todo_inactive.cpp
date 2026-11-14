@@ -14,3 +14,11 @@ namespace antares::todo {
     }
     void Before_Next_Turn() {}
 } // namespace antares::todo
+
+// REPORT::Colonization_At_Star's native landing branch (owner, 2026-11-13): no native galaxy in tests.
+#include "antares/native.h"
+namespace antares::native {
+    bool Galaxy_Will_Be_Native() {
+        return false;
+    }
+} // namespace antares::native
