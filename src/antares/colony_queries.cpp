@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "game/build_queue.h"
 #include "yyjson.h"
 
 #include <algorithm>
@@ -256,6 +257,34 @@ namespace antares::commands::internal {
             return race * k_raceicon_stride + job * 2 + 1;
         }
 
+        // The jobs: each assigned colonist in the screen's order (state, conquered, race, index),
+        // with the cluster a click picks up (COLMOVE::Get_Cluster: it and the identical ones after it).
+        void Add_Jobs(int16_t c, s_out jobs) {
+            const s_colony& colony = MOX::colony[c];
+            for (int job = 0; job < 3; ++job) {
+                s_out list = jobs.Append_Object();
+                list.Int("job", job);
+                s_out pops_out = list.Add_List("colonists");
+                for (int16_t i = 0; i < (uint8_t)colony.n_pops; ++i) {
+                    const uint32_t data = colony.pop[i];
+                    if ((data & 0x200) == 0 || (int)((data >> 7) & 0x3) != job) {
+                        continue;
+                    }
+                    const int16_t state = COLONY::Pop_To_Pop_State(c, i);
+                    s_out p = pops_out.Append_Object();
+                    p.Int("pop", i);
+                    p.Int("sprite", Pop_Sprite(c, i));
+                    p.Str("state", state == 3 ? "native" : (state == 4 ? "android" : ((data & 0x400) != 0 ? "conquered" : "citizen")));
+                    s_out cluster = p.Add_List("cluster");
+                    for (int16_t k = i; k < (uint8_t)colony.n_pops; ++k) {
+                        if ((colony.pop[k] & 0x200) != 0 && COLMOVE::Pops_Identical(c, i, c, k)) {
+                            cluster.Append_Int(k);
+                        }
+                    }
+                }
+            }
+        }
+
         // Any help record (HELP.LBX's table: applications 0-211, then the screens' help, e.g. the
         // colony screen's 483-500 in ERICHELP::colony_screen_help_list): the right click's help.
         void Query_Help(int16_t, const s_args& args, s_out& out) {
@@ -336,31 +365,7 @@ namespace antares::commands::internal {
             out.Int("food_per_farmer_x2", colony.food2_per_farmer);
             out.Int("industry_per_worker", colony.industry_per_worker);
             out.Int("research_per_scientist", colony.research_per_scientist);
-            s_out jobs = out.Add_List("jobs");
-            for (int job = 0; job < 3; ++job) {
-                s_out list = jobs.Append_Object();
-                list.Int("job", job);
-                s_out pops_out = list.Add_List("colonists");
-                for (int16_t i = 0; i < (uint8_t)colony.n_pops; ++i) {
-                    const uint32_t data = colony.pop[i];
-                    if ((data & 0x200) == 0 || (int)((data >> 7) & 0x3) != job) {
-                        continue;
-                    }
-                    const int16_t state = COLONY::Pop_To_Pop_State(c, i);
-                    s_out p = pops_out.Append_Object();
-                    p.Int("pop", i);
-                    p.Int("sprite", Pop_Sprite(c, i));
-                    p.Str("state", state == 3 ? "native" : (state == 4 ? "android" : ((data & 0x400) != 0 ? "conquered" : "citizen")));
-                    // What a click here picks up (COLMOVE::Get_Cluster): this colonist and the
-                    // identical ones after it.
-                    s_out cluster = p.Add_List("cluster");
-                    for (int16_t k = i; k < (uint8_t)colony.n_pops; ++k) {
-                        if ((colony.pop[k] & 0x200) != 0 && COLMOVE::Pops_Identical(c, i, c, k)) {
-                            cluster.Append_Int(k);
-                        }
-                    }
-                }
-            }
+            Add_Jobs(c, out.Add_List("jobs"));
             // The build (Draw_Info_Build): the front of the queue, its progress and its price.
             const int16_t building = colony.producing[0];
             s_out build = out.Add_Object("build");
@@ -435,6 +440,113 @@ namespace antares::commands::internal {
             out.Int("unassigned", COLMOVE::Get_Num_Unemployed(c));
         }
 
+        // WP3.5a: the Colonies panel (notes/antares/screens/20-colony-summary.md). Every colony of
+        // the player's (outposts aside, as the Colonies screen lists them) with what its row and
+        // its scan box show, plus the empire box (COLSUM::Draw_Empire_Info). Read only: the screen's
+        // own sort and draw helpers, never its list globals.
+        void Query_Colonies(int16_t, const s_args&, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            COLSUM::Load_Colsum_Strings(); // the row's event labels (loaded once, as the screen does)
+            const int16_t me = MOX::PLAYER_NUM;
+            s_player& player = MOX::player[me];
+            std::vector<int16_t> ids;
+            for (int16_t c = 0; c < MOX::NUM_COLONIES; ++c) {
+                if (MOX::colony[c].owner == me && MOX::colony[c].outpost_flag == 0) {
+                    ids.push_back(c);
+                }
+            }
+            // The Building column's order, as the screen's product sort gives it (cmp_Prod: the
+            // kind of item, then its name, then the turns).
+            std::vector<int16_t> by_build = ids;
+            std::stable_sort(by_build.begin(), by_build.end(), [](int16_t a, int16_t b) { return COLSUM::cmp_Prod(a, b) < 0; });
+            s_out list = out.Add_List("colonies");
+            for (int16_t c : ids) {
+                s_colony& colony = MOX::colony[c];
+                const s_planet_data& planet = MOX::planet[colony.planet];
+                s_out row = list.Append_Object();
+                row.Int("colony", c);
+                row.Int("planet", colony.planet);
+                row.Int("star", planet.star_index);
+                row.Str("name", Utf8(HACCESS::Get_Planet_Name_No_Prime(colony.planet), 80));
+                row.Int("pops", (uint8_t)colony.n_pops);
+                row.Int("max_population", COLCALC::Planet_Max_Population_For_Player(&MOX::planet[colony.planet], me));
+                row.Int("max_farms", colony.max_farms);
+                row.Int("food", colony.production[ECON_FOOD]);
+                row.Int("industry", colony.production[ECON_INDUSTRY]);
+                row.Int("research", colony.production[ECON_RESEARCH]);
+                row.Int("bc", colony.production[ECON_BC]);
+                Add_Jobs(c, row.Add_List("jobs"));
+                // The row's label: an event at the colony (good or bad), or a blockade.
+                const int16_t event_id = EVENTS::Colony_Has_Event(c);
+                if (event_id >= 0 && event_id < 36 && COLSUM::wee_event_strings[event_id] != nullptr) {
+                    row.Str("event", Utf8(COLSUM::wee_event_strings[event_id], 80));
+                    row.Bool("event_good", COLSUM::Event_Good(event_id));
+                }
+                row.Bool("blockaded", struct_::Test_Bit_Field(&MOX::star[planet.star_index].blockaded, me));
+                // The Building column (Draw_Colony_Summary_For_Colony): the item, its turns, the
+                // autobuild marker and the row's buy button.
+                const int16_t item = colony.producing[0];
+                s_out build = row.Add_Object("build");
+                build.Int("id", item);
+                build.Int("rank", (int32_t)(std::find(by_build.begin(), by_build.end(), c) - by_build.begin()));
+                if (item != COLONY_PRODUCTION_NONE) {
+                    build.Str("name", Item_Name(colony, item));
+                    const int16_t turns = COLONY::Calculate_Current_Production_Turn_Count(c);
+                    build.Int("turns", turns < 1 || turns > 9999 ? 0 : turns);
+                }
+                const int preset = BUILD_QUEUE::autobuild_settings.enabled != 0 ? BUILD_QUEUE::Decode_Autobuild_Preset(colony.auto_building) : -1;
+                build.Bool("auto", BUILD_QUEUE::Is_Legacy_Autobuild(colony.auto_building) || preset >= 0);
+                if (preset >= 0) {
+                    build.Int("preset", preset);
+                }
+                build.Int("bought", colony.bought_outright);
+                const bool settable = item != COLONY_PRODUCTION_NONE && item != COLONY_PRODUCTION_HOUSING && item != COLONY_PRODUCTION_TRADE_GOODS;
+                build.Bool("can_buy", COLONY::Colony_Can_Buy_Product_0(c));
+                build.Int("buy_cost", settable && colony.bought_outright == 0 ? COLCALC::Colony_Cost_To_Buy_Producing_Product(&colony) : 0);
+                // The scan box (Draw_Colony_Scan_Info): the planet, the population with its growth
+                // and settlers on the way, and the build's progress.
+                s_out scan = row.Add_Object("scan");
+                scan.Str("size", Utf8(MOX::planet_size_string[planet.size], 40));
+                scan.Str("climate", Utf8(MOX::planet_climate_string[(uint8_t)colony.climate], 40));
+                scan.Str("gravity", Utf8(MOX::planet_gravity_string[planet.gravity_class], 40));
+                scan.Str("minerals", Utf8(MOX::mineral_class_string[planet.mineral_class], 40));
+                int32_t roundoff = 0;
+                int32_t growth = 0;
+                for (int r = 0; r < 10; ++r) {
+                    roundoff += colony.pop_roundoff[r];
+                    growth += colony.pop_growth[r];
+                }
+                int32_t inbound = 0;
+                for (int16_t i = 0; i < player.settlers_freighted; ++i) {
+                    if (SETTLER::Get_Dest_Planet(player.settlers[i].val) == colony.planet) {
+                        ++inbound;
+                    }
+                }
+                int32_t change = (roundoff + growth) / 1000;
+                if (roundoff + growth < 0) {
+                    --change;
+                }
+                scan.Int("inbound", inbound);
+                scan.Int("thousands", roundoff);
+                scan.Int("growth", growth);
+                scan.Int("change", change);
+                scan.Int("spent", colony.production_spent + colony.bought_outright);
+                scan.Int("cost", item != COLONY_PRODUCTION_NONE ? COLCALC::Colony_Producing_Product_Cost(&colony) : 0);
+                scan.Int("net_industry", std::max(0, (int32_t)colony.production[ECON_INDUSTRY] - colony.maintenance[ECON_INDUSTRY]));
+            }
+            // The empire box (Draw_Empire_Info, the classic research line).
+            s_out empire = out.Add_Object("empire");
+            empire.Int("reserve", player.bc);
+            empire.Int("income", player.surplus_bc);
+            empire.Int("population", player.total_pop);
+            empire.Int("settlers_freighted", player.settlers_freighted);
+            empire.Int("freighters", player.surplus_freighters);
+            empire.Int("food", player.surplus_food);
+            empire.Int("research", player.research_produced);
+        }
+
         // A colonist to another job, as dropping it on a job row does (COLONY::Pickup_Colonists,
         // COLMOVE::Send_Cluster within the colony): picked up, then Give_Colonist_New_Job with
         // its refusals (natives, androids, a full row, no room to farm) as the game's own help
@@ -503,6 +615,56 @@ namespace antares::commands::internal {
             COLCALC::Colony_Calculation(c);
             out.Bool("moved", moved > 0);
             out.Int("count", moved);
+        }
+
+        // WP3.5a: colonists to another colony, as the Colonies screen moves them (a click on a
+        // colonist picks up its cluster, COLMOVE::Get_Cluster; a click on another colony's job,
+        // or its name for any job, sends it, COLMOVE::Send_Cluster, with the game's questions and
+        // messages). Whatever the game didn't take goes back (COLMOVE::Clear_Cluster, as RETURN).
+        void Send_Colonists(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t from = -1;
+            int64_t pop = -1;
+            int64_t to = -1;
+            int64_t job = -1;
+            if (!args.Int("from", &from) || !args.Int("pop", &pop) || !args.Int("to", &to)) {
+                out.Fail("bad_args", "from, pop (a colonist of that colony), to (a colony), job (0-2, or -1: any)");
+                return;
+            }
+            args.Int("job", &job);
+            if (job < -1 || job > 2 || !Player_Colony(from, out) || !Player_Colony(to, out)) {
+                if (job < -1 || job > 2) {
+                    out.Fail("bad_args", "job: 0-2, or -1");
+                }
+                return;
+            }
+            const s_colony& source = MOX::colony[from];
+            const s_colony& target = MOX::colony[to];
+            if (source.outpost_flag != 0 || target.outpost_flag != 0 || pop < 0 || pop >= (uint8_t)source.n_pops ||
+                (source.pop[pop] & 0x200) == 0) {
+                out.Fail("bad_args", "pop: an assigned colonist of a colony (not an outpost)");
+                return;
+            }
+            if (COLMOVE::cluster_colony_n >= 0) {
+                COLMOVE::Clear_Cluster(); // nothing may be left on the pointer from elsewhere
+            }
+            const int before = (uint8_t)source.n_pops; // settlers leave now and arrive later (freighted)
+            COLMOVE::Get_Cluster((int16_t)from, (int16_t)pop);
+            if (COLMOVE::cluster_colony_n != from) {
+                out.Int("moved", 0); // refused at pickup (natives), with the game's message
+                return;
+            }
+            COLMOVE::Send_Cluster((int16_t)to, (int16_t)job);
+            if (COLMOVE::cluster_colony_n >= 0) {
+                COLMOVE::Clear_Cluster();
+            }
+            COLCALC::Colony_Calculation((int16_t)from);
+            if (to != from) {
+                COLCALC::Colony_Calculation((int16_t)to);
+            }
+            out.Int("moved", before - (uint8_t)source.n_pops);
         }
 
         // A building scrapped from the colony pane (COLONY::Scrap_Building, as clicking it on the
@@ -879,8 +1041,10 @@ namespace antares::commands::internal {
     void Add_Colony_Entries(std::vector<s_entry>* table) {
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);
         table->push_back({"colony", e_kind::query, ANY_SCREEN, 1, "colony: colony id (the player's)", Query_Colony});
+        table->push_back({"colonies", e_kind::query, ANY_SCREEN, 1, "", Query_Colonies});
         table->push_back({"help", e_kind::query, ANY_SCREEN, 1, "topic: a help record (HELP.LBX)", Query_Help});
         table->push_back({"move_colonist", e_kind::command, galaxy, 0, "colony, pop or pops (a cluster), job (0-2)", Move_Colonist});
+        table->push_back({"send_colonists", e_kind::command, galaxy, 0, "from, pop, to, job (-1: any)", Send_Colonists});
         table->push_back({"sell_building", e_kind::command, galaxy, 0, "colony, building", Sell_Building});
         table->push_back({"buy", e_kind::command, galaxy, 0, "colony", Buy});
         table->push_back({"build_options", e_kind::query, ANY_SCREEN, 1, "colony", Query_Build_Options});

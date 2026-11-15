@@ -92,6 +92,10 @@ const OTHERS_IN_SYSTEM := 0.2
 var _flying := false
 var _flight: Tween
 var _saved_view := {}
+## An empire panel's view (WP3.5): the camera before the panel fitted the whole galaxy beside it,
+## and the zoom it fitted at (the wheel may not zoom further out than the furthest of the two).
+var _panel_view := {}
+var _fit_zoom := 0.0
 var _hovered_star := -1
 var hovered_planet := -1
 
@@ -245,6 +249,8 @@ func _clamp_camera() -> void:
 	if data.is_empty():
 		return
 	var margin := 200.0
+	if _fit_zoom > 0.0: # beside a panel the galaxy's centre sits off the screen's
+		margin = maxf(margin, get_viewport_rect().size.x / camera.zoom.x)
 	camera.position = camera.position.clamp(Vector2(-margin, -margin),
 		Vector2(float(data.width) + margin, float(data.height) + margin))
 
@@ -262,7 +268,8 @@ func furthest_zoom() -> float:
 		return furthest
 	var window := get_viewport_rect().size
 	var fit := minf(window.x / (float(data.width) * FIT_MARGIN), window.y / (float(data.height) * FIT_MARGIN))
-	return maxf(furthest, fit)
+	fit = maxf(furthest, fit)
+	return minf(fit, _fit_zoom) if _fit_zoom > 0.0 else fit
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -440,6 +447,52 @@ func glide_to(world: Vector2) -> void:
 ## (the system's star), keeping the view it will come back to.
 func step_back(world: Vector2, factor := 0.45) -> void:
 	_fly(world, maxf(camera.zoom.x * factor, furthest_zoom()), world)
+
+
+## An empire panel opened (WP3.5, owner 2026-11-14): the whole galaxy fits `area` (the screen left
+## of the panel). The view to come back to is the one before any system flight, else this one.
+func fit_in(area: Rect2) -> void:
+	if data.is_empty() or area.size.x < 50.0:
+		return
+	if _panel_view.is_empty():
+		_panel_view = _saved_view.duplicate() if not _saved_view.is_empty() else {"position": camera.position, "zoom": camera.zoom.x}
+	_saved_view = {}
+	var size := Vector2(float(data.width), float(data.height)) * FIT_MARGIN
+	var zoom := minf(area.size.x / size.x, area.size.y / size.y)
+	_fit_zoom = zoom
+	var half := get_viewport_rect().size * 0.5
+	var center := Vector2(float(data.width), float(data.height)) * 0.5 - (area.get_center() - half) / zoom
+	if panned:
+		panned = false
+		system_panned.emit(false)
+	_fly(center, zoom)
+
+
+## The panel closed: back where the camera was before it opened.
+func unfit() -> void:
+	_fit_zoom = 0.0
+	if _panel_view.is_empty():
+		return
+	_saved_view = {}
+	_fly(_panel_view.position, _panel_view.zoom)
+	_panel_view = {}
+
+
+## The panel closed for a system it opened (the build pane from its list): the camera stays for
+## the flight in, and the panel's view is kept for its return.
+func keep_fit_for_return() -> void:
+	_fit_zoom = 0.0
+
+
+## The panel won't come back: its view is dropped (the camera stays where it is).
+func forget_fit() -> void:
+	_fit_zoom = 0.0
+	_panel_view = {}
+
+
+## The flight into a system won't be flown back (the panel's fit replaces it).
+func forget_flight() -> void:
+	_saved_view = {}
 
 
 ## Back to the view before the first flight.

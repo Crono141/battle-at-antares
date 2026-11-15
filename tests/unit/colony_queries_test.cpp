@@ -295,3 +295,55 @@ DOCTEST_TEST_CASE("a cluster of colonists moves together; buildings sell with th
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"sell_building\",\"colony\":0,\"building\":3}"), "refused"));
     DOCTEST_CHECK(TEST_COLONY::sells == 1);
 }
+
+namespace TEST_COLONY {
+    extern int16_t event_colony;
+    extern int send_calls;
+} // namespace TEST_COLONY
+
+DOCTEST_TEST_CASE("the Colonies panel's list and settlers to another colony (WP3.5a)") {
+    Set_Up_();
+    // A second colony of the player's, and an outpost (not listed).
+    s_colony extra[4] = {c_colonies_[0], c_colonies_[1], {}, {}};
+    extra[2].owner = 0;
+    extra[2].planet = 1;
+    extra[2].n_pops = 1;
+    extra[2].pop[0] = Pop_(0, 1);
+    extra[2].producing[0] = BUILDING_MARINE_BARRACKS;
+    extra[3].owner = 0;
+    extra[3].planet = 1;
+    extra[3].outpost_flag = 1;
+    MOX::colony = extra;
+    MOX::NUM_COLONIES = 4;
+    TEST_COLONY::event_colony = 2;
+    c_players_[0].bc = 777;
+    c_players_[0].surplus_bc = -5;
+    c_players_[0].total_pop = 6;
+    const std::string list = Run_("{\"verb\":\"query\",\"what\":\"colonies\"}");
+    DOCTEST_CHECK(Has_(list, "\"ok\":true"));
+    DOCTEST_CHECK(Has_(list, "\"colony\":0"));
+    DOCTEST_CHECK(Has_(list, "\"colony\":2"));
+    DOCTEST_CHECK(!Has_(list, "\"colony\":1")); // another player's
+    DOCTEST_CHECK(!Has_(list, "\"colony\":3")); // an outpost
+    DOCTEST_CHECK(Has_(list, "\"event\":\"Plague\",\"event_good\":false"));
+    DOCTEST_CHECK(Has_(list, "\"reserve\":777"));
+    DOCTEST_CHECK(Has_(list, "\"income\":-5"));
+    DOCTEST_CHECK(Has_(list, "\"turns\":4"));
+    // The build ranks (the fake sorts by item id): the barracks (22) before the Star Base (40).
+    DOCTEST_CHECK(Has_(list, "\"id\":22,\"rank\":0"));
+    DOCTEST_CHECK(Has_(list, "\"id\":40,\"rank\":1"));
+    // The three farmers (a cluster) to colony 2 as workers: they leave colony 0.
+    const std::string sent = Run_("{\"verb\":\"send_colonists\",\"from\":0,\"pop\":0,\"to\":2,\"job\":1}");
+    DOCTEST_CHECK(Has_(sent, "\"moved\":3"));
+    DOCTEST_CHECK((uint8_t)extra[0].n_pops == 2);
+    DOCTEST_CHECK((uint8_t)extra[2].n_pops == 4);
+    DOCTEST_CHECK(((extra[2].pop[3] >> 7) & 3) == 1);
+    DOCTEST_CHECK(TEST_COLONY::send_calls == 1);
+    // Not to an outpost, not from another player's colony.
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"send_colonists\",\"from\":0,\"pop\":0,\"to\":3,\"job\":1}"), "bad_args"));
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"send_colonists\",\"from\":1,\"pop\":0,\"to\":2,\"job\":1}"), "bad_args"));
+    DOCTEST_CHECK(TEST_COLONY::send_calls == 1);
+    MOX::colony = c_colonies_;
+    MOX::NUM_COLONIES = 2;
+    TEST_COLONY::event_colony = -1;
+}

@@ -291,3 +291,86 @@ namespace TECHDATA {
     s_tech_drive_data drives[DRIVE_COUNT];
     s_tech_specials_data specials[SPECIAL_COUNT];
 } // namespace TECHDATA
+
+// ---- The Colonies panel (WP3.5a): the list's helpers and the settlers' move ----
+
+namespace TEST_COLONY {
+    int16_t event_colony = -1; // the colony with an event (Colony_Has_Event)
+    int send_calls = 0;
+} // namespace TEST_COLONY
+
+namespace COLSUM {
+    char* wee_event_strings[36] = {};
+    static char s_test_event_[] = "Plague";
+    void __cdecl Load_Colsum_Strings() {
+        wee_event_strings[3] = s_test_event_;
+    }
+    bool __cdecl Event_Good(int16_t event_id) {
+        return event_id != 3;
+    }
+    // By what is built, then the colony's number (the game's: the item's kind, name and turns).
+    int16_t __cdecl cmp_Prod(int16_t a, int16_t b) {
+        const int16_t pa = MOX::colony[a].producing[0];
+        const int16_t pb = MOX::colony[b].producing[0];
+        return pa != pb ? (pa < pb ? -1 : 1) : (a < b ? -1 : (a > b ? 1 : 0));
+    }
+} // namespace COLSUM
+
+namespace EVENTS {
+    int16_t __cdecl Colony_Has_Event(int16_t colony_idx) {
+        return colony_idx == TEST_COLONY::event_colony ? 3 : -1;
+    }
+} // namespace EVENTS
+
+namespace COLONY {
+    int16_t __cdecl Calculate_Current_Production_Turn_Count(int16_t) {
+        return TEST_COLONY::turns;
+    }
+    bool __cdecl Colony_Can_Buy_Product_0(int16_t colony_idx) {
+        return MOX::colony[colony_idx].bought_outright == 0;
+    }
+} // namespace COLONY
+
+namespace COLMOVE {
+    int16_t cluster_colony_n = -1;
+    // Picked up: the colonist and the identical ones after it lose their assignment.
+    void __cdecl Get_Cluster(int16_t colony_idx, int16_t start_pop_idx) {
+        cluster_colony_n = colony_idx;
+        s_colony& colony = MOX::colony[colony_idx];
+        for (int16_t i = start_pop_idx; i < (uint8_t)colony.n_pops; ++i) {
+            if (Pops_Identical(colony_idx, start_pop_idx, colony_idx, i)) {
+                POP::Set_Assigned(&colony.pop[i], false);
+            }
+        }
+    }
+    void __cdecl Clear_Cluster() {
+        s_colony& colony = MOX::colony[cluster_colony_n];
+        for (int16_t i = 0; i < (uint8_t)colony.n_pops; ++i) {
+            POP::Set_Assigned(&colony.pop[i], true);
+        }
+        cluster_colony_n = -1;
+    }
+    // To another colony: the picked-up colonists leave the source (here they arrive at once).
+    void __cdecl Send_Cluster(int16_t colony_idx, int16_t requested_job) {
+        ++TEST_COLONY::send_calls;
+        if (colony_idx == cluster_colony_n) {
+            return; // (the panel uses move_colonist within a colony)
+        }
+        s_colony& from = MOX::colony[cluster_colony_n];
+        s_colony& to = MOX::colony[colony_idx];
+        int16_t kept = 0;
+        for (int16_t i = 0; i < (uint8_t)from.n_pops; ++i) {
+            uint32_t pop = from.pop[i];
+            if ((pop & 0x200) != 0) {
+                from.pop[kept++] = pop;
+                continue;
+            }
+            POP::Set_Assigned(&pop, true);
+            POP::Set_Prof(&pop, (POP::e_prof)(requested_job < 0 ? 0 : requested_job));
+            to.pop[(uint8_t)to.n_pops] = pop;
+            to.n_pops = (uint8_t)to.n_pops + 1;
+        }
+        from.n_pops = kept;
+        cluster_colony_n = -1;
+    }
+} // namespace COLMOVE

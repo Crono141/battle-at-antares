@@ -78,5 +78,5 @@ layout_mode = 2
 focus_mode = 0
 script = ExtResource("2")
 label = "Colonies"
-metadata/screen = 20
+metadata/action = "colonies"
 metadata/key = "C"

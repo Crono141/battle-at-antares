@@ -10,9 +10,13 @@ treasury for the tax rate; Game drops the game menu), the screens are tabs on th
 Design lists your designs and Options holds the map's influence view, merging relocations, the
 distance tool, the game options, the music and sound volumes and the theme. The research and
 command points figures drop their panels down from the bar: research is chosen there. The fleet and colony buttons are along the bottom.
+The Colonies tab (or C) opens the colonies as a table on the right with the whole galaxy beside
+it: click a column's title to sort, move colonists between jobs or to another colony as on the
+original screen, buy, and click a colony's Building slot for its build list (the system's button
+then reads RETURN TO COLONIES). A click on a star picks its colony's row.
 Its look comes from a theme package (Antares UI: Chrome or Antares UI: Glass; enable either or
 both, and switch in Options > Theme). Screens it
-doesn't redraw yet (colonies, the ship designer, saving and loading and the rest) open as the
+doesn't redraw yet (planets, fleets, leaders, races, the ship designer, saving and loading and the rest) open as the
 original screens.
 The classic build (`antares`) doesn't have it.
 
@@ -28,7 +32,8 @@ modding guide's "UI packages" (`docs/content/authoring-mods/ui-packages.md`).
 |---|---|---|
 | Ctrl+G | Galaxy | Switches between this package's galaxy and the original one, for comparing (no button). |
 | Mouse wheel, drag | Galaxy | Zooms towards the pointer and moves the map. |
-| Esc | Galaxy | Closes the system pane, the design list, the options or the game menu. |
+| Esc | Galaxy | Closes the system pane, the Colonies panel, the design list, the options or the game menu. |
+| C | Galaxy | Opens or closes the Colonies panel. |
 
 The original galaxy's keys (F1 to F6, F9, Alt+V, Alt+F1 to Alt+F8, T, G) do what they do there,
 and each also has a button on the map. Zoom is the mouse wheel.
