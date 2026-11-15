@@ -42,7 +42,7 @@ const COLUMNS := [
 const BUY_WIDTH := 50.0
 ## A line of the output grid (food, research; industry, BC; morale).
 const OUTPUT_LINE := 18.0
-const ROW_HEIGHT := 40.0
+const ROW_HEIGHT := 46.0
 const MIN_JOB_WIDTH := 80.0
 ## A table row's padding: the theme's row style with its sides and ends kept small.
 const ROW_PAD := Vector2(22, 2)
@@ -313,22 +313,39 @@ func _row(c: Dictionary) -> Control:
 	line.add_theme_constant_override("separation", int(SEPARATION))
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	wrap.add_child(line)
+	# Every cell in a holder of its column's width that clips (owner, 2026-11-14: a crowded job row
+	# or a long building name came out a few pixels wider and pushed POP and BUY out of line).
 	var name_cell := _name_cell(c)
 	panel.set_meta("name_label", name_cell.get_meta("name_label"))
-	line.add_child(name_cell)
+	_name_cells[id] = _add_fixed(line, name_cell, _width_of("name"))
 	for job in 3:
-		line.add_child(_job_cell(c, job))
-	line.add_child(_build_cell(c))
+		_job_cells[Vector2i(id, job)] = _add_fixed(line, _job_cell(c, job), _job_width)
+	_add_fixed(line, _build_cell(c), _width_of("building"))
 	var pops := Label.new()
-	pops.custom_minimum_size = Vector2(_width_of("population"), ROW_HEIGHT)
 	pops.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pops.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	pops.text = "%d/%d" % [int(c.pops), int(c.max_population)]
 	pops.tooltip_text = "Colonists / most the planet holds"
 	pops.mouse_filter = Control.MOUSE_FILTER_PASS
-	line.add_child(pops)
-	line.add_child(_buy_button(c))
+	_add_fixed(line, pops, _width_of("population"))
+	var buy_box := CenterContainer.new()
+	buy_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	buy_box.add_child(_buy_button(c))
+	_add_fixed(line, buy_box, BUY_WIDTH)
 	return panel
+
+
+## `content` filling a holder exactly `width` wide and a row tall, clipped; returns the holder.
+func _add_fixed(line: HBoxContainer, content: Control, width: float) -> Control:
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(width, ROW_HEIGHT)
+	holder.clip_contents = true
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(content)
+	content.custom_minimum_size.x = 0.0
+	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	line.add_child(holder)
+	return holder
 
 
 ## The name, with the legacy row's label under it: an event at the colony, or a blockade.
@@ -361,7 +378,6 @@ func _name_cell(c: Dictionary) -> Control:
 		label.add_theme_font_size_override("font_size", 12)
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		box.add_child(label)
-	_name_cells[int(c.colony)] = box
 	box.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	box.tooltip_text = "Open the colony"
 	box.gui_input.connect(func(event: InputEvent):
@@ -380,7 +396,6 @@ func _job_cell(c: Dictionary, job: int) -> Control:
 	cell.custom_minimum_size = Vector2(_job_width, ROW_HEIGHT)
 	cell.clip_contents = true
 	cell.mouse_filter = Control.MOUSE_FILTER_PASS
-	_job_cells[Vector2i(id, job)] = cell
 	var people: Array = c.jobs[job].colonists
 	if people.is_empty():
 		if job == 0 and int(c.max_farms) == 0:
