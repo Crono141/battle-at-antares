@@ -15,6 +15,8 @@
 //   native_send <json>                 send without waiting (when a legacy popup must be clicked first)
 //   native_answer <value>              answer the pending request (waits for one, 60 s): 1 OK/Yes,
 //                                      0 No, the option for "choose", -1 to cancel
+//   native_answer_text <text>          answer the pending request with text: a "combat" request's
+//                                      action ({"action": "move", "x": 12, "y": 30}), a "text" request's text
 // Results, requests and snapshots are noted as "native result {...}", "native request {...}" and
 // "native snapshot {...}" (control replies and the log).
 namespace antares::native_script {

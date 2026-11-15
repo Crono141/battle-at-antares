@@ -66,7 +66,8 @@ namespace antares::native {
             KIND_CHOOSE = 8,
             KIND_TEXT = 16,
             KIND_POPUP = 32,
-            KIND_TODO = 64 };
+            KIND_TODO = 64,
+            KIND_COMBAT = 128 };
 
         uint32_t Kind_Bit(const std::string& kind) {
             return kind == "message" ? KIND_MESSAGE
@@ -76,6 +77,7 @@ namespace antares::native {
                 : kind == "text"     ? KIND_TEXT
                 : kind == "popup"    ? KIND_POPUP
                 : kind == "todo"     ? KIND_TODO
+                : kind == "combat"   ? KIND_COMBAT
                                      : 0;
         }
 
@@ -894,6 +896,46 @@ namespace antares::native {
     void Clear_Scene() {
         s_scene = nullptr;
         s_scene_tick = nullptr;
+    }
+
+    bool Combat_Native() {
+        return Claimed_Kind(KIND_COMBAT) && MOX::game_type == 0; // network battles: combat::Begin
+    }
+
+    int32_t Ask_Combat(const std::string& fields, std::string* answer) {
+        const int32_t value = Ask("combat", "", fields);
+        if (answer != nullptr) {
+            std::lock_guard<std::mutex> lock(s_mutex);
+            *answer = s_answer_text;
+        }
+        return value;
+    }
+
+    namespace {
+        std::string s_scene_snapshot_last; // Post_Scene_Snapshot (game thread)
+    }
+
+    void Post_Scene_Snapshot(const char* name) {
+        if (!s_scene || name == nullptr) {
+            return;
+        }
+        std::string state = s_scene();
+        if (state == s_scene_snapshot_last) {
+            return;
+        }
+        s_scene_snapshot_last = state;
+        std::string snapshot = "{\"snapshot\":" + Json_Quote(name) + ",\"seq\":" + std::to_string(++s_snapshot_seq) +
+            ",\"result\":" + state + "}";
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_snapshots.push_back(std::move(snapshot));
+    }
+
+    void Post_Snapshot_Json(const char* name, const std::string& json) {
+        s_scene_snapshot_last.clear();
+        std::string snapshot = "{\"snapshot\":" + Json_Quote(name) + ",\"seq\":" + std::to_string(++s_snapshot_seq) +
+            ",\"result\":" + json + "}";
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_snapshots.push_back(std::move(snapshot));
     }
 
     bool Todo_Native() {

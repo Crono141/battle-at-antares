@@ -164,6 +164,17 @@ namespace antares::native {
     // A frontend keeps the start-of-turn to-do list (WP3.4d, "todo"): the reports chain parks its
     // items instead of showing them one by one (antares/todo.h).
     bool Todo_Native();
+    // WP3.9a: space combat as a native scene (antares/combat_native.h). True when a frontend claims
+    // "combat" requests and the battle is single player (network battles stay legacy).
+    bool Combat_Native();
+    // Posts a "combat" request (`fields`: JSON members without braces) and waits for the answer;
+    // *answer gets the answer's text (the action, as JSON). Returns the answer's value.
+    int32_t Ask_Combat(const std::string& fields, std::string* answer);
+    // Posts the current scene state (Set_Scene) as snapshot `name` when it changed since the last
+    // post, so a frontend follows steps that ask nothing (AI turns, a ship's move, step by step).
+    void Post_Scene_Snapshot(const char* name);
+    // Posts `json` as snapshot `name` unconditionally (the scene's end).
+    void Post_Snapshot_Json(const char* name, const std::string& json);
     // A native button was pressed: the game's click sound, played by the game thread while a
     // native screen runs or a request waits (any thread).
     void Click_Sound();

@@ -102,6 +102,9 @@ namespace COMBAT1 {
     // Refreshes speed and, when configured, current-turn movement and combat bonuses.
     // tractor_applied: nonzero when this refresh immediately follows a new tractor link.
     void Recalculate_Combat_Ship(int16_t ship_idx, bool tractor_applied = false);
+    // WP3.9a: one player action for MOX::cur_ship (a TACTICAL_NET_MSG_* with its arguments), as the
+    // network replay applies it; updates *next_ship_flag like the turn loop expects.
+    void Apply_Tactical_Action(int16_t code, int16_t a1, int16_t a2, int16_t a3, int16_t active_player_id, int16_t* next_ship_flag);
 
     // Returns nonzero when the indexed combat ship is active, uncaptured, and not in stasis.
     // ship_idx: combat ship index to test.
@@ -133,6 +136,7 @@ namespace COMBAT1 {
     int16_t Select_Next_Strict_Ship(COMBAT_SHIP_ACTION action);
     int16_t Select_Next_Classic_Ship(COMBAT_SHIP_ACTION action);
     bool Combat_Side_Wait_Is_Available();
+    bool Combat_Wait_Is_Available();
     int16_t Add_Combat_Side_Wait_Field();
     bool Consume_Combat_Side_Wait_Input(int16_t* input_value);
     int16_t Select_After_Combat_Side_Wait();

@@ -99,7 +99,7 @@ namespace antares::native_script {
             s_sent_id = 0;
             return e_step::done;
         }
-        if (command == "native_answer") {
+        if (command == "native_answer" || command == "native_answer_text") {
             if (s_answer_ms == 0) {
                 s_answer_ms = now_ms;
             }
@@ -115,8 +115,14 @@ namespace antares::native_script {
             if (s_request_id == 0) {
                 return e_step::wait; // pending, but not taken yet
             }
-            native::Answer_Request(s_request_id, a);
-            Note(notes, "native_answer " + std::to_string(s_request_id) + " " + std::to_string(a));
+            if (command == "native_answer_text") {
+                // WP3.9a: a "combat" request's action (or a "text" request's text): the rest of the line.
+                native::Answer_Request_Text(s_request_id, 1, text);
+                Note(notes, "native_answer_text " + std::to_string(s_request_id) + " " + text);
+            } else {
+                native::Answer_Request(s_request_id, a);
+                Note(notes, "native_answer " + std::to_string(s_request_id) + " " + std::to_string(a));
+            }
             s_request_id = 0;
             s_answer_ms = 0;
             return e_step::done;

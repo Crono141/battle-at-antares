@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/combat_native.h"
 
 namespace CMBTDRW1 {
     enum class Combat_View_Subject {
@@ -666,6 +667,7 @@ namespace CMBTDRW1 {
     }
 
     void __cdecl Draw_Main_Combat_Screen() {
+        antares::combat::Frame(); // WP3.9a
         MOX::combat_clock_frame++;
         if (MOX::combat_clock_frame > 18) {
             MOX::combat_clock_frame = 15;

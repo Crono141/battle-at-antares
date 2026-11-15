@@ -1546,7 +1546,7 @@ namespace platform {
                 return false;
             }
             s_script_step step = {command, 0, 0, {}};
-            if (step.command == "native" || step.command == "native_send") { // the rest is JSON (antares/native_script.h)
+            if (step.command == "native" || step.command == "native_send" || step.command == "native_answer_text") { // the rest is JSON (antares/native_script.h)
                 const size_t at = line.find(step.command) + step.command.size();
                 step.text = line.size() > at ? line.substr(at + 1) : std::string();
             } else if (step.command == "move" || step.command == "click" || step.command == "rclick" ||
