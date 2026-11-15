@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-// WP3.8: the native Ship Design panel (notes/antares/screens/03-design.md, 03-design-pickers.md,
+// WP3.6: the native Ship Design panel (notes/antares/screens/03-design.md, 03-design-pickers.md,
 // the owner's mockup B2). The panel edits a working copy of one design slot, as the legacy
 // screen does (MOX::design), but the copy is this file's own: MOX::design points at it only while
 // a command runs, so the legacy screen and its allocations are never touched. Every edit goes

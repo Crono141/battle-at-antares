@@ -1,6 +1,6 @@
 #include "pch.h"
 
-// Stand-ins for what src/antares/design_queries.cpp calls in the game (WP3.8, the Ship Design
+// Stand-ins for what src/antares/design_queries.cpp calls in the game (WP3.6, the Ship Design
 // panel), for tests/unit/design_queries_test.cpp: a small design model (a 31-space hull, each
 // weapon 3 space and 1 BC a unit, each special 5 space), the picker lists the bridge reads, and
 // the slot written on BUILD. The rules themselves are the game's and run in the Godot smoke.

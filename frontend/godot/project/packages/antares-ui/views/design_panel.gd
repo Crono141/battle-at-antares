@@ -1,5 +1,5 @@
 extends "side_panel.gd"
-## Ship Design (WP3.8, the owner's mockup B2): the legacy designer as one panel that flies out from
+## Ship Design (WP3.6, the owner's mockup B2): the legacy designer as one panel that flies out from
 ## the right over the galaxy, no sub-screens. The name beside the title, the hull SIZE drop-down;
 ## drive, armour, shield and computer in a column beside a large ship picture (◀ ▶ through the
 ## hull's pictures); the space bar (weapons, specials) and the cost; the weapon rows (a firing-arc

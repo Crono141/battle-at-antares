@@ -5,7 +5,7 @@
 
 #include <string>
 
-// WP3.8: the Ship Design panel's commands (src/antares/design_queries.cpp) on the fakes' small
+// WP3.6: the Ship Design panel's commands (src/antares/design_queries.cpp) on the fakes' small
 // design model (tests/fakes/fake_design_runtime.cpp): a 31-space hull, weapons 3 space a unit,
 // specials 5.
 
@@ -21,7 +21,7 @@ namespace {
     }
 } // namespace
 
-DOCTEST_TEST_CASE("the Ship Design panel: open, weapons, specials, refusals, build (WP3.8)") {
+DOCTEST_TEST_CASE("the Ship Design panel: open, weapons, specials, refusals, build (WP3.6)") {
     for (auto& p : d_players_) {
         p = s_player{};
     }

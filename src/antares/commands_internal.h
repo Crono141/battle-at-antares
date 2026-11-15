@@ -36,7 +36,7 @@ namespace antares::commands::internal {
     void Add_Empire_Panel_Entries(std::vector<s_entry>* table);
     // WP3.7: the Info panel (info_queries.cpp).
     void Add_Info_Entries(std::vector<s_entry>* table);
-    // WP3.8: the Ship Design panel (design_queries.cpp).
+    // WP3.6: the Ship Design panel (design_queries.cpp).
     void Add_Design_Entries(std::vector<s_entry>* table);
     // A design's parts as the build list shows them (hull, shield, ..., weapons, specials).
     void Design_Parts(s_ship_design& design, s_out item);

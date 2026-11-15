@@ -816,7 +816,7 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 		leaders_view.want_fleet = int(fleets_fleet.get("ship", -1)) # opens on the Fleets panel's fleet (owner)
 		_open_side_panel("leaders")
 		return
-	# The design list's EDIT: the native Ship Design panel on that slot (WP3.8, owner's mockup B2).
+	# The design list's EDIT: the native Ship Design panel on that slot (WP3.6, owner's mockup B2).
 	if String(dict.get("verb", "")) == "open" and int(dict.get("screen", -1)) == Screens.DESIGN and view == _views.get("design_list"):
 		_open_design(int(dict.get("slot", 0)))
 		return
@@ -976,7 +976,7 @@ func _close_flyouts_outside(at: Vector2) -> bool:
 	var closed := false
 	for name in FLYOUTS:
 		if name == "design_panel":
-			continue # an open design is closed with CANCEL or BUILD, never by a stray click (WP3.8)
+			continue # an open design is closed with CANCEL or BUILD, never by a stray click (WP3.6)
 		if not _views.has(name) or (name in SIDE_PANELS.values() and not name in SIDE_PANELS_UNFITTED):
 			continue # the side panels stay: the map beside them is part of them (owner, 2026-11-15);
 			# Info and Races, over the galaxy, close like the other flyouts (owner, 2026-11-15)
@@ -2077,7 +2077,7 @@ func _smoke_races_panel(shots: String) -> bool:
 	return not tab.button_pressed
 
 
-## WP3.8 (`--design`): EDIT on a design opens the Ship Design panel; a weapon is added (the first
+## WP3.6 (`--design`): EDIT on a design opens the Ship Design panel; a weapon is added (the first
 ## beam, then one more), its arc changed, a special added, the size changed; CANCEL leaves the slot
 ## as it was; again, a weapon added and BUILD writes the slot and brings the list back.
 func _smoke_design_panel(shots: String) -> bool:
@@ -2467,7 +2467,7 @@ func _on_answered(id: int, value: int, text := "") -> void:
 ## screen for now) or the system panel.
 ## A right sidebar panel (Colonies WP3.5a, Planets WP3.5b): opening it closes the system, colony
 ## and build panes, the fleet panel and another side panel, and the galaxy fits the space left of it.
-## WP3.8: the Ship Design panel on design slot `slot`, in place of the design list; BUILD brings
+## WP3.6: the Ship Design panel on design slot `slot`, in place of the design list; BUILD brings
 ## the list back with the new design.
 func _open_design(slot: int) -> void:
 	var panel := _view("design_panel")
@@ -3360,7 +3360,7 @@ func _smoke_galaxy(shots: String) -> bool:
 		return false
 	if shots != "":
 		await host.shot(shots + "/native-designs.png")
-	# Edit opens the native Ship Design panel on that slot (WP3.8); Esc cancels it.
+	# Edit opens the native Ship Design panel on that slot (WP3.6); Esc cancels it.
 	var edit: Button = designs.rows.get_child(0).find_children("*", "Button", true, false)[0]
 	edit.pressed.emit()
 	await get_tree().create_timer(1.2).timeout
