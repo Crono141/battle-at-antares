@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/combat_native.h"
 
 namespace BEAMS {
     uint8_t g_pierced_shield_flag;
@@ -1219,6 +1220,7 @@ namespace BEAMS {
      * @param fx_entries Beam effect entries to play in sequence.
      */
     void __cdecl Beam_SFX(int16_t attacker_ship_id, int16_t attacker_x, int16_t attacker_y, int16_t target_id, int16_t target_x, int16_t target_y, s_beam_fx_entry* fx_entries, int16_t is_non_ship_target) {
+        antares::combat::Beam(attacker_ship_id, target_id, is_non_ship_target, fx_entries); // WP3.9c
         int16_t current_fx_idx[2] = {0, -1};
         int16_t frame_idx[2] = {0, 0};
         int16_t rand_offsets[6] = {0, 0, 0, 0, 0, 0};

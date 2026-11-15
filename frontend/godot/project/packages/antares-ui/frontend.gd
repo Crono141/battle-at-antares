@@ -1215,6 +1215,8 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 	match snapshot_name:
 		"combat":
 			_combat_view().show_state(result)
+		"combat_event":
+			_combat_view().play_event(result)
 		"empire":
 			_view("galaxy_bar").show_empire(result)
 			var colony_view: Control = _views.get("colony_pane")
@@ -4830,11 +4832,23 @@ func _smoke_combat(shots: String) -> bool:
 	if view._my_turn():
 		view._act({"action": "auto"})
 	waited = 0.0
+	var shot_kinds := {}
+	var counts := {}
 	while view.visible and waited < 180.0:
-		await get_tree().create_timer(0.5).timeout
-		waited += 0.5
-		if not _smoke_answer() and view._my_turn():
+		await get_tree().create_timer(0.05).timeout
+		waited += 0.05
+		# WP3.9c: the first volley and the first explosion on screen, the camera on them.
+		for effect: Dictionary in view._effects:
+			var kind := String(effect.kind)
+			counts[kind] = int(counts.get(kind, 0)) + (1 if effect.t <= 0.06 and effect.t > 0.0 else 0)
+			if shots != "" and not shot_kinds.has(kind) and kind in ["shot", "explosion"] and float(effect.t) > 0.08:
+				shot_kinds[kind] = true
+				var where: Vector2 = effect.get("at", view._effect_point(int(effect.get("to", -1)), view._cam))
+				view._cam = where
+				await host.shot(shots + "/combat-%s.png" % ("fire" if kind == "shot" else kind))
+		if int(waited * 20.0) % 10 == 0 and not _smoke_answer() and view._my_turn():
 			view._act({"action": "auto"})
+	print("smoke: effects seen %s" % [counts])
 	print("smoke: battle over after %.0f s (scene shown: %s)" % [waited, view.visible])
 	return not view.visible
 

@@ -28,6 +28,12 @@ namespace antares::combat {
     // CMBTDRW1::Draw_Main_Combat_Screen: the legacy code redrew, so the state may have changed.
     void Frame();
 
+    // WP3.9c: BEAMS::Beam_SFX is about to animate a volley (beams, and the shots of other weapons
+    // drawn as beams): posted as a "combat_event" snapshot {"kind": "beam", from, to, missile,
+    // tx, ty, shots: [{weapon, name, type, count, flags}]} for the frontend to animate. Ship deaths,
+    // damage, shield hits and missile impacts the frontend reads from successive states.
+    void Beam(int16_t from, int16_t to, int16_t non_ship_target, const struct s_beam_fx_entry* entries);
+
     // The human player's input for MOX::cur_ship. False when the battle isn't native (the legacy
     // fields then read input); true once one action was applied (*next_ship_flag as the turn loop
     // expects).

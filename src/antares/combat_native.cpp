@@ -320,6 +320,41 @@ namespace antares::combat {
         native::Serve_Sprites_Now(4); // the scene's art while no request waits (AI turns)
     }
 
+    void Beam(int16_t from, int16_t to, int16_t non_ship_target, const s_beam_fx_entry* entries) {
+        if (!s_active || entries == nullptr) {
+            return;
+        }
+        // The state first, so the frontend has every ship where the volley starts.
+        native::Post_Scene_Snapshot("combat");
+        yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
+        yyjson_mut_val* root = yyjson_mut_obj(doc);
+        yyjson_mut_doc_set_root(doc, root);
+        s_out out(doc, root);
+        out.Str("kind", "beam");
+        out.Int("from", from);
+        out.Int("to", to);
+        out.Bool("missile", non_ship_target != 0);
+        if (non_ship_target != 0 && to >= 0 && to < MAX_COMBAT_FLYERS) {
+            out.Int("tx", MOX::missile[to].x);
+            out.Int("ty", MOX::missile[to].y);
+        }
+        s_out shots = out.Add_List("shots");
+        for (int i = 0; i < 10 && entries[i].weapon_id != 0; ++i) {
+            const s_beam_fx_entry& e = entries[i];
+            s_out shot = shots.Append_Object();
+            shot.Int("weapon", e.weapon_id);
+            shot.Str("name", commands::internal::Utf8(TECHDATA::weapons[e.weapon_id].name, 40));
+            shot.Int("type", TECHDATA::weapons[e.weapon_id].type);
+            shot.Int("count", e.shot_count);
+            shot.Int("flags", e.result_flags);
+        }
+        char* text = yyjson_mut_write(doc, 0, nullptr);
+        std::string json = text != nullptr ? text : "{}";
+        free(text);
+        yyjson_mut_doc_free(doc);
+        native::Post_Snapshot_Json("combat_event", json);
+    }
+
     std::string Apply_Action(const std::string& json, int16_t active_player_id, int16_t* next_ship_flag) {
         yyjson_doc* doc = yyjson_read(json.data(), json.size(), 0);
         if (doc == nullptr || !yyjson_is_obj(yyjson_doc_get_root(doc))) {

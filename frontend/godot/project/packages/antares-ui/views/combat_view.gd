@@ -60,6 +60,9 @@ var _toast_time := 0.0
 var _opened := false
 var _legal := {} # x * 1000 + y (int) -> true: JSON numbers arrive as floats, which Array.has() won't match
 var _order := {} # ships still to act this round (int)
+## WP3.9c: effects playing (beams, sparks, explosions, damage numbers, shield flashes), each
+## {kind, t (seconds since start), life, ...}; drawn over the ships, dropped when done.
+var _effects: Array = []
 
 var _world: Node2D
 var _backdrop: Node2D
@@ -141,6 +144,8 @@ func show_state(st: Dictionary) -> void:
 	if not bool(st.get("active", false)):
 		close()
 		return
+	if not state.is_empty():
+		_diff_effects(state, st)
 	state = st
 	_legal.clear()
 	for code in st.get("legal", []):
@@ -184,6 +189,7 @@ func close() -> void:
 	for entry in _ships.values():
 		entry.sprite.queue_free()
 	_ships.clear()
+	_effects.clear()
 	state = {}
 	closed.emit()
 
@@ -362,6 +368,9 @@ func _process(delta: float) -> void:
 		_cam = _cam.lerp(_cam_goal, minf(1.0, delta * 6.0))
 		if _cam.distance_to(_cam_goal) < 1.0:
 			_cam_goal = Vector2.INF
+	for effect: Dictionary in _effects:
+		effect.t += delta
+	_effects = _effects.filter(func(effect: Dictionary) -> bool: return effect.t < effect.life)
 	_place_world()
 	_update_hover()
 	if _toast_time > 0.0:
@@ -517,6 +526,7 @@ func _draw_marks() -> void:
 			_marks.draw_set_transform(at + Vector2(6, -6) * width, 0.0, Vector2.ONE / _zoom)
 			_marks.draw_string(font, Vector2.ZERO, str(count), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, owner_color)
 			_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_draw_effects(width)
 	# The order ring.
 	if _menu_ship >= 0 and _ships.has(_menu_ship):
 		_draw_menu(_ships[_menu_ship].shown, width)
@@ -1320,6 +1330,156 @@ func _show_toast(text: String, seconds := 3.0) -> void:
 	_toast.show()
 	_toast_time = seconds
 
+
+
+# ---- Effects (WP3.9c) ----
+
+## Beam colours by weapon family (legacy builds them per weapon in the palette's beam slots).
+const BEAM_COLORS := [["laser", Color(1.0, 0.25, 0.2)], ["fusion", Color(1.0, 0.55, 0.15)], ["phasor", Color(0.6, 0.8, 1.0)],
+	["graviton", Color(0.75, 0.45, 1.0)], ["disrupt", Color(0.3, 1.0, 0.85)], ["death", Color(1.0, 0.3, 0.85)],
+	["plasma", Color(0.4, 1.0, 0.4)], ["neutron", Color(0.4, 0.9, 1.0)], ["ion", Color(0.55, 0.75, 1.0)],
+	["particle", Color(1.0, 0.95, 0.6)], ["tachyon", Color(0.9, 0.9, 1.0)], ["mauler", Color(1.0, 0.75, 0.2)],
+	["stellar", Color(1.0, 1.0, 1.0)], ["pulsar", Color(0.9, 0.6, 1.0)], ["spatial", Color(0.7, 0.5, 1.0)],
+	["mass driver", Color(0.75, 0.78, 0.82)], ["gauss", Color(0.75, 0.85, 0.95)]]
+const PROJECTILE_WORDS := ["mass driver", "gauss", "mauler", "plasma torpedo"]
+const SHOT_GAP := 0.06 # seconds between the shots of one weapon
+const SHOT_LIFE := 0.28
+
+
+func _beam_color(name: String) -> Color:
+	var lower := name.to_lower()
+	for pair in BEAM_COLORS:
+		if lower.contains(pair[0]):
+			return pair[1]
+	return AMBER
+
+
+## A volley from the engine (combat_native.cpp, Beam): each weapon's shots one after another, from
+## the shooter to its target (a ship, or a missile stack's point), sparks where they land.
+func play_event(event: Dictionary) -> void:
+	if not visible or String(event.get("kind", "")) != "beam":
+		return
+	var from := int(event.get("from", -1))
+	var to := int(event.get("to", -1))
+	var missile := bool(event.get("missile", false))
+	var point := Vector2(float(event.get("tx", 0)), float(event.get("ty", 0)))
+	var delay := 0.0
+	for shot: Dictionary in event.get("shots", []):
+		var count := clampi(int(shot.get("count", 1)), 1, 12)
+		var name := String(shot.get("name", ""))
+		var projectile := false
+		for word in PROJECTILE_WORDS:
+			if name.to_lower().contains(word):
+				projectile = true
+		for n in count:
+			var jitter := Vector2(randf_range(-6, 6), randf_range(-6, 6))
+			_effects.append({"kind": "shot", "t": -delay, "life": SHOT_LIFE + (0.18 if projectile else 0.0), "from": from, "to": to,
+				"missile": missile, "point": point, "jitter": jitter, "color": _beam_color(name), "projectile": projectile})
+			delay += SHOT_GAP
+		delay += 0.05
+
+
+## What changed between two states: ships destroyed (the game's explosion), hull damage (a number
+## rising from the ship), shield arcs struck (that arc flashes).
+func _diff_effects(before: Dictionary, after: Dictionary) -> void:
+	var old_ships: Array = before.get("ships", [])
+	for ship: Dictionary in after.get("ships", []):
+		var index := int(ship.i)
+		if index >= old_ships.size():
+			continue
+		var old: Dictionary = old_ships[index]
+		if int(old.get("status", 1)) != 0:
+			continue
+		var at: Vector2 = _ships[index].shown if _ships.has(index) else _center(old)
+		if int(ship.get("status", 0)) != 0:
+			var size := int(old.get("size", 0))
+			var entry := 3 if size <= 1 else (4 if size <= 3 else 5)
+			_effects.append({"kind": "explosion", "t": 0.0, "life": 1.1, "at": at, "entry": entry})
+			continue
+		var hp_old := float((old.get("armor", {}) as Dictionary).get("now", 0)) + float((old.get("structure", {}) as Dictionary).get("now", 0))
+		var hp_new := float((ship.get("armor", {}) as Dictionary).get("now", 0)) + float((ship.get("structure", {}) as Dictionary).get("now", 0))
+		if hp_new < hp_old:
+			_effects.append({"kind": "damage", "t": 0.0, "life": 1.3, "ship": index, "at": at, "text": "-%d" % int(hp_old - hp_new)})
+		var arcs_old: Array = (old.get("shield", {}) as Dictionary).get("arcs", [])
+		var arcs_new: Array = (ship.get("shield", {}) as Dictionary).get("arcs", [])
+		for a in mini(arcs_old.size(), arcs_new.size()):
+			if float(arcs_new[a]) < float(arcs_old[a]):
+				_effects.append({"kind": "shield", "t": 0.0, "life": 0.45, "ship": index, "arc": a})
+
+
+func _effect_point(ship_index: int, fallback: Vector2) -> Vector2:
+	if _ships.has(ship_index):
+		return _ships[ship_index].shown
+	return fallback
+
+
+func _draw_effects(width: float) -> void:
+	var font := get_theme_default_font()
+	for effect: Dictionary in _effects:
+		var t: float = effect.t
+		if t < 0.0:
+			continue
+		var life: float = effect.life
+		var k := clampf(t / life, 0.0, 1.0)
+		match String(effect.kind):
+			"shot":
+				var from := _effect_point(int(effect.from), Vector2.ZERO)
+				var to: Vector2 = effect.point if effect.missile else _effect_point(int(effect.to), Vector2.ZERO)
+				to += effect.jitter
+				var color: Color = effect.color
+				if effect.projectile:
+					# A bolt that flies, then sparks.
+					var fly := clampf(t / (life * 0.6), 0.0, 1.0)
+					var at := from.lerp(to, fly)
+					if fly < 1.0:
+						_marks.draw_circle(at, 4.0 * width * 1.5, Color(color, 0.35))
+						_marks.draw_circle(at, 2.0 * width * 1.5, color.lightened(0.5))
+					else:
+						_spark(to, (t - life * 0.6) / (life * 0.4), width)
+				else:
+					var fade := 1.0 - smoothstep(0.55, 1.0, k)
+					_marks.draw_line(from, to, Color(color, 0.28 * fade), 7.0 * width)
+					_marks.draw_line(from, to, Color(color.lightened(0.35), 0.95 * fade), 2.2 * width)
+					_spark(to, k, width)
+			"explosion":
+				var s: Dictionary = art.sprite("cmbtsfx.lbx", int(effect.entry))
+				if not s.is_empty():
+					var frame := int(k * float(s.frames.size()))
+					var box: Vector2 = s.size
+					art.draw(_marks, "cmbtsfx.lbx", int(effect.entry), mini(frame, s.frames.size() - 1), effect.at - box / 2.0, 1.0)
+				else:
+					_marks.draw_circle(effect.at, 30.0 * k, Color(1.0, 0.6, 0.2, 1.0 - k))
+			"damage":
+				var at: Vector2 = _effect_point(int(effect.ship), effect.at) + Vector2(0, -_radius(int(effect.ship)) - 10.0 - 26.0 * k)
+				_marks.draw_set_transform(at, 0.0, Vector2.ONE / _zoom)
+				var text_size := font.get_string_size(String(effect.text), HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
+				_marks.draw_string_outline(font, Vector2(-text_size.x / 2.0, 0), String(effect.text), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, 4, Color(0, 0, 0, 1.0 - k))
+				_marks.draw_string(font, Vector2(-text_size.x / 2.0, 0), String(effect.text), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1.0, 0.45, 0.4, 1.0 - k * k))
+				_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			"shield":
+				var index := int(effect.ship)
+				if not _ships.has(index):
+					continue
+				var e: Dictionary = _ships[index]
+				# Arc a is clockwise from the nose (0 front, 1 right, 2 rear, 3 left); the nose points
+				# along the ship's angle.
+				var mid: float = e.angle + float(int(effect.arc)) * PI / 2.0
+				var radius := _radius(index) + 5.0
+				_marks.draw_arc(e.shown, radius, mid - PI / 4.0 + 0.08, mid + PI / 4.0 - 0.08, 18, Color(0.6, 1.0, 0.8, 0.9 * (1.0 - k)), 4.0 * width)
+				_marks.draw_arc(e.shown, radius + 3.0 * width, mid - PI / 4.0 + 0.08, mid + PI / 4.0 - 0.08, 18, Color(0.35, 0.95, 0.6, 0.35 * (1.0 - k)), 9.0 * width)
+
+
+## The game's hull-hit sparks (BEAMS 65) where a shot lands, or a flash until they load.
+func _spark(at: Vector2, k: float, width: float) -> void:
+	if k < 0.0 or k > 1.0:
+		return
+	var s: Dictionary = art.sprite("beams.lbx", 65)
+	if not s.is_empty():
+		var frame := mini(int(k * float(s.frames.size())), s.frames.size() - 1)
+		var box: Vector2 = s.size
+		art.draw(_marks, "beams.lbx", 65, frame, at - box / 2.0, 1.0, Color(1, 1, 1, 1.0 - k * 0.5))
+	else:
+		_marks.draw_circle(at, (3.0 + 6.0 * k) * width * 1.5, Color(1.0, 0.85, 0.6, 1.0 - k))
 
 # ---- Settings ----
 
