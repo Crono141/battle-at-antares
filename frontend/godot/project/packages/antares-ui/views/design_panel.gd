@@ -13,6 +13,8 @@ signal command(dict: Dictionary)
 signal width_changed
 ## BUILD wrote the slot (the design list shows it again).
 signal built(slot: int)
+## A help record for the frontend's help popup (the parts list's right clicks).
+signal help_requested(topic: int, at: Control)
 
 const Themes := preload("../themes.gd")
 const ArcGlyph := preload("arc_glyph.gd")
@@ -94,33 +96,37 @@ func _ready() -> void:
 	var ship := HBoxContainer.new()
 	ship.add_theme_constant_override("separation", 10)
 	box.add_child(ship)
+	# Owner, 2026-11-15: the top half no more than half the panel; one frame for the four systems,
+	# the picture's arrows beside it.
+	var systems_frame := PanelContainer.new()
+	systems_frame.theme_type_variation = &"Row"
+	systems_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ship.add_child(systems_frame)
 	_systems_box = VBoxContainer.new()
-	_systems_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_systems_box.add_theme_constant_override("separation", 4)
-	ship.add_child(_systems_box)
+	_systems_box.add_theme_constant_override("separation", 0)
+	systems_frame.add_child(_systems_box)
 	var picture_frame := PanelContainer.new()
 	picture_frame.theme_type_variation = &"Row"
 	picture_frame.custom_minimum_size = Vector2(WIDTH / 3.0, 0)
 	ship.add_child(picture_frame)
-	var picture_box := VBoxContainer.new()
-	picture_box.add_theme_constant_override("separation", 4)
+	var picture_box := HBoxContainer.new()
+	picture_box.add_theme_constant_override("separation", 2)
 	picture_frame.add_child(picture_box)
-	_picture = preload("sprite_rect.gd").new()
-	_picture.custom_minimum_size = Vector2(0, 118)
-	_picture.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	picture_box.add_child(_picture)
-	var arrows := HBoxContainer.new()
-	picture_box.add_child(arrows)
 	for step in [-1, 1]:
 		var b := _button("◀" if step < 0 else "▶", "The hull's previous picture" if step < 0 else "The hull's next picture")
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size.y = 24
+		b.custom_minimum_size = Vector2(22, 0)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var s: int = step
 		b.pressed.connect(func(): _edit({"picture": s}))
 		b.name = "Prev" if step < 0 else "Next"
-		arrows.add_child(b)
+		picture_box.add_child(b)
+		if step < 0:
+			_picture = preload("sprite_rect.gd").new()
+			_picture.custom_minimum_size = Vector2(0, 92)
+			_picture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			_picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			picture_box.add_child(_picture)
 	# Space and cost.
 	var numbers := PanelContainer.new()
 	numbers.theme_type_variation = &"Row"
@@ -128,29 +134,21 @@ func _ready() -> void:
 	var numbers_row := HBoxContainer.new()
 	numbers_row.add_theme_constant_override("separation", 14)
 	numbers.add_child(numbers_row)
-	var space_box := VBoxContainer.new()
-	space_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	space_box.add_theme_constant_override("separation", 3)
-	numbers_row.add_child(space_box)
 	_space_label = Label.new()
 	_space_label.add_theme_font_size_override("font_size", 13)
-	space_box.add_child(_space_label)
+	_space_label.custom_minimum_size.x = 150
+	numbers_row.add_child(_space_label)
 	_space_bar = _SpaceBar.new()
 	_space_bar.custom_minimum_size.y = 10
-	space_box.add_child(_space_bar)
-	var cost_box := VBoxContainer.new()
-	cost_box.add_theme_constant_override("separation", 0)
-	numbers_row.add_child(cost_box)
-	var cost_title := Label.new()
-	cost_title.theme_type_variation = &"Dim"
-	cost_title.text = "COST"
-	cost_title.add_theme_font_size_override("font_size", 11)
-	cost_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cost_box.add_child(cost_title)
+	_space_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_space_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	numbers_row.add_child(_space_bar)
 	_cost_label = Label.new()
 	_cost_label.theme_type_variation = &"Name"
-	_cost_label.add_theme_font_size_override("font_size", 20)
-	cost_box.add_child(_cost_label)
+	_cost_label.add_theme_font_size_override("font_size", 18)
+	_cost_label.tooltip_text = "The design's cost"
+	_cost_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	numbers_row.add_child(_cost_label)
 	# Weapons and specials (scrolls).
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -277,10 +275,10 @@ func show_design(result: Dictionary) -> void:
 	_show_systems()
 	var hull := int(result.hull_space)
 	var used := int(result.space_used)
-	_space_label.text = "SPACE  %d / %d  ·  %s" % [used, hull, ("%d free" % (hull - used)) if used <= hull else ("%d OVER" % (used - hull))]
+	_space_label.text = "SPACE %d / %d · %s" % [used, hull, ("%d free" % (hull - used)) if used <= hull else ("%d OVER" % (used - hull))]
 	_space_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35) if used > hull else get_theme_color("font_color", "Label"))
 	_space_bar.set_parts(hull, used, int(result.weapon_space), int(result.special_space))
-	_cost_label.text = "%d BC" % int(result.cost)
+	_cost_label.text = "COST %d BC" % int(result.cost)
 	_build.disabled = not result.get("buildable", false)
 	_build.tooltip_text = "Save the design in its slot" if not _build.disabled else "The parts need more space than the hull has"
 	Themes.glow(_build)
@@ -330,11 +328,10 @@ func _show_systems() -> void:
 
 
 func _system_line(title: String, value: String, detail: String) -> Control:
-	var row := PanelContainer.new()
-	row.theme_type_variation = &"Row"
 	var line := HBoxContainer.new()
 	line.add_theme_constant_override("separation", 6)
-	row.add_child(line)
+	line.custom_minimum_size.y = 24
+	var row := line
 	var t := Label.new()
 	t.theme_type_variation = &"Dim"
 	t.text = title
@@ -360,11 +357,10 @@ func _system_line(title: String, value: String, detail: String) -> Control:
 
 
 func _system_choice(title: String, key: String, items: Array, current: int, detail: String) -> Control:
-	var row := PanelContainer.new()
-	row.theme_type_variation = &"Row"
 	var line := HBoxContainer.new()
 	line.add_theme_constant_override("separation", 6)
-	row.add_child(line)
+	line.custom_minimum_size.y = 24
+	var row := line
 	var t := Label.new()
 	t.theme_type_variation = &"Dim"
 	t.text = title
@@ -377,7 +373,8 @@ func _system_choice(title: String, key: String, items: Array, current: int, deta
 	pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pick.fit_to_longest_item = false
 	pick.clip_text = true
-	pick.custom_minimum_size.x = 0
+	pick.custom_minimum_size = Vector2(0, 24)
+	pick.add_theme_font_size_override("font_size", 14)
 	for item: Dictionary in items:
 		pick.add_item(String(item.name), int(item[key]))
 		if int(item.get("cost", 0)) > 0:
@@ -590,6 +587,10 @@ func _process(_delta: float) -> void:
 ## The parts list's X (it folds away; the rows show nothing being changed).
 func parts_folded() -> void:
 	_show_body()
+
+
+func show_help(topic: int, at: Control) -> void:
+	help_requested.emit(topic, at)
 
 
 func ask_preview(args: Dictionary) -> void:

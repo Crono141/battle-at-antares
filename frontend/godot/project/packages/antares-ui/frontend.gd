@@ -2129,6 +2129,27 @@ func _smoke_design_panel(shots: String) -> bool:
 		await host.shot(shots + "/native-design-parts.png")
 	if not parts.visible or parts.get_global_rect().end.x > panel.get_global_rect().position.x:
 		return false
+	# The card in place (owner: every click made it jump for a frame): a dial click turns the arc,
+	# a mod toggles, and the card stays the same node at the same height.
+	var card: Control = parts._card
+	var card_children := card.get_child_count()
+	var first_child: Node = card.get_child(0) if card_children > 0 else null
+	if parts._dial != null:
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = true
+		parts._dial.gui_input.emit(click)
+		await get_tree().create_timer(0.3).timeout
+	print("smoke: design: dial clicked: arc %d (was 3), card rebuilt %s" % [parts.arc, card.get_child(0) != first_child])
+	if parts._dial != null and (parts.arc != 4 or card.get_child(0) != first_child):
+		return false
+	parts.arc = 3
+	if parts._dial != null:
+		parts._dial.arc = 3
+	# Sorting by damage, the biggest first.
+	parts._sort_heading("DMG", "damage", 50).pressed.emit()
+	await get_tree().create_timer(0.2).timeout
+	print("smoke: design: sorted by damage: first '%s'" % parts._rows.get_child(0).tooltip_text.get_slice("\n", 0))
 	panel.add_weapon(-1, int(beam.weapon), 3, 1, [])
 	await get_tree().create_timer(0.5).timeout
 	var added: Dictionary = (panel.design.weapons as Array).back() if not (panel.design.weapons as Array).is_empty() else {}
@@ -2481,6 +2502,7 @@ func _open_design(slot: int) -> void:
 	var panel := _view("design_panel")
 	if not panel.built.is_connected(_on_design_built):
 		panel.built.connect(_on_design_built)
+		panel.help_requested.connect(show_help)
 	_view("design_list").close()
 	_bring_up(panel)
 	panel.open_panel(_side_panel_area(), slot)

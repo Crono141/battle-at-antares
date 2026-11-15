@@ -3,15 +3,20 @@ extends PanelContainer
 ## left of the design panel when + ADD WEAPON or + ADD SPECIAL is clicked (or a fitted part), and
 ## folds away with its X. Every weapon and special the player can fit in one list (FIND, ALL /
 ## BEAM / MISSILE / BOMB / SPECIAL WPN / SYSTEMS, FITS NOW), each line marked by its kind; the picked
-## part's card at the bottom: a weapon's arc dial and arc buttons (or a missile's shots), its mods,
-## what it takes, ADD (REPLACE for a fitted one); a special's group, effect, space and cost, ADD.
+## part's card at the bottom: a weapon's arc dial (a click turns it: left the next arc, right the
+## one before) or a missile's shots, its mods, what it takes, ADD (REPLACE for a fitted one); a
+## special's group, effect, space and cost, ADD. Columns: name, description, damage, BC, space;
+## a click on a heading sorts by it (again: the other way). A right click on a line or a mod is
+## its help, as the original picker's.
 ## The design panel owns it: it keeps it against its left edge and carries its commands.
 
 const Themes := preload("../themes.gd")
 const ArcGlyph := preload("arc_glyph.gd")
 const WIDTH := 500.0
 const FILTERS := [["all", "ALL"], ["beam", "BEAM"], ["missile", "MISSILE"], ["bomb", "BOMB"], ["special", "SPECIAL WPN"], ["systems", "SYSTEMS"]]
-const ARC_NAMES := ["FWD", "EXT", "B·EXT", "BACK", "360°"]
+const MARK_WIDTH := 16.0
+const NAME_WIDTH := 150.0
+const COLUMN_WIDTHS := [52.0, 30.0, 42.0] # damage, BC, space
 const ARC_TIPS := ["Forward", "Forward extended", "Back extended", "Back", "360 degrees"]
 const MARKS := {"beam": ["●", Color(0.91, 0.56, 0.16)], "missile": ["▲", Color(1.0, 0.42, 0.6)], "bomb": ["■", Color(0.61, 0.55, 1.0)],
 	"special": ["✦", Color(0.95, 0.85, 0.35)], "systems": ["◆", Color(0.35, 0.63, 1.0)]}
@@ -34,8 +39,14 @@ var arc := 0
 var rack := 1
 var mods: Array[int] = []
 var preview := {}
+var sort_key := "" # "", "name", "damage", "cost", "space"
+var sort_descending := false
 
 var _find: LineEdit
+var _header: HBoxContainer
+var _summary: Label
+var _dial: Control
+var _dial_label: Label
 var _filters: HBoxContainer
 var _rows: VBoxContainer
 var _card: VBoxContainer
@@ -70,7 +81,9 @@ func _ready() -> void:
 	_filters = HBoxContainer.new()
 	_filters.add_theme_constant_override("separation", 3)
 	box.add_child(_filters)
-	box.add_child(_header_line())
+	_header = HBoxContainer.new()
+	_header.add_theme_constant_override("separation", 6)
+	box.add_child(_header)
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -143,7 +156,9 @@ func set_data(design_now: Dictionary, weapons_now: Array, specials_now: Array) -
 func set_preview(result: Dictionary) -> void:
 	if picked_kind == "weapon" and int(result.get("weapon", -1)) == picked:
 		preview = result
-		_show_card()
+		var w := _weapon(picked)
+		if is_instance_valid(_summary) and not w.is_empty():
+			_summary.text = _weapon_summary(w) # in place: rebuilding the card made it jump
 
 
 func refresh() -> void:
@@ -163,6 +178,7 @@ func refresh() -> void:
 		fits_only = not fits_only
 		refresh())
 	_filters.add_child(fits)
+	_show_header()
 	_show_rows()
 	_show_card()
 
@@ -172,7 +188,7 @@ func refresh() -> void:
 func _show_rows() -> void:
 	_clear(_rows)
 	var needle := find.strip_edges().to_lower()
-	var shown := 0
+	var entries: Array = []
 	if filter != "systems":
 		for w: Dictionary in weapons:
 			var category := String(w.category)
@@ -182,29 +198,62 @@ func _show_rows() -> void:
 				continue
 			if fits_only and not w.get("fits", false):
 				continue
-			var id := int(w.weapon)
-			_rows.add_child(_line(category, String(w.name), String(w.notes), String(w.damage), int(w.cost), int(w.space),
-				picked_kind == "weapon" and picked == id, not w.get("fits", false) and not (picked_kind == "weapon" and replace_slot >= 0 and picked == id),
-				func(): _pick_weapon(w)))
-			shown += 1
+			entries.append({"kind": category, "name": String(w.name), "note": String(w.notes), "damage": String(w.damage),
+				"cost": int(w.cost), "space": int(w.space), "app": int(w.get("app", -1)), "weapon": w,
+				"picked": picked_kind == "weapon" and picked == int(w.weapon),
+				"dim": not w.get("fits", false) and not (picked_kind == "weapon" and replace_slot >= 0 and picked == int(w.weapon))})
 	if filter == "all" or filter == "systems":
 		for sp: Dictionary in specials:
-			if sp.get("fitted", false) and not (picked_kind == "special" and picked == int(sp.special)):
+			var id := int(sp.special)
+			if sp.get("fitted", false) and not (picked_kind == "special" and picked == id):
 				continue
 			if not _matches(needle, String(sp.name), String(sp.description)):
 				continue
 			if fits_only and not sp.get("fits", false):
 				continue
-			var id := int(sp.special)
 			var note := String(sp.description)
 			if sp.has("excluded_by"):
 				note = "⇄ " + String(sp.excluded_by)
-			_rows.add_child(_line("systems", String(sp.name), note, "", int(sp.cost), int(sp.space),
-				picked_kind == "special" and picked == id, sp.has("excluded_by") or not sp.get("fits", false),
-				func(): _pick_special(id)))
-			shown += 1
-	if shown == 0:
+			entries.append({"kind": "systems", "name": String(sp.name), "note": note, "damage": "", "cost": int(sp.cost),
+				"space": int(sp.space), "app": int(sp.get("app", -1)), "special": id, "picked": picked_kind == "special" and picked == id,
+				"dim": sp.has("excluded_by") or not sp.get("fits", false)})
+	if sort_key != "":
+		entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			var va: Variant = _sort_value(a)
+			var vb: Variant = _sort_value(b)
+			if va == vb:
+				return String(a.name) < String(b.name)
+			return (va > vb) if sort_descending else (va < vb))
+	for e: Dictionary in entries:
+		var pick: Callable
+		if e.has("weapon"):
+			var w: Dictionary = e.weapon
+			pick = func(): _pick_weapon(w)
+		else:
+			var id := int(e.special)
+			pick = func(): _pick_special(id)
+		_rows.add_child(_line(e, pick))
+	if entries.is_empty():
 		_rows.add_child(_dim("Nothing here" + (": turn FITS NOW off to see what needs more room" if fits_only else "")))
+
+
+## A line's value for the sort: names by letters, damage by its average ("special" last).
+func _sort_value(e: Dictionary) -> Variant:
+	match sort_key:
+		"name":
+			return String(e.name).to_lower()
+		"damage":
+			var parts := String(e.damage).replace("–", "-").split("-")
+			if parts.is_empty() or not String(parts[0]).strip_edges().is_valid_int():
+				return -1.0
+			var low := float(String(parts[0]).strip_edges())
+			var high := float(String(parts[parts.size() - 1]).strip_edges()) if String(parts[parts.size() - 1]).strip_edges().is_valid_int() else low
+			return (low + high) * 0.5
+		"cost":
+			return int(e.cost)
+		"space":
+			return int(e.space)
+	return 0
 
 
 func _matches(needle: String, name_text: String, note: String) -> bool:
@@ -256,12 +305,32 @@ func _weapon_card(w: Dictionary) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	_card.add_child(row)
+	_dial = null
 	if w.get("arcs", false):
-		var dial := ArcGlyph.new()
-		dial.arc = arc
-		dial.custom_minimum_size = Vector2(88, 88)
-		dial.tooltip_text = "Fires: %s" % ARC_TIPS[arc]
-		row.add_child(dial)
+		# The arc: a click on the dial turns it (owner, 2026-11-15: no arc buttons).
+		var dial_box := VBoxContainer.new()
+		dial_box.add_theme_constant_override("separation", 0)
+		row.add_child(dial_box)
+		_dial = ArcGlyph.new()
+		_dial.arc = arc
+		_dial.custom_minimum_size = Vector2(84, 84)
+		_dial.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		_dial.tooltip_text = "Left click: the next firing arc · right click: the one before"
+		_dial.gui_input.connect(func(event: InputEvent):
+			var mb := event as InputEventMouseButton
+			if mb and mb.pressed and mb.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
+				arc = posmod(arc + (1 if mb.button_index == MOUSE_BUTTON_LEFT else -1), 5)
+				_dial.arc = arc
+				_dial_label.text = ARC_TIPS[arc].to_upper()
+				_dial.accept_event()
+				_ask_preview())
+		dial_box.add_child(_dial)
+		_dial_label = Label.new()
+		_dial_label.text = ARC_TIPS[arc].to_upper()
+		_dial_label.theme_type_variation = &"Name"
+		_dial_label.add_theme_font_size_override("font_size", 11)
+		_dial_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		dial_box.add_child(_dial_label)
 	var right := VBoxContainer.new()
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right.add_theme_constant_override("separation", 5)
@@ -279,34 +348,23 @@ func _weapon_card(w: Dictionary) -> void:
 	notes.custom_minimum_size.x = 180
 	notes.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	top.add_child(notes)
-	if w.get("arcs", false):
-		var arcs := HBoxContainer.new()
-		arcs.add_theme_constant_override("separation", 3)
-		right.add_child(arcs)
-		for i in 5:
-			var b := _toggle(ARC_NAMES[i], i == arc)
-			b.tooltip_text = ARC_TIPS[i]
-			b.custom_minimum_size = Vector2(56, 26)
-			b.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			var a := i
-			b.pressed.connect(func():
-				arc = a
-				_ask_preview()
-				_show_card())
-			arcs.add_child(b)
-	elif w.has("racks"):
+	if w.has("racks"):
 		var racks := HBoxContainer.new()
 		racks.add_theme_constant_override("separation", 3)
 		right.add_child(racks)
 		racks.add_child(_dim("SHOTS"))
+		var rack_buttons: Array[Button] = []
 		for i in (w.racks as Array).size():
 			var b := _toggle(str(int(w.racks[i])), i == rack)
 			b.tooltip_text = "%d shots a combat" % int(w.racks[i])
 			var r := i
+			rack_buttons.append(b)
 			b.pressed.connect(func():
 				rack = r
-				_ask_preview()
-				_show_card())
+				for other: Button in rack_buttons:
+					other.set_pressed_no_signal(other == b)
+					Themes.glow(other)
+				_ask_preview())
 			racks.add_child(b)
 	var mod_flow := HFlowContainer.new()
 	mod_flow.add_theme_constant_override("h_separation", 3)
@@ -316,21 +374,28 @@ func _weapon_card(w: Dictionary) -> void:
 		var mod := int(m.mod)
 		var b := _toggle(String(m.name).to_upper(), mod in mods)
 		b.add_theme_font_size_override("font_size", 10)
-		b.pressed.connect(func():
-			if mod in mods:
-				mods.erase(mod)
-			else:
+		b.tooltip_text = "Right click: what it does"
+		var help := int(m.get("help", -1))
+		b.gui_input.connect(func(event: InputEvent):
+			var mb := event as InputEventMouseButton
+			if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT and help >= 0 and panel:
+				panel.show_help(help, b)
+				b.accept_event())
+		b.toggled.connect(func(on: bool):
+			if on and not mod in mods:
 				mods.append(mod)
-			_ask_preview()
-			_show_card())
+			elif not on:
+				mods.erase(mod)
+			Themes.glow(b)
+			_ask_preview())
 		mod_flow.add_child(b)
 	var bottom := HBoxContainer.new()
 	bottom.add_theme_constant_override("separation", 6)
 	_card.add_child(bottom)
-	var summary := _dim(_weapon_summary(w))
-	summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	bottom.add_child(summary)
+	_summary = _dim(_weapon_summary(w))
+	_summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	bottom.add_child(_summary)
 	if replace_slot >= 0:
 		var less := _button("− 1", "One fewer on the ship")
 		less.pressed.connect(func(): panel.weapon_count(replace_slot, -1))
@@ -415,18 +480,24 @@ func _rack_of(weapon: int, ammo: int) -> int:
 
 # ---- Pieces ----
 
-## A list line: the kind's mark, the name with its note, damage, BC, space; picked lights it,
-## `dim` greys it (no room, or ruled out).
-func _line(kind: String, name_text: String, note: String, damage: String, cost: int, space: int, is_picked: bool, dim: bool, on_pick: Callable) -> Button:
+## A list line: the kind's mark, the name, the description, damage, BC, space; picked lights it,
+## dimmed: no room, or ruled out. A right click is its help.
+func _line(e: Dictionary, on_pick: Callable) -> Button:
 	var b := Button.new()
 	b.toggle_mode = true
 	b.flat = true
 	b.focus_mode = Control.FOCUS_NONE
 	b.theme_type_variation = &"ListItem"
 	b.custom_minimum_size.y = 26
-	b.set_pressed_no_signal(is_picked)
-	b.tooltip_text = note
+	b.set_pressed_no_signal(bool(e.picked))
+	b.tooltip_text = "%s\n%s\nRight click: more" % [String(e.name), String(e.note)]
 	b.pressed.connect(on_pick)
+	var app := int(e.get("app", -1))
+	b.gui_input.connect(func(event: InputEvent):
+		var mb := event as InputEventMouseButton
+		if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT and app >= 0 and panel:
+			panel.show_help(app, b)
+			b.accept_event())
 	var line := HBoxContainer.new()
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	line.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -434,56 +505,83 @@ func _line(kind: String, name_text: String, note: String, damage: String, cost: 
 	line.offset_right = -6
 	line.add_theme_constant_override("separation", 6)
 	b.add_child(line)
-	var mark: Array = MARKS.get(kind, MARKS.systems)
-	var mark_label := _cell(String(mark[0]), 16.0, HORIZONTAL_ALIGNMENT_CENTER)
+	var dim := bool(e.dim)
+	var mark: Array = MARKS.get(String(e.kind), MARKS.systems)
+	var mark_label := _cell(String(mark[0]), MARK_WIDTH)
+	mark_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	mark_label.add_theme_color_override("font_color", mark[1] if not dim else Color(0.4, 0.42, 0.48))
 	line.add_child(mark_label)
-	var name_label := Label.new()
-	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.clip_text = true
-	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	var name_label := _cell(String(e.name), NAME_WIDTH)
 	name_label.add_theme_font_size_override("font_size", 14)
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	name_label.text = name_text + ("   " + note if note != "" else "")
 	line.add_child(name_label)
-	line.add_child(_cell(damage, 54.0, HORIZONTAL_ALIGNMENT_RIGHT))
-	line.add_child(_cell(str(cost), 34.0, HORIZONTAL_ALIGNMENT_RIGHT))
-	line.add_child(_cell(str(space), 44.0, HORIZONTAL_ALIGNMENT_RIGHT))
+	var note := _cell(String(e.note), 0.0)
+	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	note.add_theme_font_size_override("font_size", 12)
+	line.add_child(note)
+	line.add_child(_cell(String(e.damage), COLUMN_WIDTHS[0]))
+	line.add_child(_cell(str(int(e.cost)), COLUMN_WIDTHS[1]))
+	line.add_child(_cell(str(int(e.space)), COLUMN_WIDTHS[2]))
 	for label: Label in line.get_children():
-		if is_picked:
+		if bool(e.picked):
 			label.add_theme_color_override("font_color", get_theme_color("font_pressed_color", "Button"))
 		elif dim and label != mark_label:
 			label.add_theme_color_override("font_color", Color(0.45, 0.48, 0.55))
+		elif label == note:
+			label.add_theme_color_override("font_color", get_theme_color("font_color", "Dim"))
 	return b
 
 
-func _header_line() -> Control:
-	var line := HBoxContainer.new()
-	line.add_theme_constant_override("separation", 6)
+## The headings over the list: NAME, DMG, BC, SPACE sort it (again: the other way).
+func _show_header() -> void:
+	_clear(_header)
 	var pad := Control.new()
-	pad.custom_minimum_size.x = 6 + 16
-	line.add_child(pad)
-	var titles := [["NAME", 0.0], ["DMG", 54.0], ["BC", 34.0], ["SPACE", 44.0]]
-	for t: Array in titles:
-		var label := _cell(String(t[0]), float(t[1]), HORIZONTAL_ALIGNMENT_RIGHT if float(t[1]) > 0.0 else HORIZONTAL_ALIGNMENT_LEFT)
-		label.theme_type_variation = &"Name"
-		label.add_theme_font_size_override("font_size", 11)
-		if float(t[1]) == 0.0:
-			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		line.add_child(label)
+	pad.custom_minimum_size.x = 6 + MARK_WIDTH
+	_header.add_child(pad)
+	_header.add_child(_sort_heading("NAME", "name", NAME_WIDTH))
+	var description := _cell("DESCRIPTION", 0.0)
+	description.theme_type_variation = &"Name"
+	description.add_theme_font_size_override("font_size", 11)
+	description.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_header.add_child(description)
+	_header.add_child(_sort_heading("DMG", "damage", COLUMN_WIDTHS[0]))
+	_header.add_child(_sort_heading("BC", "cost", COLUMN_WIDTHS[1]))
+	_header.add_child(_sort_heading("SPACE", "space", COLUMN_WIDTHS[2]))
 	var right := Control.new()
 	right.custom_minimum_size.x = 6 + 12 # the rows' padding and the scroll bar
-	line.add_child(right)
-	return line
+	_header.add_child(right)
 
 
-func _cell(text: String, width: float, align: HorizontalAlignment) -> Label:
+func _sort_heading(text: String, key: String, width: float) -> Button:
+	var b := Button.new()
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.theme_type_variation = &"ListItem"
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.custom_minimum_size = Vector2(width, 22)
+	b.add_theme_font_size_override("font_size", 11)
+	b.text = text + ((" ▼" if sort_descending else " ▲") if sort_key == key else "")
+	b.tooltip_text = "Sort by this column (again: the other way)"
+	if sort_key == key:
+		b.add_theme_color_override("font_color", get_theme_color("font_pressed_color", "Button"))
+	b.pressed.connect(func():
+		if sort_key == key:
+			sort_descending = not sort_descending
+		else:
+			sort_key = key
+			sort_descending = key in ["damage", "cost", "space"] # the biggest first
+		_show_header()
+		_show_rows())
+	return b
+
+
+func _cell(text: String, width: float) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.custom_minimum_size.x = width
-	label.horizontal_alignment = align
+	label.clip_text = true
+	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", 13)
 	return label

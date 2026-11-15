@@ -662,6 +662,7 @@ namespace antares::commands::internal {
                 item.Int("weapon", w);
                 item.Str("name", Utf8(TECHDATA::weapons[w].name, 40));
                 item.Str("category", Category(w));
+                item.Int("app", TECHDATA::weapons[w].tech_app_id); // its help record (the picker's right click)
                 char damage[40];
                 DESBOX::field_item_chosen = -1;
                 DESIGN::Design_Weapon_Damage_String(w, damage, sizeof(damage), -1, 0);
@@ -683,6 +684,7 @@ namespace antares::commands::internal {
                     s_out mod = mods.Append_Object();
                     mod.Int("mod", m);
                     mod.Str("name", Utf8(TECHDATA::weapon_modifications[m].name, 40));
+                    mod.Int("help", 400 + m); // Print_Weapon_Mod_Help_Description: help record 400 + mod
                 }
             }
         }
@@ -785,6 +787,7 @@ namespace antares::commands::internal {
                 s_out item = list.Append_Object();
                 item.Int("special", sp);
                 item.Str("name", Utf8(TECHDATA::specials[sp].name, 40));
+                item.Int("app", TECHDATA::specials[sp].tech_app_id);
                 item.Str("group", Group_Of(TECHDATA::specials[sp].tech_app_id));
                 item.Str("description", Utf8(s_special_desc[sp], 100));
                 item.Int("space", space);
