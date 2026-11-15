@@ -95,7 +95,7 @@ func open_panel(area: Rect2) -> void:
 
 ## As wide as its table (the columns are fixed), the scroll bar's room included.
 ## The Colonies panel's width (owner, 2026-11-15: a different width moved the galaxy's zoom when
-## switching between them; `width_like` is that panel), wider only if the rows need it; the planet
+## switching between them; `width_like` is that panel, its shared_width); the planet
 ## columns share what they don't need, each by its width.
 var width_like: Control
 
@@ -105,8 +105,7 @@ func _wanted_width(area: Rect2) -> float:
 	var natural := get_combined_minimum_size().x # the scroll bar's room is in the heading's tail
 	var width := minf(clampf(area.size.x * 0.45, 700.0, 960.0), area.size.x - 16.0)
 	if width_like != null:
-		var like: Vector2 = width_like.last_width
-		width = like.y if is_equal_approx(like.x, area.size.x) and like.y > 0.0 else width_like._wanted_width(area)
+		return width_like.shared_width(area) # the planets' columns fit in it and share the rest
 	return minf(maxf(width, natural), area.size.x - 16.0)
 
 

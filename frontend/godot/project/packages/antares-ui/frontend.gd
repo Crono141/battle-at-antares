@@ -1703,6 +1703,19 @@ func _smoke_planets(shots: String) -> bool:
 		else:
 			print("smoke: no free colony ship (send skipped)")
 	print("smoke: planets width %.0f" % panel.size.x)
+	# Back and forth with Colonies (owner, 2026-11-15: each switch made them wider): one width.
+	var widths: Array[float] = []
+	for i in 3:
+		_on_view_action("colonies")
+		await get_tree().create_timer(0.7).timeout
+		widths.append(_view("colonies_panel").size.x)
+		_on_view_action("planets")
+		await get_tree().create_timer(0.7).timeout
+		widths.append(panel.size.x)
+	print("smoke: planets and colonies by turns: widths %s" % str(widths))
+	for w in widths:
+		if absf(w - widths[0]) > 0.5:
+			return false
 	if not await _smoke_side_resize(panel, shots, "planets"):
 		return false
 	panel.close()
@@ -2065,6 +2078,7 @@ func _smoke_info_panel(shots: String) -> bool:
 		panel._stardate.text, panel.tab, panel.info.get("net_income_text", ""), galaxy.camera.zoom.x, zoom_before])
 	if not panel.visible or not tab.button_pressed or panel.info.is_empty() or absf(galaxy.camera.zoom.x - zoom_before) > zoom_before * 0.01:
 		return false
+	await get_tree().create_timer(2.0).timeout # the portrait's HD art
 	var names := ["history", "tech", "races", "summary", "reference"]
 	for i in 5:
 		panel._set_tab(i)

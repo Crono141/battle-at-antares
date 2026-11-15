@@ -15,6 +15,7 @@ namespace antares::commands::internal {
     namespace {
 
         constexpr int32_t k_race_portraits = 32; // RACES.LBX: a race's ruler, 32 + race
+        constexpr int32_t k_race_select_portraits = 15; // RACESEL.LBX: the race select screen's, 15 + race
         constexpr int16_t k_history_length = 350;
 
         std::string Billtext(const char* lbx, int16_t entry) {
@@ -101,9 +102,12 @@ namespace antares::commands::internal {
             JIM::Decode_Text_Stat(net_text, net, sizeof(net_text));
             out.Int("net_income", net);
             out.Str("net_income_text", Utf8(net_text, sizeof(net_text)));
+            // The race select screen's portrait (RACESEL.LBX 15 + race, 290x322: owner, 2026-11-15,
+            // RACES.LBX's 76x88 ruler came out muddy at this size), its HD art at most 2x (580x644,
+            // small enough to get mipmaps for a clean shrink).
             s_out portrait = out.Add_Object("portrait");
-            portrait.Str("lbx", "RACES.LBX");
-            portrait.Int("entry", k_race_portraits + (uint8_t)player.race);
+            portrait.Str("lbx", "RACESEL.LBX:2");
+            portrait.Int("entry", k_race_select_portraits + (uint8_t)player.race);
             out.Int("color", player.color);
         }
 

@@ -281,6 +281,12 @@ namespace antares::sprites {
                 }
             }
             Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx == "RACESEL.LBX") {
+            // The race select screen's pictures (the Info panel's portrait): the declared palette,
+            // then the entry's own colours over it, as animate::Draw applies them (without them the
+            // portrait's 128-255 came out black).
+            Declared_Palette_Rgb(lbx, entry, palette_rgb);
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
         } else {
             // Other art its own, if declared.
             Declared_Palette_Rgb(lbx, entry, palette_rgb);

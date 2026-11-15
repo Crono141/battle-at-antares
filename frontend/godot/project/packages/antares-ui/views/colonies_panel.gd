@@ -135,18 +135,22 @@ func _wanted_width(area: Rect2) -> float:
 	_job_width = MIN_JOB_WIDTH # narrow first, so the panel can shrink
 	_show_columns()
 	_show_rows()
-	var width := minf(clampf(area.size.x * 0.45, 700.0, 960.0), area.size.x - 16.0)
-	return maxf(width, get_combined_minimum_size().x + 14.0) # the scroll bar
+	return shared_width(area)
 
 
-## The width it last had on screen and the area's right edge it was for (the Planets panel takes
-## the same, owner 2026-11-15: the galaxy's zoom changed between them).
-var last_width := Vector2.ZERO
-
-
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_RESIZED and visible and not _closing and _rect.size.x > 0.0:
-		last_width = Vector2(_rect.end.x, size.x)
+## The width Colonies and Planets both take in `area` (owner, 2026-11-15: the galaxy's zoom must
+## not change between them): a share of the window, never narrower than the table with the
+## narrowest job columns. Worked out from the columns, not measured: a measure taken just after
+## the panel was resized still held its old width, and each switch between the two panels added
+## the scroll bar's room again (the panels grew and the galaxy shrank).
+func shared_width(area: Rect2) -> float:
+	var table := MIN_JOB_WIDTH * 3.0 + _buy_width() + SEPARATION * 6.0 + _row_pad(SIDE_LEFT) + _row_pad(SIDE_RIGHT)
+	for column: Dictionary in COLUMNS:
+		table += float(column.width)
+	var style := get_theme_stylebox("panel")
+	var frame := style.get_minimum_size().x if style != null else 0.0
+	var width := maxf(clampf(area.size.x * 0.45, 700.0, 960.0), table + 14.0 + frame) # the scroll bar
+	return minf(width, area.size.x - 16.0)
 
 
 ## The job columns share the table's width beyond the fixed columns, every row the same.
