@@ -2973,7 +2973,9 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 	print("smoke: build list %d items; after Cancel %d (unchanged %s); after OK %d (last '%s'); colony pane shows %d" % [before_queue.size(),
 		after_cancel.size(), after_cancel.size() == before_queue.size(), after_ok.size(), after_ok[-1].name if not after_ok.is_empty() else "",
 		colony_pane.colony.build.queue.size()])
-	if after_cancel.size() != before_queue.size() or after_ok.size() != before_queue.size() + 1:
+	# A full list (7, the game's slots) can't take the item: OK leaves it as it was.
+	var wanted_after_ok := mini(before_queue.size() + 1, 7)
+	if after_cancel.size() != before_queue.size() or after_ok.size() != wanted_after_ok:
 		await host.smoke_fail("the build pane's Cancel or OK did not do what it should")
 		return false
 	# A ship design from Units: at OK the game makes its ship (queued as -100 - ship).
