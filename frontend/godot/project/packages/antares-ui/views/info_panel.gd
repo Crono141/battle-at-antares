@@ -360,7 +360,6 @@ func _show_race_stats(result: Dictionary) -> void:
 			line.add_theme_font_size_override("font_size", 13)
 			line.mouse_filter = Control.MOUSE_FILTER_STOP
 			line.mouse_default_cursor_shape = Control.CURSOR_HELP
-			line.tooltip_text = "Click: what this means"
 			var topic := int(trait_line.help)
 			line.gui_input.connect(func(event: InputEvent):
 				var mb := event as InputEventMouseButton

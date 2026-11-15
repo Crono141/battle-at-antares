@@ -417,7 +417,6 @@ func _show_governor() -> void:
 		# A right click shows the skill's help, as on the leaders screen (owner); a left click
 		# still goes to the governor block (the leaders).
 		line.mouse_filter = Control.MOUSE_FILTER_PASS
-		line.tooltip_text = "Right click for what it does"
 		var help_title := String(skill.name)
 		var help_text := String(skill.get("description", ""))
 		line.gui_input.connect(func(event: InputEvent):

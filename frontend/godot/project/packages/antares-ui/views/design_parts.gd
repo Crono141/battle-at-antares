@@ -18,6 +18,7 @@ const MARK_WIDTH := 16.0
 const NAME_WIDTH := 150.0
 const COLUMN_WIDTHS := [52.0, 30.0, 42.0] # damage, BC, space
 const ARC_TIPS := ["Forward", "Forward extended", "Back extended", "Back", "360 degrees"]
+const ARC_LINES := ["FORWARD\n ", "FORWARD\nEXTENDED", "BACK\nEXTENDED", "BACK\n ", "360°\n "] # two lines each: one height
 const MARKS := {"beam": ["●", Color(0.91, 0.56, 0.16)], "missile": ["▲", Color(1.0, 0.42, 0.6)], "bomb": ["■", Color(0.61, 0.55, 1.0)],
 	"special": ["✦", Color(0.95, 0.85, 0.35)], "systems": ["◆", Color(0.35, 0.63, 1.0)]}
 
@@ -315,18 +316,20 @@ func _weapon_card(w: Dictionary) -> void:
 		_dial.arc = arc
 		_dial.custom_minimum_size = Vector2(84, 84)
 		_dial.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		_dial.tooltip_text = "Left click: the next firing arc · right click: the one before"
 		_dial.gui_input.connect(func(event: InputEvent):
 			var mb := event as InputEventMouseButton
 			if mb and mb.pressed and mb.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
 				arc = posmod(arc + (1 if mb.button_index == MOUSE_BUTTON_LEFT else -1), 5)
 				_dial.arc = arc
-				_dial_label.text = ARC_TIPS[arc].to_upper()
+				_dial_label.text = ARC_LINES[arc]
 				_dial.accept_event()
 				_ask_preview())
 		dial_box.add_child(_dial)
 		_dial_label = Label.new()
-		_dial_label.text = ARC_TIPS[arc].to_upper()
+		_dial_label.text = ARC_LINES[arc]
+		# Two lines, always (owner: FORWARD EXTENDED, the widest, moved the card when picked).
+		_dial_label.custom_minimum_size = Vector2(84, 28)
+		_dial_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 		_dial_label.theme_type_variation = &"Name"
 		_dial_label.add_theme_font_size_override("font_size", 11)
 		_dial_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -374,7 +377,6 @@ func _weapon_card(w: Dictionary) -> void:
 		var mod := int(m.mod)
 		var b := _toggle(String(m.name).to_upper(), mod in mods)
 		b.add_theme_font_size_override("font_size", 10)
-		b.tooltip_text = "Right click: what it does"
 		var help := int(m.get("help", -1))
 		b.gui_input.connect(func(event: InputEvent):
 			var mb := event as InputEventMouseButton
@@ -490,7 +492,6 @@ func _line(e: Dictionary, on_pick: Callable) -> Button:
 	b.theme_type_variation = &"ListItem"
 	b.custom_minimum_size.y = 26
 	b.set_pressed_no_signal(bool(e.picked))
-	b.tooltip_text = "%s\n%s\nRight click: more" % [String(e.name), String(e.note)]
 	b.pressed.connect(on_pick)
 	var app := int(e.get("app", -1))
 	b.gui_input.connect(func(event: InputEvent):

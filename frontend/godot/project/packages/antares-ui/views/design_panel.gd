@@ -113,9 +113,17 @@ func _ready() -> void:
 	picture_box.add_theme_constant_override("separation", 2)
 	picture_frame.add_child(picture_box)
 	for step in [-1, 1]:
-		var b := _button("◀" if step < 0 else "▶", "The hull's previous picture" if step < 0 else "The hull's next picture")
-		b.custom_minimum_size = Vector2(22, 0)
-		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		# Tall and narrow, the picture's full height (owner, 2026-11-15).
+		var b := _button("◀" if step < 0 else "▶", "")
+		b.custom_minimum_size = Vector2(14, 0)
+		b.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 10)
+		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+			b.add_theme_stylebox_override(state, _arrow_style(state))
+		b.add_theme_color_override("font_color", Color(0.85, 0.88, 0.93))
+		b.add_theme_color_override("font_hover_color", Color(1.0, 0.75, 0.35))
+		b.add_theme_color_override("font_pressed_color", Color(1.0, 0.65, 0.23))
+		b.add_theme_color_override("font_disabled_color", Color(0.35, 0.38, 0.45))
 		var s: int = step
 		b.pressed.connect(func(): _edit({"picture": s}))
 		b.name = "Prev" if step < 0 else "Next"
@@ -452,7 +460,6 @@ func _weapon_row(w: Dictionary) -> Control:
 	glyph.arc = int(w.arc) if String(w.category) == "beam" else 4
 	glyph.custom_minimum_size = Vector2(22, 22)
 	glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	glyph.tooltip_text = "Fires: %s" % ARC_TIPS[glyph.arc]
 	glyph.mouse_filter = Control.MOUSE_FILTER_PASS
 	line.add_child(glyph)
 	var row_slot := int(w.slot)
@@ -482,7 +489,6 @@ func _weapon_row(w: Dictionary) -> Control:
 	name_button.clip_text = true
 	var mods: Array = (w.mods as Array).map(func(m: Dictionary) -> String: return String(m.name))
 	name_button.text = String(w.name) + ((" (%d)" % int(w.ammo)) if int(w.get("ammo", 0)) > 0 else "") + (("  · " + ", ".join(mods)) if not mods.is_empty() else "")
-	name_button.tooltip_text = "%s\nClick: change its arc or mods in the parts list" % String(w.get("notes", ""))
 	name_button.pressed.connect(func(): _open_parts_on_weapon(w))
 	line.add_child(name_button)
 	var detail := _dim("%s · %d BC · %d sp" % [String(w.damage), int(w.cost), int(w.space)])
@@ -642,6 +648,20 @@ func _button(text: String, tip: String) -> Button:
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size.y = 30
 	return b
+
+
+## A slim stylebox for the picture's arrows: no side margins, a faint edge, lighter under the pointer.
+static func _arrow_style(state: String) -> StyleBox:
+	var style := StyleBoxFlat.new()
+	style.content_margin_left = 0
+	style.content_margin_right = 0
+	style.set_corner_radius_all(3)
+	style.set_border_width_all(1)
+	style.bg_color = Color(0.09, 0.11, 0.17, 0.9) if state != "hover" else Color(0.16, 0.2, 0.3, 0.95)
+	style.border_color = Color(0.3, 0.35, 0.47) if state != "pressed" else Color(0.91, 0.56, 0.16)
+	if state == "disabled":
+		style.bg_color = Color(0.06, 0.07, 0.1, 0.6)
+	return style
 
 
 func _clear(holder: Control) -> void:

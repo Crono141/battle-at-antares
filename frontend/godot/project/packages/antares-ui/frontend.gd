@@ -2143,6 +2143,21 @@ func _smoke_design_panel(shots: String) -> bool:
 	print("smoke: design: dial clicked: arc %d (was 3), card rebuilt %s" % [parts.arc, card.get_child(0) != first_child])
 	if parts._dial != null and (parts.arc != 4 or card.get_child(0) != first_child):
 		return false
+	# All five arcs: the card keeps its size (owner: FORWARD EXTENDED, the widest, moved it).
+	if parts._dial != null:
+		var sizes: Array[Vector2] = []
+		for i in 5:
+			var turn := InputEventMouseButton.new()
+			turn.button_index = MOUSE_BUTTON_LEFT
+			turn.pressed = true
+			parts._dial.gui_input.emit(turn)
+			await get_tree().process_frame
+			await get_tree().process_frame
+			sizes.append(parts._card_frame.size)
+		print("smoke: design: card size through the arcs %s" % str(sizes))
+		for v in sizes:
+			if v != sizes[0]:
+				return false
 	parts.arc = 3
 	if parts._dial != null:
 		parts._dial.arc = 3
