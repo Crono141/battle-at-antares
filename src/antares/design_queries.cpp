@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "antares/native.h"
 
 #include <algorithm>
 #include <cstring>
@@ -23,6 +24,7 @@ namespace antares::commands::internal {
         constexpr int16_t k_weapon_ids = 40;
         constexpr int16_t k_special_ids = 39;
         constexpr int16_t k_slots = 8;
+        constexpr int16_t k_design_music = 8; // STREAM.LBX 8: the design theme (Draw_Design_Screen)
 
         s_current_design s_work;
         bool s_open = false;
@@ -318,6 +320,7 @@ namespace antares::commands::internal {
             s_slot = (int16_t)slot;
             s_name_changed = false;
             s_open = true;
+            native::Hold_Music(k_design_music);
             s_scope scope;
             DESIGN::Build_Initial_Design_Template(MOX::PLAYER_NUM, s_slot);
             Recalculate();
@@ -612,11 +615,13 @@ namespace antares::commands::internal {
             out.Str("name", Utf8(MOX::player[MOX::PLAYER_NUM].ship_designs[s_slot].name, 16));
             out.Bool("built", true);
             s_open = false;
+            native::Hold_Music(-1);
         }
 
         // design_cancel: CANCEL (the working copy dropped).
         void Design_Cancel(int16_t, const s_args&, s_out& out) {
             s_open = false;
+            native::Hold_Music(-1);
             out.Bool("cancelled", true);
         }
 

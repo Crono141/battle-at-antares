@@ -1,13 +1,13 @@
 extends "side_panel.gd"
-## Ship Design (WP3.6, the owner's mockup B2): the legacy designer as one panel that flies out from
-## the right over the galaxy, no sub-screens. The name beside the title, the hull SIZE drop-down;
-## drive, armour, shield and computer in a column beside a large ship picture (◀ ▶ through the
-## hull's pictures); the space bar (weapons, specials) and the cost; the weapon rows (a firing-arc
-## glyph, − count +, the mods) and "+ Add a weapon", which opens in place: BEAM / MISSILE / BOMB /
-## SPECIAL, the weapons, the arc glyphs (or a missile's rack), the mods, what it takes, ADD; the
-## fitted specials and "+ Add a special", open in place: grouped as the tech review groups them,
-## FIND, FITS NOW, ADD. CLEAR, CANCEL (Esc), BUILD (when the ship fits). Every edit is the game's
-## (the design_* commands on a working copy); BUILD writes the slot.
+## Ship Design (WP3.6; the owner, 2026-11-15: mockup B2's top half, C's bottom half and its parts
+## list): the legacy designer as a panel that flies out from the right over the galaxy, no
+## sub-screens. The name beside the title, the hull SIZE drop-down; drive, armour, shield and
+## computer in a column beside a large ship picture (◀ ▶ through the hull's pictures); the space bar
+## and the cost; then what is fitted (weapons with their arc glyph, − n× +, mods, ✕; specials, ✕)
+## and + ADD WEAPON / + ADD SPECIAL, which bring the parts list (design_parts.gd) out to the left of
+## the panel (a fitted part's name too, to change it). CLEAR, CANCEL (Esc), BUILD (when the ship
+## fits). Every edit is the game's (the design_* commands on a working copy); BUILD writes the slot.
+## The design theme plays while it is open (design_open holds the music).
 
 signal command(dict: Dictionary)
 signal width_changed
@@ -15,12 +15,10 @@ signal width_changed
 signal built(slot: int)
 
 const Themes := preload("../themes.gd")
+const ArcGlyph := preload("arc_glyph.gd")
+const Parts := preload("design_parts.gd")
 const WIDTH := 640.0
-const CATEGORIES := ["beam", "missile", "bomb", "special"]
-const ARC_NAMES := ["FWD", "EXT", "B·EXT", "BACK", "360°"]
 const ARC_TIPS := ["Forward", "Forward extended", "Back extended", "Back", "360 degrees"]
-const WEAPON_COLOR := Color(0.91, 0.56, 0.16)
-const SPECIAL_COLOR := Color(0.35, 0.63, 1.0)
 
 var art: Node
 var design := {}
@@ -29,21 +27,8 @@ var _weapons: Array = [] # design_weapons
 var _specials: Array = [] # design_specials
 var _systems := {} # design_systems
 
-## The weapon picker, open in place: its category, the picked weapon, its arc, rack and mods, and
-## the row it replaces (-1: a new row).
-var _adding_weapon := false
-var _category := "beam"
-var _pick_weapon := -1
-var _pick_arc := 0
-var _pick_rack := 1
-var _pick_mods: Array[int] = []
-var _replace_slot := -1
-var _preview := {}
-## The special picker, open in place.
-var _adding_special := false
-var _pick_special := -1
-var _fits_only := true
-var _find := ""
+## The parts list (design_parts.gd), beside the panel while it is out.
+var _parts: Control
 
 var _name: LineEdit
 var _size: OptionButton
@@ -208,8 +193,8 @@ func _ready() -> void:
 func open_panel(area: Rect2, design_slot: int) -> void:
 	slot = design_slot
 	design = {}
-	_adding_weapon = false
-	_adding_special = false
+	if _parts != null:
+		_parts.hide()
 	_message.visible = false
 	var width := _wanted_width(area)
 	open_in(Rect2(area.end.x - width, area.position.y, width, area.size.y))
@@ -235,6 +220,8 @@ func close() -> void:
 	if visible and not _closing and not _closing_quietly:
 		command.emit({"verb": "design_cancel"})
 	_closing_quietly = false
+	if _parts != null:
+		_parts.hide()
 	super.close()
 
 
@@ -307,13 +294,15 @@ func show_design(result: Dictionary) -> void:
 func _on_weapons(result: Dictionary) -> void:
 	if result.get("ok", false):
 		_weapons = result.weapons
-		if _adding_weapon:
-			_show_body()
+		if _parts != null:
+			_parts.set_data(design, _weapons, _specials)
 
 
 func _on_specials(result: Dictionary) -> void:
 	if result.get("ok", false):
 		_specials = result.specials
+		if _parts != null:
+			_parts.set_data(design, _weapons, _specials)
 		_show_body()
 
 
@@ -411,55 +400,60 @@ func _system_choice(title: String, key: String, items: Array, current: int, deta
 	return row
 
 
-# ---- Weapons and specials ----
+# ---- What is fitted (the owner's mockup C) ----
 
 func _show_body() -> void:
 	_clear(_body)
 	if design.is_empty():
 		return
-	_body.add_child(_heading("Weapons"))
+	_body.add_child(_heading("Fitted"))
 	for w: Dictionary in design.weapons:
 		_body.add_child(_weapon_row(w))
-	if _adding_weapon:
-		_body.add_child(_weapon_picker())
-	elif design.get("weapon_slot_free", true):
-		_body.add_child(_add_line("+ Add a weapon", "", func():
-			_adding_weapon = true
-			_adding_special = false
-			_replace_slot = -1
-			_pick_weapon = -1
-			_show_body()))
-	_body.add_child(_heading("Specials"))
 	for sp: Dictionary in design.specials:
 		_body.add_child(_special_row(sp))
-	if _adding_special:
-		_body.add_child(_special_picker())
-	elif design.get("special_slot_free", true):
-		var fit := 0
-		var need := 0
-		for sp: Dictionary in _specials:
-			if sp.get("fitted", false) or sp.has("excluded_by"):
-				continue
-			if sp.get("fits", false):
-				fit += 1
-			else:
-				need += 1
-		_body.add_child(_add_line("+ Add a special", "%d fit · %d more need room" % [fit, need], func():
-			_adding_special = true
-			_adding_weapon = false
-			_pick_special = -1
-			_show_body()))
+	if (design.weapons as Array).is_empty() and (design.specials as Array).is_empty():
+		_body.add_child(_dim("Nothing fitted yet: + ADD WEAPON or + ADD SPECIAL opens the parts list."))
+	var adds := HBoxContainer.new()
+	adds.add_theme_constant_override("separation", 8)
+	_body.add_child(adds)
+	var add_weapon := _button("+ ADD WEAPON", "The parts list, its weapons")
+	add_weapon.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_weapon.disabled = not design.get("weapon_slot_free", true)
+	add_weapon.pressed.connect(func(): _open_parts("weapons"))
+	adds.add_child(add_weapon)
+	var fit := 0
+	for sp: Dictionary in _specials:
+		if not sp.get("fitted", false) and not sp.has("excluded_by") and sp.get("fits", false):
+			fit += 1
+	var add_special := _button("+ ADD SPECIAL", "The parts list, its specials (%d fit now)" % fit)
+	add_special.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_special.disabled = not design.get("special_slot_free", true)
+	add_special.pressed.connect(func(): _open_parts("systems"))
+	adds.add_child(add_special)
+
+
+func _mark(kind: String) -> Label:
+	var marks: Dictionary = Parts.MARKS
+	var mark: Array = marks.get(kind, marks.systems)
+	var label := Label.new()
+	label.text = String(mark[0])
+	label.add_theme_color_override("font_color", mark[1])
+	label.custom_minimum_size.x = 14
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return label
 
 
 func _weapon_row(w: Dictionary) -> Control:
 	var row := PanelContainer.new()
-	row.theme_type_variation = &"Row"
+	var editing: bool = _parts != null and _parts.visible and _parts.replace_slot == int(w.slot)
+	row.theme_type_variation = &"RowOpen" if editing else &"Row"
 	var line := HBoxContainer.new()
 	line.add_theme_constant_override("separation", 6)
 	row.add_child(line)
-	var glyph := _ArcGlyph.new()
+	line.add_child(_mark(String(w.category)))
+	var glyph := ArcGlyph.new()
 	glyph.arc = int(w.arc) if String(w.category) == "beam" else 4
-	glyph.custom_minimum_size = Vector2(24, 24)
+	glyph.custom_minimum_size = Vector2(22, 22)
 	glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	glyph.tooltip_text = "Fires: %s" % ARC_TIPS[glyph.arc]
 	glyph.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -468,19 +462,19 @@ func _weapon_row(w: Dictionary) -> Control:
 	var minus := _button("−", "One fewer")
 	minus.custom_minimum_size = Vector2(26, 24)
 	minus.disabled = int(w.count) <= 1
-	minus.pressed.connect(func(): _send({"verb": "design_weapon_count", "slot": row_slot, "delta": -1}))
+	minus.pressed.connect(func(): weapon_count(row_slot, -1))
 	line.add_child(minus)
 	var count := Label.new()
 	count.theme_type_variation = &"Name"
-	count.text = str(int(w.count))
-	count.custom_minimum_size.x = 22
+	count.text = "%d×" % int(w.count)
+	count.custom_minimum_size.x = 30
 	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	line.add_child(count)
 	var plus := _button("+", "One more")
 	plus.custom_minimum_size = Vector2(26, 24)
 	plus.disabled = not w.get("can_add", false)
 	plus.tooltip_text = "One more" if not plus.disabled else "No room for one more"
-	plus.pressed.connect(func(): _send({"verb": "design_weapon_count", "slot": row_slot, "delta": 1}))
+	plus.pressed.connect(func(): weapon_count(row_slot, 1))
 	line.add_child(plus)
 	var name_button := Button.new()
 	name_button.flat = true
@@ -491,17 +485,14 @@ func _weapon_row(w: Dictionary) -> Control:
 	name_button.clip_text = true
 	var mods: Array = (w.mods as Array).map(func(m: Dictionary) -> String: return String(m.name))
 	name_button.text = String(w.name) + ((" (%d)" % int(w.ammo)) if int(w.get("ammo", 0)) > 0 else "") + (("  · " + ", ".join(mods)) if not mods.is_empty() else "")
-	name_button.tooltip_text = "%s\nClick: change its arc or mods" % String(w.get("notes", ""))
-	name_button.pressed.connect(func(): _open_weapon_picker_for(w))
+	name_button.tooltip_text = "%s\nClick: change its arc or mods in the parts list" % String(w.get("notes", ""))
+	name_button.pressed.connect(func(): _open_parts_on_weapon(w))
 	line.add_child(name_button)
-	var detail := Label.new()
-	detail.theme_type_variation = &"Dim"
-	detail.text = "%s · %d BC · %d sp" % [String(w.damage), int(w.cost), int(w.space)]
+	var detail := _dim("%s · %d BC · %d sp" % [String(w.damage), int(w.cost), int(w.space)])
 	detail.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	detail.clip_text = true
 	detail.custom_minimum_size.x = 120
 	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	detail.add_theme_font_size_override("font_size", 12)
 	line.add_child(detail)
 	var remove := _button("✕", "Remove this weapon")
 	remove.custom_minimum_size = Vector2(26, 24)
@@ -510,240 +501,30 @@ func _weapon_row(w: Dictionary) -> Control:
 	return row
 
 
-func _open_weapon_picker_for(w: Dictionary) -> void:
-	_adding_weapon = true
-	_adding_special = false
-	_replace_slot = int(w.slot)
-	_pick_weapon = int(w.weapon)
-	_category = String(w.category)
-	_pick_arc = int(w.arc)
-	_pick_mods.clear()
-	for m: Dictionary in w.mods:
-		_pick_mods.append(int(m.mod))
-	_pick_rack = _rack_of(int(w.weapon), int(w.get("ammo", 0)))
-	_request_preview()
-	_show_body()
-
-
-func _rack_of(weapon: int, ammo: int) -> int:
-	var entry := _weapon_entry(weapon)
-	var racks: Array = entry.get("racks", [])
-	var found := racks.find(ammo)
-	return found if found >= 0 else int(entry.get("rack", 1))
-
-
-func _weapon_entry(weapon: int) -> Dictionary:
-	for w: Dictionary in _weapons:
-		if int(w.weapon) == weapon:
-			return w
-	return {}
-
-
-## "+ Add a weapon", open: the categories, the weapons, then the picked one's arc (or rack), mods,
-## what it takes and ADD (REPLACE for a fitted row).
-func _weapon_picker() -> Control:
-	var frame := _open_frame()
-	var box: VBoxContainer = frame.get_child(0)
-	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 4)
-	box.add_child(top)
-	var title := Label.new()
-	title.theme_type_variation = &"Name"
-	title.text = "+ Add a weapon" if _replace_slot < 0 else "Change the weapon"
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top.add_child(title)
-	for c: String in CATEGORIES:
-		var b := _small_toggle(c.to_upper(), _category == c)
-		var cat := c
-		b.pressed.connect(func():
-			_category = cat
-			_show_body())
-		top.add_child(b)
-	box.add_child(_pick_header(["WEAPON", "DMG", "BC", "SPACE"]))
-	var listed := 0
-	var picked := _weapon_entry(_pick_weapon)
-	for w: Dictionary in _weapons:
-		if String(w.category) != _category:
-			continue
-		listed += 1
-		var id := int(w.weapon)
-		var line := _pick_line([String(w.name), String(w.damage), str(int(w.cost)), str(int(w.space))], id == _pick_weapon,
-			not w.get("fits", false) and _replace_slot < 0, String(w.notes))
-		line.pressed.connect(func():
-			_pick_weapon = id
-			_pick_arc = 0
-			_pick_mods.clear()
-			_pick_rack = int(w.get("rack", 1))
-			_request_preview()
-			_show_body())
-		box.add_child(line)
-		if id == _pick_weapon:
-			box.add_child(_weapon_options(picked)) # right under it, not past the end of a long list
-	if listed == 0:
-		box.add_child(_dim("None researched"))
-	if picked.is_empty() or String(picked.category) != _category:
-		var bottom := HBoxContainer.new()
-		bottom.add_theme_constant_override("separation", 6)
-		box.add_child(bottom)
-		var hint := _dim("Pick a weapon")
-		hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		bottom.add_child(hint)
-		bottom.add_child(_picker_cancel())
-	return frame
-
-
-func _picker_cancel() -> Button:
-	var cancel := _button("CANCEL", "Close the weapon list")
-	cancel.pressed.connect(func():
-		_adding_weapon = false
-		_show_body())
-	return cancel
-
-
-## The picked weapon's arc glyphs (beams) or shots (missiles), its mods, what it takes, ADD.
-func _weapon_options(picked: Dictionary) -> Control:
-	var holder := PanelContainer.new()
-	holder.theme_type_variation = &"Row"
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
-	holder.add_child(box)
-	var options := HBoxContainer.new()
-	options.add_theme_constant_override("separation", 8)
-	box.add_child(options)
-	if picked.get("arcs", false):
-		var arcs := HBoxContainer.new()
-		arcs.add_theme_constant_override("separation", 3)
-		options.add_child(arcs)
-		for i in 5:
-			var b := Button.new()
-			b.toggle_mode = true
-			b.focus_mode = Control.FOCUS_NONE
-			b.custom_minimum_size = Vector2(46, 50)
-			b.tooltip_text = ARC_TIPS[i]
-			b.set_pressed_no_signal(i == _pick_arc)
-			Themes.glowing(b)
-			Themes.glow(b)
-			var glyph := _ArcGlyph.new()
-			glyph.arc = i
-			glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			glyph.offset_left = 9
-			glyph.offset_right = -9
-			glyph.offset_top = 3
-			glyph.offset_bottom = -17
-			b.add_child(glyph)
-			var label := Label.new()
-			label.text = ARC_NAMES[i]
-			label.add_theme_font_size_override("font_size", 9)
-			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-			label.offset_top = -16
-			label.offset_bottom = -2
-			b.add_child(label)
-			var arc := i
-			b.pressed.connect(func():
-				_pick_arc = arc
-				_request_preview()
-				_show_body())
-			arcs.add_child(b)
-	elif picked.has("racks"):
-		var racks := HBoxContainer.new()
-		racks.add_theme_constant_override("separation", 3)
-		options.add_child(racks)
-		racks.add_child(_dim("SHOTS"))
-		for i in (picked.racks as Array).size():
-			var b := _small_toggle(str(int(picked.racks[i])), i == _pick_rack)
-			b.tooltip_text = "%d shots a combat" % int(picked.racks[i])
-			var r := i
-			b.pressed.connect(func():
-				_pick_rack = r
-				_request_preview()
-				_show_body())
-			racks.add_child(b)
-	var mods := HFlowContainer.new()
-	mods.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mods.add_theme_constant_override("h_separation", 3)
-	mods.add_theme_constant_override("v_separation", 3)
-	options.add_child(mods)
-	for m: Dictionary in picked.get("mods", []):
-		var mod := int(m.mod)
-		var b := _small_toggle(String(m.name).to_upper(), mod in _pick_mods)
-		b.add_theme_font_size_override("font_size", 10)
-		b.pressed.connect(func():
-			if mod in _pick_mods:
-				_pick_mods.erase(mod)
-			else:
-				_pick_mods.append(mod)
-			_request_preview()
-			_show_body())
-		mods.add_child(b)
-	if (picked.get("mods", []) as Array).is_empty() and not picked.get("arcs", false) and not picked.has("racks"):
-		mods.add_child(_dim(String(picked.notes)))
-	var bottom := HBoxContainer.new()
-	bottom.add_theme_constant_override("separation", 6)
-	box.add_child(bottom)
-	var summary := _dim(_preview_text(picked))
-	summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	bottom.add_child(summary)
-	bottom.add_child(_picker_cancel())
-	var add := _button("ADD" if _replace_slot < 0 else "REPLACE", "Fit the picked weapon")
-	add.pressed.connect(func():
-		_adding_weapon = false
-		_send({"verb": "design_weapon", "slot": _replace_slot, "weapon": _pick_weapon, "arc": _pick_arc, "rack": _pick_rack, "mods": _pick_mods.duplicate()}))
-	bottom.add_child(add)
-	return holder
-
-
-func _request_preview() -> void:
-	if _pick_weapon > 0:
-		command.emit({"verb": "query", "what": "design_weapon_preview", "weapon": _pick_weapon, "arc": _pick_arc, "rack": _pick_rack,
-			"mods": _pick_mods.duplicate(), "_reply_to": "_on_preview"})
-
-
-func _on_preview(result: Dictionary) -> void:
-	if result.get("ok", false) and int(result.weapon) == _pick_weapon:
-		_preview = result
-		if _adding_weapon:
-			_show_body()
-
-
-func _preview_text(picked: Dictionary) -> String:
-	if picked.is_empty():
-		return "Pick a weapon"
-	if _preview.is_empty() or int(_preview.get("weapon", -1)) != _pick_weapon:
-		return String(picked.notes)
-	var text := "%s: %s dmg · %d BC · %d space" % [String(picked.name), String(_preview.damage), int(_preview.cost), int(_preview.space)]
-	if picked.get("arcs", false):
-		text = "%s, %s" % [text, ARC_TIPS[_pick_arc].to_lower()]
-	if _replace_slot < 0:
-		text += " · %d free after" % int(_preview.free_after) if int(_preview.free_after) >= 0 else " · %d too many" % -int(_preview.free_after)
-	return text
-
-
 func _special_row(sp: Dictionary) -> Control:
 	var row := PanelContainer.new()
 	row.theme_type_variation = &"Row"
 	var line := HBoxContainer.new()
-	line.add_theme_constant_override("separation", 8)
+	line.add_theme_constant_override("separation", 6)
 	row.add_child(line)
-	var dot := Label.new()
-	dot.text = "◆"
-	dot.add_theme_color_override("font_color", SPECIAL_COLOR)
-	line.add_child(dot)
-	var name_label := Label.new()
-	name_label.text = String(sp.name)
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.clip_text = true
-	name_label.tooltip_text = String(sp.description)
-	name_label.mouse_filter = Control.MOUSE_FILTER_PASS
-	line.add_child(name_label)
+	line.add_child(_mark("systems"))
+	var name_button := Button.new()
+	name_button.flat = true
+	name_button.theme_type_variation = &"ListItem"
+	name_button.focus_mode = Control.FOCUS_NONE
+	name_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	name_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_button.clip_text = true
+	name_button.text = String(sp.name)
+	name_button.tooltip_text = String(sp.description)
+	var id := int(sp.special)
+	name_button.pressed.connect(func(): _open_parts_on_special(id))
+	line.add_child(name_button)
 	var detail := _dim("%s · %d sp" % [String(sp.description), int(sp.space)])
-	detail.add_theme_font_size_override("font_size", 12)
 	detail.clip_text = true
 	detail.custom_minimum_size.x = 220
 	detail.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	line.add_child(detail)
 	var row_slot := int(sp.slot)
 	var remove := _button("✕", "Remove this special")
@@ -753,129 +534,86 @@ func _special_row(sp: Dictionary) -> Control:
 	return row
 
 
-## "+ Add a special", open: FIND and FITS NOW, the researched specials in the tech review's groups
-## (dimmed: no room, or ruled out by a fitted one), the picked one's line and ADD.
-func _special_picker() -> Control:
-	var frame := _open_frame()
-	var box: VBoxContainer = frame.get_child(0)
-	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 6)
-	box.add_child(top)
-	var title := Label.new()
-	title.theme_type_variation = &"Name"
-	title.text = "+ Add a special"
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top.add_child(title)
-	var find := LineEdit.new()
-	find.placeholder_text = "find: name or effect"
-	find.custom_minimum_size.x = 130
-	find.text = _find
-	find.text_changed.connect(func(t: String):
-		_find = t
-		_refresh_special_rows(box))
-	top.add_child(find)
-	var fits := _small_toggle("FITS NOW", _fits_only)
-	fits.tooltip_text = "Only the specials that fit the space left"
-	fits.pressed.connect(func():
-		_fits_only = not _fits_only
-		_show_body())
-	top.add_child(fits)
-	box.add_child(_pick_header(["SYSTEM", "EFFECT", "SPACE", "BC"], true))
-	var rows := VBoxContainer.new()
-	rows.name = "Rows"
-	rows.add_theme_constant_override("separation", 2)
-	box.add_child(rows)
-	_fill_special_rows(rows)
-	var bottom := HBoxContainer.new()
-	box.add_child(bottom)
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bottom.add_child(spacer)
-	var cancel := _button("CANCEL", "Close the special list")
-	cancel.pressed.connect(func():
-		_adding_special = false
-		_show_body())
-	bottom.add_child(cancel)
-	return frame
+# ---- The parts list beside the panel ----
+
+func _ensure_parts() -> void:
+	if _parts != null:
+		return
+	_parts = Parts.new()
+	_parts.panel = self
+	_parts.art = art
+	_parts.visible = false
+	get_parent().add_child(_parts)
+	_parts.set_data(design, _weapons, _specials)
 
 
-func _refresh_special_rows(box: VBoxContainer) -> void:
-	var rows: VBoxContainer = box.get_node("Rows")
-	_clear(rows)
-	_fill_special_rows(rows)
+func _open_parts(kind: String) -> void:
+	_ensure_parts()
+	_parts.set_data(design, _weapons, _specials)
+	_parts.open_for(kind)
+	_place_parts()
+	_show_body()
 
 
-func _fill_special_rows(rows: VBoxContainer) -> void:
-	var groups := {}
-	var order: Array[String] = []
-	var needle := _find.strip_edges().to_lower()
-	for sp: Dictionary in _specials:
-		if sp.get("fitted", false):
-			continue
-		if _fits_only and not sp.get("fits", false):
-			continue
-		if needle != "" and not (String(sp.name).to_lower().contains(needle) or String(sp.description).to_lower().contains(needle)):
-			continue
-		var group := String(sp.get("group", "")).strip_edges()
-		if group == "":
-			group = "Other"
-		if not groups.has(group):
-			groups[group] = []
-			order.append(group)
-		(groups[group] as Array).append(sp)
-	for group: String in order:
-		var heading := _dim(group.to_upper())
-		heading.add_theme_font_size_override("font_size", 11)
-		rows.add_child(heading)
-		for sp: Dictionary in groups[group]:
-			var id := int(sp.special)
-			var note := String(sp.description)
-			if sp.has("excluded_by"):
-				note = "⇄ " + String(sp.excluded_by)
-			elif not sp.get("fits", false):
-				note = "needs %d · %s" % [int(sp.space), note]
-			var line := _pick_line([String(sp.name), note, str(int(sp.space)), str(int(sp.cost))], id == _pick_special,
-				sp.has("excluded_by") or not sp.get("fits", false), String(sp.description), true)
-			line.pressed.connect(func():
-				_pick_special = id
-				_show_body())
-			rows.add_child(line)
-			if id == _pick_special:
-				rows.add_child(_special_options(sp)) # right under it
-	if order.is_empty():
-		rows.add_child(_dim("Nothing here" + (" fits the space left: turn FITS NOW off to see all" if _fits_only else "")))
+func _open_parts_on_weapon(w: Dictionary) -> void:
+	_ensure_parts()
+	_parts.set_data(design, _weapons, _specials)
+	_parts.open_for_weapon(w)
+	_place_parts()
+	_show_body()
 
 
-## The picked special's line: what it does and takes, ADD.
-func _special_options(sp: Dictionary) -> Control:
-	var holder := PanelContainer.new()
-	holder.theme_type_variation = &"Row"
-	var line := HBoxContainer.new()
-	line.add_theme_constant_override("separation", 6)
-	holder.add_child(line)
-	var free_after := int(design.hull_space) - int(design.space_used) - int(sp.space)
-	var text := "%s · %d space · %d BC · %s" % [String(sp.description), int(sp.space), int(sp.cost),
-		("%d free after" % free_after) if free_after >= 0 else ("%d too many" % -free_after)]
-	if sp.has("excluded_by"):
-		text = "Can't go with %s, which is fitted" % String(sp.excluded_by)
-	var summary := _dim(text)
-	summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	line.add_child(summary)
-	var add := _button("ADD", "Fit this special")
-	add.disabled = sp.has("excluded_by")
-	add.pressed.connect(func():
-		_adding_special = false
-		_send({"verb": "design_special", "slot": -1, "special": _pick_special}))
-	line.add_child(add)
-	return holder
+func _open_parts_on_special(id: int) -> void:
+	_ensure_parts()
+	_parts.set_data(design, _weapons, _specials)
+	_parts.open_for_special(id)
+	_place_parts()
 
 
-func _special_entry(special: int) -> Dictionary:
-	for sp: Dictionary in _specials:
-		if int(sp.special) == special:
-			return sp
-	return {}
+## Against the panel's left edge, as tall as the panel.
+func _place_parts() -> void:
+	if _parts == null or not _parts.visible:
+		return
+	var width := maxf(Parts.WIDTH, _parts.get_combined_minimum_size().x)
+	_parts.size = Vector2(width, size.y)
+	_parts.position = Vector2(position.x - width - 8.0, position.y)
+
+
+func _process(_delta: float) -> void:
+	if _parts != null and _parts.visible:
+		if not visible:
+			_parts.hide()
+		else:
+			_place_parts()
+
+
+## The parts list's X (it folds away; the rows show nothing being changed).
+func parts_folded() -> void:
+	_show_body()
+
+
+func ask_preview(args: Dictionary) -> void:
+	args["verb"] = "query"
+	args["what"] = "design_weapon_preview"
+	args["_reply_to"] = "_on_preview"
+	command.emit(args)
+
+
+func _on_preview(result: Dictionary) -> void:
+	if result.get("ok", false) and _parts != null:
+		_parts.set_preview(result)
+
+
+func add_weapon(replace_slot: int, weapon: int, arc: int, rack: int, mods: Array) -> void:
+	_send({"verb": "design_weapon", "slot": replace_slot, "weapon": weapon, "arc": arc, "rack": rack, "mods": mods})
+
+
+func add_special(special: int) -> void:
+	_send({"verb": "design_special", "slot": -1, "special": special})
+
+
+func weapon_count(row_slot: int, delta: int) -> void:
+	_send({"verb": "design_weapon_count", "slot": row_slot, "delta": delta})
 
 
 # ---- Pieces ----
@@ -896,102 +634,6 @@ func _dim(text: String) -> Label:
 	return label
 
 
-## A collapsed "+ Add ..." line (the button opens its picker in place).
-func _add_line(text: String, detail: String, on_open: Callable) -> Control:
-	var b := Button.new()
-	b.focus_mode = Control.FOCUS_NONE
-	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	b.text = text + (("     " + detail) if detail != "" else "")
-	b.custom_minimum_size.y = 32
-	b.clip_text = true
-	b.pressed.connect(on_open)
-	return b
-
-
-func _open_frame() -> PanelContainer:
-	var frame := PanelContainer.new()
-	frame.theme_type_variation = &"RowOpen"
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
-	frame.add_child(box)
-	return frame
-
-
-## A list line of the pickers: name, then columns; picked lights it, `dim` greys it.
-func _pick_line(cells: Array, picked: bool, dim: bool, tip: String, wide_second := false) -> Button:
-	var b := Button.new()
-	b.toggle_mode = true
-	b.flat = true
-	b.focus_mode = Control.FOCUS_NONE
-	b.theme_type_variation = &"ListItem"
-	b.custom_minimum_size.y = 24
-	b.set_pressed_no_signal(picked)
-	b.tooltip_text = tip
-	var line := HBoxContainer.new()
-	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	line.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	line.offset_left = 6
-	line.offset_right = -6
-	line.add_theme_constant_override("separation", 6)
-	b.add_child(line)
-	var widths := [0.0, 200.0 if wide_second else 52.0, 40.0, 40.0]
-	for i in cells.size():
-		var label := Label.new()
-		label.text = String(cells[i])
-		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		label.clip_text = true
-		label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		label.add_theme_font_size_override("font_size", 13 if i == 0 else 12)
-		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		if i == 0:
-			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		else:
-			label.custom_minimum_size.x = widths[mini(i, 3)]
-			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if i > 1 or not wide_second else HORIZONTAL_ALIGNMENT_LEFT
-		if picked:
-			label.add_theme_color_override("font_color", get_theme_color("font_pressed_color", "Button"))
-		elif dim:
-			label.add_theme_color_override("font_color", Color(0.45, 0.48, 0.55))
-		line.add_child(label)
-	return b
-
-
-## The column titles over a picker's lines (the same widths as _pick_line's).
-func _pick_header(titles: Array, wide_second := false) -> Control:
-	var line := HBoxContainer.new()
-	line.add_theme_constant_override("separation", 6)
-	var widths := [0.0, 200.0 if wide_second else 52.0, 40.0, 40.0]
-	var pad := Control.new()
-	pad.custom_minimum_size.x = 0
-	line.add_child(pad)
-	for i in titles.size():
-		var label := Label.new()
-		label.theme_type_variation = &"Name"
-		label.text = String(titles[i])
-		label.add_theme_font_size_override("font_size", 11)
-		if i == 0:
-			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		else:
-			label.custom_minimum_size.x = widths[mini(i, 3)]
-			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if i > 1 or not wide_second else HORIZONTAL_ALIGNMENT_LEFT
-		line.add_child(label)
-	var right := Control.new()
-	right.custom_minimum_size.x = 6
-	line.add_child(right)
-	return line
-
-
-func _small_toggle(text: String, on: bool) -> Button:
-	var b := _button(text, "")
-	b.toggle_mode = true
-	b.custom_minimum_size = Vector2(0, 24)
-	b.add_theme_font_size_override("font_size", 11)
-	b.set_pressed_no_signal(on)
-	Themes.glowing(b)
-	Themes.glow(b)
-	return b
-
-
 func _button(text: String, tip: String) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -1005,30 +647,6 @@ func _clear(holder: Control) -> void:
 	for child in holder.get_children():
 		holder.remove_child(child)
 		child.queue_free()
-
-
-## A firing arc as the mockup's glyph (the original's arc pictures, DESIGN.LBX 33-37): a dial with
-## the ship's arrow and the arc lit; 0 forward, 1 forward extended, 2 back extended, 3 back, 4 360.
-class _ArcGlyph extends Control:
-	var arc := 0
-	const SPANS := [[-0.75, -0.25], [-1.125, 0.125], [-0.125, 1.125], [0.25, 0.75], [0.0, 2.0]]
-
-	func _draw() -> void:
-		var r := minf(size.x, size.y) * 0.5 - 1.0
-		var c := size * 0.5
-		draw_circle(c, r, Color(0.03, 0.04, 0.08))
-		var span: Array = SPANS[clampi(arc, 0, 4)]
-		var points := PackedVector2Array()
-		if arc != 4:
-			points.append(c)
-		var steps := 24
-		for i in steps + 1:
-			var a := PI * (float(span[0]) + (float(span[1]) - float(span[0])) * float(i) / float(steps))
-			points.append(c + Vector2(cos(a), sin(a)) * r)
-		draw_colored_polygon(points, Color(0.16, 0.36, 0.84))
-		draw_arc(c, r, 0.0, TAU, 32, Color(0.22, 0.27, 0.37), 1.0, true)
-		var s := r * 0.45
-		draw_colored_polygon(PackedVector2Array([c + Vector2(-s * 0.55, s * 0.6), c + Vector2(0, -s), c + Vector2(s * 0.55, s * 0.6)]), Color(0.79, 0.82, 0.86))
 
 
 ## The space bar: weapons and specials in their colours, the rest of the used space (drive, shield,

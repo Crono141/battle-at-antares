@@ -110,9 +110,17 @@ namespace antares::native {
         std::atomic<int> s_clicks{0}; // the frontend's button clicks to sound (Click_Sound)
         std::function<void()> s_scene_tick; // Set_Scene (game thread)
 
+        std::atomic<int> s_music_hold{-1}; // Hold_Music's track, -1 none
+        std::atomic<bool> s_music_release{false};
+
         void Tick() {
             if (s_scene_tick) {
                 s_scene_tick();
+            }
+            if (const int music = s_music_hold.load(); music >= 0) {
+                JIM::Play_Streaming_Music((int16_t)music, -1, 1);
+            } else if (s_music_release.exchange(false)) {
+                JIM::Play_Background_Music();
             }
             for (int pending = s_clicks.exchange(0); pending > 0; --pending) {
                 ERICNET::Mox_Play_Sound(0x28); // the game's button click (fields.cpp)
@@ -869,6 +877,13 @@ namespace antares::native {
 
     bool Popups_Native() {
         return Claimed_Kind(KIND_POPUP);
+    }
+
+    void Hold_Music(int16_t music_id) {
+        if (music_id < 0 && s_music_hold.load() >= 0) {
+            s_music_release = true;
+        }
+        s_music_hold = music_id;
     }
 
     void Set_Scene(std::function<std::string()> describe, std::function<void()> tick) {

@@ -155,6 +155,10 @@ namespace antares::native {
     // up and current under the scene's lists. `tick`, if given, runs as the game waits for each
     // answer (the scene's music: JIM's stream switch needs calling until it has faded across).
     // Game thread only.
+    // Keeps STREAM.LBX track `music_id` playing (the game's Play_Streaming_Music, called every tick
+    // of the native loop, as a legacy screen calls it from its draw); -1 lets go and the galaxy's
+    // music comes back (Play_Background_Music). WP3.6: the design theme while a design is open.
+    void Hold_Music(int16_t music_id);
     void Set_Scene(std::function<std::string()> describe, std::function<void()> tick = nullptr);
     void Clear_Scene();
     // A frontend keeps the start-of-turn to-do list (WP3.4d, "todo"): the reports chain parks its

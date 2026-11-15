@@ -226,3 +226,8 @@ namespace DESBOX {
         *space = 5;
     }
 } // namespace DESBOX
+
+namespace JIM {
+    // The native loop's music hold (native.cpp Tick): no sound in the tests.
+    void __cdecl Play_Streaming_Music(int16_t, int16_t, int16_t) {}
+} // namespace JIM

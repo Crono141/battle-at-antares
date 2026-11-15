@@ -2101,11 +2101,14 @@ func _smoke_design_panel(shots: String) -> bool:
 		await host.shot(shots + "/native-design.png")
 	if not panel.visible or panel.design.is_empty() or designs.visible:
 		return false
-	# The weapon list, the first beam picked with the back arc, added; one more.
-	panel._adding_weapon = true
-	panel._category = "beam"
-	panel._show_body()
-	await get_tree().create_timer(0.4).timeout
+	# + ADD WEAPON: the parts list comes out to the left of the panel; the first beam picked with
+	# the back arc, added; one more.
+	var parts: Control = panel._parts
+	if parts != null and parts.visible:
+		return false # folded until asked for
+	panel._open_parts("weapons")
+	await get_tree().create_timer(0.5).timeout
+	parts = panel._parts
 	var beam := {}
 	for w: Dictionary in panel._weapons:
 		if String(w.category) == "beam":
@@ -2115,44 +2118,49 @@ func _smoke_design_panel(shots: String) -> bool:
 		print("smoke: design: no beam weapon researched")
 		return false
 	var weapons_before := (panel.design.weapons as Array).size()
-	panel._pick_weapon = int(beam.weapon)
-	panel._pick_arc = 3
-	panel._pick_mods.clear()
-	panel._request_preview()
-	await get_tree().create_timer(0.4).timeout
-	panel._show_body()
+	parts._pick_weapon(beam)
+	parts.arc = 3
+	parts._ask_preview()
+	await get_tree().create_timer(0.5).timeout
+	parts.refresh()
+	print("smoke: design: parts list %s at x %.0f (panel at %.0f), %d lines, card '%s'" % [parts.visible, parts.position.x, panel.position.x,
+		parts._rows.get_child_count(), parts.preview.get("damage", "")])
 	if shots != "":
-		await host.shot(shots + "/native-design-weapon-picker.png")
-	panel._adding_weapon = false
-	panel._send({"verb": "design_weapon", "slot": -1, "weapon": panel._pick_weapon, "arc": 3, "rack": 1, "mods": []})
+		await host.shot(shots + "/native-design-parts.png")
+	if not parts.visible or parts.get_global_rect().end.x > panel.get_global_rect().position.x:
+		return false
+	panel.add_weapon(-1, int(beam.weapon), 3, 1, [])
 	await get_tree().create_timer(0.5).timeout
 	var added: Dictionary = (panel.design.weapons as Array).back() if not (panel.design.weapons as Array).is_empty() else {}
-	print("smoke: design: %s added (back arc %d), weapons %d -> %d, preview '%s'" % [beam.name, int(added.get("arc", -1)), weapons_before,
-		(panel.design.weapons as Array).size(), panel._preview.get("damage", "")])
+	print("smoke: design: %s added (back arc %d), weapons %d -> %d" % [beam.name, int(added.get("arc", -1)), weapons_before,
+		(panel.design.weapons as Array).size()])
 	if (panel.design.weapons as Array).size() != weapons_before + 1 or int(added.get("arc", -1)) != 3:
 		return false
-	panel._send({"verb": "design_weapon_count", "slot": int(added.slot), "delta": 1})
+	panel.weapon_count(int(added.slot), 1)
 	await get_tree().create_timer(0.5).timeout
-	# A special that fits.
-	await get_tree().create_timer(0.3).timeout
+	# + ADD SPECIAL: a special that fits.
+	panel._open_parts("systems")
+	await get_tree().create_timer(0.4).timeout
 	var special := {}
 	for sp: Dictionary in panel._specials:
 		if sp.get("fits", false) and not sp.get("fitted", false) and not sp.has("excluded_by"):
 			special = sp
 			break
-	panel._adding_special = true
-	panel._show_body()
-	await get_tree().create_timer(0.3).timeout
-	if shots != "":
-		await host.shot(shots + "/native-design-special-picker.png")
-	panel._adding_special = false
 	var specials_before := (panel.design.specials as Array).size()
 	if not special.is_empty():
-		panel._send({"verb": "design_special", "slot": -1, "special": int(special.special)})
+		parts._pick_special(int(special.special))
+		await get_tree().create_timer(0.3).timeout
+		if shots != "":
+			await host.shot(shots + "/native-design-special.png")
+		panel.add_special(int(special.special))
 		await get_tree().create_timer(0.5).timeout
 	print("smoke: design: special '%s' (group '%s'), specials %d -> %d" % [special.get("name", "-"), special.get("group", ""), specials_before,
 		(panel.design.specials as Array).size()])
 	if not special.is_empty() and (panel.design.specials as Array).size() != specials_before + 1:
+		return false
+	parts.fold()
+	await get_tree().create_timer(0.3).timeout
+	if parts.visible:
 		return false
 	# Another hull, then back.
 	var size_before := int(panel.design.size)
