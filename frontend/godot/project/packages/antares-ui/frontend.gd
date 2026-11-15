@@ -667,6 +667,9 @@ func _on_window_resized() -> void:
 			if side_view != null and side_view.visible:
 				side_view.reflow(_side_panel_area())
 				_fit_beside_panel(side_view)
+	if _views.has("design_panel") and _views.design_panel.visible:
+		await get_tree().process_frame
+		_views.design_panel.reflow(_side_panel_area())
 	if _views.has("build_pane") and _views.build_pane.visible:
 		await get_tree().process_frame # the panes and tabs laid out at the new size first
 		await get_tree().process_frame
@@ -813,6 +816,10 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 		leaders_view.want_fleet = int(fleets_fleet.get("ship", -1)) # opens on the Fleets panel's fleet (owner)
 		_open_side_panel("leaders")
 		return
+	# The design list's EDIT: the native Ship Design panel on that slot (WP3.8, owner's mockup B2).
+	if String(dict.get("verb", "")) == "open" and int(dict.get("screen", -1)) == Screens.DESIGN and view == _views.get("design_list"):
+		_open_design(int(dict.get("slot", 0)))
+		return
 	# The Leaders panel's FLEETS: the Fleets panel on that fleet.
 	if String(dict.get("verb", "")) == "open_side_panel":
 		_fleet_for_panel = int(dict.get("ship", -1))
@@ -956,7 +963,7 @@ func _on_todo_item(item: Dictionary) -> void:
 
 ## The drop-downs and slide-outs that buttons open (owner, 2026-11-12): one at a time, over
 ## everything else (the system pane, the fleet panel).
-const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel", "colonies_panel", "planets_panel", "fleets_panel", "leaders_panel", "races_panel", "info_panel"]
+const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel", "colonies_panel", "planets_panel", "fleets_panel", "leaders_panel", "races_panel", "info_panel", "design_panel"]
 
 
 ## Closes the flyouts a click at `at` falls outside of; true when the click landed on the map
@@ -968,6 +975,8 @@ func _close_flyouts_outside(at: Vector2) -> bool:
 			return false
 	var closed := false
 	for name in FLYOUTS:
+		if name == "design_panel":
+			continue # an open design is closed with CANCEL or BUILD, never by a stray click (WP3.8)
 		if not _views.has(name) or (name in SIDE_PANELS.values() and not name in SIDE_PANELS_UNFITTED):
 			continue # the side panels stay: the map beside them is part of them (owner, 2026-11-15);
 			# Info and Races, over the galaxy, close like the other flyouts (owner, 2026-11-15)
@@ -1102,7 +1111,10 @@ func _on_view_action(action_name: String) -> void:
 				_open_side_panel(action_name)
 		"designs":
 			var designs := _view("design_list")
-			if designs.visible:
+			var editor: Control = _views.get("design_panel")
+			if editor != null and editor.visible:
+				editor.close() # the tab again: the open design is cancelled
+			elif designs.visible:
 				designs.close()
 			else:
 				_bring_up(designs)
@@ -1158,7 +1170,7 @@ func _on_view_closed(scene_name: String) -> void:
 		_view("build_pane").cancel()
 		if _panel_star >= 0 and _view("system_pane").visible:
 			_frame_system(_panel_star) # the free area widened again
-	elif scene_name == "design_list":
+	elif scene_name == "design_list" or scene_name == "design_panel":
 		_view("side_tabs").show_open("designs", false)
 	elif scene_name in SIDE_PANELS.values():
 		_view("side_tabs").show_open(SIDE_PANELS.find_key(scene_name), false)
@@ -2065,6 +2077,123 @@ func _smoke_races_panel(shots: String) -> bool:
 	return not tab.button_pressed
 
 
+## WP3.8 (`--design`): EDIT on a design opens the Ship Design panel; a weapon is added (the first
+## beam, then one more), its arc changed, a special added, the size changed; CANCEL leaves the slot
+## as it was; again, a weapon added and BUILD writes the slot and brings the list back.
+func _smoke_design_panel(shots: String) -> bool:
+	_on_view_action("designs")
+	await get_tree().create_timer(1.0).timeout
+	var designs := _view("design_list")
+	var before: Dictionary = await _query_args({"what": "designs"})
+	if (before.get("designs", []) as Array).is_empty():
+		print("smoke: design: no designs to edit")
+		return false
+	var slot := int(before.designs[0].slot)
+	var cost_before := int(before.designs[0].cost)
+	_on_view_command({"verb": "open", "screen": Screens.DESIGN, "slot": slot}, designs)
+	await get_tree().create_timer(1.2).timeout
+	var panel := _view("design_panel")
+	print("smoke: design: panel %s, '%s' %s, space %d/%d, cost %d, %d weapons, %d specials, list %s" % [panel.visible,
+		panel.design.get("name", ""), panel.design.get("size", -1), int(panel.design.get("space_used", 0)), int(panel.design.get("hull_space", 0)),
+		int(panel.design.get("cost", 0)), (panel.design.get("weapons", []) as Array).size(), (panel.design.get("specials", []) as Array).size(),
+		designs.visible])
+	if shots != "":
+		await host.shot(shots + "/native-design.png")
+	if not panel.visible or panel.design.is_empty() or designs.visible:
+		return false
+	# The weapon list, the first beam picked with the back arc, added; one more.
+	panel._adding_weapon = true
+	panel._category = "beam"
+	panel._show_body()
+	await get_tree().create_timer(0.4).timeout
+	var beam := {}
+	for w: Dictionary in panel._weapons:
+		if String(w.category) == "beam":
+			beam = w
+			break
+	if beam.is_empty():
+		print("smoke: design: no beam weapon researched")
+		return false
+	var weapons_before := (panel.design.weapons as Array).size()
+	panel._pick_weapon = int(beam.weapon)
+	panel._pick_arc = 3
+	panel._pick_mods.clear()
+	panel._request_preview()
+	await get_tree().create_timer(0.4).timeout
+	panel._show_body()
+	if shots != "":
+		await host.shot(shots + "/native-design-weapon-picker.png")
+	panel._adding_weapon = false
+	panel._send({"verb": "design_weapon", "slot": -1, "weapon": panel._pick_weapon, "arc": 3, "rack": 1, "mods": []})
+	await get_tree().create_timer(0.5).timeout
+	var added: Dictionary = (panel.design.weapons as Array).back() if not (panel.design.weapons as Array).is_empty() else {}
+	print("smoke: design: %s added (back arc %d), weapons %d -> %d, preview '%s'" % [beam.name, int(added.get("arc", -1)), weapons_before,
+		(panel.design.weapons as Array).size(), panel._preview.get("damage", "")])
+	if (panel.design.weapons as Array).size() != weapons_before + 1 or int(added.get("arc", -1)) != 3:
+		return false
+	panel._send({"verb": "design_weapon_count", "slot": int(added.slot), "delta": 1})
+	await get_tree().create_timer(0.5).timeout
+	# A special that fits.
+	await get_tree().create_timer(0.3).timeout
+	var special := {}
+	for sp: Dictionary in panel._specials:
+		if sp.get("fits", false) and not sp.get("fitted", false) and not sp.has("excluded_by"):
+			special = sp
+			break
+	panel._adding_special = true
+	panel._show_body()
+	await get_tree().create_timer(0.3).timeout
+	if shots != "":
+		await host.shot(shots + "/native-design-special-picker.png")
+	panel._adding_special = false
+	var specials_before := (panel.design.specials as Array).size()
+	if not special.is_empty():
+		panel._send({"verb": "design_special", "slot": -1, "special": int(special.special)})
+		await get_tree().create_timer(0.5).timeout
+	print("smoke: design: special '%s' (group '%s'), specials %d -> %d" % [special.get("name", "-"), special.get("group", ""), specials_before,
+		(panel.design.specials as Array).size()])
+	if not special.is_empty() and (panel.design.specials as Array).size() != specials_before + 1:
+		return false
+	# Another hull, then back.
+	var size_before := int(panel.design.size)
+	panel._edit({"size": (size_before + 1) % 4})
+	await get_tree().create_timer(0.4).timeout
+	print("smoke: design: size %d -> %d, '%s', space %d/%d" % [size_before, int(panel.design.size), panel.design.name, int(panel.design.space_used),
+		int(panel.design.hull_space)])
+	if shots != "":
+		await host.shot(shots + "/native-design-edited.png")
+	# CANCEL: the slot as it was.
+	panel.close()
+	await get_tree().create_timer(0.6).timeout
+	var after_cancel: Dictionary = await _query_args({"what": "designs"})
+	print("smoke: design: cancelled: panel %s, cost %d (was %d)" % [panel.visible, int(after_cancel.designs[0].cost), cost_before])
+	if panel.visible or int(after_cancel.designs[0].cost) != cost_before:
+		return false
+	# Again: a weapon and BUILD.
+	_on_view_command({"verb": "open", "screen": Screens.DESIGN, "slot": slot}, designs)
+	await get_tree().create_timer(1.0).timeout
+	panel._send({"verb": "design_clear"})
+	await get_tree().create_timer(0.5).timeout
+	panel._send({"verb": "design_weapon", "slot": -1, "weapon": int(beam.weapon), "arc": 0, "rack": 1, "mods": []})
+	await get_tree().create_timer(0.5).timeout
+	var cost_built := int(panel.design.cost)
+	panel._build.pressed.emit()
+	await get_tree().create_timer(1.2).timeout
+	var after_build: Dictionary = await _query_args({"what": "designs"})
+	var built_cost := -1
+	for d: Dictionary in after_build.designs:
+		if int(d.slot) == slot:
+			built_cost = int(d.cost)
+	print("smoke: design: built: panel %s, list %s, slot cost %d (editor showed %d)" % [panel.visible, _view("design_list").visible, built_cost, cost_built])
+	if shots != "":
+		await host.shot(shots + "/native-design-built.png")
+	if panel.visible or not _view("design_list").visible or built_cost != cost_built:
+		return false
+	_view("design_list").close()
+	await get_tree().create_timer(0.5).timeout
+	return true
+
+
 ## WP3.7 (`--info`): the Info panel opens over the galaxy (not moved) with its tab armed, every
 ## tab fills (the history's players, a tech's picture, the race cards, the summary, a reference
 ## category and a topic), the tab choice is written back, and the panel follows a window drag.
@@ -2338,6 +2467,26 @@ func _on_answered(id: int, value: int, text := "") -> void:
 ## screen for now) or the system panel.
 ## A right sidebar panel (Colonies WP3.5a, Planets WP3.5b): opening it closes the system, colony
 ## and build panes, the fleet panel and another side panel, and the galaxy fits the space left of it.
+## WP3.8: the Ship Design panel on design slot `slot`, in place of the design list; BUILD brings
+## the list back with the new design.
+func _open_design(slot: int) -> void:
+	var panel := _view("design_panel")
+	if not panel.built.is_connected(_on_design_built):
+		panel.built.connect(_on_design_built)
+	_view("design_list").close()
+	_bring_up(panel)
+	panel.open_panel(_side_panel_area(), slot)
+	_view("side_tabs").show_open("designs", true)
+
+
+func _on_design_built(_slot: int) -> void:
+	var designs := _view("design_list")
+	_bring_up(designs)
+	designs.fit_bottom(_side_panel_area().end.y)
+	designs.open()
+	_view("side_tabs").show_open("designs", true)
+
+
 ## The fleet the next Fleets panel opens on (the Leaders panel's FLEETS), or -1.
 var _fleet_for_panel := -1
 
@@ -2806,7 +2955,7 @@ func _smoke_native() -> void:
 		return
 	# The side panels' steps, any of them in one launch (one game start for several checks), with
 	# quick camera flights: the steps wait on the flights.
-	var panel_steps: Array = ["--colonies", "--planets", "--fleets", "--leaders", "--races", "--info"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
+	var panel_steps: Array = ["--colonies", "--planets", "--fleets", "--leaders", "--races", "--info", "--design"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
 	if not panel_steps.is_empty():
 		galaxy.flight_time = 0.15
 		for step: String in panel_steps:
@@ -2821,6 +2970,8 @@ func _smoke_native() -> void:
 				passed = await _smoke_leaders_panel(shots)
 			elif step == "--info":
 				passed = await _smoke_info_panel(shots)
+			elif step == "--design":
+				passed = await _smoke_design_panel(shots)
 			else:
 				passed = await _smoke_races_panel(shots)
 			if not passed:
@@ -3209,23 +3360,25 @@ func _smoke_galaxy(shots: String) -> bool:
 		return false
 	if shots != "":
 		await host.shot(shots + "/native-designs.png")
-	# Edit opens the game's designer on that slot; Cancel (Esc) comes back to the galaxy and the list.
+	# Edit opens the native Ship Design panel on that slot (WP3.8); Esc cancels it.
 	var edit: Button = designs.rows.get_child(0).find_children("*", "Button", true, false)[0]
 	edit.pressed.emit()
-	if not await _wait_screen(Screens.LEGACY, 10.0):
-		await host.smoke_fail("Edit did not open the designer")
+	await get_tree().create_timer(1.2).timeout
+	var editor := _view("design_panel")
+	if not editor.visible or editor.design.is_empty():
+		await host.smoke_fail("Edit did not open the Ship Design panel")
 		return false
-	await get_tree().create_timer(2.0).timeout
 	if shots != "":
-		game.get_frame_image().save_png(shots + "/legacy-designer.png")
-	game.send_key(KEY_ESCAPE, false, false, false)
-	if not await _wait_screen(Screens.MAIN, 10.0):
-		await host.smoke_fail("the designer did not return to the galaxy")
+		await host.shot(shots + "/native-designer.png")
+	var esc := InputEventKey.new()
+	esc.keycode = KEY_ESCAPE
+	esc.pressed = true
+	Input.parse_input_event(esc)
+	await get_tree().create_timer(0.8).timeout
+	print("smoke: designer '%s' opened and cancelled (Esc): panel %s, screen %d" % [editor.design.get("name", ""), editor.visible, native_screen])
+	if editor.visible or native_screen != Screens.MAIN:
+		await host.smoke_fail("Esc did not cancel the Ship Design panel")
 		return false
-	await get_tree().create_timer(1.0).timeout
-	print("smoke: designer opened and cancelled; design list back: %s" % designs.visible)
-	designs.close()
-	await get_tree().create_timer(0.5).timeout
 	# Options (WP3.3f): its tab slides out influence, merge relocations and the game options.
 	_on_view_action("options")
 	var options := _view("options_menu")

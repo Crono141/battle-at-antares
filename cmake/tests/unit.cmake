@@ -545,6 +545,7 @@ orion2re_add_unit_test(test_native_bridge
         tests/unit/fleet_panel_queries_test.cpp
         tests/unit/empire_panel_queries_test.cpp
         tests/unit/info_queries_test.cpp
+        tests/unit/design_queries_test.cpp
         tests/unit/save_queries_test.cpp
     PRODUCTION_SOURCES
         src/antares/native.cpp
@@ -556,6 +557,7 @@ orion2re_add_unit_test(test_native_bridge
         src/antares/fleet_panel_queries.cpp
         src/antares/empire_panel_queries.cpp
         src/antares/info_queries.cpp
+        src/antares/design_queries.cpp
         src/antares/save_queries.cpp
         src/antares/popup_preview.cpp
         src/antares/todo.cpp
@@ -570,6 +572,7 @@ orion2re_add_unit_test(test_native_bridge
         tests/fakes/fake_fleet_panel_runtime.cpp
         tests/fakes/fake_empire_panel_runtime.cpp
         tests/fakes/fake_info_runtime.cpp
+        tests/fakes/fake_design_runtime.cpp
         tests/fakes/fake_save_runtime.cpp
     LIBRARIES
         miniz

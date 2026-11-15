@@ -496,7 +496,7 @@ namespace antares::commands {
                 {"command_points", e_kind::query, ANY_SCREEN, 1, "", Query_Command_Points},
                 {"ships", e_kind::query, ANY_SCREEN, 1, "star: star id (optional)", Query_Ships},
             };
-            static const bool galaxy_added = (internal::Add_Galaxy_Entries(&table), internal::Add_Fleet_Entries(&table), internal::Add_Colony_Entries(&table), internal::Add_Planet_Entries(&table), internal::Add_Fleet_Panel_Entries(&table), internal::Add_Empire_Panel_Entries(&table), internal::Add_Info_Entries(&table), internal::Add_Save_Entries(&table), internal::Add_Preview_Entries(&table), internal::Add_Todo_Entries(&table), true);
+            static const bool galaxy_added = (internal::Add_Galaxy_Entries(&table), internal::Add_Fleet_Entries(&table), internal::Add_Colony_Entries(&table), internal::Add_Planet_Entries(&table), internal::Add_Fleet_Panel_Entries(&table), internal::Add_Empire_Panel_Entries(&table), internal::Add_Info_Entries(&table), internal::Add_Design_Entries(&table), internal::Add_Save_Entries(&table), internal::Add_Preview_Entries(&table), internal::Add_Todo_Entries(&table), true);
             (void)galaxy_added;
             return table;
         }
