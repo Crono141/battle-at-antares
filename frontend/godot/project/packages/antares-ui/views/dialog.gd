@@ -120,8 +120,10 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 			# the bombing's result stays as text under them.
 			_extra.add_child(_combat_rows(request))
 			$Fit/Box/Text.text = String(request.get("summary", ""))
-		# A slider goes under its question; other content (a leader's card) above the text.
-		$Fit/Box.move_child(_extra, $Fit/Box/Text.get_index() + (1 if popup_name == "slider" else 0))
+		# A slider or a list to choose from goes under its question (owner, 2026-11-14: a research
+		# treaty's ACCEPT / REJECT sat above "What say you?"); other content (a leader's card)
+		# above the text.
+		$Fit/Box.move_child(_extra, $Fit/Box/Text.get_index() + (1 if popup_name in ["slider", "choose"] else 0))
 		if popup_name == "slider":
 			_extra.add_child(_slider(int(request.get("min", 0)), int(request.get("max", 0)), int(request.get("value", 0))))
 			request = request.merged({"buttons": ["OK", "CANCEL"]}, true)

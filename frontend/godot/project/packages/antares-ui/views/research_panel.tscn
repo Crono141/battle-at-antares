@@ -16,15 +16,15 @@ script = ExtResource("fit")
 
 [node name="Box" type="VBoxContainer" parent="Fit"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 6
 
 [node name="Header" type="HBoxContainer" parent="Fit/Box"]
 layout_mode = 2
 
-[node name="Titles" type="VBoxContainer" parent="Fit/Box/Header"]
+[node name="Titles" type="HBoxContainer" parent="Fit/Box/Header"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 0
+theme_override_constants/separation = 18
 
 [node name="Title" type="Label" parent="Fit/Box/Header/Titles"]
 layout_mode = 2
@@ -33,6 +33,7 @@ text = "Research"
 
 [node name="Progress" type="Label" parent="Fit/Box/Header/Titles"]
 layout_mode = 2
+size_flags_vertical = 8
 theme_type_variation = &"Dim"
 text = ""
 
@@ -46,6 +47,6 @@ text = "X"
 
 [node name="Areas" type="GridContainer" parent="Fit/Box"]
 layout_mode = 2
-theme_override_constants/h_separation = 8
-theme_override_constants/v_separation = 8
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
 columns = 2

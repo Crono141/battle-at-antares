@@ -15,7 +15,9 @@ signal picked(field: int, app: int)
 var pick_mode := false
 
 const Themes := preload("../themes.gd")
-const AREA_WIDTH := 340.0
+## Owner, 2026-11-14 (Research shift.png): narrow enough to leave the research window's scientist
+## in view, short enough not to scroll.
+const AREA_WIDTH := 262.0
 
 @onready var areas_box: GridContainer = $Fit/Box/Areas
 @onready var progress: Label = $Fit/Box/Header/Titles/Progress
@@ -60,7 +62,7 @@ func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
 	panel.theme_type_variation = &"RowOpen" if field != 0 and field == current_field else &"Row"
 	panel.custom_minimum_size.x = AREA_WIDTH
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 2)
+	box.add_theme_constant_override("separation", 0)
 	panel.add_child(box)
 	var head := HBoxContainer.new()
 	box.add_child(head)
@@ -82,6 +84,8 @@ func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
 	var name_label := Label.new()
 	name_label.theme_type_variation = &"Name"
 	name_label.text = String(area.field_name)
+	name_label.tooltip_text = String(area.field_name) # cut short in the narrower areas
+	name_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_child(name_label)
 	var apps: Array = area.get("apps", [])
 	if apps.is_empty():
@@ -115,8 +119,8 @@ func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
 		b.focus_mode = Control.FOCUS_NONE
 		b.text = String(app.name)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size.y = 26
-		b.add_theme_font_size_override("font_size", 15)
+		b.custom_minimum_size.y = 22
+		b.add_theme_font_size_override("font_size", 14)
 		var on := is_current and (gives_all or id == current_app)
 		if on:
 			for state in ["font_color", "font_hover_color", "font_pressed_color"]:
