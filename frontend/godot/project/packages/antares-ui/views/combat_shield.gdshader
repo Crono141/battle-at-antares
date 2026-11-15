@@ -8,31 +8,33 @@ shader_type canvas_item;
 
 uniform vec4 arcs = vec4(1.0); // each arc's strength, 0..1 (current / max)
 uniform float thickness_px = 0.0; // the full glow, in texture pixels (0: no shield)
-uniform float margin = 0.0; // how far the quad grows past the texture, as a fraction of its size
 uniform float shield_on = 0.0; // 1 shows the glow (hover or "Always show health")
 uniform vec4 inner_color : source_color = vec4(0.92, 1.0, 0.95, 1.0);
 uniform vec4 mid_color : source_color = vec4(0.35, 0.94, 0.6, 1.0);
 uniform vec4 outer_color : source_color = vec4(0.08, 0.45, 0.24, 1.0);
 
-varying vec2 local_uv;
+// The sprite's region is padded past its texture (combat_view.gd), so UV runs beyond 0..1 there:
+// room for the glow that Godot also knows about (a quad grown in vertex() lost its glow once the
+// camera had moved away and back; owner build 2026-11-15).
 
-void vertex() {
-	// The quad grows by `margin` on every side so the glow has room past the sprite's edges.
-	float k = 1.0 + 2.0 * margin;
-	VERTEX *= k;
-	local_uv = (UV - 0.5) * k + 0.5;
-}
-
-float alpha_at(sampler2D tex, vec2 uv) {
+// Explicit gradients everywhere: inside branches and loops a plain texture() has no defined mip
+// level, and when ships are shrunk it picked near-empty mips (no glow, and a faint box round the
+// sprite; owner, 2026-11-15).
+float alpha_at(sampler2D tex, vec2 uv, vec2 gx, vec2 gy) {
 	if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
 		return 0.0;
 	}
-	return texture(tex, uv).a;
+	return textureGrad(tex, uv, gx, gy).a;
 }
 
 void fragment() {
-	vec2 uv = local_uv;
-	vec4 ship = (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) ? vec4(0.0) : texture(TEXTURE, uv);
+	vec2 uv = UV;
+	vec2 gx = dFdx(uv);
+	vec2 gy = dFdy(uv);
+	vec4 ship = textureGrad(TEXTURE, clamp(uv, vec2(0.0), vec2(1.0)), gx, gy);
+	if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
+		ship = vec4(0.0);
+	}
 	COLOR = ship;
 	if (shield_on > 0.5 && thickness_px > 0.0 && ship.a < 0.5) {
 		vec2 px = TEXTURE_PIXEL_SIZE;
@@ -48,7 +50,7 @@ void fragment() {
 				if (r >= best) {
 					break;
 				}
-				if (alpha_at(TEXTURE, uv + dir * r * px) > 0.5) {
+				if (alpha_at(TEXTURE, uv + dir * r * px, gx, gy) > 0.5) {
 					best = r;
 					break;
 				}

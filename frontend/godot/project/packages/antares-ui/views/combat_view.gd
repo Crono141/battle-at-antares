@@ -14,6 +14,9 @@ extends Control
 ## fires at an enemy, or picks your ship (initiative off); right click on the acting ship opens the
 ## order ring (Wait, Done, Retreat, Board, Scan, Self-destruct), elsewhere it turns to face.
 
+signal opened
+signal closed
+
 const SQUARE := 20.0
 const MIN_ZOOM := 0.3
 const MAX_ZOOM := 3.0
@@ -33,6 +36,7 @@ const ANIM_TIME := 0.12 # a ship's engine frames (1 to 3 of its facing)
 
 var art: Node # art.gd
 var game: AntaresGame
+var dialog_open: Callable # the frontend: a dialog is up over the battle (it has the keys)
 
 var state := {}
 var _ships := {} # combat index -> {sprite: Sprite2D, shown: Vector2, angle: float}
@@ -54,6 +58,8 @@ var _menu_hover := -1
 var _menu_confirm := ""
 var _toast_time := 0.0
 var _opened := false
+var _legal := {} # x * 1000 + y (int) -> true: JSON numbers arrive as floats, which Array.has() won't match
+var _order := {} # ships still to act this round (int)
 
 var _world: Node2D
 var _backdrop: Node2D
@@ -132,6 +138,12 @@ func show_state(st: Dictionary) -> void:
 		close()
 		return
 	state = st
+	_legal.clear()
+	for code in st.get("legal", []):
+		_legal[int(code)] = true
+	_order.clear()
+	for index in st.get("order", []):
+		_order[int(index)] = true
 	if not visible:
 		_open()
 	_sync_ships()
@@ -169,6 +181,7 @@ func close() -> void:
 		entry.sprite.queue_free()
 	_ships.clear()
 	state = {}
+	closed.emit()
 
 
 func _open() -> void:
@@ -178,6 +191,7 @@ func _open() -> void:
 	_last_acting = -1
 	_fit_fleets()
 	grab_focus()
+	opened.emit()
 
 
 func _my_turn() -> bool:
@@ -213,7 +227,7 @@ func _color(ship: Dictionary) -> Color:
 
 
 func _acted(index: int) -> bool:
-	return index != int(state.get("ship", -1)) and not (state.get("order", []) as Array).has(index)
+	return index != int(state.get("ship", -1)) and not _order.has(index)
 
 
 # ---- Ships ----
@@ -233,7 +247,8 @@ func _sync_ships() -> void:
 		var entry := int(sprite_info.get("entry", -1))
 		if not _ships.has(index):
 			var sprite := Sprite2D.new()
-			sprite.centered = true
+			sprite.centered = false # placed by each frame's origin in the sprite's box (_apply_texture)
+			sprite.region_enabled = true # padded past the texture: room for the shield glow
 			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 			var material := ShaderMaterial.new()
 			material.shader = SHIELD_SHADER
@@ -267,21 +282,31 @@ func _apply_texture(index: int) -> void:
 	if s.is_empty():
 		return
 	var frames: Array = s.frames
-	# Combat ships: frames 0-3 face east (the engines' animation); a planet or monster loops all.
+	# Combat ships: frames 0-3 face east; 0 is the hull alone, 1-3 add the engines' flames, so only
+	# 1-3 cycle (owner, 2026-11-15: the flameless frame made every ship blink once a cycle).
 	var frame := 0
-	if e.planet:
-		frame = 0
-	elif frames.size() >= 4:
-		frame = _anim_frame % 4
-	var tex: Texture2D = frames[clampi(frame, 0, frames.size() - 1)]
-	var first := sprite.texture == null
+	if not e.planet and frames.size() >= 4:
+		frame = 1 + _anim_frame % 3
+	frame = clampi(frame, 0, frames.size() - 1)
+	var tex: Texture2D = frames[frame]
 	if sprite.texture != tex:
 		sprite.texture = tex
 	sprite.scale = Vector2.ONE / float(s.scale)
-	e["size"] = Vector2(tex.get_width(), tex.get_height()) / float(s.scale)
+	# Each frame sits at its own origin in the sprite's box (frames 1-3 are wider: the flames), and
+	# the box's centre is the ship's: the hull no longer jumps between frames.
+	var box: Vector2 = s.size
+	var origin: Vector2 = s.origins[frame]
+	# Room for the full shield round the frame: the most a legacy shield grows (10 layers), so the
+	# padding never changes with damage.
+	var pad := 10.0 * 1.2 * float(s.scale) + 2.0 * float(s.scale)
+	if e.planet:
+		pad = 0.0
+	sprite.region_rect = Rect2(-pad, -pad, tex.get_width() + 2.0 * pad, tex.get_height() + 2.0 * pad)
+	sprite.offset = (origin - box / 2.0) * float(s.scale) - Vector2(pad, pad)
+	e["pad"] = pad
+	e["size"] = box
 	e["art_scale"] = float(s.scale)
-	if first:
-		_apply_shield(index, _ship(index)) # the glow's room needs the texture's size
+	_apply_shield(index, _ship(index))
 
 
 func _apply_shield(index: int, ship: Dictionary) -> void:
@@ -292,10 +317,6 @@ func _apply_shield(index: int, ship: Dictionary) -> void:
 	var art_scale := float(e.get("art_scale", 1.0))
 	# One legacy outline layer was one 1x pixel on a 640-pixel screen; at HD sizes it reads as more.
 	var thickness := layers * 1.2 * art_scale
-	var tex: Texture2D = e.sprite.texture
-	var margin := 0.0
-	if tex != null and thickness > 0.0:
-		margin = (thickness + 2.0 * art_scale) / float(mini(tex.get_width(), tex.get_height()))
 	var max_arc := maxf(float(shield.get("max", 0)), 1.0)
 	var arcs: Array = shield.get("arcs", [0, 0, 0, 0])
 	var strengths := Vector4(
@@ -303,7 +324,6 @@ func _apply_shield(index: int, ship: Dictionary) -> void:
 		clampf(float(arcs[2]) / max_arc, 0.0, 1.0), clampf(float(arcs[3]) / max_arc, 0.0, 1.0))
 	material.set_shader_parameter("arcs", strengths)
 	material.set_shader_parameter("thickness_px", 0.0 if e.planet else thickness)
-	material.set_shader_parameter("margin", margin)
 	var show_health := _always_health or _alt_held or index == _hover_ship
 	material.set_shader_parameter("shield_on", 1.0 if show_health else 0.0)
 	e.sprite.modulate = Color(1, 1, 1, 0.62) if _acted(index) and not e.planet else Color.WHITE
@@ -461,7 +481,7 @@ func _draw_marks() -> void:
 			var tex: Texture2D = e.sprite.texture
 			if tex != null:
 				_marks.draw_set_transform(to, e.angle, e.sprite.scale)
-				_marks.draw_texture(tex, -Vector2(tex.get_width(), tex.get_height()) / 2.0, Color(1, 1, 1, 0.35))
+				_marks.draw_texture(tex, e.sprite.offset + Vector2(e.get("pad", 0.0), e.get("pad", 0.0)), Color(1, 1, 1, 0.35))
 				_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# Missiles and fighters in flight (WP3.9c animates them): a marker in the owner's colour with the count.
 	var font := get_theme_default_font()
@@ -686,7 +706,7 @@ func _square_center(square: Vector2i, ship: Dictionary) -> Vector2:
 func _square_legal(square: Vector2i) -> bool:
 	if square.x < 0:
 		return false
-	return (state.get("legal", []) as Array).has(square.x * 1000 + square.y)
+	return _legal.has(square.x * 1000 + square.y)
 
 
 # ---- Input ----
@@ -775,7 +795,7 @@ func _input(event: InputEvent) -> void:
 		return
 	if not key.pressed or key.echo:
 		return
-	if get_viewport().gui_get_focus_owner() != null and get_viewport().gui_get_focus_owner() != self and not is_ancestor_of(get_viewport().gui_get_focus_owner()):
+	if dialog_open.is_valid() and dialog_open.call():
 		return # a dialog over the battle has the keys
 	var handled := true
 	match key.keycode:
@@ -799,8 +819,8 @@ func _input(event: InputEvent) -> void:
 				_cam_goal = _center(ship)
 		_:
 			handled = false
-	if handled:
-		get_viewport().set_input_as_handled()
+	# Every key stays with the battle: none may reach the hidden legacy screen.
+	get_viewport().set_input_as_handled()
 
 
 func _act(action: Dictionary) -> void:

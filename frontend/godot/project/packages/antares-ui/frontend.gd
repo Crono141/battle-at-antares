@@ -247,7 +247,7 @@ func _process(delta: float) -> void:
 	if image != null and image.get_data() == _stale_frame and _legacy_waited < 3.0:
 		return
 	_legacy_after_frame = -1
-	if native_screen == Screens.LEGACY and not _question_over_galaxy and not _turn_over_galaxy:
+	if native_screen == Screens.LEGACY and not _question_over_galaxy and not _turn_over_galaxy and not _in_battle():
 		galaxy.hide()
 		legacy.show()
 
@@ -265,7 +265,7 @@ func _on_native_screen(screen: int) -> void:
 		_sounds_held = true
 	native_screen = screen
 	var in_galaxy := screen == Screens.MAIN or (screen != Screens.LEGACY and _galaxy_behind)
-	legacy.visible = not in_galaxy and screen == Screens.LEGACY
+	legacy.visible = not in_galaxy and screen == Screens.LEGACY and not _in_battle()
 	galaxy.visible = in_galaxy
 	galaxy.set_process_unhandled_input(screen == Screens.MAIN)
 	var bar := _view("galaxy_bar")
@@ -2368,8 +2368,20 @@ func _combat_view() -> Control:
 		_combat.art = art
 		_combat.game = game
 		_combat.theme = native_layer.theme
+		_combat.dialog_open = func() -> bool: return overlay.visible
+		# The legacy view hides under a battle: its pointer image (the hidden combat screen's, frozen)
+		# would replace the system's, and its keys would reach the battle's legacy input (owner,
+		# 2026-11-15: a "no" cursor, and Wait pressed repeatedly turned Auto on).
+		_combat.opened.connect(func(): legacy.hide())
+		_combat.closed.connect(func():
+			if native_screen == Screens.LEGACY and not _question_over_galaxy:
+				legacy.show())
 		layer.add_child(_combat)
 	return _combat
+
+
+func _in_battle() -> bool:
+	return _combat != null and _combat.visible
 
 
 ## The scene window (GNN news; owner, 2026-11-14): its pages are answered by a click, without the
@@ -4727,15 +4739,13 @@ func _smoke_combat(shots: String) -> bool:
 	await get_tree().create_timer(1.5).timeout # art arrives, ships ease in
 	print("smoke: battle open, round %d, %d ships, acting %d, %d legal squares" % [int(view.state.round), (view.state.ships as Array).size(),
 		int(view.state.ship), (view.state.legal as Array).size()])
-	print("smoke: combat view size %s, in tree visible %s, layer %s visible %s, children %d" % [view.size, view.is_visible_in_tree(),
-		view.get_parent().layer, view.get_parent().visible, view.get_child_count()])
 	if shots != "":
-		host.shot(shots + "/combat-start.png")
+		await host.shot(shots + "/combat-start.png")
 	await get_tree().create_timer(0.3).timeout
 	view._health_toggle.button_pressed = true
 	await get_tree().create_timer(0.4).timeout
 	if shots != "":
-		host.shot(shots + "/combat-health.png")
+		await host.shot(shots + "/combat-health.png")
 	# Close up on the acting ship and its nearest neighbours: the shield glow and the crescents.
 	var zoom_before: float = view._zoom
 	var cam_before: Vector2 = view._cam
@@ -4743,15 +4753,28 @@ func _smoke_combat(shots: String) -> bool:
 	view._cam = view._center(view._ship(int(view.state.ship)))
 	await get_tree().create_timer(0.4).timeout
 	if shots != "":
-		host.shot(shots + "/combat-close.png")
+		await host.shot(shots + "/combat-close.png")
 	await get_tree().create_timer(0.3).timeout
+	# The biggest enemy (SAVE10: a Doom Star) at an everyday zoom: no box round the sprites.
+	view._zoom = 1.3
+	for s2: Dictionary in view._ships_list():
+		if not view._mine(s2) and not bool(s2.get("planet", false)) and int(s2.get("size", 0)) == 5:
+			view._cam = view._center(s2)
+	await get_tree().create_timer(0.4).timeout
+	if shots != "":
+		await host.shot(shots + "/combat-doomstar.png")
+	view._zoom = zoom_before
+	view._cam = cam_before
+	await get_tree().create_timer(0.4).timeout
+	if shots != "":
+		await host.shot(shots + "/combat-health-again.png")
 	view._zoom = zoom_before
 	view._cam = cam_before
 	view._health_toggle.button_pressed = false
 	view._open_menu(int(view.state.ship))
 	await get_tree().create_timer(0.4).timeout
 	if shots != "":
-		host.shot(shots + "/combat-ring.png")
+		await host.shot(shots + "/combat-ring.png")
 	view._close_menu()
 	# One move: the legal square furthest towards the enemy (the field's right half).
 	var legal: Array = view.state.legal
@@ -4763,7 +4786,21 @@ func _smoke_combat(shots: String) -> bool:
 			best = int(code)
 	if best >= 0:
 		var before := Vector2i(int(ship.x), int(ship.y))
-		view._act({"action": "move", "x": best / 1000, "y": best % 1000})
+		# As a player does it: the pointer onto the square, then a left click (real input events).
+		var square := Vector2i(best / 1000, best % 1000)
+		var at: Vector2 = view._to_screen(view._square_center(square, ship))
+		Input.warp_mouse(at)
+		var motion := InputEventMouseMotion.new()
+		motion.position = at
+		motion.global_position = at
+		Input.parse_input_event(motion)
+		await get_tree().create_timer(0.3).timeout
+		print("smoke: pointer at %s, hover ship %d, hover square %s, legal %s, my turn %s" % [at, view._hover_ship, view._hover_square,
+			view._square_legal(view._hover_square), view._my_turn()])
+		if shots != "":
+			await host.shot(shots + "/combat-preview.png")
+		await get_tree().create_timer(0.3).timeout
+		await _smoke_click(at)
 		var moved := 0.0
 		while moved < 20.0 and not view._my_turn():
 			await get_tree().create_timer(0.25).timeout
@@ -4772,7 +4809,7 @@ func _smoke_combat(shots: String) -> bool:
 		print("smoke: moved ship %d from %s to %d,%d (now %d,%d)" % [acting, before, best / 1000, best % 1000, int(after.get("x", -1)), int(after.get("y", -1))])
 		await get_tree().create_timer(0.8).timeout
 		if shots != "":
-			host.shot(shots + "/combat-moved.png")
+			await host.shot(shots + "/combat-moved.png")
 	if view._my_turn():
 		view._act({"action": "auto"})
 	waited = 0.0
