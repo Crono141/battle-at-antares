@@ -6,20 +6,24 @@ extends "side_panel.gd"
 ## query: a row per colony with its name, its farmers, workers and scientists (the colonists'
 ## pictures), what it builds and its population; a click on a column's title sorts by it (again:
 ## the other way). Under the table, in a strip (owner, 2026-11-14: the table gets the whole width):
-## the hovered colony's planet and progress box, its output and morale (the `colony` query's
-## rows) and the empire's totals.
+## on the left the hovered colony's planet and progress box (two columns) over its output and
+## morale (the `colony` query's rows, a two-column grid), on the right the empire's totals; every
+## box keeps one size whatever the colony (owner: they shifted while scrolling the list).
 ##
 ## Colonists move as on the legacy screen: a click picks up a colonist and the identical ones after
 ## it, which ride on the pointer; a click on another job of the same colony gives them that job
 ## (`move_colonist`), on another colony's job (or its name, for any job) sends them there as
 ## settlers (`send_colonists`: the game's questions and messages); anywhere else, a right click or
 ## Esc puts them back. BUY buys (the game asks first; again un-buys). A click on the Building slot
-## asks the frontend for that colony's build pane (`build_chosen`); a click on a row selects it,
-## and the galaxy marks its star (`star_marked`).
+## asks the frontend for that colony's build pane (`build_chosen`), one on its name for its system
+## and colony pane (`colony_opened`); a click elsewhere on a row selects it, and the galaxy marks
+## its star (`star_marked`).
 
 signal command(dict: Dictionary)
 ## The Building slot: the frontend opens that colony's system, colony pane and build pane.
 signal build_chosen(colony_id: int, star: int, planet: int, bought: bool)
+## The colony's name: the frontend opens its system and colony pane (owner, 2026-11-14).
+signal colony_opened(colony_id: int, star: int, planet: int)
 ## The star the galaxy marks (the hovered or selected colony's), or -1.
 signal star_marked(star: int)
 ## The panel's width changed (its rows arrived): the galaxy fits the space left of it again.
@@ -36,7 +40,8 @@ const COLUMNS := [
 	{"key": "population", "title": "POP", "width": 56.0},
 ]
 const BUY_WIDTH := 50.0
-const OUTPUT_WIDTH := 220.0 # the output box (its icon rows squeeze to this)
+## A line of the output grid (food, research; industry, BC; morale).
+const OUTPUT_LINE := 18.0
 const ROW_HEIGHT := 40.0
 const MIN_JOB_WIDTH := 80.0
 ## A table row's padding: the theme's row style with its sides and ends kept small.
@@ -67,14 +72,16 @@ var _rows := {} # colony -> its row panel
 @onready var rows_box: VBoxContainer = $Box/Body/Table/Scroll/Rows
 @onready var columns_box: HBoxContainer = $Box/Body/Table/Columns
 @onready var scroll: ScrollContainer = $Box/Body/Table/Scroll
-@onready var scan_lines: VBoxContainer = $Box/Body/Info/Scan/Lines
-@onready var output_rows: VBoxContainer = $Box/Body/Info/Output/Rows
+@onready var scan_lines: GridContainer = $Box/Body/Info/Colony/Scan/Lines
+@onready var output_rows: GridContainer = $Box/Body/Info/Colony/Output/Rows
 @onready var empire_grid: GridContainer = $Box/Body/Info/Empire/Grid
 
 
 func _ready() -> void:
 	$Box/Header/Close.pressed.connect(close)
-	$Box/Body/Info/Output.custom_minimum_size.x = OUTPUT_WIDTH
+	# The output box's three lines, filled or not: the strip keeps its height.
+	$Box/Body/Info/Colony/Output.custom_minimum_size.y = 3.0 * OUTPUT_LINE + 2.0 * 3.0 + \
+		_box_padding_y($Box/Body/Info/Colony/Output)
 	# Its right edge stays against the tabs if it grows (the rows arrive after it opened).
 	resized.connect(func():
 		if visible and not _closing and _rect.size.x > 0.0:
@@ -355,6 +362,14 @@ func _name_cell(c: Dictionary) -> Control:
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		box.add_child(label)
 	_name_cells[int(c.colony)] = box
+	box.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	box.tooltip_text = "Open the colony"
+	box.gui_input.connect(func(event: InputEvent):
+		var mb := event as InputEventMouseButton
+		if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and _carry.is_empty():
+			_select(int(c.colony))
+			colony_opened.emit(int(c.colony), int(c.star), int(c.planet))
+			box.accept_event())
 	return box
 
 
@@ -471,28 +486,28 @@ func _show_info(colony_id: int) -> void:
 		_clear(output_rows)
 		return
 	var scan: Dictionary = c.scan
-	var heading := Label.new()
-	heading.theme_type_variation = &"Name"
-	heading.text = String(c.name)
-	scan_lines.add_child(heading)
-	_scan_line("%s %s" % [scan.size, scan.climate])
-	_scan_line(String(scan.gravity))
-	_scan_line(String(scan.minerals))
-	_scan_line("Population %d / %d" % [int(c.pops), int(c.max_population)])
-	if int(scan.inbound) > 0:
-		_scan_line("En route: %d" % int(scan.inbound))
+	# Two columns of four lines, always eight cells (a missing line is blank), so the box keeps
+	# its size: the planet on the left, the people and the build on the right.
 	var growth := int(scan.growth)
 	# The legacy box's "781k +43k (0)": the next colonist's thousands so far, the growth a turn and
 	# the colonists that makes next turn.
-	var growth_line := _scan_line("Growing %dk  %+dk/turn" % [int(scan.thousands), growth])
-	growth_line.tooltip_text = "Toward the next colonist (1,000k), and the growth a turn"
+	var growing := "Growing %dk  %+dk/turn" % [int(scan.thousands), growth]
 	if int(scan.change) != 0:
-		growth_line.text += "  (%+d)" % int(scan.change)
+		growing += "  (%+d)" % int(scan.change)
+	var built := "Built %s / %s  +%d" % [_thousands(int(scan.spent)), _thousands(int(scan.cost)), int(scan.net_industry)] if int(scan.cost) > 0 else ""
+	var heading := _scan_line(String(c.name))
+	heading.theme_type_variation = &"Name"
+	_scan_line("Population %d / %d" % [int(c.pops), int(c.max_population)])
+	_scan_line("%s %s" % [scan.size, scan.climate])
+	var growth_line := _scan_line(growing)
+	growth_line.tooltip_text = "Toward the next colonist (1,000k), and the growth a turn"
 	growth_line.mouse_filter = Control.MOUSE_FILTER_PASS
 	if growth < 0:
 		growth_line.add_theme_color_override("font_color", BAD_COLOR)
-	if int(scan.cost) > 0:
-		_scan_line("Built %s / %s  +%d" % [_thousands(int(scan.spent)), _thousands(int(scan.cost)), int(scan.net_industry)])
+	_scan_line(String(scan.gravity))
+	_scan_line(built)
+	_scan_line(String(scan.minerals))
+	_scan_line("En route: %d" % int(scan.inbound) if int(scan.inbound) > 0 else "")
 	command.emit({"verb": "query", "what": "colony", "colony": colony_id, "_reply_to": "_show_output"})
 
 
@@ -501,6 +516,8 @@ func _scan_line(text: String) -> Label:
 	label.theme_type_variation = &"Dim"
 	label.text = text
 	label.clip_text = true
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	scan_lines.add_child(label)
 	return label
 
@@ -510,8 +527,10 @@ func _show_output(result: Dictionary) -> void:
 	if not result.get("ok", false) or int(result.colony) != _shown:
 		return
 	_clear(output_rows)
-	for kind in ["food", "industry", "research", "bc"]:
-		output_rows.add_child(_icon_row(result.rows[kind].icons))
+	# Two cells a line: food | research, industry | BC, morale; each squeezes to its half.
+	var cell := maxf((output_rows.size.x - 16.0) * 0.5, 80.0)
+	for kind in ["food", "research", "industry", "bc"]:
+		output_rows.add_child(_cell(_icon_row(result.rows[kind].icons, cell), cell))
 	var morale := HBoxContainer.new()
 	morale.add_theme_constant_override("separation", 0)
 	morale.tooltip_text = "Morale %+d%%" % (int(result.morale) * 10)
@@ -525,17 +544,33 @@ func _show_output(result: Dictionary) -> void:
 		none.text = "Morale steady"
 		none.add_theme_font_size_override("font_size", 12)
 		morale.add_child(none)
-	output_rows.add_child(morale)
+	output_rows.add_child(_cell(morale, cell))
 
 
-func _icon_row(runs: Array) -> Control:
+## A fixed-size cell of the output grid (its contents clipped, never growing the box).
+func _cell(content: Control, width: float) -> Control:
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(width, OUTPUT_LINE)
+	holder.clip_contents = true
+	holder.mouse_filter = Control.MOUSE_FILTER_PASS
+	holder.add_child(content)
+	content.position = Vector2.ZERO
+	content.size = Vector2(width, OUTPUT_LINE)
+	return holder
+
+
+func _box_padding_y(box: Control) -> float:
+	var style := box.get_theme_stylebox("panel", box.theme_type_variation)
+	return style.get_margin(SIDE_TOP) + style.get_margin(SIDE_BOTTOM) if style != null else 0.0
+
+
+func _icon_row(runs: Array, width: float) -> Control:
 	var total := 0
 	for r: Dictionary in runs:
 		total += int(r.get("count", 1)) if r.kind != "gap" else 1
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.custom_minimum_size.y = OUTPUT_ICON.y
-	var width := OUTPUT_WIDTH - 24.0
 	var step := OUTPUT_ICON.x + 1.0
 	if total > 1 and total * step > width:
 		step = maxf((width - OUTPUT_ICON.x) / float(total - 1), 3.0)

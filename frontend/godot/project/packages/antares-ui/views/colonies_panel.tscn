@@ -57,31 +57,40 @@ theme_override_constants/separation = 4
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="Scan" type="PanelContainer" parent="Box/Body/Info"]
+[node name="Colony" type="VBoxContainer" parent="Box/Body/Info"]
 layout_mode = 2
 size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Scan" type="PanelContainer" parent="Box/Body/Info/Colony"]
+layout_mode = 2
 theme_type_variation = &"Row"
 
-[node name="Lines" type="VBoxContainer" parent="Box/Body/Info/Scan"]
+[node name="Lines" type="GridContainer" parent="Box/Body/Info/Colony/Scan"]
 layout_mode = 2
-theme_override_constants/separation = 0
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 0
+columns = 2
 
-[node name="Output" type="PanelContainer" parent="Box/Body/Info"]
+[node name="Output" type="PanelContainer" parent="Box/Body/Info/Colony"]
 layout_mode = 2
-size_flags_horizontal = 3
+size_flags_vertical = 3
 theme_type_variation = &"Row"
 
-[node name="Rows" type="VBoxContainer" parent="Box/Body/Info/Output"]
+[node name="Rows" type="GridContainer" parent="Box/Body/Info/Colony/Output"]
 layout_mode = 2
-theme_override_constants/separation = 2
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 3
+columns = 2
 
 [node name="Empire" type="PanelContainer" parent="Box/Body/Info"]
+custom_minimum_size = Vector2(230, 0)
 layout_mode = 2
-size_flags_horizontal = 3
 theme_type_variation = &"Row"
 
 [node name="Grid" type="GridContainer" parent="Box/Body/Info/Empire"]
 layout_mode = 2
+size_flags_vertical = 4
 theme_override_constants/h_separation = 12
 theme_override_constants/v_separation = 0
 columns = 2

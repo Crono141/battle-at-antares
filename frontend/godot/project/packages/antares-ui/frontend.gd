@@ -731,6 +731,9 @@ func _view(scene_name: String) -> Control:
 			view.width_changed.connect(_fit_beside_colonies)
 		if view.has_signal("build_chosen"):
 			view.build_chosen.connect(_colonies_build)
+		if view.has_signal("colony_opened"):
+			view.colony_opened.connect(func(colony_id: int, star_id: int, planet_id: int):
+				_colonies_build(colony_id, star_id, planet_id, false, false))
 		if view.has_signal("star_marked"):
 			view.star_marked.connect(func(star: int):
 				galaxy.selected = star
@@ -1413,6 +1416,10 @@ func _smoke_colonies(shots: String) -> bool:
 	var panel := _view("colonies_panel")
 	var rows: int = panel._rows.size()
 	var area: Rect2 = panel.get_global_rect()
+	var tab: Button = _view("side_tabs").get_node("Colonies")
+	print("smoke: Colonies tab armed while open: %s" % tab.button_pressed)
+	if not tab.button_pressed:
+		return false
 	print("smoke: colonies panel %s, %d rows, rect %s, galaxy zoom %.3f (was %.3f); view %s, area %s, min %s" % [panel.visible, rows, area, galaxy.camera.zoom.x, zoom_before,
 		get_viewport().get_visible_rect().size, _research_area(), panel.get_combined_minimum_size()])
 	if shots != "":
@@ -1512,6 +1519,20 @@ func _smoke_colonies(shots: String) -> bool:
 		await host.shot(shots + "/native-colonies-returned.png")
 	if not panel.visible or panel.sort_key != sort_key or _view("build_pane").visible:
 		return false
+	# The name: the system and its colony pane, no build pane; back again.
+	var named: Dictionary = panel.colonies[0]
+	panel.colony_opened.emit(int(named.colony), int(named.star), int(named.planet))
+	await get_tree().create_timer(2.5).timeout
+	print("smoke: name detour: panel %s, system %s, colony pane %d (wanted %d), build pane %s" % [panel.visible,
+		_view("system_pane").visible, _view("colony_pane").colony_id, int(named.colony), _view("build_pane").visible])
+	if panel.visible or _view("colony_pane").colony_id != int(named.colony) or _view("build_pane").visible:
+		return false
+	back_button.pressed.emit()
+	await get_tree().create_timer(2.5).timeout
+	if not panel.visible:
+		return false
+	if shots != "":
+		await host.shot(shots + "/native-colonies-strip.png")
 	panel.close()
 	await get_tree().create_timer(2.0).timeout
 	print("smoke: closed: zoom %.3f (was %.3f), position %s (was %s)" % [galaxy.camera.zoom.x, zoom_before, galaxy.camera.position, position_before])
@@ -1772,9 +1793,10 @@ func _side_panel_area() -> Rect2:
 	return Rect2(0.0, area.position.y, right, area.size.y)
 
 
-## The Colonies panel's Building slot: the panel goes, the colony's system opens with its colony
-## pane and build pane, and the system pane's way back reads RETURN TO COLONIES (owner, 2026-11-14).
-func _colonies_build(colony_id: int, star_id: int, planet_id: int, bought: bool) -> void:
+## The Colonies panel's Building slot (or its name, `with_build` false): the panel goes, the
+## colony's system opens with its colony pane (and build pane), and the system pane's way back
+## reads RETURN TO COLONIES (owner, 2026-11-14).
+func _colonies_build(colony_id: int, star_id: int, planet_id: int, bought: bool, with_build := true) -> void:
 	_colonies_return = true
 	galaxy.keep_fit_for_return()
 	_view("colonies_panel").close()
@@ -1793,7 +1815,8 @@ func _colonies_build(colony_id: int, star_id: int, planet_id: int, bought: bool)
 		pane.show_system(result, String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")"), star_id)
 		(pane.get_node("Box/Back") as Button).text = "RETURN TO COLONIES"
 		pane.select_planet(planet_id) # its colony pane (colony_chosen)
-		_open_build_pane(colony_id, bought))
+		if with_build:
+			_open_build_pane(colony_id, bought))
 
 
 func _on_star_clicked(star_id: int) -> void:
