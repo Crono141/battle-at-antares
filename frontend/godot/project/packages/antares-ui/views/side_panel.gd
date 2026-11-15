@@ -30,6 +30,20 @@ func open_in(rect: Rect2) -> void:
 	_tween.tween_property(self, "position:x", target, SLIDE_TIME)
 
 
+## The window changed size (owner, 2026-11-14: the panels must stay against the side tabs): it
+## moves to the new `area`'s right edge, at the width it wants there.
+func reflow(area: Rect2) -> void:
+	if not visible or _closing:
+		return
+	var width := _wanted_width(area)
+	open_in(Rect2(area.end.x - width, area.position.y, width, area.size.y))
+
+
+## How wide the panel is in `area` (a panel may grow or shrink its columns first).
+func _wanted_width(area: Rect2) -> float:
+	return minf(maxf(_rect.size.x, get_combined_minimum_size().x), area.size.x - 16.0)
+
+
 ## Where it rests when open (the galaxy fits left of this).
 func rest_left() -> float:
 	return _rect.end.x - maxf(size.x, custom_minimum_size.x)

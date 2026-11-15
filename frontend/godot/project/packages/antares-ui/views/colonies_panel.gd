@@ -79,6 +79,7 @@ var _rows := {} # colony -> its row panel
 
 func _ready() -> void:
 	$Box/Header/Close.pressed.connect(close)
+	scroll.resized.connect(func(): _fill_jobs.call_deferred())
 	# The output box's three lines, filled or not: the strip keeps its height.
 	$Box/Body/Info/Colony/Output.custom_minimum_size.y = 3.0 * OUTPUT_LINE + 2.0 * 3.0 + \
 		_box_padding_y($Box/Body/Info/Colony/Output)
@@ -121,22 +122,36 @@ func _row_pad(side: Side) -> float:
 ## Flies out into `area` (its right edge against the side tabs, from under the bar to above the
 ## map controls), as wide as the table wants but leaving the galaxy most of the screen.
 func open_panel(area: Rect2) -> void:
-	var width := clampf(area.size.x * 0.45, 700.0, 960.0)
-	width = minf(width, area.size.x - 16.0)
-	custom_minimum_size.x = 0.0
-	_clear(rows_box) # rebuilt by the query; rows of the last width would widen the measure
-	_rows.clear()
-	_job_cells.clear()
-	_name_cells.clear()
-	# Measured, not guessed: the panel with narrow job columns, then the job columns take the rest.
-	_job_width = MIN_JOB_WIDTH
-	_show_columns()
-	var base := get_combined_minimum_size().x - 3.0 * _job_width + 14.0 # the scroll bar
-	_job_width = maxf((width - base) / 3.0, MIN_JOB_WIDTH)
-	_show_columns()
-	width = maxf(width, get_combined_minimum_size().x)
+	var width := _wanted_width(area)
 	refresh()
 	open_in(Rect2(area.end.x - width, area.position.y, width, area.size.y))
+
+
+## As wide as the table wants with the narrowest job columns, but a share of the window; the job
+## columns then take whatever the panel has left (_fill_jobs, owner 2026-11-14: the room went to
+## the right of BUY).
+func _wanted_width(area: Rect2) -> float:
+	custom_minimum_size.x = 0.0
+	_job_width = MIN_JOB_WIDTH # narrow first, so the panel can shrink
+	_show_columns()
+	_show_rows()
+	var width := minf(clampf(area.size.x * 0.45, 700.0, 960.0), area.size.x - 16.0)
+	return maxf(width, get_combined_minimum_size().x + 14.0) # the scroll bar
+
+
+## The job columns share the table's width beyond the fixed columns, every row the same.
+func _fill_jobs() -> void:
+	if not visible or scroll.size.x <= 0.0:
+		return
+	var fixed := 0.0
+	for column: Dictionary in COLUMNS:
+		fixed += float(column.width)
+	fixed += BUY_WIDTH + SEPARATION * 6.0 + _row_pad(SIDE_LEFT) + _row_pad(SIDE_RIGHT)
+	var width := floorf(maxf((scroll.size.x - 14.0 - fixed) / 3.0, MIN_JOB_WIDTH))
+	if absf(width - _job_width) >= 1.0:
+		_job_width = width
+		_show_columns()
+		_show_rows()
 
 
 ## The panel's width once open (the galaxy fits the space left of it).

@@ -650,6 +650,16 @@ func _on_window_resized() -> void:
 		return
 	_scaled_for = get_window().size
 	set_ui_scale(_wanted_ui_scale(), false)
+	# The side panels stay against the side tabs (owner, 2026-11-14: a wider window left a gap,
+	# a narrower one slid them under the tabs), and the galaxy fits beside them again.
+	if SIDE_PANELS.values().any(func(n: String) -> bool: return _views.has(n) and (_views[n] as Control).visible):
+		await get_tree().process_frame # the tabs laid out at the new size first
+		await get_tree().process_frame
+		for panel_name: String in SIDE_PANELS.values():
+			var side_view: Control = _views.get(panel_name)
+			if side_view != null and side_view.visible:
+				side_view.reflow(_side_panel_area())
+				_fit_beside_panel(side_view)
 	if _views.has("build_pane") and _views.build_pane.visible:
 		await get_tree().process_frame # the panes and tabs laid out at the new size first
 		await get_tree().process_frame
@@ -1420,7 +1430,7 @@ func _smoke_colonies(shots: String) -> bool:
 	var zoom_before: float = galaxy.camera.zoom.x
 	var position_before: Vector2 = galaxy.camera.position
 	_on_view_action("colonies")
-	await get_tree().create_timer(2.0).timeout
+	await get_tree().create_timer(0.6).timeout
 	var panel := _view("colonies_panel")
 	var rows: int = panel._rows.size()
 	var area: Rect2 = panel.get_global_rect()
@@ -1456,7 +1466,7 @@ func _smoke_colonies(shots: String) -> bool:
 	# A star click selects its colony's row.
 	var last: Dictionary = panel.colonies[panel.colonies.size() - 1]
 	_on_star_clicked(int(last.star))
-	await get_tree().create_timer(0.5).timeout
+	await get_tree().create_timer(0.3).timeout
 	print("smoke: star %d clicked: selected %d (wanted %d), system pane %s" % [int(last.star), panel.selected, int(last.colony), _view("system_pane").visible])
 	if panel.selected != int(last.colony) and int(_row_star_first(panel, int(last.star))) != panel.selected:
 		return false
@@ -1473,16 +1483,16 @@ func _smoke_colonies(shots: String) -> bool:
 		await get_tree().process_frame
 		var target: Control = panel._job_cells[Vector2i(id, 2)]
 		panel._input(_smoke_click_at(target.get_global_rect().get_center()))
-		await get_tree().create_timer(1.0).timeout
+		await get_tree().create_timer(0.4).timeout
 		var after: int = (panel._row_data(id).jobs[1].colonists as Array).size()
 		print("smoke: %s workers %d -> %d" % [c.name, before, after])
 		if after != before - 1:
 			return false
 		var back: Dictionary = panel._row_data(id).jobs[2].colonists[0]
 		_send({"verb": "move_colonist", "colony": id, "pops": [int(back.pop)], "job": 1})
-		await get_tree().create_timer(0.5).timeout
+		await get_tree().create_timer(0.3).timeout
 		panel.refresh()
-		await get_tree().create_timer(0.5).timeout
+		await get_tree().create_timer(0.3).timeout
 		moved = true
 		break
 	if not moved:
@@ -1512,7 +1522,7 @@ func _smoke_colonies(shots: String) -> bool:
 	var sort_key: String = panel.sort_key
 	var first_row: Dictionary = panel.colonies[0]
 	panel.build_chosen.emit(int(first_row.colony), int(first_row.star), int(first_row.planet), false)
-	await get_tree().create_timer(2.5).timeout
+	await get_tree().create_timer(0.7).timeout
 	var back_button: Button = _view("system_pane").get_node("Box/Back")
 	print("smoke: build detour: panel %s, system %s, colony pane %d, build pane %s, back '%s'" % [panel.visible,
 		_view("system_pane").visible, _view("colony_pane").colony_id, _view("build_pane").visible, back_button.text])
@@ -1521,7 +1531,7 @@ func _smoke_colonies(shots: String) -> bool:
 	if panel.visible or not _view("build_pane").visible or back_button.text != "RETURN TO COLONIES":
 		return false
 	back_button.pressed.emit()
-	await get_tree().create_timer(2.5).timeout
+	await get_tree().create_timer(0.7).timeout
 	print("smoke: returned: panel %s, sort %s (was %s), back '%s', zoom %.3f" % [panel.visible, panel.sort_key, sort_key, back_button.text, galaxy.camera.zoom.x])
 	if shots != "":
 		await host.shot(shots + "/native-colonies-returned.png")
@@ -1530,19 +1540,21 @@ func _smoke_colonies(shots: String) -> bool:
 	# The name: the system and its colony pane, no build pane; back again.
 	var named: Dictionary = panel.colonies[0]
 	panel.colony_opened.emit(int(named.colony), int(named.star), int(named.planet))
-	await get_tree().create_timer(2.5).timeout
+	await get_tree().create_timer(0.7).timeout
 	print("smoke: name detour: panel %s, system %s, colony pane %d (wanted %d), build pane %s" % [panel.visible,
 		_view("system_pane").visible, _view("colony_pane").colony_id, int(named.colony), _view("build_pane").visible])
 	if panel.visible or _view("colony_pane").colony_id != int(named.colony) or _view("build_pane").visible:
 		return false
 	back_button.pressed.emit()
-	await get_tree().create_timer(2.5).timeout
+	await get_tree().create_timer(0.7).timeout
 	if not panel.visible:
 		return false
 	if shots != "":
 		await host.shot(shots + "/native-colonies-strip.png")
+	if not await _smoke_side_resize(panel, shots, "colonies"):
+		return false
 	panel.close()
-	await get_tree().create_timer(2.0).timeout
+	await get_tree().create_timer(0.6).timeout
 	print("smoke: closed: zoom %.3f (was %.3f), position %s (was %s)" % [galaxy.camera.zoom.x, zoom_before, galaxy.camera.position, position_before])
 	return absf(galaxy.camera.zoom.x - zoom_before) < zoom_before * 0.01 and galaxy.camera.position.distance_to(position_before) < 2.0
 
@@ -1554,7 +1566,7 @@ func _smoke_planets(shots: String) -> bool:
 	var zoom_before: float = galaxy.camera.zoom.x
 	var position_before: Vector2 = galaxy.camera.position
 	_on_view_action("planets")
-	await get_tree().create_timer(2.0).timeout
+	await get_tree().create_timer(0.6).timeout
 	var panel := _view("planets_panel")
 	var tab: Button = _view("side_tabs").get_node("Planets")
 	var area: Rect2 = panel.get_global_rect()
@@ -1633,13 +1645,43 @@ func _smoke_planets(shots: String) -> bool:
 			if not box.has("r") or not box.r.get("recalled", false):
 				return false
 			panel.refresh()
-			await get_tree().create_timer(0.5).timeout
+			await get_tree().create_timer(0.3).timeout
 		else:
 			print("smoke: no free colony ship (send skipped)")
+	if not await _smoke_side_resize(panel, shots, "planets"):
+		return false
 	panel.close()
-	await get_tree().create_timer(2.0).timeout
+	await get_tree().create_timer(0.6).timeout
 	print("smoke: planets closed: tab armed %s, zoom %.3f (was %.3f)" % [tab.button_pressed, galaxy.camera.zoom.x, zoom_before])
 	return not tab.button_pressed and absf(galaxy.camera.zoom.x - zoom_before) < zoom_before * 0.01 and galaxy.camera.position.distance_to(position_before) < 2.0
+
+
+## Smoke (owner, 2026-11-14): a side panel follows a window drag, its right edge against the side
+## tabs; the Colonies rows fill the table.
+func _smoke_side_resize(panel: Control, shots: String, tag: String) -> bool:
+	get_window().mode = Window.MODE_WINDOWED
+	var ok := true
+	for size in [Vector2i(1700, 1000), Vector2i(1300, 900), Vector2i(1500, 950)]:
+		for step in 12: # a drag, a size a frame
+			get_window().size = Vector2i(Vector2(get_window().size).lerp(Vector2(size), 0.4)) if step < 11 else size
+			await get_tree().process_frame
+		await get_tree().create_timer(0.4).timeout
+		var tabs_left := INF
+		for b in _view("side_tabs").find_children("*", "Button", true, false):
+			if (b as Control).is_visible_in_tree():
+				tabs_left = minf(tabs_left, (b as Control).get_global_rect().position.x)
+		var right: float = panel.get_global_rect().end.x
+		var gap := tabs_left - right
+		var fill := ""
+		if "scroll" in panel and panel.has_method("_fill_jobs") and not panel._rows.is_empty():
+			var row: Control = panel._rows.values()[0]
+			fill = " row %.0f of table %.0f" % [row.size.x, panel.scroll.size.x]
+			ok = ok and row.size.x >= panel.scroll.size.x - 30.0
+		print("smoke: %s at %s: panel right %.0f, tabs %.0f (gap %.0f)%s" % [tag, size, right, tabs_left, gap, fill])
+		ok = ok and gap >= 0.0 and gap <= 14.0
+	if shots != "":
+		await host.shot(shots + "/native-%s-resized.png" % tag)
+	return ok
 
 
 func _row_star_first(panel: Control, star: int) -> int:
@@ -2261,19 +2303,23 @@ func _smoke_native() -> void:
 	if "--popups" in OS.get_cmdline_user_args():
 		await _smoke_popups(shots)
 		return
-	if "--planets" in OS.get_cmdline_user_args():
-		if await _smoke_planets(shots):
-			print("smoke: planets OK")
-			game.request_game_quit()
-		else:
-			await host.smoke_fail("planets panel")
-		return
-	if "--colonies" in OS.get_cmdline_user_args():
-		if await _smoke_colonies(shots):
-			print("smoke: colonies OK")
-			game.request_game_quit()
-		else:
-			await host.smoke_fail("colonies panel")
+	# The side panels' steps, any of them in one launch (one game start for several checks), with
+	# quick camera flights: the steps wait on the flights.
+	var panel_steps: Array = ["--colonies", "--planets"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
+	if not panel_steps.is_empty():
+		galaxy.flight_time = 0.15
+		for step: String in panel_steps:
+			var passed := false
+			if step == "--colonies":
+				passed = await _smoke_colonies(shots)
+			else:
+				passed = await _smoke_planets(shots)
+			if not passed:
+				await host.smoke_fail(step.trim_prefix("--") + " panel")
+				return
+			print("smoke: %s OK" % step.trim_prefix("--"))
+		print("smoke: panels OK")
+		game.request_game_quit()
 		return
 	if "--resize-test" in OS.get_cmdline_user_args():
 		await _smoke_resize(shots)

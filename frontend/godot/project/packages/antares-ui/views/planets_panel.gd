@@ -29,14 +29,14 @@ const COLUMNS := [
 	{"key": "size", "title": "SIZE", "width": 100.0},
 	{"key": "ship", "title": "SHIPS", "width": 74.0},
 ]
-## The screen's toggles, as the owner's mockup names them: each shows only the planets that pass
+## The screen's toggles, named short (owner, 2026-11-14; the mockup's long names in the tips): each shows only the planets that pass
 ## (the query's `hidden_by` flag hides it when on). Out of range is on by default, as the screen.
 const FILTERS := [
-	{"flag": "out_of_range", "title": "Planets In Range", "on": true},
-	{"flag": "mineral_poor", "title": "Mineral Abundance", "on": false},
-	{"flag": "hostile", "title": "Non-Hostile Environment", "on": false},
-	{"flag": "adverse_gravity", "title": "Normal Gravity", "on": false},
-	{"flag": "enemy", "title": "No Enemy Presence", "on": false},
+	{"flag": "out_of_range", "title": "In Range", "tip": "Planets in range", "on": true},
+	{"flag": "mineral_poor", "title": "Abundance", "tip": "Mineral abundance: no poor or ultra poor planets", "on": false},
+	{"flag": "hostile", "title": "Environment", "tip": "Non-hostile environment: planets that grow food", "on": false},
+	{"flag": "adverse_gravity", "title": "Gravity", "tip": "Normal gravity for your race: no production penalty", "on": false},
+	{"flag": "enemy", "title": "No Hostiles", "tip": "No enemy presence: no other empire's colonies or ships there", "on": false},
 ]
 const ROW_HEIGHT := 50.0
 const ROW_PAD := Vector2(22, 2)
@@ -88,9 +88,15 @@ func open_panel(area: Rect2) -> void:
 	_clear(rows_box)
 	_rows.clear()
 	_show_columns()
-	var width := minf(get_combined_minimum_size().x + 14.0, area.size.x - 16.0)
+	var width := _wanted_width(area)
 	refresh()
 	open_in(Rect2(area.end.x - width, area.position.y, width, area.size.y))
+
+
+## As wide as its table (the columns are fixed), the scroll bar's room included.
+func _wanted_width(area: Rect2) -> float:
+	custom_minimum_size.x = 0.0
+	return minf(get_combined_minimum_size().x + 14.0, area.size.x - 16.0)
 
 
 func panel_width() -> float:
@@ -151,7 +157,7 @@ func _show_filters() -> void:
 		b.add_theme_font_size_override("font_size", 12)
 		b.custom_minimum_size.y = 28
 		b.set_pressed_no_signal(bool(_filters_on.get(flag, false)))
-		b.tooltip_text = "Show only these planets"
+		b.tooltip_text = "Show only: %s" % String(f.tip).to_lower()
 		Themes.glowing(b)
 		b.toggled.connect(func(on: bool):
 			_filters_on[flag] = on
