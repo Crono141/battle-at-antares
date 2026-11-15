@@ -812,6 +812,11 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 		leaders_view.want_fleet = int(fleets_fleet.get("ship", -1)) # opens on the Fleets panel's fleet (owner)
 		_open_side_panel("leaders")
 		return
+	# The Leaders panel's FLEETS: the Fleets panel on that fleet.
+	if String(dict.get("verb", "")) == "open_side_panel":
+		_fleet_for_panel = int(dict.get("ship", -1))
+		_open_side_panel(String(dict.panel))
+		return
 	if dict.has("_reply_to"):
 		var method: String = dict["_reply_to"]
 		dict.erase("_reply_to")
@@ -1930,6 +1935,19 @@ func _smoke_leaders_panel(shots: String) -> bool:
 		panel.place = biggest
 		panel._show_place()
 		await get_tree().create_timer(0.3).timeout
+	# FLEETS opens the Fleets panel on the cycler's fleet, then back here.
+	if not panel.places.is_empty():
+		var shown_fleet := int(panel.places[panel.place].get("fleet", -1))
+		panel._fleets_button.pressed.emit()
+		await get_tree().create_timer(0.8).timeout
+		var fleets_view := _view("fleets_panel")
+		print("smoke: leaders: FLEETS on fleet %d: fleets panel %s on %d" % [shown_fleet, fleets_view.visible, int(fleets_view.fleet.get("ship", -1))])
+		if not fleets_view.visible or int(fleets_view.fleet.get("ship", -1)) != shown_fleet:
+			return false
+		_on_view_command({"verb": "open", "screen": 29}, fleets_view)
+		await get_tree().create_timer(0.8).timeout
+		if not panel.visible or panel.tab != "ship":
+			return false
 	var card_room: float = panel._cards_scroll.size.y
 	var two_cards: float = panel._cards_scroll.custom_minimum_size.y
 	print("smoke: leaders: ship officers %d, fleets %d, ships shown %d, top %.0f px, cards room %.0f px (two cards %.0f)" % [panel.leaders.size(),
@@ -2230,9 +2248,14 @@ func _on_answered(id: int, value: int, text := "") -> void:
 ## screen for now) or the system panel.
 ## A right sidebar panel (Colonies WP3.5a, Planets WP3.5b): opening it closes the system, colony
 ## and build panes, the fleet panel and another side panel, and the galaxy fits the space left of it.
+## The fleet the next Fleets panel opens on (the Leaders panel's FLEETS), or -1.
+var _fleet_for_panel := -1
+
+
 func _open_side_panel(action_name: String) -> void:
 	var side_view := _view(SIDE_PANELS[action_name])
-	var fleet_shown := _fleet_ship # Fleets opens on the fleet whose box was open
+	var fleet_shown := _fleet_ship if _fleet_for_panel < 0 else _fleet_for_panel # Fleets opens on the fleet whose box was open
+	_fleet_for_panel = -1
 	var system_shown := _panel_star # Leaders opens on the system whose pane was open
 	var fleets_view: Control = _views.get("fleets_panel")
 	if action_name == "leaders" and fleets_view != null and fleets_view.visible and not fleets_view.fleet.is_empty():

@@ -39,7 +39,7 @@ const COLUMNS := [
 	{"key": "building", "title": "BUILDING", "width": 116.0}, # owner: room to the job columns
 	{"key": "population", "title": "POP", "width": 56.0},
 ]
-const BUY_WIDTH := 50.0
+const BUY_WIDTH := 50.0 # at least; the theme's button may need more (_buy_width)
 ## A line of the output grid (food, research; industry, BC; morale).
 const OUTPUT_LINE := 18.0
 const ROW_HEIGHT := 46.0
@@ -146,7 +146,7 @@ func _fill_jobs() -> void:
 	var fixed := 0.0
 	for column: Dictionary in COLUMNS:
 		fixed += float(column.width)
-	fixed += BUY_WIDTH + SEPARATION * 6.0 + _row_pad(SIDE_LEFT) + _row_pad(SIDE_RIGHT)
+	fixed += _buy_width() + SEPARATION * 6.0 + _row_pad(SIDE_LEFT) + _row_pad(SIDE_RIGHT)
 	var width := floorf(maxf((scroll.size.x - 14.0 - fixed) / 3.0, MIN_JOB_WIDTH))
 	if absf(width - _job_width) >= 1.0:
 		_job_width = width
@@ -239,7 +239,7 @@ func _show_columns() -> void:
 		b.pressed.connect(_sort_by.bind(key))
 		columns_box.add_child(b)
 	var tail := Control.new() # over the BUY buttons and the rows' right padding
-	tail.custom_minimum_size.x = BUY_WIDTH + _row_pad(SIDE_RIGHT)
+	tail.custom_minimum_size.x = _buy_width() + _row_pad(SIDE_RIGHT)
 	columns_box.add_child(tail)
 
 
@@ -346,7 +346,7 @@ func _row(c: Dictionary) -> Control:
 	var buy_box := CenterContainer.new()
 	buy_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	buy_box.add_child(_buy_button(c))
-	_add_fixed(line, buy_box, BUY_WIDTH)
+	_add_fixed(line, buy_box, _buy_width())
 	return panel
 
 
@@ -466,11 +466,29 @@ func _build_cell(c: Dictionary) -> Control:
 	return b
 
 
+var _buy_w := 0.0
+
+
+## The BUY column's width: the widest the button gets in this theme (owner: Chrome's frame art is
+## wider than the old 50 px, so the holder cut its left edge off).
+func _buy_width() -> float:
+	if _buy_w <= 0.0 and is_inside_tree():
+		var probe := Button.new()
+		probe.add_theme_font_size_override("font_size", 12)
+		add_child(probe)
+		for text in ["BUY", "BOUGHT"]:
+			probe.text = text
+			_buy_w = maxf(_buy_w, probe.get_combined_minimum_size().x)
+		probe.free()
+		_buy_w = maxf(ceilf(_buy_w), BUY_WIDTH)
+	return _buy_w if _buy_w > 0.0 else BUY_WIDTH
+
+
 func _buy_button(c: Dictionary) -> Control:
 	var build: Dictionary = c.build
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(BUY_WIDTH, 30)
+	b.custom_minimum_size = Vector2(_buy_width(), 30)
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	b.add_theme_font_size_override("font_size", 12)
 	if int(build.get("bought", 0)) > 0:

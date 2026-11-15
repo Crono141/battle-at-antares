@@ -22,7 +22,7 @@ signal width_changed
 const Themes := preload("../themes.gd")
 const TILE := Vector2(96, 72)
 const COLUMNS := 4
-const DETAIL_HEIGHT := 150.0
+const DETAIL_HEIGHT := 180.0
 
 var art: Node
 var player := -1 # the player's number (the galaxy's), for "own fleet at a star"
@@ -37,7 +37,7 @@ var _title: Label
 var _cycler_label: Label
 var _grid: GridContainer
 var _scroll: ScrollContainer
-var _detail: HBoxContainer
+var _detail: VBoxContainer
 var _support: Button
 var _combat: Button
 var _all: Button
@@ -57,7 +57,7 @@ func _ready() -> void:
 	_title.text = "Fleets"
 	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(_title)
-	var leaders := _button("LEADERS", "The ship officers (the original Leaders screen for now)")
+	var leaders := _button("LEADERS", "The Leaders panel's Ship Officers, on this fleet")
 	leaders.pressed.connect(func(): command.emit({"verb": "open", "screen": 29}))
 	header.add_child(leaders)
 	var close_button := _button("X", "Close (Esc)")
@@ -103,9 +103,14 @@ func _ready() -> void:
 	detail_panel.custom_minimum_size.y = DETAIL_HEIGHT
 	detail_panel.clip_contents = true
 	box.add_child(detail_panel)
-	_detail = HBoxContainer.new()
-	_detail.add_theme_constant_override("separation", 12)
-	detail_panel.add_child(_detail)
+	# Owner's "Fleets Ship Info Block.png": scrolls inside its fixed height when a ship has more.
+	var detail_scroll := ScrollContainer.new()
+	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	detail_panel.add_child(detail_scroll)
+	_detail = VBoxContainer.new()
+	_detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_detail.add_theme_constant_override("separation", 2)
+	detail_scroll.add_child(_detail)
 	_hint = Label.new()
 	_hint.theme_type_variation = &"Dim"
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -377,52 +382,61 @@ func _show_detail(ship: int) -> void:
 	command.emit({"verb": "query", "what": "ship_detail", "ship": ship, "_reply_to": "_on_detail"})
 
 
+## The ship's block (owner's "Fleets Ship Info Block.png"): the name, crew and shield across the
+## top, the beam and missile values under them, then Weapons and Specials side by side.
 func _on_detail(result: Dictionary) -> void:
 	if not result.get("ok", false) or int(result.ship) != _detail_ship:
 		return
 	_clear(_detail)
-	if result.has("officer"):
-		var officer: Dictionary = result.officer
-		var portrait: TextureRect = preload("sprite_rect.gd").new()
-		portrait.custom_minimum_size = Vector2(64, 80)
-		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		portrait.tooltip_text = String(officer.name)
-		portrait.bind(art)
-		portrait.show_sprite(String(officer.lbx), int(officer.entry))
-		_detail.add_child(portrait)
-	var left := VBoxContainer.new()
-	left.add_theme_constant_override("separation", 0)
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_detail.add_child(left)
-	_line(left, String(result.name), &"Name")
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 14)
+	_detail.add_child(top)
+	_whole(_line(top, String(result.name), &"Name"))
 	if result.has("help"): # colony, outpost and transport ships: their help text
-		var help := _line(left, String(result.help), &"Dim")
+		var help := _line(_detail, String(result.help), &"Dim")
 		help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		help.clip_text = false
 		return
-	_line(left, String(result.crew), &"Dim")
-	_line(left, String(result.shield), &"Dim")
-	_line(left, "%s %+d" % [String(result.attack_label).strip_edges(), int(result.attack)], &"Dim")
-	_line(left, "%s %+d" % [String(result.defense_label).strip_edges(), int(result.defense)], &"Dim")
+	var crew := _line(top, String(result.crew), &"Dim")
+	crew.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_whole(_line(top, String(result.shield), &"Dim"))
+	var stats := HBoxContainer.new()
+	stats.add_theme_constant_override("separation", 14)
+	_detail.add_child(stats)
+	_whole(_line(stats, "%s %+d" % [String(result.attack_label).strip_edges(), int(result.attack)], &"Dim"))
+	_whole(_line(stats, "%s %+d" % [String(result.defense_label).strip_edges(), int(result.defense)], &"Dim"))
+	_whole(_line(stats, "Missile DCV: %+d" % int(result.get("missile_defense", 0)), &"Dim"))
 	if result.has("officer"):
-		_line(left, String(result.officer.name), &"Dim")
-	var right := VBoxContainer.new()
-	right.add_theme_constant_override("separation", 0)
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_detail.add_child(right)
+		var officer := _line(stats, String(result.officer.name), &"Dim")
+		officer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		officer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		officer.tooltip_text = "The ship's officer"
+		officer.mouse_filter = Control.MOUSE_FILTER_PASS
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 14)
+	_detail.add_child(columns)
 	var design: Dictionary = result.get("design", {})
-	_line(right, "Weapons", &"Name")
-	var weapons: Array = design.get("weapons", [])
-	for w: Dictionary in weapons:
-		_line(right, String(w.text), &"Dim")
-	if weapons.is_empty():
-		_line(right, "None", &"Dim")
-	var specials: Array = design.get("specials", [])
-	if not specials.is_empty():
-		_line(right, "Specials", &"Name")
-		for sp: Dictionary in specials:
-			_line(right, String(sp.text), &"Dim")
+	for pair in [["Weapons", design.get("weapons", [])], ["Specials", design.get("specials", [])]]:
+		var column := VBoxContainer.new()
+		column.add_theme_constant_override("separation", 0)
+		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		column.size_flags_stretch_ratio = 1.0
+		columns.add_child(column)
+		_line(column, String(pair[0]), &"Name")
+		var items: Array = pair[1]
+		for item: Dictionary in items:
+			var line := _line(column, String(item.text), &"Dim")
+			line.tooltip_text = String(item.text)
+			line.mouse_filter = Control.MOUSE_FILTER_PASS
+		if items.is_empty():
+			_line(column, "None", &"Dim")
+
+
+## A label shown whole (a row's fixed parts: a trimmed label has no width of its own in a row).
+func _whole(label: Label) -> Label:
+	label.clip_text = false
+	label.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	return label
 
 
 func _line(holder: Control, text: String, variation: StringName) -> Label:

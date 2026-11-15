@@ -6,7 +6,7 @@ extends "side_panel.gd"
 ## spies against that empire as the screen's spy icons with ESPIONAGE / SABOTAGE / HIDE (their
 ## mission). Spies move as on the screen and as Colonies moves colonists (owner): a click on an icon
 ## picks it and the ones right of it up onto the pointer, a click on another empire's icons or the
-## spies at home puts them down (Esc or a right click puts them back); − / + move one. Eliminated empires keep their slot:
+## spies at home puts them down (Esc or a right click puts them back). Eliminated empires keep their slot:
 ## the portrait under the red Eliminated sign (races.lbx 31), No contact. A click on a slot picks the
 ## empire; the fixed bottom has BONUSES (spy and agent), the spies at home, and AUDIENCE (the
 ## native diplomacy window), REPORT (the original Races screen for now), DECLARE WAR (carried out
@@ -225,29 +225,19 @@ func _slot(r: Dictionary) -> Control:
 	treaty.add_theme_font_size_override("font_size", 13)
 	treaty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info.add_child(treaty)
-	# Spies against this empire: the count with − / +, the mission switch.
+	# Spies against this empire: their icons, the mission switch.
 	var spies := HBoxContainer.new()
 	spies.add_theme_constant_override("separation", 4)
 	info.add_child(spies)
-	var minus := _button("−", "One spy home")
-	minus.custom_minimum_size = Vector2(28, 26)
-	minus.disabled = int(r.spies) <= 0
-	minus.pressed.connect(func(): command.emit({"verb": "set_spies", "player": p, "count": int(r.spies) - 1, "_reply_to": "_after_command"}))
-	spies.add_child(minus)
 	var strip := _SpyStrip.new()
 	strip.owner_player = p
 	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	strip.setup(art, int(result.get("spy_icon", -1)), int(r.spies))
 	strip.held = int(_carry.n) if not _carry.is_empty() and int(_carry.from) == p else 0
-	strip.tooltip_text = "Your spies on them: %d (theirs on you: %d)\nDrag spies to another empire or home" % [int(r.spies), int(r.their_spies)]
+	strip.tooltip_text = "Your spies on them: %d (theirs on you: %d)\nClick spies to pick them up, then click another empire or home" % [int(r.spies), int(r.their_spies)]
 	strip.grabbed.connect(_pick_up)
 	_strips.append(strip)
 	spies.add_child(strip)
-	var plus := _button("+", "One spy from home to them")
-	plus.custom_minimum_size = Vector2(28, 26)
-	plus.disabled = int(result.get("agents", 0)) <= 0 or int(r.spies) >= 63
-	plus.pressed.connect(func(): command.emit({"verb": "set_spies", "player": p, "count": int(r.spies) + 1, "_reply_to": "_after_command"}))
-	spies.add_child(plus)
 	var missions := HBoxContainer.new()
 	missions.add_theme_constant_override("separation", 2)
 	info.add_child(missions)

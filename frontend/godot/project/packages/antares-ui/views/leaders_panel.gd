@@ -41,6 +41,7 @@ var _cards_scroll: ScrollContainer
 var _cards: VBoxContainer
 var _place_label: Label
 var _colony_tab: Button
+var _fleets_button: Button
 var _ship_tab: Button
 var _hire: Button
 var _assign: Button
@@ -59,6 +60,12 @@ func _ready() -> void:
 	title.text = "Leaders"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title)
+	# FLEETS (Ship Officers): the Fleets panel on the cycler's fleet, as Fleets' LEADERS comes here.
+	_fleets_button = _button("FLEETS", "The Fleets panel, on this fleet")
+	_fleets_button.pressed.connect(func():
+		var fleet := int(places[place].get("fleet", -1)) if place < places.size() else -1
+		command.emit({"verb": "open_side_panel", "panel": "fleets", "ship": fleet}))
+	header.add_child(_fleets_button)
 	var close_button := _button("X", "Close (Esc)")
 	close_button.custom_minimum_size = Vector2(34, 30)
 	close_button.pressed.connect(close)
@@ -155,6 +162,7 @@ func _set_tab(kind: String, at_star := -1) -> void:
 	tab = kind
 	_colony_tab.set_pressed_no_signal(kind == "colony")
 	_ship_tab.set_pressed_no_signal(kind == "ship")
+	_fleets_button.visible = kind == "ship"
 	Themes.glow(_colony_tab)
 	Themes.glow(_ship_tab)
 	picked = -1
