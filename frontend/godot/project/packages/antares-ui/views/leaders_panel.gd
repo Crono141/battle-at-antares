@@ -16,7 +16,7 @@ signal star_marked(star: int)
 
 const Themes := preload("../themes.gd")
 const WIDTH := 430.0
-const VIEW_HEIGHT := 200.0
+const VIEW_HEIGHT := 250.0
 const SHIP_TILE := Vector2(72, 56)
 ## The cards' list always has room for two leaders (owner: a big fleet squeezed it to a sliver);
 ## measured from the first card once one is shown.

@@ -8,6 +8,9 @@ extends Control
 const BOX_CENTER := Vector2(173.0, 136.0)
 const BOX_SIZE := Vector2(346.0, 272.0)
 const PLANET_FPS := 8.0
+## What the view fits (owner: closer than the whole box, whose corners are empty): the orbit rings
+## (BUFFER0 0x4D+, 288x154 around the box's centre) and half the largest planet beyond them.
+const CONTENT_SIZE := Vector2(320.0, 190.0)
 
 var art: Node
 var system := {}
@@ -44,7 +47,7 @@ func _process(delta: float) -> void:
 
 
 func _scale() -> float:
-	return minf(size.x / BOX_SIZE.x, size.y / BOX_SIZE.y)
+	return minf(size.x / CONTENT_SIZE.x, size.y / CONTENT_SIZE.y)
 
 
 func _origin() -> Vector2:

@@ -1917,6 +1917,30 @@ func _smoke_leaders_panel(shots: String) -> bool:
 	return not tab.button_pressed
 
 
+## Clicks the last spy icon of the `from` strip, then the `to` strip (the panel's pick-up and
+## put-down, as the pointer does it).
+func _smoke_carry_spy(panel: Control, from: int, to: int) -> void:
+	for step in 2:
+		var owner_player := from if step == 0 else to
+		for strip: Control in panel._strips:
+			if strip.owner_player != owner_player:
+				continue
+			var at := Vector2(float(strip.count - 1) * strip._spacing() + 4.0, strip.size.y * 0.5) if step == 0 else strip.size * 0.5
+			var click := InputEventMouseButton.new()
+			click.button_index = MOUSE_BUTTON_LEFT
+			click.pressed = true
+			click.position = strip.get_global_transform_with_canvas() * at
+			click.global_position = click.position
+			Input.parse_input_event(click)
+			var release := click.duplicate()
+			release.pressed = false
+			Input.parse_input_event(release)
+			await get_tree().create_timer(0.25).timeout
+			print("smoke: races: click on %d's spies: carrying %s" % [owner_player, panel._carry.get("n", 0)])
+			break
+	await get_tree().create_timer(0.4).timeout
+
+
 ## WP3.7 (`--races`): the Race Relations panel opens with its tab armed and the galaxy not moved,
 ## a met empire picked, a spy goes there and comes home, the mission changes and back, IGNORE
 ## toggles twice, and the panel follows a window drag.
@@ -1942,14 +1966,12 @@ func _smoke_races_panel(shots: String) -> bool:
 		var mission := int(r.mission)
 		var agents := int(panel.result.agents)
 		if agents > 0:
-			# A spy dragged from home onto the empire, and back (the strips' drop).
-			panel._move_spies(panel.HOME, panel.picked, 1)
-			await get_tree().create_timer(0.5).timeout
+			# A spy picked up at home with a click and put down on the empire with another, and back.
+			await _smoke_carry_spy(panel, panel.HOME, panel.picked)
 			var more := int(panel._race(panel.picked).spies)
-			panel._move_spies(panel.picked, panel.HOME, 1)
-			await get_tree().create_timer(0.5).timeout
+			await _smoke_carry_spy(panel, panel.picked, panel.HOME)
 			var back := int(panel._race(panel.picked).spies)
-			print("smoke: races: spies dragged %d -> %d and back to %d" % [spies, more, back])
+			print("smoke: races: spies carried %d -> %d and back to %d" % [spies, more, back])
 			if more != spies + 1 or back != spies:
 				return false
 		_send({"verb": "set_spies", "player": panel.picked, "mission": (mission + 1) % 3})

@@ -4,8 +4,9 @@ extends "side_panel.gd"
 ## The other empires (up to 7) as one scrolling column of slots: the ruler's portrait in the
 ## empire's colour, the relations bar and word, the treaties (or No contact), and the player's
 ## spies against that empire as the screen's spy icons with ESPIONAGE / SABOTAGE / HIDE (their
-## mission). Spies move as on the screen: drag from an icon (it and the ones right of it) onto
-## another empire's icons or the spies at home; − / + move one. Eliminated empires keep their slot:
+## mission). Spies move as on the screen and as Colonies moves colonists (owner): a click on an icon
+## picks it and the ones right of it up onto the pointer, a click on another empire's icons or the
+## spies at home puts them down (Esc or a right click puts them back); − / + move one. Eliminated empires keep their slot:
 ## the portrait under the red Eliminated sign (races.lbx 31), No contact. A click on a slot picks the
 ## empire; the fixed bottom has BONUSES (spy and agent), the spies at home, and AUDIENCE (the
 ## native diplomacy window), REPORT (the original Races screen for now), DECLARE WAR (carried out
@@ -29,6 +30,8 @@ var _slots: VBoxContainer
 var _bonuses: Label
 var _agents: Label
 var _home_strip: Control
+var _strips: Array[Control] = [] # every spy strip shown (the drop targets)
+var _carry := {} # {from, n, view}: spies on the pointer
 var _buttons := {}
 
 
@@ -73,7 +76,7 @@ func _ready() -> void:
 	_home_strip = _SpyStrip.new()
 	_home_strip.owner_player = HOME
 	_home_strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_home_strip.dropped.connect(_move_spies)
+	_home_strip.grabbed.connect(_pick_up)
 	home.add_child(_home_strip)
 	var grid := GridContainer.new()
 	grid.columns = 2
@@ -133,7 +136,9 @@ func show_races(answer: Dictionary) -> void:
 		String(answer.agent_bonus_label).strip_edges().trim_suffix(":"), int(answer.agent_bonus)]
 	_agents.text = "Spies at home: %d" % int(answer.agents)
 	_home_strip.setup(art, int(answer.get("spy_icon", -1)), int(answer.agents))
+	_home_strip.held = int(_carry.n) if not _carry.is_empty() and int(_carry.from) == HOME else 0
 	_clear(_slots)
+	_strips = [_home_strip]
 	for r: Dictionary in races:
 		_slots.add_child(_slot(r))
 	_update_buttons()
@@ -233,8 +238,10 @@ func _slot(r: Dictionary) -> Control:
 	strip.owner_player = p
 	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	strip.setup(art, int(result.get("spy_icon", -1)), int(r.spies))
+	strip.held = int(_carry.n) if not _carry.is_empty() and int(_carry.from) == p else 0
 	strip.tooltip_text = "Your spies on them: %d (theirs on you: %d)\nDrag spies to another empire or home" % [int(r.spies), int(r.their_spies)]
-	strip.dropped.connect(_move_spies)
+	strip.grabbed.connect(_pick_up)
+	_strips.append(strip)
 	spies.add_child(strip)
 	var plus := _button("+", "One spy from home to them")
 	plus.custom_minimum_size = Vector2(28, 26)
@@ -309,6 +316,104 @@ func _move_spies(from: int, to: int, n: int) -> void:
 		command.emit({"verb": "set_spies", "player": to, "count": int(dst.get("spies", 0)) + n, "_reply_to": "_after_command"})
 
 
+# ---- Spies on the pointer ----
+
+func _pick_up(from: int, n: int) -> void:
+	if not _carry.is_empty() or n <= 0:
+		return
+	var view := HBoxContainer.new()
+	view.top_level = true
+	view.z_index = 100
+	view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	view.add_theme_constant_override("separation", -14 if n > 4 else 0)
+	for i in mini(n, 8):
+		var icon: TextureRect = preload("sprite_rect.gd").new()
+		icon.custom_minimum_size = Vector2(_SpyStrip.ICON, _SpyStrip.ICON)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon.bind(art)
+		icon.show_sprite("RACES.LBX", int(result.get("spy_icon", -1)))
+		view.add_child(icon)
+	if n > 1:
+		var label := Label.new()
+		label.text = str(n)
+		label.add_theme_color_override("font_outline_color", Color.BLACK)
+		label.add_theme_constant_override("outline_size", 4)
+		view.add_child(label)
+	add_child(view)
+	_carry = {"from": from, "n": n, "view": view}
+	for strip: Control in _strips:
+		if strip.owner_player == from:
+			strip.held = n
+			strip.queue_redraw()
+	Input.set_default_cursor_shape(Input.CURSOR_DRAG)
+	_follow_pointer()
+
+
+func _follow_pointer() -> void:
+	var view: Control = _carry.get("view")
+	if is_instance_valid(view):
+		view.global_position = get_global_mouse_position() + Vector2(10, 6)
+	var at := get_global_mouse_position()
+	for strip: Control in _strips:
+		if is_instance_valid(strip):
+			strip.set_target(not _carry.is_empty() and strip.owner_player != int(_carry.from) \
+				and strip.is_visible_in_tree() and strip.get_global_rect().has_point(at))
+
+
+func _drop_carry() -> void:
+	if _carry.is_empty():
+		return
+	var view: Control = _carry.get("view")
+	if is_instance_valid(view):
+		view.queue_free()
+	_carry = {}
+	for strip: Control in _strips:
+		if is_instance_valid(strip):
+			strip.held = 0
+			strip.set_target(false)
+			strip.queue_redraw()
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+
+
+func _input(event: InputEvent) -> void:
+	if _carry.is_empty():
+		return
+	if event is InputEventMouseMotion:
+		_follow_pointer()
+		return
+	var key := event as InputEventKey
+	if key and key.pressed and key.keycode == KEY_ESCAPE:
+		_drop_carry()
+		get_viewport().set_input_as_handled()
+		return
+	var mb := event as InputEventMouseButton
+	if mb == null or not mb.pressed or mb.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		return
+	get_viewport().set_input_as_handled() # the click is the drop, nothing else
+	var from := int(_carry.from)
+	var n := int(_carry.n)
+	var to := from
+	if mb.button_index == MOUSE_BUTTON_LEFT:
+		for strip: Control in _strips:
+			if is_instance_valid(strip) and strip.is_visible_in_tree() and strip.get_global_rect().has_point(mb.global_position):
+				to = strip.owner_player
+	_drop_carry()
+	_move_spies(from, to, n)
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not _carry.is_empty():
+		return
+	super._unhandled_key_input(event)
+
+
+func close() -> void:
+	_drop_carry()
+	super.close()
+
+
 func _button(text: String, tip: String) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -346,25 +451,23 @@ class _RelationBar extends Control:
 
 
 ## A row of spy icons (the screen's icon group): drawn side by side, overlapping when there are
-## many. Dragging from an icon takes it and every icon to its right (Draw_Icon_Group_Cursor);
-## another strip takes the drop.
+## many. A click on an icon picks it and every icon to its right up (Draw_Icon_Group_Cursor);
+## the held ones are left out while they ride on the pointer.
 class _SpyStrip extends Control:
-	signal dropped(from: int, to: int, n: int)
+	signal grabbed(from: int, n: int)
 	const ICON := 26.0
 	var owner_player := -1
 	var count := 0
+	var held := 0 # picked up, on the pointer
 	var _texture: Texture2D
 	var _art: Node
 	var _icon := -1
-	var _drop_hover := false
+	var _target := false
 
 	func _init() -> void:
 		custom_minimum_size = Vector2(ICON * 3.0, ICON + 4.0)
 		mouse_filter = Control.MOUSE_FILTER_STOP
-		mouse_default_cursor_shape = Control.CURSOR_DRAG
-		mouse_exited.connect(func():
-			_drop_hover = false
-			queue_redraw())
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
 	func setup(art: Node, icon: int, n: int) -> void:
 		count = n
@@ -372,15 +475,20 @@ class _SpyStrip extends Control:
 		_icon = icon
 		if art != null and not art.loaded.is_connected(_on_loaded):
 			art.loaded.connect(_on_loaded)
-		_on_loaded("")
 		if tooltip_text == "":
-			tooltip_text = "Drag spies to an empire"
+			tooltip_text = "Click spies to pick them up, then click an empire to send them"
+		_on_loaded("")
 		queue_redraw()
 
 	## The icon once the art has it (pictures arrive in the background, as sprite_rect.gd's do).
 	func _on_loaded(_key: String) -> void:
 		if _texture == null and _art != null and _icon >= 0:
 			_texture = _art.texture("RACES.LBX", _icon)
+			queue_redraw()
+
+	func set_target(on: bool) -> void:
+		if on != _target:
+			_target = on
 			queue_redraw()
 
 	func _spacing() -> float:
@@ -391,44 +499,22 @@ class _SpyStrip extends Control:
 	func _draw() -> void:
 		var box := Rect2(Vector2.ZERO, size)
 		draw_rect(box, Color(0, 0, 0, 0.35))
-		if _drop_hover:
+		if _target:
 			draw_rect(box, Color(1.0, 0.85, 0.3, 0.9), false, 2.0)
 		var step := _spacing()
-		for i in count:
+		for i in count - held:
 			var at := Rect2(i * step, (size.y - ICON) * 0.5, ICON, ICON)
 			if _texture != null:
 				draw_texture_rect(_texture, at, false)
 			else:
 				draw_circle(at.get_center(), ICON * 0.4, Color(0.7, 0.8, 1.0))
 
-	func _get_drag_data(at_position: Vector2) -> Variant:
-		if count <= 0:
-			return null
-		var index := clampi(int(at_position.x / _spacing()), 0, count - 1)
-		var n := count - index
-		var preview := HBoxContainer.new()
-		var icon := TextureRect.new()
-		icon.texture = _texture
-		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		icon.custom_minimum_size = Vector2(ICON, ICON)
-		preview.add_child(icon)
-		if n > 1:
-			var label := Label.new()
-			label.text = str(n)
-			label.add_theme_color_override("font_outline_color", Color.BLACK)
-			label.add_theme_constant_override("outline_size", 4)
-			preview.add_child(label)
-		set_drag_preview(preview)
-		return {"spies_from": owner_player, "n": n}
-
-	func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:
-		var ok: bool = data is Dictionary and data.has("spies_from") and int(data.spies_from) != owner_player
-		if ok != _drop_hover:
-			_drop_hover = ok
-			queue_redraw()
-		return ok
-
-	func _drop_data(_at_position: Vector2, data: Variant) -> void:
-		_drop_hover = false
-		queue_redraw()
-		dropped.emit(int(data.spies_from), owner_player, int(data.n))
+	func _gui_input(event: InputEvent) -> void:
+		var mb := event as InputEventMouseButton
+		if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT or count - held <= 0:
+			return
+		if mb.position.x > (count - held - 1) * _spacing() + ICON:
+			return # past the last icon
+		var index := clampi(int(mb.position.x / _spacing()), 0, count - 1)
+		accept_event()
+		grabbed.emit(owner_player, count - index)
