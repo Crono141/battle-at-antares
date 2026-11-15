@@ -930,6 +930,10 @@ namespace antares::native {
         s_snapshots.push_back(std::move(snapshot));
     }
 
+    void Serve_Sprites_Now(uint64_t budget_ms) {
+        Serve_Sprites(budget_ms);
+    }
+
     void Post_Snapshot_Json(const char* name, const std::string& json) {
         s_scene_snapshot_last.clear();
         std::string snapshot = "{\"snapshot\":" + Json_Quote(name) + ",\"seq\":" + std::to_string(++s_snapshot_seq) +

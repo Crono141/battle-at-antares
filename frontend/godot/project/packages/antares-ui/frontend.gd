@@ -15,7 +15,7 @@ extends Node
 ## The game's screens (SCREEN_* values, res://screens.gd) this package draws natively.
 @export var claimed_screens: Array[int] = [Screens.MAIN, Screens.SHOW_COMMAND_POINTS]
 ## The request kinds its dialog answers; the rest ("choose") keep the legacy popup.
-@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup", "choose", "todo"]
+@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup", "choose", "todo", "combat"]
 ## Start with the native views on (Ctrl+G switches); `-- --smoke` without `--native` starts off.
 @export var start_native := true
 
@@ -1213,6 +1213,8 @@ func _on_result(id: int, result: Dictionary) -> void:
 ## Snapshots of watched queries: the galaxy bar follows the empire.
 func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 	match snapshot_name:
+		"combat":
+			_combat_view().show_state(result)
 		"empire":
 			_view("galaxy_bar").show_empire(result)
 			var colony_view: Control = _views.get("colony_pane")
@@ -1310,6 +1312,10 @@ func _end_turn_notice() -> void:
 
 
 func _on_request(id: int, kind: String, request: Dictionary) -> void:
+	# WP3.9b: a decision in a native battle goes to the battle scene, not a dialog.
+	if kind == "combat":
+		_combat_view().on_request(id, request)
+		return
 	var dialog: Control = _views.get("dialog")
 	if dialog == null:
 		dialog = load(_views_dir() + "/dialog.tscn").instantiate()
@@ -1343,7 +1349,11 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		_on_research_pick(id, request)
 		return
 	_start_popup_map(dialog, request)
-	if request.has("scene_state"):
+	var in_battle: bool = request.has("scene_state") and String((request.scene_state as Dictionary).get("scene", "")) == "combat"
+	if in_battle:
+		# A message during a native battle (refusals, the battle's results): over the battle scene.
+		_combat_view().show_state(request.scene_state)
+	elif request.has("scene_state"):
 		# A scene's list (diplomacy): the window stays up behind it, the list where the scene
 		# had it.
 		_scene().show_state(request.scene_state)
@@ -2341,6 +2351,27 @@ func _smoke_left_click() -> InputEventMouseButton:
 	return click
 
 
+## WP3.9b: the battle scene (views/combat_view.gd), on its own layer over the galaxy's and under
+## the dialogs, so the game's own messages during a battle show over it.
+var _combat: Control
+
+
+func _combat_view() -> Control:
+	if _combat == null:
+		var layer := CanvasLayer.new()
+		layer.name = "Combat"
+		layer.layer = 2
+		add_child(layer)
+		move_child(layer, $Overlay.get_index())
+		_combat = preload("views/combat_view.gd").new()
+		_combat.name = "CombatView"
+		_combat.art = art
+		_combat.game = game
+		_combat.theme = native_layer.theme
+		layer.add_child(_combat)
+	return _combat
+
+
 ## The scene window (GNN news; owner, 2026-11-14): its pages are answered by a click, without the
 ## galaxy's hand-back between them; "scene_end" closes it and then answers.
 var _scene_window: Control
@@ -3049,6 +3080,15 @@ func _smoke_native() -> void:
 	if "--pan-test" in OS.get_cmdline_user_args():
 		await _smoke_pan(shots)
 		game.request_game_quit()
+		return
+	if "--combat" in OS.get_cmdline_user_args():
+		# WP3.9b: end the turn into a battle (SAVE10: Fortuna) and play it in the native scene.
+		if await _smoke_combat(shots):
+			print("smoke: combat OK")
+			game.request_game_quit()
+			print("smoke: asked the game to quit")
+		else:
+			await host.smoke_fail("combat")
 		return
 	if "--todo-only" in OS.get_cmdline_user_args():
 		# WP3.4d: only the turns and the to-do list (saves whose other steps don't fit).
@@ -4655,6 +4695,96 @@ func _smoke_clear_todo() -> bool:
 
 ## The smoke test answers native message boxes with OK / Yes.
 ## A real mouse click at a screen point (the legacy screens take the mouse, not keys, to go on).
+## WP3.9b: `-- --smoke --native --combat --shots=DIR` with SAVE10: the turn's battle opens as the
+## native scene; one move to a legal square, the order ring, Always show health, then Auto to the end.
+func _smoke_combat(shots: String) -> bool:
+	_send({"verb": "end_turn"})
+	var waited := 0.0
+	var view: Control = null
+	while waited < 60.0:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+		view = _combat
+		if view != null and view.visible and view._my_turn():
+			break
+		# The battle's target (SAVE10: Fortuna): the first planet offered, as the replay clicks one.
+		var dialog: Control = _views.get("dialog")
+		if overlay.visible and dialog != null and String(dialog.popup_name) == "attack_target":
+			var picked := false
+			for i in dialog.options.size():
+				var item: Dictionary = dialog.options[i]
+				if int(item.get("planet", -1)) >= 0 and bool(item.get("enabled", true)):
+					print("smoke: attacking planet %d" % int(item.planet))
+					dialog._answer(dialog.OPTION_ANSWER + i)
+					picked = true
+					break
+			if picked:
+				continue
+		_smoke_answer()
+	if view == null or not view._my_turn():
+		print("smoke: no native battle (combat view %s)" % [view != null and view.visible])
+		return false
+	await get_tree().create_timer(1.5).timeout # art arrives, ships ease in
+	print("smoke: battle open, round %d, %d ships, acting %d, %d legal squares" % [int(view.state.round), (view.state.ships as Array).size(),
+		int(view.state.ship), (view.state.legal as Array).size()])
+	print("smoke: combat view size %s, in tree visible %s, layer %s visible %s, children %d" % [view.size, view.is_visible_in_tree(),
+		view.get_parent().layer, view.get_parent().visible, view.get_child_count()])
+	if shots != "":
+		host.shot(shots + "/combat-start.png")
+	await get_tree().create_timer(0.3).timeout
+	view._health_toggle.button_pressed = true
+	await get_tree().create_timer(0.4).timeout
+	if shots != "":
+		host.shot(shots + "/combat-health.png")
+	# Close up on the acting ship and its nearest neighbours: the shield glow and the crescents.
+	var zoom_before: float = view._zoom
+	var cam_before: Vector2 = view._cam
+	view._zoom = 3.0
+	view._cam = view._center(view._ship(int(view.state.ship)))
+	await get_tree().create_timer(0.4).timeout
+	if shots != "":
+		host.shot(shots + "/combat-close.png")
+	await get_tree().create_timer(0.3).timeout
+	view._zoom = zoom_before
+	view._cam = cam_before
+	view._health_toggle.button_pressed = false
+	view._open_menu(int(view.state.ship))
+	await get_tree().create_timer(0.4).timeout
+	if shots != "":
+		host.shot(shots + "/combat-ring.png")
+	view._close_menu()
+	# One move: the legal square furthest towards the enemy (the field's right half).
+	var legal: Array = view.state.legal
+	var acting := int(view.state.ship)
+	var ship: Dictionary = view._ship(acting)
+	var best := -1
+	for code in legal:
+		if best < 0 or abs(int(code) / 1000 - 40) < abs(best / 1000 - 40):
+			best = int(code)
+	if best >= 0:
+		var before := Vector2i(int(ship.x), int(ship.y))
+		view._act({"action": "move", "x": best / 1000, "y": best % 1000})
+		var moved := 0.0
+		while moved < 20.0 and not view._my_turn():
+			await get_tree().create_timer(0.25).timeout
+			moved += 0.25
+		var after: Dictionary = view._ship(acting)
+		print("smoke: moved ship %d from %s to %d,%d (now %d,%d)" % [acting, before, best / 1000, best % 1000, int(after.get("x", -1)), int(after.get("y", -1))])
+		await get_tree().create_timer(0.8).timeout
+		if shots != "":
+			host.shot(shots + "/combat-moved.png")
+	if view._my_turn():
+		view._act({"action": "auto"})
+	waited = 0.0
+	while view.visible and waited < 180.0:
+		await get_tree().create_timer(0.5).timeout
+		waited += 0.5
+		if not _smoke_answer() and view._my_turn():
+			view._act({"action": "auto"})
+	print("smoke: battle over after %.0f s (scene shown: %s)" % [waited, view.visible])
+	return not view.visible
+
+
 func _smoke_click(at: Vector2) -> void:
 	for pressed in [true, false]:
 		var click := InputEventMouseButton.new()

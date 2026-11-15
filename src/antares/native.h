@@ -175,6 +175,8 @@ namespace antares::native {
     void Post_Scene_Snapshot(const char* name);
     // Posts `json` as snapshot `name` unconditionally (the scene's end).
     void Post_Snapshot_Json(const char* name, const std::string& json);
+    // Exports queued sprites for at most `budget_ms` (a native scene that runs inside legacy code: combat).
+    void Serve_Sprites_Now(uint64_t budget_ms);
     // A native button was pressed: the game's click sound, played by the game thread while a
     // native screen runs or a request waits (any thread).
     void Click_Sound();

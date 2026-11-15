@@ -81,6 +81,7 @@ namespace antares::combat {
             item.Int("i", i);
             item.Str("name", commands::internal::Utf8(ship.name, sizeof(ship.name)));
             item.Int("owner", ship.owner);
+            item.Int("color", ship.owner >= 0 && ship.owner < MAX_PLAYERS ? MOX::player[ship.owner].color : -1);
             item.Int("x", ship.x);
             item.Int("y", ship.y);
             item.Int("facing", ship.facing_dir);
@@ -93,9 +94,21 @@ namespace antares::combat {
             item.Int("moves", ship.movement_left);
             item.Int("speed", ship.current_speed);
             item.Int("flags", ship.combat_status_flags);
+            // The centre in combat pixels (square * 20 + Ship_Center_Offsets), as the legacy screen draws it.
+            int16_t off_x = 0;
+            int16_t off_y = 0;
+            COMBINIT::Ship_Center_Offsets(i, &off_x, &off_y);
+            item.Int("cx", ship.x * 20 + off_x);
+            item.Int("cy", ship.y * 20 + off_y);
             std::string lbx;
             int32_t entry = 0;
             Ship_Sprite(ship, &lbx, &entry);
+            if (i == 0 && MOX::cmbt_colony_id != -1) {
+                // The colony's planet (Load_Combat_Colony_Picture).
+                const s_planet_data& planet = MOX::planet[MOX::colony[MOX::cmbt_colony_id].planet];
+                lbx = "cmbtplnt.lbx";
+                entry = planet.size + planet.climate * 6;
+            }
             s_out sprite = item.Add_Object("sprite");
             sprite.Str("lbx", lbx);
             sprite.Int("entry", entry);
@@ -259,6 +272,7 @@ namespace antares::combat {
         }
         s_last_frame_ms = now;
         native::Post_Scene_Snapshot("combat");
+        native::Serve_Sprites_Now(4); // the scene's art while no request waits (AI turns)
     }
 
     std::string Apply_Action(const std::string& json, int16_t active_player_id, int16_t* next_ship_flag) {
