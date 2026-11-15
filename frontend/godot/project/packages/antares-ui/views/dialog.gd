@@ -349,6 +349,18 @@ func _option_list(items: Array, base: int, selected: int) -> Control:
 					if show_planet_card(planet_id, row.get_global_rect()):
 						row.accept_event())
 		list.add_child(row)
+		# Lines under the choice (an attack target's planet and defences, as the original's
+		# planet box shows them).
+		for line: String in item.get("details", []):
+			var detail := Label.new()
+			detail.theme_type_variation = &"Dim"
+			detail.text = "    " + line
+			detail.add_theme_font_size_override("font_size", 13)
+			detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			detail.custom_minimum_size.x = row.custom_minimum_size.x
+			if bare_width > 0.0:
+				_outline(detail)
+			list.add_child(detail)
 	if items.size() <= 8:
 		return list
 	var scroll := ScrollContainer.new()

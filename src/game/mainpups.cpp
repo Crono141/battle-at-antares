@@ -113,6 +113,7 @@ namespace MAINPUPS {
             bool enabled = true;
             int16_t planet = -1;
             bool potential = false; // carries the planet's potential (the window's hover card)
+            std::vector<std::string> details; // lines under the choice (a target's planet and defences)
         };
 
         std::string Native_Options_Json(const std::vector<s_native_option>& options) {
@@ -124,6 +125,13 @@ namespace MAINPUPS {
                 const std::string potential = o.potential && o.planet >= 0 ? antares::native::Potential_Json(o.planet) : std::string();
                 if (!potential.empty()) {
                     json += ",\"potential\":" + potential;
+                }
+                if (!o.details.empty()) {
+                    std::string lines;
+                    for (const std::string& line : o.details) {
+                        lines += std::string(lines.empty() ? "" : ",") + antares::native::Quote(line.c_str());
+                    }
+                    json += ",\"details\":[" + lines + "]";
                 }
                 json += "}";
             }
@@ -756,6 +764,23 @@ namespace MAINPUPS {
                     (owner >= 0 && owner < MAX_PLAYERS ? MOX::player[owner].race_name : "") + ")";
                 o.value = colony_idx + 15;
                 o.planet = MOX::colony[colony_idx].planet;
+                // What the window's planet box shows when pointed at (SYS's planet data with
+                // Print_Special_Building_Data: the player has ships here, so the defences show).
+                const s_colony& target = MOX::colony[colony_idx];
+                const s_planet_data& planet = MOX::planet[target.planet];
+                char detail[160];
+                snprintf(detail, sizeof(detail), "%s %s, population %d", MOX::planet_size_string[planet.size],
+                    MOX::planet_climate_string[(uint8_t)target.climate], (int)(uint8_t)target.n_pops);
+                o.details.push_back(detail);
+                std::string defences;
+                for (const int16_t building : {(int16_t)BUILDING_STAR_FORTRESS, (int16_t)BUILDING_STAR_BASE, (int16_t)BUILDING_BATTLESTATION,
+                         (int16_t)BUILDING_MISSILE_BASE, (int16_t)BUILDING_GROUND_BATTERIES, (int16_t)BUILDING_STELLAR_CONVERTER,
+                         (int16_t)BUILDING_FIGHTER_GARRISON}) {
+                    if (target.buildings[building] != 0) {
+                        defences += std::string(defences.empty() ? "" : ", ") + TECHDATA::buildings[building].name;
+                    }
+                }
+                o.details.push_back(defences.empty() ? std::string("No defences") : defences);
                 options.push_back(o);
             }
             for (int16_t i = 0; i < COMBFIND::target.num_player_targets && i < 15; ++i) {
