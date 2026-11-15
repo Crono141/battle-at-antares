@@ -41,6 +41,14 @@ func _restyle() -> void:
 	_shown_right = offset_right
 
 
+## Ends at `bottom` (the side panels' area: above the map controls, owner 2026-11-15: it covered
+## the FLEET > button), kept as a distance from the window's bottom so it follows a resize.
+func fit_bottom(bottom: float) -> void:
+	var parent_height := get_parent_area_size().y
+	if bottom > 0.0 and parent_height > bottom:
+		offset_bottom = -(parent_height - bottom)
+
+
 func open() -> void:
 	command.emit({"verb": "query", "what": "designs", "_reply_to": "show_designs"})
 

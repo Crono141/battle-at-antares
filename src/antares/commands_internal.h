@@ -8,6 +8,7 @@
 #include <vector>
 
 struct s_ship_design;
+struct s_help_record;
 
 namespace antares::commands::internal {
 
@@ -15,6 +16,12 @@ namespace antares::commands::internal {
     std::string Utf8(const char* text, size_t max_length);
     // An application's help text (HELP.LBX), empty if none (colony_queries.cpp).
     std::string Application_Help(int16_t app);
+    // Record-table LBX entries (the help LBX): one record's bytes as UTF-8, the record count, and
+    // a whole help record (colony_queries.cpp).
+    std::string Lbx_Record(const char* lbx, int32_t entry, uint16_t record, size_t offset, size_t length);
+    uint16_t Lbx_Record_Count(const char* lbx, int32_t entry);
+    bool Lbx_Record_Bytes(const char* lbx, int32_t entry, uint16_t record, void* bytes, size_t length);
+    bool Help_Record(uint16_t topic, s_help_record* record);
     // Fails `out` with "no_game" when no game is loaded.
     bool Have_Game(s_out& out);
 
@@ -27,6 +34,8 @@ namespace antares::commands::internal {
     void Add_Planet_Entries(std::vector<s_entry>* table);
     void Add_Fleet_Panel_Entries(std::vector<s_entry>* table);
     void Add_Empire_Panel_Entries(std::vector<s_entry>* table);
+    // WP3.7: the Info panel (info_queries.cpp).
+    void Add_Info_Entries(std::vector<s_entry>* table);
     // A design's parts as the build list shows them (hull, shield, ..., weapons, specials).
     void Design_Parts(s_ship_design& design, s_out item);
     void Add_Save_Entries(std::vector<s_entry>* table);

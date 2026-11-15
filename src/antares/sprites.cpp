@@ -268,6 +268,19 @@ namespace antares::sprites {
                 Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(climate_palette.data()), climate_size, palette_rgb);
             }
             Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx == "APP_PICS.LBX") {
+            // An application's picture (the Info panel's Tech Review): the Info screen's palette
+            // (INFO.LBX 1, loaded by Info_Screen; the pack declares it) under the picture's own
+            // part (colours 192-255), as _Tech_Review_Subscreen draws it. Without its own part the
+            // masked pixels came out in the Info screen's colours.
+            if (!Declared_Palette_Rgb(lbx, entry, palette_rgb)) {
+                std::vector<uint64_t> info_palette;
+                size_t info_size = 0;
+                if (Read_Entry("INFO.LBX", 1, &info_palette, &info_size)) {
+                    Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(info_palette.data()), info_size, palette_rgb);
+                }
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
         } else {
             // Other art its own, if declared.
             Declared_Palette_Rgb(lbx, entry, palette_rgb);

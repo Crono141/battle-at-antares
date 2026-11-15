@@ -47,9 +47,9 @@ var _fleet_from_system := -1
 var _colonies_return := false
 ## The right sidebar's panels (owner, 2026-11-14: they fly out from the right): action -> view.
 const SIDE_PANELS := {"colonies": "colonies_panel", "planets": "planets_panel", "fleets": "fleets_panel",
-	"leaders": "leaders_panel", "races": "races_panel"}
+	"leaders": "leaders_panel", "races": "races_panel", "info": "info_panel"}
 ## Side panels the galaxy isn't fitted for (owner, 2026-11-14: "The galaxy is not moved" for Races).
-const SIDE_PANELS_UNFITTED := ["races_panel"]
+const SIDE_PANELS_UNFITTED := ["races_panel", "info_panel"]
 var _switching_panel := false # one side panel replaces another: the camera stays fitted
 ## The camera's view of an open system: the legacy scale it flies to, and how much of the free
 ## area the system's orbits take.
@@ -307,6 +307,7 @@ func _on_native_screen(screen: int) -> void:
 				colony_pane.refresh()
 		if design_list.get_meta("was_open", false):
 			design_list.set_meta("was_open", false)
+			design_list.fit_bottom(_side_panel_area().end.y)
 			design_list.open()
 		for panel_name: String in SIDE_PANELS.values():
 			var side_view: Control = _views.get(panel_name)
@@ -878,6 +879,14 @@ func _on_summary_item(item: Dictionary) -> void:
 		_on_colony_chosen(colony)
 
 
+## A message picked in the Info panel's Turn Summary: the panel goes and its colony opens.
+func _on_info_summary_item(item: Dictionary) -> void:
+	if int(item.get("colony", -1)) < 0:
+		return
+	_view("info_panel").close()
+	_on_summary_item(item)
+
+
 ## A to-do item picked (WP3.4d): what it needs opens; news is marked read.
 func _on_todo_item(item: Dictionary) -> void:
 	_view("todo_panel").close()
@@ -947,7 +956,7 @@ func _on_todo_item(item: Dictionary) -> void:
 
 ## The drop-downs and slide-outs that buttons open (owner, 2026-11-12): one at a time, over
 ## everything else (the system pane, the fleet panel).
-const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel", "colonies_panel", "planets_panel", "fleets_panel", "leaders_panel", "races_panel"]
+const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel", "colonies_panel", "planets_panel", "fleets_panel", "leaders_panel", "races_panel", "info_panel"]
 
 
 ## Closes the flyouts a click at `at` falls outside of; true when the click landed on the map
@@ -1084,7 +1093,7 @@ func _on_view_action(action_name: String) -> void:
 				var figure: Control = bar.command_label if action_name == "command_points" else bar.research
 				var center := figure.get_global_rect().get_center().x
 				_drop_down(action_name, panel, bar.research.text, center)
-		"colonies", "planets", "fleets", "leaders", "races":
+		"colonies", "planets", "fleets", "leaders", "races", "info":
 			var side_view := _view(SIDE_PANELS[action_name])
 			if side_view.visible:
 				side_view.close()
@@ -1096,6 +1105,7 @@ func _on_view_action(action_name: String) -> void:
 				designs.close()
 			else:
 				_bring_up(designs)
+				designs.fit_bottom(_side_panel_area().end.y)
 				designs.open()
 				_view("side_tabs").show_open("designs", true)
 		"options":
@@ -2039,6 +2049,59 @@ func _smoke_races_panel(shots: String) -> bool:
 	return not tab.button_pressed
 
 
+## WP3.7 (`--info`): the Info panel opens over the galaxy (not moved) with its tab armed, every
+## tab fills (the history's players, a tech's picture, the race cards, the summary, a reference
+## category and a topic), the tab choice is written back, and the panel follows a window drag.
+func _smoke_info_panel(shots: String) -> bool:
+	var zoom_before: float = galaxy.camera.zoom.x
+	_on_view_action("info")
+	await get_tree().create_timer(0.8).timeout
+	var panel := _view("info_panel")
+	var tab: Button = _view("side_tabs").get_node("Info")
+	print("smoke: info panel %s, tab armed %s, stardate '%s', tab %d, net '%s', galaxy zoom %.3f (was %.3f)" % [panel.visible, tab.button_pressed,
+		panel._stardate.text, panel.tab, panel.info.get("net_income_text", ""), galaxy.camera.zoom.x, zoom_before])
+	if not panel.visible or not tab.button_pressed or panel.info.is_empty() or absf(galaxy.camera.zoom.x - zoom_before) > zoom_before * 0.01:
+		return false
+	var names := ["history", "tech", "races", "summary", "reference"]
+	for i in 5:
+		panel._set_tab(i)
+		await get_tree().create_timer(0.6).timeout
+		var shown: bool = panel._content.get_child_count() > 0 and (panel._content.get_child(0) as Control).get_child_count() > 0
+		var picture: String = "%s/%d" % [panel._picture.lbx, panel._picture.entry]
+		print("smoke: info: %s tab '%s' filled %s, picture %s" % [names[i], panel._tabs[i].text, shown, picture])
+		if shots != "":
+			await host.shot(shots + "/native-info-%s.png" % names[i])
+		if not shown:
+			return false
+		if i == 1 and panel._picture.lbx != "APP_PICS.LBX" and panel._detail_title.text != "":
+			return false
+		if i == 4:
+			# A category, then its first topic (a picture when the record has one).
+			var categories: Dictionary = await _query_args({"what": "reference"})
+			if not (categories.get("categories", []) as Array).is_empty():
+				var category := int(categories.categories[0].category)
+				_send({"verb": "query", "what": "reference_category", "category": category}, Callable(panel, "_show_category"))
+				await get_tree().create_timer(0.8).timeout
+				print("smoke: info: reference category %d: '%s', topic '%s' (%d chars), picture %s/%d" % [category,
+					panel._content.get_child(0).get_child(0).get_child(1).text, panel._detail_title.text, panel._detail_text.text.length(),
+					panel._picture.lbx, panel._picture.entry])
+				if shots != "":
+					await host.shot(shots + "/native-info-reference-topic.png")
+				if panel._detail_text.text.length() == 0:
+					return false
+	var saved: Dictionary = await _query_args({"what": "info"})
+	print("smoke: info: saved tab %d (last shown 4)" % int(saved.get("tab", -1)))
+	if int(saved.get("tab", -1)) != 4:
+		return false
+	panel._set_tab(0)
+	await get_tree().create_timer(0.4).timeout
+	if not await _smoke_side_resize(panel, shots, "info"):
+		return false
+	panel.close()
+	await get_tree().create_timer(0.6).timeout
+	return not tab.button_pressed
+
+
 func _row_star_first(panel: Control, star: int) -> int:
 	for c: Dictionary in panel.colonies:
 		if int(c.star) == star:
@@ -2281,6 +2344,10 @@ func _open_side_panel(action_name: String) -> void:
 		side_view.stars = galaxy.stars
 		side_view.open_panel(_side_panel_area(), system_shown)
 	else:
+		if action_name == "info":
+			if not side_view.item_chosen.is_connected(_on_info_summary_item):
+				side_view.item_chosen.connect(_on_info_summary_item)
+				side_view.help_requested.connect(show_help)
 		side_view.open_panel(_side_panel_area())
 	_view("side_tabs").show_open(action_name, true)
 	_fit_beside_panel(side_view)
@@ -2710,7 +2777,7 @@ func _smoke_native() -> void:
 		return
 	# The side panels' steps, any of them in one launch (one game start for several checks), with
 	# quick camera flights: the steps wait on the flights.
-	var panel_steps: Array = ["--colonies", "--planets", "--fleets", "--leaders", "--races"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
+	var panel_steps: Array = ["--colonies", "--planets", "--fleets", "--leaders", "--races", "--info"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
 	if not panel_steps.is_empty():
 		galaxy.flight_time = 0.15
 		for step: String in panel_steps:
@@ -2723,6 +2790,8 @@ func _smoke_native() -> void:
 				passed = await _smoke_fleets_panel(shots)
 			elif step == "--leaders":
 				passed = await _smoke_leaders_panel(shots)
+			elif step == "--info":
+				passed = await _smoke_info_panel(shots)
 			else:
 				passed = await _smoke_races_panel(shots)
 			if not passed:
@@ -3100,6 +3169,14 @@ func _smoke_galaxy(shots: String) -> bool:
 		func(row: Control) -> String: return row.find_children("*", "Label", true, false)[0].text)))
 	if designs.rows.get_child_count() == 0:
 		await host.smoke_fail("the design list stayed empty")
+		return false
+	var controls_top := INF
+	for b: Control in _view("map_controls").find_children("*", "Button", true, false):
+		if b.is_visible_in_tree():
+			controls_top = minf(controls_top, b.get_global_rect().position.y)
+	print("smoke: ship designs end at %.0f, map controls start at %.0f" % [designs.get_global_rect().end.y, controls_top])
+	if designs.get_global_rect().end.y > controls_top:
+		await host.smoke_fail("the design list covers the map controls")
 		return false
 	if shots != "":
 		await host.shot(shots + "/native-designs.png")

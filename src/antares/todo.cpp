@@ -286,7 +286,9 @@ namespace antares::todo {
                 s_reports.end());
         }
 
-        void Query_Turn_Summary(int16_t, const s_args&, s_out& out) {
+        // turn_summary {all}: the messages as the end-of-turn summary lists them, only while that
+        // option is on; `all: 1` lists them anyway (the Info panel's Turn Summary tab).
+        void Query_Turn_Summary(int16_t, const s_args& args, s_out& out) {
             if (!commands::internal::Have_Game(out)) {
                 return;
             }
@@ -302,7 +304,9 @@ namespace antares::todo {
                 item.Bool("serious", note.serious);
                 item.Int("colony", -1);
             }
-            const int16_t count = summary_on ? MSG_::N_Msgs_For_Player(MOX::PLAYER_NUM) : 0;
+            int64_t all = 0;
+            args.Int("all", &all);
+            const int16_t count = summary_on || all != 0 ? MSG_::N_Msgs_For_Player(MOX::PLAYER_NUM) : 0;
             if (count <= 0) {
                 return;
             }
@@ -458,7 +462,7 @@ namespace antares::todo {
 namespace antares::commands::internal {
     void Add_Todo_Entries(std::vector<s_entry>* table) {
         table->push_back({"todo", e_kind::query, ANY_SCREEN, 1, "", todo::Query_Todo});
-        table->push_back({"turn_summary", e_kind::query, ANY_SCREEN, 1, "", todo::Query_Turn_Summary});
+        table->push_back({"turn_summary", e_kind::query, ANY_SCREEN, 1, "all: 1 lists the messages with the summary option off", todo::Query_Turn_Summary});
         table->push_back({"todo_read", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_Read});
         table->push_back({"todo_level", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_Level});
         table->push_back({"todo_system", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "item", todo::Todo_System});

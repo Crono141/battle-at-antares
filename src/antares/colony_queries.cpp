@@ -116,24 +116,6 @@ namespace antares::commands::internal {
 
         // One record of an LBX record table (a u16 count and size, then the records), read as
         // farload::Far_Reload_Data reads it but without the popup's caches (pure).
-        std::string Lbx_Record(const char* lbx, int32_t entry, uint16_t record, size_t offset, size_t length) {
-            s_vfs_file* file = vfs::fopen_lbx(lbx, entry);
-            if (file == nullptr) {
-                return {};
-            }
-            uint16_t header[2] = {};
-            std::string text(length + 1, '\0');
-            bool ok = vfs::fread(header, sizeof(header), 1, file) == 1 && record < header[0] && offset + length <= header[1];
-            if (ok) {
-                ok = vfs::fseek(file, (long)(sizeof(header) + (size_t)record * header[1] + offset), SEEK_SET) == 0 &&
-                    vfs::fread(text.data(), length, 1, file) == 1;
-            }
-            vfs::fclose(file);
-            if (!ok) {
-                return {};
-            }
-            return Utf8(text.data(), length);
-        }
 
         // The help text the popup's detail box prints for an item (Draw_Current_Selection,
         // Draw_Building_Info): a building's application, a unit's fixed application, or a
@@ -298,6 +280,15 @@ namespace antares::commands::internal {
             out.Int("topic", topic);
             out.Str("title", Lbx_Record(lbx, 0, (uint16_t)topic, 0, sizeof(s_help_record::title)));
             out.Str("text", Lbx_Record(lbx, 0, (uint16_t)topic, offsetof(s_help_record, body), sizeof(s_help_record::body)));
+            // The record's picture, as the help box draws it (TEXTBOX: entry in the low word,
+            // frame in the next byte).
+            s_help_record record;
+            if (Help_Record((uint16_t)topic, &record) && record.anim_lbx[0] != '\0') {
+                s_out picture = out.Add_Object("picture");
+                picture.Str("lbx", Utf8(record.anim_lbx, sizeof(record.anim_lbx)));
+                picture.Int("entry", (int64_t)(record.anim_info & 0xFFFF));
+                picture.Int("frame", (int64_t)((record.anim_info >> 16) & 0xFF));
+            }
         }
 
         void Query_Colony(int16_t, const s_args& args, s_out& out) {
@@ -1003,6 +994,61 @@ namespace antares::commands::internal {
         }
 
     } // namespace
+
+    // One record of a record-table LBX entry (the help LBX), `length` bytes from `offset`, as UTF-8.
+    std::string Lbx_Record(const char* lbx, int32_t entry, uint16_t record, size_t offset, size_t length) {
+        s_vfs_file* file = vfs::fopen_lbx(lbx, entry);
+        if (file == nullptr) {
+            return {};
+        }
+        uint16_t header[2] = {};
+        std::string text(length + 1, '\0');
+        bool ok = vfs::fread(header, sizeof(header), 1, file) == 1 && record < header[0] && offset + length <= header[1];
+        if (ok) {
+            ok = vfs::fseek(file, (long)(sizeof(header) + (size_t)record * header[1] + offset), SEEK_SET) == 0 &&
+                vfs::fread(text.data(), length, 1, file) == 1;
+        }
+        vfs::fclose(file);
+        if (!ok) {
+            return {};
+        }
+        return Utf8(text.data(), length);
+    }
+
+    // The number of records in a record-table LBX entry (HELP.LBX's topic lists), 0 if none.
+    uint16_t Lbx_Record_Count(const char* lbx, int32_t entry) {
+        s_vfs_file* file = vfs::fopen_lbx(lbx, entry);
+        if (file == nullptr) {
+            return 0;
+        }
+        uint16_t header[2] = {};
+        const bool ok = vfs::fread(header, sizeof(header), 1, file) == 1;
+        vfs::fclose(file);
+        return ok ? header[0] : 0;
+    }
+
+    // One record's first `length` bytes raw, false if there is none.
+    bool Lbx_Record_Bytes(const char* lbx, int32_t entry, uint16_t record, void* bytes, size_t length) {
+        s_vfs_file* file = vfs::fopen_lbx(lbx, entry);
+        if (file == nullptr) {
+            return false;
+        }
+        uint16_t header[2] = {};
+        bool ok = vfs::fread(header, sizeof(header), 1, file) == 1 && record < header[0] && length <= header[1];
+        if (ok) {
+            ok = vfs::fseek(file, (long)(sizeof(header) + (size_t)record * header[1]), SEEK_SET) == 0 &&
+                vfs::fread(bytes, length, 1, file) == 1;
+        }
+        vfs::fclose(file);
+        return ok;
+    }
+
+    // One help record (the help LBX's entry 0) whole, false if there is none.
+    bool Help_Record(uint16_t topic, s_help_record* record) {
+        char lbx[20];
+        TEXTBOX::Get_Help_Lbx_Name(lbx, sizeof(lbx));
+        return Lbx_Record_Bytes(lbx, 0, topic, record, sizeof(s_help_record));
+    }
 
     // A design's parts, as the popup lists them (Build_Ship_Design_Info_Formatted_Paragraph).
     void Design_Parts(s_ship_design& design, s_out item) {
