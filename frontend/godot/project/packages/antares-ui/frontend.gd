@@ -808,6 +808,8 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 	if String(dict.get("verb", "")) == "open" and int(dict.get("screen", -1)) == 29 and view == _views.get("fleets_panel"):
 		var leaders_view := _view("leaders_panel")
 		leaders_view.tab = "ship"
+		var fleets_fleet: Dictionary = (view as Control).get("fleet")
+		leaders_view.want_fleet = int(fleets_fleet.get("ship", -1)) # opens on the Fleets panel's fleet (owner)
 		_open_side_panel("leaders")
 		return
 	if dict.has("_reply_to"):
@@ -1839,6 +1841,20 @@ func _smoke_fleets_panel(shots: String) -> bool:
 			break
 	if not await _smoke_side_resize(panel, shots, "fleets"):
 		return false
+	# LEADERS opens Ship Officers on this fleet (owner), then back to Fleets.
+	if not panel.fleet.is_empty():
+		var fleet_id := int(panel.fleet.ship)
+		_on_view_command({"verb": "open", "screen": 29}, panel)
+		await get_tree().create_timer(0.8).timeout
+		var leaders := _view("leaders_panel")
+		var wanted: int = leaders._fleet_place(fleet_id)
+		print("smoke: fleets: LEADERS on fleet %d: leaders %s, tab %s, place %d (fleet's %d)" % [fleet_id, leaders.visible, leaders.tab,
+			leaders.place, wanted])
+		if not leaders.visible or leaders.tab != "ship" or (wanted >= 0 and leaders.place != wanted):
+			return false
+		leaders._set_tab("colony")
+		_on_view_action("fleets")
+		await get_tree().create_timer(0.8).timeout
 	panel.close()
 	await get_tree().create_timer(0.6).timeout
 	print("smoke: fleets closed: tab armed %s, zoom %.3f (was %.3f), marked %d" % [tab.button_pressed, galaxy.camera.zoom.x, zoom_before, galaxy.selected_fleet])
@@ -1898,6 +1914,19 @@ func _smoke_leaders_panel(shots: String) -> bool:
 		if (panel.places[i].get("ships", []) as Array).size() > (panel.places[biggest].get("ships", []) as Array).size():
 			biggest = i
 	if not panel.places.is_empty():
+		panel.place = biggest
+		panel._show_place()
+		await get_tree().create_timer(0.3).timeout
+	# A fleet icon on the map picks that fleet in the cycler (owner).
+	if panel.places.size() >= 2:
+		var other := 0 if panel.place != 0 else 1
+		var fleet_id := int(panel.places[other].get("fleet", -1))
+		_open_fleet(fleet_id)
+		await get_tree().create_timer(0.3).timeout
+		print("smoke: leaders: fleet %d clicked on the map: place %d (wanted %d), fleet box %s" % [fleet_id, panel.place, other,
+			_view("fleet_panel").visible])
+		if panel.place != other or _view("fleet_panel").visible:
+			return false
 		panel.place = biggest
 		panel._show_place()
 		await get_tree().create_timer(0.3).timeout
@@ -2205,6 +2234,9 @@ func _open_side_panel(action_name: String) -> void:
 	var side_view := _view(SIDE_PANELS[action_name])
 	var fleet_shown := _fleet_ship # Fleets opens on the fleet whose box was open
 	var system_shown := _panel_star # Leaders opens on the system whose pane was open
+	var fleets_view: Control = _views.get("fleets_panel")
+	if action_name == "leaders" and fleets_view != null and fleets_view.visible and not fleets_view.fleet.is_empty():
+		side_view.want_fleet = int(fleets_view.fleet.ship) # Ship Officers opens on the Fleets panel's fleet (owner)
 	_view("build_pane").cancel()
 	var system_pane := _view("system_pane")
 	if system_pane.visible:
@@ -2510,6 +2542,13 @@ func _open_fleet(ship_id: int) -> void:
 				return
 			if int(f.owner) == int(galaxy.data.get("player", -1)):
 				fleets_view._show(ship_id)
+				return
+	# With Leaders open on Ship Officers, one of the player's fleets goes to its cycler (owner).
+	var leaders_view: Control = _views.get("leaders_panel")
+	if leaders_view != null and leaders_view.visible and leaders_view.tab == "ship":
+		for f: Dictionary in galaxy.fleets:
+			if int(f.ship) == ship_id and int(f.owner) == int(galaxy.data.get("player", -1)):
+				leaders_view.select_fleet(ship_id) # a fleet without warships has no officers to show
 				return
 	var from_star := _panel_star if _view("system_pane").visible else -1
 	if from_star >= 0:

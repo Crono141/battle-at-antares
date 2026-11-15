@@ -30,6 +30,8 @@ var place := 0 # the cycler's place
 var leaders: Array = []
 var picked := -1 # the picked leader
 var picked_ship := -1 # the picked warship (Ship Officers)
+## The fleet (its first ship) the Ship Officers tab opens on: the Fleets panel's fleet.
+var want_fleet := -1
 
 var _view_holder: Control
 var _system_view: Control
@@ -169,13 +171,48 @@ func show_leaders(result: Dictionary) -> void:
 	places = result.places
 	var wanted := int(get_meta("at_star", -1))
 	set_meta("at_star", -1)
+	var old_fleet := int(places[place].get("fleet", -1)) if place < places.size() else -1
 	var target := wanted if wanted >= 0 else old_star
+	var fleet_target := want_fleet if want_fleet >= 0 else old_fleet
+	if tab == "ship":
+		want_fleet = -1 # kept through the colony tab until Ship Officers shows
 	place = 0
 	for i in places.size():
 		if int(places[i].get("star", -1)) == target:
 			place = i
+	if tab == "ship":
+		var found := _fleet_place(fleet_target)
+		if found >= 0:
+			place = found
 	_show_cards()
 	_show_place()
+
+
+## The place holding a fleet: by its first ship (the map's and the Fleets panel's name for it) or
+## any of its warships; -1 when it has none.
+func _fleet_place(ship_id: int) -> int:
+	if ship_id < 0:
+		return -1
+	for i in places.size():
+		if int(places[i].get("fleet", -1)) == ship_id:
+			return i
+		for ship: Dictionary in places[i].get("ships", []):
+			if int(ship.id) == ship_id:
+				return i
+	return -1
+
+
+## A fleet icon clicked on the galaxy (Ship Officers): the cycler goes to that fleet.
+func select_fleet(ship_id: int) -> bool:
+	if tab != "ship":
+		return false
+	var found := _fleet_place(ship_id)
+	if found < 0:
+		return false
+	place = found
+	picked_ship = -1
+	_show_place()
+	return true
 
 
 ## A star clicked on the galaxy: the cycler goes to that system (or that fleet's).

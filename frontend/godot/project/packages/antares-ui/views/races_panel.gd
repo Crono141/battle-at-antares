@@ -399,8 +399,29 @@ func _input(event: InputEvent) -> void:
 		for strip: Control in _strips:
 			if is_instance_valid(strip) and strip.is_visible_in_tree() and strip.get_global_rect().has_point(mb.global_position):
 				to = strip.owner_player
+	if to != from:
+		_show_moved(from, to, n)
 	_drop_carry()
 	_move_spies(from, to, n)
+
+
+## The strips show the move at once (owner: the stack flashed back home until the game's answer
+## came); the refresh after the commands brings the game's own counts.
+func _show_moved(from: int, to: int, n: int) -> void:
+	var moved := n
+	for strip: Control in _strips:
+		if is_instance_valid(strip) and strip.owner_player == to and to != HOME:
+			moved = mini(n, 63 - strip.count) # an empire holds 63 at most; the rest stay
+	for strip: Control in _strips:
+		if not is_instance_valid(strip):
+			continue
+		if strip.owner_player == from:
+			strip.count -= moved
+		elif strip.owner_player == to:
+			strip.count += moved
+		strip.queue_redraw()
+	if from == HOME or to == HOME:
+		_agents.text = "Spies at home: %d" % _home_strip.count
 
 
 func _unhandled_key_input(event: InputEvent) -> void:

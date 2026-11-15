@@ -106,6 +106,8 @@ namespace antares::commands::internal {
                     const s_ship_data& lead = MOX::ship[warships.front()];
                     const int16_t star = lead.status == 1 ? -1 : HAROLD::XY_To_Star_Id(lead.x, lead.y);
                     place.Int("star", star);
+                    // The stack's first ship: the map's fleet icon and the Fleets panel name a fleet by it.
+                    place.Int("fleet", MOX::ship_node[MOX::ship_stack_start[stack]].ship_idx);
                     place.Str("name", star >= 0 ? Utf8(MOX::star[star].name, sizeof(MOX::star[0].name)) : std::string("In space"));
                     s_out ships = place.Add_List("ships");
                     for (int16_t s : warships) {
