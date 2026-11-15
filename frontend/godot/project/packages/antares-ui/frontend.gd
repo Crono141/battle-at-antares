@@ -1740,8 +1740,7 @@ func _open_colonies() -> void:
 		_fleet_from_system = -1
 		fleet_panel.close()
 	_bring_up(colonies)
-	var area := _research_area()
-	colonies.open_panel(area)
+	colonies.open_panel(_side_panel_area())
 	_view("side_tabs").show_open("colonies", true)
 	_fit_beside_colonies()
 
@@ -1751,12 +1750,26 @@ func _fit_beside_colonies() -> void:
 	var colonies := _view("colonies_panel")
 	if not colonies.visible or native_screen != Screens.MAIN:
 		return
-	var area := _research_area()
+	var area := _side_panel_area()
 	var inset := get_theme_constant_from(colonies, "inset")
 	var gap := maxf(get_theme_constant_from(colonies, "pane_gap"), 6.0)
 	var left := inset + gap
-	var right := area.end.x - float(colonies.panel_width()) - gap
+	var right: float = colonies.rest_left() - gap
 	galaxy.fit_in(Rect2(left, area.position.y, maxf(right - left, 60.0), area.size.y))
+
+
+## Where the right sidebar's panels rest (owner, 2026-11-14: they fly out from the right): against
+## the side tabs, from under the bar to above the map controls.
+func _side_panel_area() -> Rect2:
+	var area := _research_area()
+	var gap := maxf(get_theme_constant_from(_view("galaxy_bar"), "pane_gap"), 6.0)
+	var right := get_viewport().get_visible_rect().size.x
+	var tabs: Control = _view("side_tabs")
+	if tabs.visible:
+		for b in tabs.find_children("*", "Button", true, false):
+			if (b as Control).is_visible_in_tree():
+				right = minf(right, (b as Control).get_global_rect().position.x - gap)
+	return Rect2(0.0, area.position.y, right, area.size.y)
 
 
 ## The Colonies panel's Building slot: the panel goes, the colony's system opens with its colony

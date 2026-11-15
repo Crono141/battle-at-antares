@@ -1,11 +1,13 @@
-extends "drop_panel.gd"
+extends "side_panel.gd"
 ## Colonies (WP3.5a, the owner's empire panels in notes/antares/ui-concepts.md): the legacy
-## Colonies screen as a panel on the right, from under the bar to above the map controls, with the
-## native galaxy zoomed out beside it in place of the screen's small map. From the `colonies`
+## Colonies screen as a panel that flies out from the right, against the side tabs, from under the
+## bar to above the map controls, with the native galaxy zoomed out beside it in place of the
+## screen's small map. From the `colonies`
 ## query: a row per colony with its name, its farmers, workers and scientists (the colonists'
 ## pictures), what it builds and its population; a click on a column's title sorts by it (again:
-## the other way). The column on the right is the screen's: the hovered colony's planet and
-## progress box, its output and morale (the `colony` query's rows) and the empire's totals.
+## the other way). Under the table, in a strip (owner, 2026-11-14: the table gets the whole width):
+## the hovered colony's planet and progress box, its output and morale (the `colony` query's
+## rows) and the empire's totals.
 ##
 ## Colonists move as on the legacy screen: a click picks up a colonist and the identical ones after
 ## it, which ride on the pointer; a click on another job of the same colony gives them that job
@@ -34,7 +36,7 @@ const COLUMNS := [
 	{"key": "population", "title": "POP", "width": 56.0},
 ]
 const BUY_WIDTH := 50.0
-const INFO_WIDTH := 210.0
+const OUTPUT_WIDTH := 220.0 # the output box (its icon rows squeeze to this)
 const ROW_HEIGHT := 40.0
 const MIN_JOB_WIDTH := 80.0
 ## A table row's padding: the theme's row style with its sides and ends kept small.
@@ -61,7 +63,6 @@ var _carry := {} # {colony, pops, job, view}: colonists on the pointer
 var _job_cells := {} # Vector2i(colony, job) -> its cell (drop targets)
 var _name_cells := {} # colony -> its name cell (drop target: any job)
 var _rows := {} # colony -> its row panel
-var _area := Rect2()
 
 @onready var rows_box: VBoxContainer = $Box/Body/Table/Scroll/Rows
 @onready var columns_box: HBoxContainer = $Box/Body/Table/Columns
@@ -73,11 +74,12 @@ var _area := Rect2()
 
 func _ready() -> void:
 	$Box/Header/Close.pressed.connect(close)
-	$Box/Body/Info.custom_minimum_size.x = INFO_WIDTH
-	# Its right edge stays at the area's as it grows (the rows arrive after it opened).
+	$Box/Body/Info/Output.custom_minimum_size.x = OUTPUT_WIDTH
+	# Its right edge stays against the tabs if it grows (the rows arrive after it opened).
 	resized.connect(func():
-		if visible and _area.size.x > 0.0:
-			position.x = maxf(_area.end.x - size.x, 8.0)
+		if visible and not _closing and _rect.size.x > 0.0:
+			if _tween == null or not _tween.is_running():
+				position.x = _rect.end.x - size.x
 			width_changed.emit())
 
 
@@ -109,11 +111,10 @@ func _row_pad(side: Side) -> float:
 	return minf(style.get_margin(side), ROW_PAD.x) if style != null else ROW_PAD.x
 
 
-## Opens in `area` (the research drop-down's: right edge at the bar's, from under the bar to above
-## the map controls), as wide as the table wants but leaving the galaxy a share of the screen.
+## Flies out into `area` (its right edge against the side tabs, from under the bar to above the
+## map controls), as wide as the table wants but leaving the galaxy most of the screen.
 func open_panel(area: Rect2) -> void:
-	_area = area
-	var width := clampf(area.size.x * 0.62, 820.0, 1120.0)
+	var width := clampf(area.size.x * 0.45, 700.0, 960.0)
 	width = minf(width, area.size.x - 16.0)
 	custom_minimum_size.x = 0.0
 	_clear(rows_box) # rebuilt by the query; rows of the last width would widen the measure
@@ -126,14 +127,14 @@ func open_panel(area: Rect2) -> void:
 	var base := get_combined_minimum_size().x - 3.0 * _job_width + 14.0 # the scroll bar
 	_job_width = maxf((width - base) / 3.0, MIN_JOB_WIDTH)
 	_show_columns()
-	custom_minimum_size.x = maxf(width, get_combined_minimum_size().x)
+	width = maxf(width, get_combined_minimum_size().x)
 	refresh()
-	open_in(area, area.size.y)
+	open_in(Rect2(area.end.x - width, area.position.y, width, area.size.y))
 
 
 ## The panel's width once open (the galaxy fits the space left of it).
 func panel_width() -> float:
-	return maxf(size.x, custom_minimum_size.x)
+	return _rect.end.x - rest_left()
 
 
 func refresh() -> void:
@@ -534,7 +535,7 @@ func _icon_row(runs: Array) -> Control:
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.custom_minimum_size.y = OUTPUT_ICON.y
-	var width := INFO_WIDTH - 24.0
+	var width := OUTPUT_WIDTH - 24.0
 	var step := OUTPUT_ICON.x + 1.0
 	if total > 1 and total * step > width:
 		step = maxf((width - OUTPUT_ICON.x) / float(total - 1), 3.0)
