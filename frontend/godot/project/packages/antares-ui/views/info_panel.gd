@@ -570,8 +570,10 @@ func _clear(holder: Control) -> void:
 		child.queue_free()
 
 
-## The net income chart (Draw_Maint_Income_Chart): the net income line, the income bar and the
-## maintenance bars (each a percent of the largest), then the seven labelled strips.
+## The net income chart (owner, 2026-11-15, in place of Draw_Maint_Income_Chart's bars side by
+## side): income as one bar, the six costs stacked in one bar beside it in their colours, both on
+## one scale, so the net income is the gap between the two tops (green above the costs, red when
+## they are higher). The legend gives each part in BC and as a share of the income.
 class _IncomeChart extends Control:
 	var data := {}
 
@@ -583,59 +585,75 @@ class _IncomeChart extends Control:
 		if data.is_empty():
 			return
 		var font := get_theme_font("font", "Label")
-		var size_px := 14
+		var text_color := get_theme_color("font_color", "Label")
+		var shadow := Color(0, 0, 0, 0.85)
 		var net := int(data.get("net_income", 0))
 		var top_text := String(data.get("net_income_text", "")).strip_edges()
-		var text_color := Color(1.0, 0.35, 0.3) if net < 0 else get_theme_color("font_color", "Label")
-		draw_string(font, Vector2(0, 18), top_text, HORIZONTAL_ALIGNMENT_CENTER, size.x, size_px + 2, text_color)
+		draw_string(font, Vector2(0, 18), top_text, HORIZONTAL_ALIGNMENT_CENTER, size.x, 16,
+			Color(1.0, 0.35, 0.3) if net < 0 else text_color)
 		var bars: Array = data.get("bars", [])
-		var strip_height := 22.0
-		var strips_top := size.y - strip_height * 7.0 - 4.0
-		var label_y := strips_top - 10.0
-		var bar_bottom := label_y - 18.0
-		var bar_top := 34.0
-		var bar_space := maxf(bar_bottom - bar_top, 20.0)
-		# The income bar on the left, the maintenance bars together on the right.
-		var bar_w := 26.0
-		if not bars.is_empty():
-			_bar(Vector2(size.x * 0.22 - bar_w * 0.5, bar_bottom), bar_w, bar_space * float(bars[0].percent) / 100.0, BAR_COLORS[0])
-		var shown := []
+		if bars.is_empty():
+			return
+		var income := float(int(bars[0].value))
+		var costs := 0.0
 		for i in range(1, bars.size()):
-			if int(bars[i].percent) > 0:
-				shown.append(i)
-		var x := size.x * 0.68 - float(shown.size()) * (bar_w * 0.7) * 0.5
-		for i: int in shown:
-			_bar(Vector2(x, bar_bottom), bar_w * 0.7, bar_space * float(bars[i].percent) / 100.0, BAR_COLORS[i])
-			x += bar_w * 0.7 + 2.0
-		var dim := get_theme_color("font_color", "Label") * Color(1, 1, 1, 0.8)
-		draw_string(font, Vector2(0, label_y), String(data.get("income_label", "")).strip_edges(), HORIZONTAL_ALIGNMENT_CENTER, size.x * 0.44, 11, dim)
-		draw_string(font, Vector2(size.x * 0.44, label_y), String(data.get("maintenance_label", "")).strip_edges(), HORIZONTAL_ALIGNMENT_CENTER, size.x * 0.56, 11, dim)
+			costs += float(int(bars[i].value))
+		var strip_height := 22.0
+		var strips_top := size.y - strip_height * float(bars.size()) - 4.0
+		var label_y := strips_top - 8.0
+		var base := label_y - 16.0
+		var top := 34.0
+		var scale := (base - top) / maxf(maxf(income, costs), 1.0)
+		var bar_w := minf(size.x * 0.22, 56.0)
+		var income_x := size.x * 0.3 - bar_w * 0.5
+		var costs_x := size.x * 0.7 - bar_w * 0.5
+		_bar(Rect2(income_x, base - income * scale, bar_w, income * scale), BAR_COLORS[0])
+		var y := base
+		for i in range(1, bars.size()):
+			var h := float(int(bars[i].value)) * scale
+			if h > 0.0:
+				_bar(Rect2(costs_x, y - h, bar_w, h), BAR_COLORS[i])
+				y -= h
+		# The net income: the gap between the tops, bracketed and labelled.
+		var income_top := base - income * scale
+		var costs_top := base - costs * scale
+		var gap_color := Color(0.3, 0.9, 0.4) if net >= 0 else Color(1.0, 0.35, 0.3)
+		if absf(income_top - costs_top) >= 2.0:
+			var gx := costs_x + bar_w * 0.5
+			draw_dashed_line(Vector2(income_x + bar_w, income_top), Vector2(costs_x + bar_w + 6.0, income_top), gap_color, 1.5, 4.0)
+			draw_line(Vector2(gx, income_top), Vector2(gx, costs_top), gap_color, 2.0)
+			draw_line(Vector2(gx - 6, income_top), Vector2(gx + 6, income_top), gap_color, 2.0)
+			draw_line(Vector2(gx - 6, costs_top), Vector2(gx + 6, costs_top), gap_color, 2.0)
+			var mid := (income_top + costs_top) * 0.5 + 5.0
+			var net_text := "%+d" % net
+			draw_string_outline(font, Vector2(costs_x + bar_w + 8.0, mid), net_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, 3, shadow)
+			draw_string(font, Vector2(costs_x + bar_w + 8.0, mid), net_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, gap_color)
+		var dim := text_color * Color(1, 1, 1, 0.8)
+		draw_string(font, Vector2(income_x - 30, label_y), String(data.get("income_label", "")).strip_edges(), HORIZONTAL_ALIGNMENT_CENTER, bar_w + 60, 11, dim)
+		draw_string(font, Vector2(costs_x - 40, label_y), String(data.get("maintenance_label", "")).strip_edges(), HORIZONTAL_ALIGNMENT_CENTER, bar_w + 80, 11, dim)
 		for i in bars.size():
-			var y := strips_top + float(i) * strip_height
-			var rect := Rect2(4, y + 1, size.x - 8, strip_height - 3)
+			var row_y := strips_top + float(i) * strip_height
+			var rect := Rect2(4, row_y + 1, size.x - 8, strip_height - 3)
 			draw_rect(rect, BAR_COLORS[i] * Color(1, 1, 1, 0.85))
 			draw_rect(Rect2(rect.position, Vector2(rect.size.x, 2)), Color(1, 1, 1, 0.25))
+			var value := int(bars[i].value)
 			var label := String(bars[i].label).strip_edges()
-			var shadow := Color(0, 0, 0, 0.85)
 			if i == 0:
-				var text := "%d %s" % [int(bars[i].value), label]
-				draw_string_outline(font, Vector2(rect.position.x, y + 16), text, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 13, 3, shadow)
-				draw_string(font, Vector2(rect.position.x, y + 16), text, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 13, Color.WHITE)
-			else:
-				var percent := "%d%%" % int(bars[i].percent)
-				draw_string_outline(font, Vector2(rect.position.x + 8, y + 16), percent, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, 3, shadow)
-				draw_string(font, Vector2(rect.position.x + 8, y + 16), percent, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
-				draw_string_outline(font, Vector2(rect.position.x + 50, y + 16), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 54, 13, 3, shadow)
-				draw_string(font, Vector2(rect.position.x + 50, y + 16), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 54, 13, Color.WHITE)
+				label = label.trim_prefix("BC").strip_edges() # the game's text follows a number ("5235 BC INCOME")
+			var share := "" if i == 0 or income <= 0.0 else "%d%%" % roundi(float(value) * 100.0 / income)
+			var parts := [[str(value) + " BC", HORIZONTAL_ALIGNMENT_LEFT, rect.position.x + 6, 74.0], [label, HORIZONTAL_ALIGNMENT_CENTER, rect.position.x + 80, rect.size.x - 130],
+				[share, HORIZONTAL_ALIGNMENT_RIGHT, rect.end.x - 50, 44.0]]
+			for part: Array in parts:
+				draw_string_outline(font, Vector2(float(part[2]), row_y + 16), String(part[0]), part[1], float(part[3]), 13, 3, shadow)
+				draw_string(font, Vector2(float(part[2]), row_y + 16), String(part[0]), part[1], float(part[3]), 13, Color.WHITE)
 
-	## A bar standing on `base` (its bottom-left), `height` tall, lit on the left as the screen's.
-	func _bar(base: Vector2, width: float, height: float, color: Color) -> void:
-		if height <= 0.5:
+	## A bar, lit on its left as the screen's.
+	func _bar(rect: Rect2, color: Color) -> void:
+		if rect.size.y <= 0.5:
 			return
-		var rect := Rect2(base.x, base.y - height, width, height)
 		draw_rect(rect, color)
-		draw_rect(Rect2(rect.position, Vector2(width * 0.35, height)), color.lightened(0.25))
-		draw_rect(Rect2(rect.position.x, rect.position.y - 4, width, 4), color.lightened(0.45))
+		draw_rect(Rect2(rect.position, Vector2(rect.size.x * 0.35, rect.size.y)), color.lightened(0.25))
+		draw_rect(Rect2(rect.position, Vector2(rect.size.x, 1.0)), color.lightened(0.5))
 
 
 ## The History Graph (Draw_The_History_Graph, Draw_Histories): the scale's top at the left, the

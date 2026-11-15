@@ -15,6 +15,8 @@ var _sprites := {} # "LBX/entry" -> sprite Dictionary, or {} while it is on its 
 var _pending := {} # request id -> key
 var _failures := {} # key -> failed exports so far (asked again up to RETRIES times)
 const RETRIES := 2
+var _hd_retries := {} # key -> asks for HD art that was still decoding
+const HD_RETRIES := 4
 
 
 func setup(antares_game: AntaresGame) -> void:
@@ -65,7 +67,16 @@ func forget(lbx: String, entry: int) -> void:
 			_pending.erase(id)
 
 
+## Asks for a sprite again (its HD art may be decoded by now); the 1x stays shown until it comes.
+func _ask_again(key: String) -> void:
+	if game == null or _pending.values().has(key):
+		return
+	var at := key.rfind("/")
+	_pending[game.request_sprite(key.substr(0, at), int(key.substr(at + 1)))] = key
+
+
 func clear() -> void:
+	_hd_retries.clear()
 	_sprites.clear()
 	_pending.clear()
 	_failures.clear()
@@ -95,6 +106,11 @@ func _on_sprite_ready(id: int, data: Dictionary) -> void:
 			image.generate_mipmaps()
 		frames.append(ImageTexture.create_from_image(image))
 		origins.append(Vector2(frame.origin))
+	if data.get("hd_pending", false) and int(_hd_retries.get(key, 0)) < HD_RETRIES:
+		# The 1x pixels for now; the HD art was still decoding (a slow disk): ask again shortly and
+		# swap it in (owner, 2026-11-15: the Info panel's portrait came out muddy).
+		_hd_retries[key] = int(_hd_retries.get(key, 0)) + 1
+		get_tree().create_timer(1.5).timeout.connect(func(): _ask_again(key), CONNECT_ONE_SHOT)
 	_sprites[key] = {
 		"frames": frames,
 		"origins": origins,

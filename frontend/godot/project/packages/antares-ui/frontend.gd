@@ -189,7 +189,7 @@ func _input(event: InputEvent) -> void:
 	# and an open help pane takes the click first (info_tip.gd).
 	var press := event as InputEventMouseButton
 	if press and press.pressed and press.button_index == MOUSE_BUTTON_LEFT and native_screen == Screens.MAIN:
-		if _close_flyouts_outside(get_viewport().get_mouse_position()):
+		if _close_flyouts_outside(press.position):
 			get_viewport().set_input_as_handled()
 			return
 	var key := event as InputEventKey
@@ -968,8 +968,9 @@ func _close_flyouts_outside(at: Vector2) -> bool:
 			return false
 	var closed := false
 	for name in FLYOUTS:
-		if not _views.has(name) or name in SIDE_PANELS.values():
-			continue # the side panels stay: the map beside them is part of them (owner, 2026-11-15)
+		if not _views.has(name) or (name in SIDE_PANELS.values() and not name in SIDE_PANELS_UNFITTED):
+			continue # the side panels stay: the map beside them is part of them (owner, 2026-11-15);
+			# Info and Races, over the galaxy, close like the other flyouts (owner, 2026-11-15)
 		var flyout: Control = _views[name]
 		if not flyout.visible or flyout.get_global_rect().has_point(at):
 			continue
@@ -1603,6 +1604,7 @@ func _smoke_colonies(shots: String) -> bool:
 		return false
 	if shots != "":
 		await host.shot(shots + "/native-colonies-strip.png")
+	print("smoke: colonies width %.0f" % panel.size.x)
 	if not await _smoke_side_resize(panel, shots, "colonies"):
 		return false
 	panel.close()
@@ -1700,6 +1702,7 @@ func _smoke_planets(shots: String) -> bool:
 			await get_tree().create_timer(0.3).timeout
 		else:
 			print("smoke: no free colony ship (send skipped)")
+	print("smoke: planets width %.0f" % panel.size.x)
 	if not await _smoke_side_resize(panel, shots, "planets"):
 		return false
 	panel.close()
@@ -1729,7 +1732,7 @@ func _smoke_side_resize(panel: Control, shots: String, tag: String) -> bool:
 			var row: Control = panel._rows.values()[0]
 			fill = " row %.0f of table %.0f" % [row.size.x, panel.scroll.size.x]
 			ok = ok and row.size.x >= panel.scroll.size.x - 30.0
-		print("smoke: %s at %s: panel right %.0f, tabs %.0f (gap %.0f)%s" % [tag, size, right, tabs_left, gap, fill])
+		print("smoke: %s at %s: panel right %.0f, width %.0f, tabs %.0f (gap %.0f)%s" % [tag, size, right, panel.size.x, tabs_left, gap, fill])
 		ok = ok and gap >= 0.0 and gap <= 14.0
 	if shots != "":
 		await host.shot(shots + "/native-%s-resized.png" % tag)
@@ -2097,9 +2100,19 @@ func _smoke_info_panel(shots: String) -> bool:
 	await get_tree().create_timer(0.4).timeout
 	if not await _smoke_side_resize(panel, shots, "info"):
 		return false
-	panel.close()
+	# A click on the galaxy left of it closes it (owner: as Ship Design and Options).
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = Vector2(60, get_viewport().get_visible_rect().size.y * 0.5)
+	click.global_position = click.position
+	Input.parse_input_event(click)
+	var release := click.duplicate()
+	release.pressed = false
+	Input.parse_input_event(release)
 	await get_tree().create_timer(0.6).timeout
-	return not tab.button_pressed
+	print("smoke: info: a click on the galaxy: panel %s, tab armed %s" % [panel.visible, tab.button_pressed])
+	return not panel.visible and not tab.button_pressed
 
 
 func _row_star_first(panel: Control, star: int) -> int:
@@ -2344,6 +2357,8 @@ func _open_side_panel(action_name: String) -> void:
 		side_view.stars = galaxy.stars
 		side_view.open_panel(_side_panel_area(), system_shown)
 	else:
+		if action_name == "planets":
+			side_view.width_like = _view("colonies_panel") # the same width: the galaxy's zoom stays
 		if action_name == "info":
 			if not side_view.item_chosen.is_connected(_on_info_summary_item):
 				side_view.item_chosen.connect(_on_info_summary_item)

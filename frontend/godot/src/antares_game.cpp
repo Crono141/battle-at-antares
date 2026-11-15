@@ -365,6 +365,7 @@ namespace godot {
             out["height"] = sprite.height;
             out["scale"] = sprite.scale;
             out["hd"] = sprite.hd;
+            out["hd_pending"] = sprite.hd_pending;
             out["error"] = String(sprite.error.c_str());
             Array frames;
             for (antares::sprites::s_frame& frame : sprite.frames) {

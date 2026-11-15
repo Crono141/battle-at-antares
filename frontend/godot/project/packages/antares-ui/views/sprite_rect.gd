@@ -27,8 +27,9 @@ func show_sprite(lbx_name: String, entry_number: int) -> void:
 	entry = entry_number
 
 
-func _on_loaded(_key: String) -> void:
-	if texture == null:
+func _on_loaded(key: String) -> void:
+	# Its first picture, or its own entry again (HD art that was still decoding, art.gd).
+	if texture == null or key == "%s/%d" % [lbx, entry]:
 		_refresh()
 
 

@@ -277,8 +277,10 @@ func _show_place() -> void:
 			tile.expand_icon = true
 			tile.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			tile.tooltip_text = String(ship.name) + ("" if int(ship.officer) < 0 else "\n(has an officer)")
+			tile.set_meta("art", ["SHIPS.LBX", int(ship.picture)])
 			if art != null:
 				tile.icon = art.texture("SHIPS.LBX", int(ship.picture))
+				_watch_art()
 			for state in ["normal", "disabled", "focus"]:
 				tile.add_theme_stylebox_override(state, preload("fleets_panel.gd")._tile_style(false, false))
 			tile.add_theme_stylebox_override("hover", preload("fleets_panel.gd")._tile_style(false, true))
@@ -475,3 +477,19 @@ func _clear(holder: Control) -> void:
 	for child in holder.get_children():
 		holder.remove_child(child)
 		child.queue_free()
+
+
+## Ship pictures that weren't loaded when the tiles were made fill in as they arrive (owner,
+## 2026-11-15: the first fleet of a kind showed empty tiles until clicked again).
+func _watch_art() -> void:
+	if art != null and not art.loaded.is_connected(_on_art_loaded):
+		art.loaded.connect(_on_art_loaded)
+
+
+func _on_art_loaded(_key: String) -> void:
+	if not is_instance_valid(_ships):
+		return
+	for tile: Node in _ships.get_children():
+		if tile is Button and (tile as Button).icon == null and tile.has_meta("art"):
+			var wanted: Array = tile.get_meta("art")
+			(tile as Button).icon = art.texture(String(wanted[0]), int(wanted[1]))

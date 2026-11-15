@@ -30,6 +30,8 @@ namespace antares::sprites {
         int32_t height = 0;
         int32_t scale = 1; // image pixels per 1x pixel: 4 with HD art, 1 without
         bool hd = false;
+        // The 1x pixels for now: the HD art exists but wasn't decoded in time (ask again later).
+        bool hd_pending = false;
         std::vector<s_frame> frames;
         std::string error; // empty when it loaded
     };

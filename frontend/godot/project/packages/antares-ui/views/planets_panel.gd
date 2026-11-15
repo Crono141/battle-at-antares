@@ -22,12 +22,12 @@ signal width_changed
 
 const Themes := preload("../themes.gd")
 const COLUMNS := [
-	{"key": "planet", "title": "PLANET", "width": 170.0},
-	{"key": "climate", "title": "CLIMATE", "width": 104.0},
-	{"key": "gravity", "title": "GRAVITY", "width": 104.0},
-	{"key": "minerals", "title": "MINERALS", "width": 116.0},
-	{"key": "size", "title": "SIZE", "width": 100.0},
-	{"key": "ship", "title": "SHIPS", "width": 74.0},
+	{"key": "planet", "title": "PLANET", "width": 132.0},
+	{"key": "climate", "title": "CLIMATE", "width": 94.0},
+	{"key": "gravity", "title": "GRAVITY", "width": 94.0},
+	{"key": "minerals", "title": "MINERALS", "width": 106.0},
+	{"key": "size", "title": "SIZE", "width": 92.0},
+	{"key": "ship", "title": "SHIPS", "width": 66.0},
 ]
 ## The screen's toggles, named short (owner, 2026-11-14; the mockup's long names in the tips): each shows only the planets that pass
 ## (the query's `hidden_by` flag hides it when on). Out of range is on by default, as the screen.
@@ -94,9 +94,24 @@ func open_panel(area: Rect2) -> void:
 
 
 ## As wide as its table (the columns are fixed), the scroll bar's room included.
+## The Colonies panel's width (owner, 2026-11-15: a different width moved the galaxy's zoom when
+## switching between them; `width_like` is that panel), wider only if the rows need it; the planet
+## columns share what they don't need, each by its width.
+var width_like: Control
+
+
 func _wanted_width(area: Rect2) -> float:
 	custom_minimum_size.x = 0.0
-	return minf(get_combined_minimum_size().x + 14.0, area.size.x - 16.0)
+	var natural := get_combined_minimum_size().x # the scroll bar's room is in the heading's tail
+	var width := minf(clampf(area.size.x * 0.45, 700.0, 960.0), area.size.x - 16.0)
+	if width_like != null:
+		var like: Vector2 = width_like.last_width
+		width = like.y if is_equal_approx(like.x, area.size.x) and like.y > 0.0 else width_like._wanted_width(area)
+	return minf(maxf(width, natural), area.size.x - 16.0)
+
+
+func _col_width(i: int) -> float:
+	return float(COLUMNS[i].width)
 
 
 func panel_width() -> float:
@@ -181,13 +196,17 @@ func _show_columns() -> void:
 	var lead := Control.new()
 	lead.custom_minimum_size.x = maxf(_row_pad(SIDE_LEFT) - SEPARATION, 0.0)
 	columns_box.add_child(lead)
-	for column: Dictionary in COLUMNS:
+	for i in COLUMNS.size():
+		var column: Dictionary = COLUMNS[i]
 		var key := String(column.key)
 		var b := Button.new()
 		b.flat = true
 		b.theme_type_variation = &"ListItem"
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(float(column.width), 28)
+		b.custom_minimum_size = Vector2(_col_width(i), 28)
+		# Every column takes a share of the spare width by its own (the rows' cells the same).
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.size_flags_stretch_ratio = _col_width(i)
 		b.clip_text = true
 		b.text = String(column.title)
 		if key == sort_key:
@@ -198,7 +217,10 @@ func _show_columns() -> void:
 			b.pressed.connect(_sort_by.bind(key))
 		columns_box.add_child(b)
 	var tail := Control.new()
-	tail.custom_minimum_size.x = _row_pad(SIDE_RIGHT)
+	# The rows' right padding and the scroll bar beside them (always shown, so the expanding planet
+	# column lines up with its heading).
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	tail.custom_minimum_size.x = _row_pad(SIDE_RIGHT) + scroll.get_v_scroll_bar().get_combined_minimum_size().x
 	columns_box.add_child(tail)
 
 
@@ -274,12 +296,12 @@ func _row(p: Dictionary) -> Control:
 	wrap.add_child(line)
 	var name_cell := _planet_cell(p)
 	panel.set_meta("name_label", name_cell.get_meta("name_label"))
-	_add_fixed(line, name_cell, COLUMNS[0].width)
-	_add_fixed(line, _two_lines(String(p.climate), String(p.food)), COLUMNS[1].width)
-	_add_fixed(line, _two_lines(String(p.gravity), String(p.get("gravity_note", ""))), COLUMNS[2].width)
-	_add_fixed(line, _two_lines(String(p.minerals), String(p.minerals_note)), COLUMNS[3].width)
-	_add_fixed(line, _two_lines(String(p.size), String(p.size_note)), COLUMNS[4].width)
-	_add_fixed(line, _ship_cell(p), COLUMNS[5].width)
+	_add_fixed(line, name_cell, _col_width(0))
+	_add_fixed(line, _two_lines(String(p.climate), String(p.food)), _col_width(1))
+	_add_fixed(line, _two_lines(String(p.gravity), String(p.get("gravity_note", ""))), _col_width(2))
+	_add_fixed(line, _two_lines(String(p.minerals), String(p.minerals_note)), _col_width(3))
+	_add_fixed(line, _two_lines(String(p.size), String(p.size_note)), _col_width(4))
+	_add_fixed(line, _ship_cell(p), _col_width(5))
 	panel.ready.connect(func(): _style_row(panel, id == selected))
 	return panel
 
@@ -450,6 +472,8 @@ func _row_pad(side: Side) -> float:
 func _add_fixed(line: HBoxContainer, content: Control, width: float) -> Control:
 	var holder := Control.new()
 	holder.custom_minimum_size = Vector2(width, ROW_HEIGHT)
+	holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL # a share of the spare width, as the heading's
+	holder.size_flags_stretch_ratio = width
 	holder.clip_contents = true
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	holder.add_child(content)

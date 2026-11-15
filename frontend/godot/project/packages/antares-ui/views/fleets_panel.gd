@@ -272,8 +272,10 @@ func _fill_grid(keep: Array) -> void:
 		tile.add_theme_stylebox_override("pressed", _tile_style(true, false))
 		tile.add_theme_stylebox_override("hover_pressed", _tile_style(true, true))
 		var lbx := "SHIPS.LBX@%d" % int(ship.palette) if ship.has("palette") else "SHIPS.LBX"
+		tile.set_meta("art", [lbx, int(ship.picture)])
 		if art != null:
 			tile.icon = art.texture(lbx, int(ship.picture))
+			_watch_art()
 		var id := int(ship.id)
 		tile.mouse_entered.connect(func(): _show_detail(id))
 		tile.toggled.connect(func(_on: bool): _on_pick())
@@ -502,3 +504,19 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	super._unhandled_key_input(event)
+
+
+## Ship pictures that weren't loaded when the tiles were made fill in as they arrive (owner,
+## 2026-11-15: the first fleet of a kind showed empty tiles until clicked again).
+func _watch_art() -> void:
+	if art != null and not art.loaded.is_connected(_on_art_loaded):
+		art.loaded.connect(_on_art_loaded)
+
+
+func _on_art_loaded(_key: String) -> void:
+	if not is_instance_valid(_grid):
+		return
+	for tile: Node in _grid.get_children():
+		if tile is Button and (tile as Button).icon == null and tile.has_meta("art"):
+			var wanted: Array = tile.get_meta("art")
+			(tile as Button).icon = art.texture(String(wanted[0]), int(wanted[1]))

@@ -139,6 +139,16 @@ func _wanted_width(area: Rect2) -> float:
 	return maxf(width, get_combined_minimum_size().x + 14.0) # the scroll bar
 
 
+## The width it last had on screen and the area's right edge it was for (the Planets panel takes
+## the same, owner 2026-11-15: the galaxy's zoom changed between them).
+var last_width := Vector2.ZERO
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESIZED and visible and not _closing and _rect.size.x > 0.0:
+		last_width = Vector2(_rect.end.x, size.x)
+
+
 ## The job columns share the table's width beyond the fixed columns, every row the same.
 func _fill_jobs() -> void:
 	if not visible or scroll.size.x <= 0.0:

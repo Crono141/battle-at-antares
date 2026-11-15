@@ -306,7 +306,8 @@ namespace antares::sprites {
         std::vector<render::s_exported_frame> art;
         // Ships' markings follow their colour set's palette (the masks say which pixels).
         const bool shade_masks = lbx == "SHIPS.LBX";
-        if (render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms, shade_masks)) {
+        bool still_decoding = false;
+        if (render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms, shade_masks, &still_decoding)) {
             const int32_t shrink = max_scale > 0 && max_scale < render::SCALE ? render::SCALE / max_scale : 1;
             for (render::s_exported_frame& frame : art) {
                 s_frame copy;
@@ -326,6 +327,7 @@ namespace antares::sprites {
             out->hd = true;
         } else {
             Export_1x(anim, palette_rgb, out);
+            out->hd_pending = still_decoding;
         }
         render::Forget_Loads(bytes, bytes + size);
         return true;

@@ -10,8 +10,11 @@
 
 namespace render {
 
-    bool Export_Art(const char* lbx_name, int32_t entry, const s_animation_header* loaded_entry, const uint32_t* palette_rgb, std::vector<s_exported_frame>* frames, uint32_t max_ms, bool shade_masks) {
+    bool Export_Art(const char* lbx_name, int32_t entry, const s_animation_header* loaded_entry, const uint32_t* palette_rgb, std::vector<s_exported_frame>* frames, uint32_t max_ms, bool shade_masks, bool* still_decoding) {
         frames->clear();
+        if (still_decoding != nullptr) {
+            *still_decoding = false;
+        }
         if (!enabled || loaded_entry == nullptr) {
             return false;
         }
@@ -36,6 +39,11 @@ namespace render {
         for (int32_t f = 0; f < count; ++f) {
             const s_hd_frame* frame = Resolve_Frame(asset, f < asset->frame_count ? f : asset->frame_count - 1);
             if (frame == nullptr || !Frame_Ready(frame) || frame->alpha == nullptr) {
+                // The pack has the art but it isn't decoded yet (a slow disk: the owner plays from
+                // a network share): the caller may ask again.
+                if (still_decoding != nullptr && frame != nullptr && !Frame_Ready(frame)) {
+                    *still_decoding = true;
+                }
                 frames->clear();
                 return false;
             }

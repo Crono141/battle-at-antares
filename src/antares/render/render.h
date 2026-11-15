@@ -299,7 +299,7 @@ namespace render {
     // index's colour from `palette_rgb`, keeping their brightness (as the twin planes draw them:
     // ships' player markings); otherwise the art's own colours.
     bool Export_Art(const char* lbx_name, int32_t entry, const s_animation_header* loaded_entry, const uint32_t* palette_rgb,
-        std::vector<s_exported_frame>* frames, uint32_t max_ms, bool shade_masks = false);
+        std::vector<s_exported_frame>* frames, uint32_t max_ms, bool shade_masks = false, bool* still_decoding = nullptr);
 
     // The palette an art pack's sprite was made under (its sprite.json "palette", from the art
     // index): FONTS.LBX palettes and LBX entries' embedded palettes, applied in order. False when
