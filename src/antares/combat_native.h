@@ -21,7 +21,7 @@
 namespace antares::combat {
 
     // Tactical_Combat once the battle is set up, and before it returns.
-    void Begin();
+    void Begin(int16_t star_idx);
     void End();
     bool Active();
 

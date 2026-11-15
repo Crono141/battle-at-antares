@@ -71,13 +71,15 @@ var _round_label: Label
 var _strength_mine: ColorRect
 var _strength_theirs: ColorRect
 var _strength_label: Label
-var _health_toggle: CheckButton
+var _health_toggle: Button
 var _auto_button: Button
 var _timeline: PanelContainer
 var _timeline_row: HBoxContainer
 var _strip: PanelContainer
 var _strip_name: Label
 var _strip_bars: Control
+var _strip_info: Label
+var _weapon_chips := {} # slot -> chip
 var _strip_weapons: HBoxContainer
 var _actions: VBoxContainer
 var _wait_button: Button
@@ -87,6 +89,7 @@ var _card: PanelContainer
 var _card_title: Label
 var _card_body: Label
 var _card_bars: Control
+var _card_fire: Label
 var _toast: Label
 
 const MENU_ITEMS := ["wait", "done", "retreat", "board", "scan", "self_destruct"]
@@ -122,6 +125,7 @@ func _ready() -> void:
 		art.loaded.connect(func(_key: String):
 			if visible:
 				_refresh_timeline()
+				_refresh_strip()
 				for index in _ships.keys():
 					_apply_texture(index))
 
@@ -306,6 +310,13 @@ func _apply_texture(index: int) -> void:
 	e["pad"] = pad
 	e["size"] = box
 	e["art_scale"] = float(s.scale)
+	var material := sprite.material as ShaderMaterial
+	if material != null and not e.planet and frames.size() >= 4:
+		var hull: Texture2D = frames[0]
+		material.set_shader_parameter("hull_tex", hull)
+		material.set_shader_parameter("hull_offset", (s.origins[0] - origin) * float(s.scale))
+		material.set_shader_parameter("hull_size", Vector2(hull.get_width(), hull.get_height()))
+		material.set_shader_parameter("use_hull", 1.0)
 	_apply_shield(index, _ship(index))
 
 
@@ -480,7 +491,12 @@ func _draw_marks() -> void:
 			var e: Dictionary = _ships[acting]
 			var tex: Texture2D = e.sprite.texture
 			if tex != null:
-				_marks.draw_set_transform(to, e.angle, e.sprite.scale)
+				# The ship ends its move facing the way it travelled (legacy Move_Ship turns it to the
+				# destination, Get_Facing: 16 steps, counter-clockwise from east).
+				var travel := to - from
+				var facing := posmod(int(round(-travel.angle() / (PI / 8.0))), 16)
+				var end_angle: float = -float(facing) * PI / 8.0 if travel.length() > 1.0 else e.angle
+				_marks.draw_set_transform(to, end_angle, e.sprite.scale)
 				_marks.draw_texture(tex, e.sprite.offset + Vector2(e.get("pad", 0.0), e.get("pad", 0.0)), Color(1, 1, 1, 0.35))
 				_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# Missiles and fighters in flight (WP3.9c animates them): a marker in the owner's colour with the count.
@@ -833,23 +849,83 @@ func _act(action: Dictionary) -> void:
 	_refresh_hud()
 
 
-# ---- HUD ----
+# ---- HUD: mockup B4's own look (dark glass, thin steel edges, amber for "on"), not the theme's
+# buttons (owner, 2026-11-15: the Chrome button art on the weapons; "not nearly as clean as B4"). ----
+
+const GLASS_BG := Color(0.035, 0.055, 0.10, 0.88)
+const GLASS_EDGE := Color(0.29, 0.35, 0.45)
+const CHIP_BG := Color(0.055, 0.086, 0.15, 0.95)
+const CHIP_EDGE := Color(0.24, 0.29, 0.38)
+const TEXT := Color(0.85, 0.88, 0.93)
+const DIM := Color(0.58, 0.64, 0.72)
+const ARC_NAMES := {1: "front", 2: "front wide", 3: "front wide", 4: "rear wide", 8: "rear", 12: "rear wide", 15: "all round", 16: "all round"}
+
+
+func _box(bg: Color, edge: Color, radius := 6, pad := 10.0, width := 1) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = bg
+	box.border_color = edge
+	box.set_border_width_all(width)
+	box.set_corner_radius_all(radius)
+	box.content_margin_left = pad
+	box.content_margin_right = pad
+	box.content_margin_top = pad * 0.7
+	box.content_margin_bottom = pad * 0.7
+	return box
+
 
 func _panel() -> PanelContainer:
 	var p := PanelContainer.new()
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
+	p.add_theme_stylebox_override("panel", _box(GLASS_BG, GLASS_EDGE))
 	return p
+
+
+func _label(text: String, font_size := 14, color := TEXT) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", font_size)
+	l.add_theme_color_override("font_color", color)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
+## A flat button in the B4 look: its key after the name, amber when `primary` (End turn).
+func _flat_button(text: String, key: String, pressed: Callable, primary := false) -> Button:
+	var b := Button.new()
+	b.text = text + ("    " + key if key != "" else "")
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 14)
+	var bg := Color(0.95, 0.70, 0.24) if primary else Color(0.08, 0.12, 0.19, 0.92)
+	var edge := AMBER if primary else Color(0.29, 0.35, 0.45)
+	var normal := _box(bg, edge, 4, 12.0)
+	var hover := _box(bg.lightened(0.08), AMBER, 4, 12.0)
+	var disabled := _box(Color(bg, bg.a * 0.45), Color(edge, 0.4), 4, 12.0)
+	b.add_theme_stylebox_override("normal", normal)
+	b.add_theme_stylebox_override("hover", hover)
+	b.add_theme_stylebox_override("pressed", hover)
+	b.add_theme_stylebox_override("hover_pressed", hover)
+	b.add_theme_stylebox_override("disabled", disabled)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var ink := Color(0.1, 0.07, 0.02) if primary else TEXT
+	for state_name in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
+		b.add_theme_color_override(state_name, ink)
+	b.add_theme_color_override("font_disabled_color", Color(ink, 0.4))
+	b.pressed.connect(pressed)
+	return b
 
 
 func _build_hud() -> void:
 	_top_left = _panel()
-	_top_left.position = Vector2(16, 16)
 	add_child(_top_left)
 	var tl := VBoxContainer.new()
+	tl.add_theme_constant_override("separation", 4)
 	tl.custom_minimum_size = Vector2(300, 0)
 	_top_left.add_child(tl)
-	_round_label = Label.new()
+	_round_label = _label("", 17)
 	tl.add_child(_round_label)
+	_strength_label = _label("", 12, DIM)
+	tl.add_child(_strength_label)
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 0)
 	bar.custom_minimum_size = Vector2(0, 6)
@@ -860,25 +936,26 @@ func _build_hud() -> void:
 	_strength_theirs = ColorRect.new()
 	_strength_theirs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(_strength_theirs)
-	_strength_label = Label.new()
-	_strength_label.add_theme_font_size_override("font_size", 12)
-	tl.add_child(_strength_label)
 
 	var tr := HBoxContainer.new()
+	tr.add_theme_constant_override("separation", 6)
 	tr.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	add_child(tr)
-	_health_toggle = CheckButton.new()
-	_health_toggle.text = "Always show health"
-	_health_toggle.tooltip_text = "Shields and hull on every ship (hold Alt to see them for a moment)"
-	_health_toggle.focus_mode = Control.FOCUS_NONE
+	_health_toggle = _flat_button("Always show health", "Alt", func(): pass)
+	_health_toggle.toggle_mode = true
 	_health_toggle.button_pressed = _always_health
+	_health_toggle.tooltip_text = "Shields and hull on every ship (hold Alt to see them for a moment)"
+	_health_toggle.add_theme_stylebox_override("pressed", _box(Color(0.95, 0.70, 0.24, 0.16), AMBER, 4, 12.0))
+	_health_toggle.add_theme_stylebox_override("hover_pressed", _box(Color(0.95, 0.70, 0.24, 0.22), AMBER, 4, 12.0))
+	_health_toggle.add_theme_color_override("font_pressed_color", AMBER)
+	_health_toggle.add_theme_color_override("font_hover_pressed_color", AMBER)
 	_health_toggle.toggled.connect(func(on: bool):
 		_always_health = on
 		_save_setting("always_show_health", on)
 		for index in _ships.keys():
 			_apply_shield(index, _ship(index)))
 	tr.add_child(_health_toggle)
-	_auto_button = _button("Auto", "A", func(): _act({"action": "auto"}))
+	_auto_button = _flat_button("Auto", "A", func(): _act({"action": "auto"}))
 	_auto_button.tooltip_text = "The computer fights the rest of this battle for you"
 	tr.add_child(_auto_button)
 
@@ -887,31 +964,44 @@ func _build_hud() -> void:
 	_timeline.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(_timeline)
 	_timeline_row = HBoxContainer.new()
-	_timeline_row.add_theme_constant_override("separation", 6)
+	_timeline_row.add_theme_constant_override("separation", 8)
 	_timeline.add_child(_timeline_row)
 
 	_strip = _panel()
 	_strip.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(_strip)
-	var sv := VBoxContainer.new()
-	_strip.add_child(sv)
-	_strip_name = Label.new()
-	sv.add_child(_strip_name)
-	_strip_bars = _bars_control(Vector2(220, 14))
-	sv.add_child(_strip_bars)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	_strip.add_child(row)
+	var who := VBoxContainer.new()
+	who.add_theme_constant_override("separation", 3)
+	who.custom_minimum_size = Vector2(170, 0)
+	row.add_child(who)
+	_strip_name = _label("", 17, AMBER)
+	who.add_child(_strip_name)
+	_strip_info = _label("", 12, DIM)
+	who.add_child(_strip_info)
+	_strip_bars = _bars_control(Vector2(170, 10))
+	who.add_child(_strip_bars)
+	var sep := ColorRect.new()
+	sep.color = Color(GLASS_EDGE, 0.6)
+	sep.custom_minimum_size = Vector2(1, 0)
+	row.add_child(sep)
 	_strip_weapons = HBoxContainer.new()
-	sv.add_child(_strip_weapons)
+	_strip_weapons.add_theme_constant_override("separation", 6)
+	row.add_child(_strip_weapons)
 
 	_actions = VBoxContainer.new()
+	_actions.add_theme_constant_override("separation", 6)
 	_actions.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_actions.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_actions.custom_minimum_size = Vector2(170, 0)
 	add_child(_actions)
-	_wait_button = _button("Wait", "W", func(): _act({"action": "wait"}))
+	_wait_button = _flat_button("Wait", "W", func(): _act({"action": "wait"}))
 	_actions.add_child(_wait_button)
-	_done_button = _button("Done", "D", func(): _act({"action": "done"}))
+	_done_button = _flat_button("Done", "D", func(): _act({"action": "done"}))
 	_actions.add_child(_done_button)
-	_end_button = _button("End turn", "T", func(): _act({"action": "end_turn"}))
+	_end_button = _flat_button("End turn", "T", func(): _act({"action": "end_turn"}), true)
 	_actions.add_child(_end_button)
 
 	_card = _panel()
@@ -919,39 +1009,33 @@ func _build_hud() -> void:
 	_card.hide()
 	add_child(_card)
 	var cv := VBoxContainer.new()
-	cv.custom_minimum_size = Vector2(260, 0)
+	cv.add_theme_constant_override("separation", 5)
+	cv.custom_minimum_size = Vector2(270, 0)
 	_card.add_child(cv)
-	_card_title = Label.new()
+	_card_title = _label("", 16)
 	cv.add_child(_card_title)
-	_card_bars = _bars_control(Vector2(260, 16))
+	_card_bars = _bars_control(Vector2(270, 12))
 	cv.add_child(_card_bars)
-	_card_body = Label.new()
-	_card_body.add_theme_font_size_override("font_size", 13)
+	_card_body = _label("", 13)
 	cv.add_child(_card_body)
+	_card_fire = _label("", 13, FIRE)
+	cv.add_child(_card_fire)
 
-	_toast = Label.new()
-	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_toast.add_theme_color_override("font_color", Color(1.0, 0.82, 0.55))
+	_toast = _label("", 15, Color(1.0, 0.82, 0.55))
 	_toast.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 	_toast.add_theme_constant_override("outline_size", 6)
+	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_toast.hide()
 	add_child(_toast)
 	# Anchors last, once each container knows its size (code-built controls: the offsets must be set too).
+	_top_left.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT, Control.PRESET_MODE_MINSIZE, 16)
 	tr.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
 	_timeline.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 16)
 	_strip.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 16)
-	_strip.offset_top -= 96.0 # above the timeline row
-	_strip.offset_bottom -= 96.0
+	_strip.offset_top -= 104.0 # above the timeline row
+	_strip.offset_bottom -= 104.0
 	_actions.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
 	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 70)
-
-
-func _button(text: String, key: String, pressed: Callable) -> Button:
-	var b := Button.new()
-	b.text = text + "  (" + key + ")"
-	b.focus_mode = Control.FOCUS_NONE
-	b.pressed.connect(pressed)
-	return b
 
 
 ## Straight bars (the timeline, the strip, the card): armour on top, shrinking to the centre;
@@ -985,14 +1069,23 @@ func _set_bars(c: Control, ship: Dictionary) -> void:
 	c.queue_redraw()
 
 
+func _side_name(owner: int) -> String:
+	if owner == int(state.get("attacker", -1)):
+		return String(state.get("attacker_race", ""))
+	return String(state.get("defender_race", ""))
+
+
 func _refresh_hud() -> void:
 	if state.is_empty():
 		return
-	_round_label.text = "Space combat   Round %d / %d" % [int(state.get("round", 0)) + 1, int(state.get("max_rounds", 50))]
+	var star := String(state.get("star", ""))
+	_round_label.text = ("Battle at " + star if star != "" else "Space combat") + "      Round %d" % (int(state.get("round", 0)) + 1)
 	var mine := 0.0
 	var theirs := 0.0
 	var my_count := 0
 	var their_count := 0
+	var their_owner := -1
+	var planet := false
 	for ship: Dictionary in _ships_list():
 		if not _alive(ship):
 			continue
@@ -1002,7 +1095,11 @@ func _refresh_hud() -> void:
 			my_count += 1
 		else:
 			theirs += hp
-			their_count += 1
+			if bool(ship.get("planet", false)):
+				planet = true
+			else:
+				their_count += 1
+				their_owner = int(ship.get("owner", -1))
 	var total := maxf(mine + theirs, 1.0)
 	_strength_mine.size_flags_stretch_ratio = maxf(mine / total, 0.01)
 	_strength_theirs.size_flags_stretch_ratio = maxf(theirs / total, 0.01)
@@ -1015,58 +1112,103 @@ func _refresh_hud() -> void:
 			their_color = _color(ship)
 	_strength_mine.color = my_color
 	_strength_theirs.color = their_color
-	_strength_label.text = "Yours: %d ships     Theirs: %d" % [my_count, their_count]
+	var me := int(state.get("player", -1))
+	if their_owner < 0:
+		their_owner = int(state.get("defender", -1)) if me == int(state.get("attacker", -1)) else int(state.get("attacker", -1))
+	_strength_label.text = "%s  %d ships          %s  %d%s" % [_side_name(me), my_count, _side_name(their_owner), their_count,
+		" + colony" if planet else ""]
 	var my_turn := _my_turn()
 	_wait_button.disabled = not my_turn or not bool(state.get("can_wait", true))
 	_done_button.disabled = not my_turn
 	_end_button.disabled = not my_turn
 	_auto_button.disabled = not my_turn
-	_auto_button.text = "Auto: on" if int(state.get("auto", 0)) != 0 else "Auto  (A)"
+	_auto_button.text = "Auto: on" if int(state.get("auto", 0)) != 0 else "Auto    A"
 	_refresh_strip()
 	_refresh_timeline()
 
 
+func _arc_name(arc: int) -> String:
+	return ARC_NAMES.get(arc, "arc %d" % arc)
+
+
+## The acting ship's weapons as chips: lit while they can still fire this turn, dim once fired or
+## switched off; with an enemy under the pointer, the ones that can hit it light up in fire colour
+## (the legacy weapon list's lit lines). A click cycles on, fire once, off.
 func _refresh_strip() -> void:
 	var acting := _ship(int(state.get("ship", -1)))
 	if not _alive(acting) or not _mine(acting):
 		_strip.hide()
 		return
 	_strip.show()
-	_strip_name.text = String(acting.get("name", "")) + ("   %d moves" % int(acting.get("moves", 0)))
-	_strip_name.add_theme_color_override("font_color", AMBER)
+	_strip_name.text = String(acting.get("name", ""))
+	_strip_info.text = "%d moves   ·   marines %d" % [int(acting.get("moves", 0)), int(acting.get("marines", 0))]
 	_set_bars(_strip_bars, acting)
 	for child in _strip_weapons.get_children():
 		child.queue_free()
+	_weapon_chips.clear()
+	var in_arc := _slots_against(_hover_ship)
 	for weapon: Dictionary in acting.get("weapons", []):
-		var b := Button.new()
-		b.focus_mode = Control.FOCUS_NONE
+		var slot := int(weapon.get("slot", 0))
 		var count := int(weapon.get("count", 0))
 		var active := int(weapon.get("active", 1))
-		var mode := "on" if active == 1 else ("once" if active == 0 else "off")
+		var ready := bool(weapon.get("ready", false))
 		var ammo := int(weapon.get("ammo", 0))
-		b.text = "%d %s · %s%s" % [count, String(weapon.get("name", "")), mode, (" · %d left" % ammo) if ammo > 0 and ammo < 99 else ""]
-		b.add_theme_font_size_override("font_size", 13)
-		b.tooltip_text = "Click: on, fire once, off"
-		b.disabled = count == 0 or not _my_turn()
-		var slot := int(weapon.get("slot", 0))
-		b.pressed.connect(func(): _act({"action": "toggle_weapon", "slot": slot}))
-		if active == -1:
-			b.modulate = Color(1, 1, 1, 0.55)
-		_strip_weapons.add_child(b)
+		var shots := int(weapon.get("shots_left", 0))
+		var chip := PanelContainer.new()
+		chip.mouse_filter = Control.MOUSE_FILTER_STOP
+		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		chip.tooltip_text = "Click: on, fire once, off"
+		var targeted := _hover_ship >= 0 and not _mine(_ship(_hover_ship))
+		var lit := targeted and in_arc.has(slot)
+		chip.add_theme_stylebox_override("panel", _box(Color(FIRE, 0.14) if lit else CHIP_BG, FIRE if lit else CHIP_EDGE, 4, 8.0))
+		var v := VBoxContainer.new()
+		v.add_theme_constant_override("separation", 1)
+		chip.add_child(v)
+		v.add_child(_label("%d × %s" % [count, String(weapon.get("name", ""))], 13, TEXT))
+		var status := ""
+		if count == 0:
+			status = "destroyed"
+		elif active == -1:
+			status = "off"
+		elif not ready:
+			status = "fired"
+		elif targeted:
+			status = "in arc" if lit else "out of arc or range"
+		else:
+			status = "ready" + (" · once" if active == 0 else "") + (" · %d shots" % shots if shots > 1 and shots != count else "")
+		var line := _arc_name(int(weapon.get("arc", 0))) + " · " + status
+		if ammo > 0 and ammo < 99:
+			line += " · %d left" % ammo
+		v.add_child(_label(line, 11, FIRE if lit else (SYSTEMS_COLOR if status == "destroyed" else DIM)))
+		if count == 0 or active == -1 or not ready or (targeted and not lit):
+			chip.modulate = Color(1, 1, 1, 0.5)
+		chip.gui_input.connect(func(event: InputEvent):
+			var click := event as InputEventMouseButton
+			if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT and count > 0:
+				_act({"action": "toggle_weapon", "slot": slot})
+				accept_event())
+		_strip_weapons.add_child(chip)
+		_weapon_chips[slot] = chip
+
+
+## The acting ship's weapon slots that can hit `target` now (the state's "targets").
+func _slots_against(target: int) -> Dictionary:
+	var slots := {}
+	for entry: Dictionary in state.get("targets", []):
+		if int(entry.get("ship", -1)) == target:
+			for slot in entry.get("slots", []):
+				slots[int(slot)] = true
+	return slots
 
 
 func _refresh_timeline() -> void:
 	for child in _timeline_row.get_children():
 		child.queue_free()
 	var round_box := VBoxContainer.new()
-	var round_title := Label.new()
-	round_title.text = "ROUND"
-	round_title.add_theme_font_size_override("font_size", 11)
-	round_box.add_child(round_title)
-	var round_number := Label.new()
-	round_number.text = str(int(state.get("round", 0)) + 1)
+	round_box.add_theme_constant_override("separation", 0)
+	round_box.add_child(_label("ROUND", 11, DIM))
+	var round_number := _label(str(int(state.get("round", 0)) + 1), 26)
 	round_number.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	round_number.add_theme_font_size_override("font_size", 24)
 	round_box.add_child(round_number)
 	_timeline_row.add_child(round_box)
 	var order: Array = []
@@ -1086,13 +1228,7 @@ func _refresh_timeline() -> void:
 	var bracket: HBoxContainer = null
 	if run > 0 and _mine(_ship(order[0])):
 		var frame := PanelContainer.new()
-		var style := StyleBoxFlat.new()
-		style.bg_color = Color(AMBER, 0.08)
-		style.border_color = AMBER
-		style.set_border_width_all(2)
-		style.set_corner_radius_all(5)
-		style.set_content_margin_all(3)
-		frame.add_theme_stylebox_override("panel", style)
+		frame.add_theme_stylebox_override("panel", _box(Color(AMBER, 0.08), AMBER, 6, 4.0, 2))
 		bracket = HBoxContainer.new()
 		bracket.add_theme_constant_override("separation", 6)
 		frame.add_child(bracket)
@@ -1105,9 +1241,7 @@ func _refresh_timeline() -> void:
 		else:
 			_timeline_row.add_child(chip)
 	if order.size() > MAX_CHIPS:
-		var more := Label.new()
-		more.text = "+%d" % (order.size() - MAX_CHIPS)
-		_timeline_row.add_child(more)
+		_timeline_row.add_child(_label("+%d" % (order.size() - MAX_CHIPS), 14, DIM))
 
 
 func _chip(index: int, acting: bool) -> Control:
@@ -1115,13 +1249,9 @@ func _chip(index: int, acting: bool) -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 3)
 	var pic := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.05, 0.08, 0.14, 0.95)
-	style.border_color = AMBER if acting else _color(ship)
-	style.set_border_width_all(2 if acting else 1)
-	style.set_corner_radius_all(4)
-	pic.add_theme_stylebox_override("panel", style)
+	pic.add_theme_stylebox_override("panel", _box(CHIP_BG, AMBER if acting else Color(_color(ship), 0.8), 4, 2.0, 2 if acting else 1))
 	pic.custom_minimum_size = Vector2(56, 46)
+	pic.tooltip_text = String(ship.get("name", ""))
 	var rect := TextureRect.new()
 	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -1129,7 +1259,6 @@ func _chip(index: int, acting: bool) -> Control:
 	var sprite_info: Dictionary = ship.get("sprite", {})
 	rect.texture = art.texture(String(sprite_info.get("lbx", "")), int(sprite_info.get("entry", -1)), 0)
 	pic.add_child(rect)
-	pic.tooltip_text = String(ship.get("name", ""))
 	box.add_child(pic)
 	var bars := _bars_control(Vector2(56, 8))
 	_set_bars(bars, ship)
@@ -1140,11 +1269,15 @@ func _chip(index: int, acting: bool) -> Control:
 func _place_card() -> void:
 	var ship := _ship(_hover_ship)
 	if not _alive(ship) or _menu_ship >= 0:
-		_card.hide()
+		if _card.visible:
+			_card.hide()
+			_refresh_strip()
 		return
+	var was_hidden: bool = not _card.visible or _card.get_meta("ship", -1) != _hover_ship
+	_card.set_meta("ship", _hover_ship)
 	_card.show()
-	_card_title.text = String(ship.get("name", "")) + ("   (yours)" if _mine(ship) else "")
-	_card_title.add_theme_color_override("font_color", _color(ship))
+	_card_title.text = String(ship.get("name", "")) + ("" if _mine(ship) else "   ·   " + _side_name(int(ship.get("owner", -1))))
+	_card_title.add_theme_color_override("font_color", AMBER if _mine(ship) else _color(ship).lightened(0.25))
 	_set_bars(_card_bars, ship)
 	var shield: Dictionary = ship.get("shield", {})
 	var arcs: Array = shield.get("arcs", [0, 0, 0, 0])
@@ -1153,34 +1286,32 @@ func _place_card() -> void:
 	var systems: Dictionary = ship.get("systems", {})
 	var lines := []
 	if int(shield.get("layers", 0)) > 0:
-		lines.append("Shields  front %d · right %d · rear %d · left %d  (of %d)" % [int(arcs[0]), int(arcs[1]), int(arcs[2]), int(arcs[3]), int(shield.get("max", 0))])
+		lines.append("Shields   front %d · right %d · rear %d · left %d   of %d" % [int(arcs[0]), int(arcs[1]), int(arcs[2]), int(arcs[3]), int(shield.get("max", 0))])
 	else:
-		lines.append("Shields  down")
-	lines.append("Armour %d / %d    Structure %d / %d" % [int(armor.get("now", 0)), int(armor.get("max", 0)), int(structure.get("now", 0)), int(structure.get("max", 0))])
+		lines.append("Shields   down")
+	lines.append("Armour %d / %d     Structure %d / %d" % [int(armor.get("now", 0)), int(armor.get("max", 0)), int(structure.get("now", 0)), int(structure.get("max", 0))])
 	var sys_max := maxf(float(systems.get("max", 0)), 1.0)
 	lines.append("Systems %d%%" % int(round(100.0 * float(systems.get("now", 0)) / sys_max)))
 	if _mine(ship):
-		var parts := []
-		for key in ["drive", "computer", "shield"]:
-			var top := int(systems.get(key + "_max", 0))
-			if top > 0 and int(systems.get(key, 0)) < top:
-				parts.append("%s %d%%" % [key, int(100.0 * float(systems.get(key, 0)) / top)])
-		if not parts.is_empty():
-			lines.append("Hit: " + ", ".join(parts))
-		var weapons := []
-		for weapon: Dictionary in ship.get("weapons", []):
-			weapons.append("%d %s" % [int(weapon.get("count", 0)), String(weapon.get("name", ""))])
-		if not weapons.is_empty():
-			lines.append(", ".join(weapons))
-	lines.append("%d moves" % int(ship.get("moves", 0)) if _mine(ship) else "Speed %d" % int(ship.get("speed", 0)))
-	if _my_turn() and not _mine(ship):
-		lines.append("Click to fire")
+		lines.append("%d moves" % int(ship.get("moves", 0)))
 	_card_body.text = "\n".join(lines)
+	_card_fire.text = ""
+	if _my_turn() and not _mine(ship):
+		var acting := _ship(int(state.get("ship", -1)))
+		var slots := _slots_against(_hover_ship)
+		var can := []
+		for weapon: Dictionary in acting.get("weapons", []):
+			if slots.has(int(weapon.get("slot", -1))):
+				can.append("%d %s" % [int(weapon.get("count", 0)), String(weapon.get("name", ""))])
+		_card_fire.text = ("Click to fire: " + ", ".join(can)) if not can.is_empty() else "No weapon can reach it from here"
+	_card_fire.visible = _card_fire.text != ""
+	if was_hidden:
+		_refresh_strip() # the chips light for this target
 	_card.reset_size()
 	var at := _to_screen(_ships[_hover_ship].shown) + Vector2(_radius(_hover_ship) * _zoom + 24.0, -_card.size.y / 2.0)
 	if at.x + _card.size.x > size.x - 8.0:
 		at.x = _to_screen(_ships[_hover_ship].shown).x - _radius(_hover_ship) * _zoom - 24.0 - _card.size.x
-	at.y = clampf(at.y, 70.0, size.y - _card.size.y - 140.0)
+	at.y = clampf(at.y, 80.0, size.y - _card.size.y - 150.0)
 	_card.position = at
 
 

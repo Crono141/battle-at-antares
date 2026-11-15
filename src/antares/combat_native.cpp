@@ -16,6 +16,7 @@ namespace antares::combat {
 
     namespace {
         bool s_active = false;
+        int16_t s_star = -1;
         uint64_t s_last_frame_ms = 0;
 
         // The legacy shield's outline layers (cmbtdrw1.cpp, Draw_Ship_To_Bitmap's switch on
@@ -159,6 +160,8 @@ namespace antares::combat {
                 weapon.Int("ammo", slot.ammo);
                 weapon.Int("active", slot.active);
                 weapon.Int("shots_left", slot.shots_left);
+                // Can still fire this turn (the legacy weapon list's lit lines: on, shots left).
+                weapon.Bool("ready", COMBAT1::Weapon_Is_On(i, (int16_t)w));
             }
             item.Int("marines", ship.marine_count);
             item.Int("crew", ship.crew_quality);
@@ -184,6 +187,19 @@ namespace antares::combat {
         out.Int("attacker", MOX::combat_attacker_player);
         out.Int("defender", MOX::combat_defender_player);
         out.Int("colony", MOX::cmbt_colony_id);
+        if (s_star >= 0 && s_star < MOX::NUM_STARS) {
+            out.Str("star", commands::internal::Utf8(MOX::star[s_star].name, sizeof(MOX::star[s_star].name)));
+        }
+        auto race = [](int16_t player_idx) -> std::string {
+            if (player_idx >= 0 && player_idx < MAX_PLAYERS) {
+                return commands::internal::Utf8(MOX::player[player_idx].race_name, sizeof(MOX::player[player_idx].race_name));
+            }
+            char name[40] = {};
+            HACCESS::Race_Name(player_idx, name, sizeof(name));
+            return commands::internal::Utf8(name, sizeof(name));
+        };
+        out.Str("attacker_race", race(MOX::combat_attacker_player));
+        out.Str("defender_race", race(MOX::combat_defender_player));
         out.Int("nebula", MOX::in_nebula_flag);
         s_out grid = out.Add_Object("grid");
         grid.Int("width", MOX::combat_grid_width);
@@ -219,6 +235,34 @@ namespace antares::combat {
             }
         }
 
+        // For the acting ship, the weapons that can fire at each enemy now (in arc, in range, a legal
+        // target, ready): the legacy weapon list lit them for the ship under the pointer
+        // (CMBTDRW1::Draw_Weapon_Status_Display).
+        s_out targets = out.Add_List("targets");
+        if (MOX::cur_ship >= 0 && MOX::cur_ship < MOX::combat_total_ship_count && MOX::combat_data[MOX::cur_ship].unit_status == 0) {
+            const s_combat_data& shooter = MOX::combat_data[MOX::cur_ship];
+            for (int16_t t = 0; t < MOX::combat_total_ship_count; ++t) {
+                const s_combat_data& target = MOX::combat_data[t];
+                if (target.unit_status != 0 || target.owner == shooter.owner) {
+                    continue;
+                }
+                const uint8_t required_arc = CMBTDRW1::Get_Weapon_Arc(CMBTDRW1::Relative_Bearing(MOX::cur_ship, t));
+                s_out entry = targets.Append_Object();
+                entry.Int("ship", t);
+                s_out slots = entry.Add_List("slots");
+                for (int16_t w = 0; w < 8; ++w) {
+                    const s_combat_weapon_slot& slot = shooter.weapons[w];
+                    if (slot.weapon_id == 0 || !COMBAT1::Weapon_Is_On(MOX::cur_ship, w)) {
+                        continue;
+                    }
+                    if ((slot.arc & required_arc) != 0 && CMBTFIRE::Weapon_In_Range(w, MOX::cur_ship, t, 0, 0) != 0 &&
+                        CMBTFIRE::Target_Is_Legal_For_Weapon(slot.weapon_id, slot.specials, t, 0) != 0) {
+                        slots.Append_Int(w);
+                    }
+                }
+            }
+        }
+
         s_out missiles = out.Add_List("missiles");
         for (int16_t m = 0; m < MAX_COMBAT_FLYERS; ++m) {
             const s_missile& missile = MOX::missile[m];
@@ -243,11 +287,12 @@ namespace antares::combat {
         return json;
     }
 
-    void Begin() {
+    void Begin(int16_t star_idx) {
         if (!native::Combat_Native() || MOX::net_flag != 0) {
             return;
         }
         s_active = true;
+        s_star = star_idx;
         native::Set_Scene(State_Json);
         native::Post_Scene_Snapshot("combat");
     }

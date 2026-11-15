@@ -1230,7 +1230,7 @@ namespace COMBINIT {
             RUSS::Mox_Update();
 
             combat_winner = COMBAT1::Check_For_Winner();
-            antares::combat::Begin(); // WP3.9a: the native battle scene, when a frontend claims it
+            antares::combat::Begin(star_idx); // WP3.9a: the native battle scene, when a frontend claims it
             fields::Assign_Auto_Function(CMBTDRW1::Draw_Main_Combat_Screen, 1);
             mouse::Set_Mouse_List(&MOX::mouse_list_arrow, 1);
 

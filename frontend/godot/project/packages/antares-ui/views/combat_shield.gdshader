@@ -9,6 +9,13 @@ shader_type canvas_item;
 uniform vec4 arcs = vec4(1.0); // each arc's strength, 0..1 (current / max)
 uniform float thickness_px = 0.0; // the full glow, in texture pixels (0: no shield)
 uniform float shield_on = 0.0; // 1 shows the glow (hover or "Always show health")
+// The hull's outline comes from frame 0 (the ship without its engines' flames), so the glow keeps
+// still while the flames animate (owner, 2026-11-15: it pulsed with them). hull_offset: where the
+// hull frame's top-left sits in the current frame's pixels; hull_size: its size in pixels.
+uniform sampler2D hull_tex : filter_linear_mipmap;
+uniform vec2 hull_offset = vec2(0.0);
+uniform vec2 hull_size = vec2(1.0);
+uniform float use_hull = 0.0;
 uniform vec4 inner_color : source_color = vec4(0.92, 1.0, 0.95, 1.0);
 uniform vec4 mid_color : source_color = vec4(0.35, 0.94, 0.6, 1.0);
 uniform vec4 outer_color : source_color = vec4(0.08, 0.45, 0.24, 1.0);
@@ -27,6 +34,19 @@ float alpha_at(sampler2D tex, vec2 uv, vec2 gx, vec2 gy) {
 	return textureGrad(tex, uv, gx, gy).a;
 }
 
+// The hull's alpha at a point of the current frame (`uv` in its texture coordinates).
+float hull_alpha(sampler2D frame_tex, vec2 uv, vec2 tex_size, vec2 gx, vec2 gy) {
+	if (use_hull < 0.5) {
+		return alpha_at(frame_tex, uv, gx, gy);
+	}
+	vec2 k = tex_size / hull_size;
+	vec2 h = (uv * tex_size - hull_offset) / hull_size;
+	if (h.x < 0.0 || h.y < 0.0 || h.x > 1.0 || h.y > 1.0) {
+		return 0.0;
+	}
+	return textureGrad(hull_tex, h, gx * k, gy * k).a;
+}
+
 void fragment() {
 	vec2 uv = UV;
 	vec2 gx = dFdx(uv);
@@ -38,6 +58,7 @@ void fragment() {
 	COLOR = ship;
 	if (shield_on > 0.5 && thickness_px > 0.0 && ship.a < 0.5) {
 		vec2 px = TEXTURE_PIXEL_SIZE;
+		vec2 tex_size = 1.0 / px;
 		// The distance to the hull, found by stepping outwards in 16 directions.
 		float best = 1e6;
 		const int DIRS = 24;
@@ -50,7 +71,7 @@ void fragment() {
 				if (r >= best) {
 					break;
 				}
-				if (alpha_at(TEXTURE, uv + dir * r * px, gx, gy) > 0.5) {
+				if (hull_alpha(TEXTURE, uv + dir * r * px, tex_size, gx, gy) > 0.5) {
 					best = r;
 					break;
 				}
@@ -58,8 +79,10 @@ void fragment() {
 		}
 		if (best < 1e5) {
 			// Which arc this pixel is in: the angle from the sprite's centre, ship-relative.
-			vec2 c = uv - vec2(0.5);
-			c.x *= px.y / px.x; // in pixels: width / height, so the arcs are square on a non-square sprite
+			// The angle from the hull's centre, in pixels (square on a non-square sprite).
+			vec2 hull_px = use_hull > 0.5 ? hull_size : tex_size;
+			vec2 hull_at = use_hull > 0.5 ? hull_offset : vec2(0.0);
+			vec2 c = uv * tex_size - hull_at - hull_px / 2.0;
 			float ang = atan(c.y, c.x);
 			int arc = int(mod(floor((ang + 0.7853982) / 1.5707963), 4.0));
 			float strength = arc == 0 ? arcs.x : arc == 1 ? arcs.y : arc == 2 ? arcs.z : arcs.w;

@@ -4786,6 +4786,22 @@ func _smoke_combat(shots: String) -> bool:
 			best = int(code)
 	if best >= 0:
 		var before := Vector2i(int(ship.x), int(ship.y))
+		# The pointer on the nearest enemy: its card, and the weapons that can reach it lit.
+		var enemy := -1
+		for s6: Dictionary in view._ships_list():
+			if view._alive(s6) and not view._mine(s6) and not bool(s6.get("planet", false)):
+				if enemy < 0 or view._center(s6).distance_to(view._center(ship)) < view._center(view._ship(enemy)).distance_to(view._center(ship)):
+					enemy = int(s6.i)
+		if enemy >= 0:
+			var on_enemy: Vector2 = view._to_screen(view._ships[enemy].shown)
+			Input.warp_mouse(on_enemy)
+			var hover := InputEventMouseMotion.new()
+			hover.position = on_enemy
+			hover.global_position = on_enemy
+			Input.parse_input_event(hover)
+			await get_tree().create_timer(0.4).timeout
+			if shots != "":
+				await host.shot(shots + "/combat-target.png")
 		# As a player does it: the pointer onto the square, then a left click (real input events).
 		var square := Vector2i(best / 1000, best % 1000)
 		var at: Vector2 = view._to_screen(view._square_center(square, ship))
@@ -4805,6 +4821,7 @@ func _smoke_combat(shots: String) -> bool:
 		while moved < 20.0 and not view._my_turn():
 			await get_tree().create_timer(0.25).timeout
 			moved += 0.25
+		print("smoke: targets after the move %s" % [view.state.get("targets", [])])
 		var after: Dictionary = view._ship(acting)
 		print("smoke: moved ship %d from %s to %d,%d (now %d,%d)" % [acting, before, best / 1000, best % 1000, int(after.get("x", -1)), int(after.get("y", -1))])
 		await get_tree().create_timer(0.8).timeout
