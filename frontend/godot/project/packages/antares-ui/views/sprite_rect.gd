@@ -9,6 +9,13 @@ extends TextureRect
 		entry = value
 		_refresh()
 @export var frame := 0
+## The entry's whole frame at one scale, the picture where the game draws it in its frame (owner,
+## 2026-11-15: a Frigate is small in its 52x48 ship frame and a Titan fills it; stretching each
+## picture to the rect drew every hull the same size). Off: the picture itself fills the rect.
+@export var whole_frame := false:
+	set(value):
+		whole_frame = value
+		_refresh()
 
 var _art: Node
 
@@ -34,10 +41,30 @@ func _on_loaded(key: String) -> void:
 
 
 func _refresh() -> void:
+	if whole_frame:
+		texture = null
+		queue_redraw()
+		return
 	if _art == null or lbx == "" or entry < 0:
 		texture = null
 		return
 	texture = _art.texture(lbx, entry, frame)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESIZED and whole_frame:
+		queue_redraw()
+
+
+func _draw() -> void:
+	if not whole_frame or _art == null or lbx == "" or entry < 0:
+		return
+	var s: Dictionary = _art.sprite(lbx, entry)
+	if s.is_empty():
+		return
+	var frame_size: Vector2 = s.size
+	var scale := minf(size.x / frame_size.x, size.y / frame_size.y)
+	_art.draw(self, lbx, entry, frame, (size - frame_size * scale) * 0.5, scale)
 
 
 ## Binds every SpriteRect under `root` (views call this when their art is set).

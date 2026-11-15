@@ -134,6 +134,7 @@ func _ready() -> void:
 			_picture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			_picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			_picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			_picture.whole_frame = true # small hulls small, as the game draws them in the ship frame
 			picture_box.add_child(_picture)
 	# Space and cost.
 	var numbers := PanelContainer.new()

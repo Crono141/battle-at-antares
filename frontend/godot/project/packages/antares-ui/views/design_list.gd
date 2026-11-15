@@ -91,6 +91,7 @@ func _row(design: Dictionary) -> Control:
 	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	row.add_child(picture)
+	picture.whole_frame = true # each hull at the game's scale (a Frigate small, a Titan large)
 	picture.bind(art)
 	picture.show_sprite("SHIPS.LBX", int(design.picture))
 	var names := VBoxContainer.new()
