@@ -650,6 +650,9 @@ func _on_window_resized() -> void:
 		return
 	_scaled_for = get_window().size
 	set_ui_scale(_wanted_ui_scale(), false)
+	# Everything floating follows the window (owner, 2026-11-14: "Windows should ALWAYS resize or
+	# shift with the window"); dialogs and drop-downs keep themselves on the screen.
+	_replace_floating.call_deferred()
 	# The side panels stay against the side tabs (owner, 2026-11-14: a wider window left a gap,
 	# a narrower one slid them under the tabs), and the galaxy fits beside them again.
 	if SIDE_PANELS.values().any(func(n: String) -> bool: return _views.has(n) and (_views[n] as Control).visible):
@@ -665,6 +668,22 @@ func _on_window_resized() -> void:
 		await get_tree().process_frame
 		if _views.build_pane.visible:
 			_place_build_pane()
+
+
+## After a window resize: the research drop-down and picker at the research area's right edge, the
+## research window's rect, the fleet panel beside its fleet.
+func _replace_floating() -> void:
+	await get_tree().process_frame # the bar and tabs laid out at the new size first
+	var area := _research_area()
+	for panel: Control in [_views.get("research_panel"), _picker]:
+		if panel != null and panel.visible:
+			panel.position.x = maxf(area.end.x - panel.size.x, 8.0)
+	if _scene_window != null and _scene_window.visible and _scene_window.custom_rect.has_area():
+		_scene_window.custom_rect = _research_scene_rect()
+		_scene_window._layout()
+	var fleet_panel: Control = _views.get("fleet_panel")
+	if fleet_panel != null and fleet_panel.visible and _fleet_ship >= 0:
+		_place_fleet_panel(fleet_panel, _fleet_position(_fleet_ship))
 
 
 ## Applies a scale in percent; `remember`: saved as the player's choice.
@@ -1253,6 +1272,9 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		dialog = load(_views_dir() + "/dialog.tscn").instantiate()
 		dialog.art = art
 		dialog.answered.connect(_on_answered)
+		dialog.planet_row_hovered.connect(func(planet_id: int):
+			galaxy.hovered_planet = planet_id
+			galaxy.redraw())
 		dialog.theme = native_layer.theme
 		$Overlay.add_child(dialog)
 		_views["dialog"] = dialog
@@ -3564,6 +3586,29 @@ func _smoke_popups(shots: String) -> void:
 		if not shown:
 			failed = true
 			continue
+		if case.popup == "attack_target":
+			# Owner, 2026-11-14: the window follows a resize (it fell off the screen), and a row's
+			# hover lights its planet on the map and the map's lights its row.
+			get_window().mode = Window.MODE_WINDOWED
+			get_window().size = Vector2i(1700, 1000)
+			await get_tree().create_timer(0.4).timeout
+			get_window().size = Vector2i(1100, 760)
+			await get_tree().create_timer(0.4).timeout
+			var view := get_viewport().get_visible_rect().size
+			var inside := Rect2(Vector2.ZERO, view).encloses(dialog.get_global_rect())
+			var linked := false
+			if not dialog._planet_rows.is_empty():
+				var planet_id: int = dialog._planet_rows.keys()[0]
+				(dialog._planet_rows[planet_id] as Button).mouse_entered.emit()
+				var map_lit: bool = galaxy.hovered_planet == planet_id
+				_on_planet_hovered(planet_id)
+				var row_lit: bool = (dialog._planet_rows[planet_id] as Button).has_theme_color_override("font_color")
+				linked = map_lit and row_lit
+			print("smoke: attack_target after a resize to %s: window %s inside %s; hover linked both ways %s" % [view, dialog.get_global_rect(), inside, linked])
+			if shots != "":
+				await host.shot(shots + "/native-popup-attack-resized.png")
+			if not inside or not linked:
+				failed = true
 		var expected := -1
 		if case.has("pick"):
 			(dialog._popup_buttons.get_child(1) as Button).pressed.emit() # PAY

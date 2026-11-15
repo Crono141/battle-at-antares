@@ -11,6 +11,19 @@ var _tween: Tween
 var _closing := false
 
 
+func _ready() -> void:
+	# Kept on the screen when the window shrinks (owner, 2026-11-14); the frontend re-places the
+	# ones that sit in an area (research).
+	get_viewport().size_changed.connect(func():
+		if visible and not _closing:
+			_keep_on_screen.call_deferred())
+
+
+func _keep_on_screen() -> void:
+	var area := get_viewport_rect().size
+	position = position.clamp(Vector2.ZERO, (area - size).max(Vector2.ZERO)).floor()
+
+
 ## Opens below the bar, centred on `center_x` (kept inside the screen).
 func open_at(center_x: float) -> void:
 	if visible and not _closing:

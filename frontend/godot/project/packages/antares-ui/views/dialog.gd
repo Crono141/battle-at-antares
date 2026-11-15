@@ -33,6 +33,11 @@ var _card_planet := -1
 
 
 func _ready() -> void:
+	# Owner, 2026-11-14: a window must follow the game window's size (a combat target window left
+	# off the screen soft-locked the game until the window was sized back).
+	get_viewport().size_changed.connect(func():
+		if visible:
+			_centre.call_deferred())
 	_extra = VBoxContainer.new()
 	_extra.add_theme_constant_override("separation", 6)
 	$Fit/Box.add_child(_extra)
@@ -301,9 +306,29 @@ func _show_card(planet_id: int) -> void:
 	reset_size.call_deferred()
 
 
-## A planet of the zoomed system hovered on the map (the frontend routes it here).
+## A planet of the zoomed system hovered on the map (the frontend routes it here): its card, and
+## its row lit (owner, 2026-11-14: the combat target window and the map hover together).
 func hover_planet(planet_id: int) -> void:
 	_show_card(planet_id)
+	_light_row(planet_id)
+
+
+## The option rows of planets, by planet (lit when their planet is hovered on the map).
+var _planet_rows := {}
+## A row of a planet hovered: the frontend lights the planet on the map (-1: none).
+signal planet_row_hovered(planet_id: int)
+
+
+func _light_row(planet_id: int) -> void:
+	var lit := get_theme_color("font_pressed_color", "ListItem")
+	for id: int in _planet_rows:
+		var row: Button = _planet_rows[id]
+		if not is_instance_valid(row):
+			continue
+		if id == planet_id:
+			row.add_theme_color_override("font_color", lit)
+		else:
+			row.remove_theme_color_override("font_color")
 
 
 ## The right click's card for a planet this popup knows (a row, or the planet on the map); false
@@ -320,6 +345,7 @@ func show_planet_card(planet_id: int, at: Rect2) -> bool:
 ## click answers `base` + the row's index; disabled rows (the game would refuse them) are greyed.
 func _option_list(items: Array, base: int, selected: int) -> Control:
 	options = items
+	_planet_rows.clear()
 	var list := VBoxContainer.new()
 	list.add_theme_constant_override("separation", 2)
 	for i in items.size():
@@ -343,8 +369,13 @@ func _option_list(items: Array, base: int, selected: int) -> Control:
 		row.pressed.connect(func(): _answer(value))
 		var planet_id := int(item.get("planet", -1))
 		if planet_id >= 0:
-			# Hovering a planet's row shows its card; a right click opens it beside the row.
-			row.mouse_entered.connect(func(): _show_card(planet_id))
+			# Hovering a planet's row shows its card and lights the planet on the map; a right
+			# click opens the card beside the row.
+			_planet_rows[planet_id] = row
+			row.mouse_entered.connect(func():
+				_show_card(planet_id)
+				planet_row_hovered.emit(planet_id))
+			row.mouse_exited.connect(func(): planet_row_hovered.emit(-1))
 			row.gui_input.connect(func(event: InputEvent):
 				var mb := event as InputEventMouseButton
 				if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
@@ -423,7 +454,8 @@ func _centre() -> void:
 		"top": # over the map while a star is picked on it
 			position.y = 56.0
 		"at": # a scene's list (diplomacy), where the legacy screen had it, kept on the screen
-			position = placement_at.clamp(Vector2.ZERO, (area - size).max(Vector2.ZERO)).floor()
+			position = placement_at
+	position = position.clamp(Vector2.ZERO, (area - size).max(Vector2.ZERO)).floor() # always on the screen
 
 
 ## Where the next popup sits: "" centred, "left", "top" or "at" `placement_at` (set by the

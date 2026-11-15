@@ -36,7 +36,7 @@ const COLUMNS := [
 	{"key": "farmers", "title": "FARMERS", "width": 0.0},
 	{"key": "workers", "title": "WORKERS", "width": 0.0},
 	{"key": "scientists", "title": "SCIENTISTS", "width": 0.0},
-	{"key": "building", "title": "BUILDING", "width": 136.0},
+	{"key": "building", "title": "BUILDING", "width": 116.0}, # owner: room to the job columns
 	{"key": "population", "title": "POP", "width": 56.0},
 ]
 const BUY_WIDTH := 50.0

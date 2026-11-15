@@ -11,6 +11,7 @@ var as_screen := false
 
 
 func _ready() -> void:
+	super._ready()
 	$Fit/Box/Header/Close.pressed.connect(close)
 	closed.connect(func():
 		if as_screen:

@@ -14,6 +14,7 @@ const HELP_TAX_RATE := 560
 
 
 func _ready() -> void:
+	super._ready()
 	var group := ButtonGroup.new()
 	for rate in [0, 10, 20, 30, 40, 50]:
 		var b := Button.new()

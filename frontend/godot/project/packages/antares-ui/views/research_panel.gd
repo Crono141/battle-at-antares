@@ -26,6 +26,7 @@ var _research_text := ""
 
 
 func _ready() -> void:
+	super._ready()
 	$Fit/Box/Header/Close.pressed.connect(close)
 
 
