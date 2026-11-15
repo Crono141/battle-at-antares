@@ -888,23 +888,13 @@ namespace antares::commands::internal {
                 out.Fail("bad_args", "field and app: one of the research query's choices");
                 return;
             }
-            s_player& player = MOX::player[MOX::PLAYER_NUM];
-            for (const s_research_area& area : k_research_areas) {
-                const s_research_choice choice = Research_Choice(player, area.group);
-                if (choice.field != field || std::find(choice.apps.begin(), choice.apps.end(), (int16_t)app) == choice.apps.end()) {
-                    continue;
-                }
-                const int8_t previous = player.current_research_field;
-                player.current_research_field = (int8_t)field;
-                player.current_research_application = (int8_t)app;
-                if (player.current_research_field != previous) {
-                    player.research_breakthrough = 0;
-                }
-                out.Int("field", (uint8_t)player.current_research_field);
-                out.Int("app", (uint8_t)player.current_research_application);
+            if (!Apply_Research_Choice((int32_t)field, (int32_t)app)) {
+                out.Fail("refused", "not one of the research choices");
                 return;
             }
-            out.Fail("refused", "not one of the research choices");
+            const s_player& player = MOX::player[MOX::PLAYER_NUM];
+            out.Int("field", (uint8_t)player.current_research_field);
+            out.Int("app", (uint8_t)player.current_research_application);
         }
 
         // The game menu's settings page's volume sliders (LOADSAVE::Set_Music_For_Game_Popup and
@@ -1170,6 +1160,30 @@ namespace antares::commands::internal {
         return Query_Json(Query_System, "star", star);
     }
 
+    std::string Research_Json() {
+        return Query_Json(Query_Research, "unused", 0);
+    }
+
+    // As the change-research screen commits one (TECH::Commit_Selected_Entry, then
+    // TECH::Tech_Change: a new field loses the breakthrough).
+    bool Apply_Research_Choice(int32_t field, int32_t app) {
+        s_player& player = MOX::player[MOX::PLAYER_NUM];
+        for (const s_research_area& area : k_research_areas) {
+            const s_research_choice choice = Research_Choice(player, area.group);
+            if (choice.field != field || std::find(choice.apps.begin(), choice.apps.end(), (int16_t)app) == choice.apps.end()) {
+                continue;
+            }
+            const int8_t previous = player.current_research_field;
+            player.current_research_field = (int8_t)field;
+            player.current_research_application = (int8_t)app;
+            if (player.current_research_field != previous) {
+                player.research_breakthrough = 0;
+            }
+            return true;
+        }
+        return false;
+    }
+
     namespace {
         // A planet's right click in the system window (MAINSCR's system box: the colony
         // potential, SYS::Potential_Colony_Info_Popup, a Text_Box: a native message when claimed).
@@ -1234,6 +1248,13 @@ namespace antares::commands::internal {
                 item.Int("star", placed ? leader.location : -1);
                 item.Str("star_name", placed ? Utf8(MOX::star[leader.location].name, sizeof(MOX::star[0].name)) : std::string());
                 item.Int("eta", placed ? leader.eta : 0);
+                // Offered and declined (Set_Officer_To_Player's status 4): the leaders screen's
+                // "for hire", at the cost Do_Hire_Officer asks (owner, 2026-11-14: the flyout
+                // offered them as if hired).
+                item.Bool("for_hire", leader.status == 4);
+                if (leader.status == 4) {
+                    item.Int("cost", OFFICER::Officer_Cost(MOX::PLAYER_NUM, i));
+                }
                 if (star >= 0) {
                     item.Int("eta_to", OFFICER::Get_Star_Leader_ETA(MOX::PLAYER_NUM, i, (int16_t)star));
                 }
@@ -1257,6 +1278,11 @@ namespace antares::commands::internal {
                 out.Fail("bad_args", "leader: one of the player's colony leaders");
                 return;
             }
+            if (data.status == 4) {
+                // As the leaders screen (HESTR_127): hired first (hire_leader).
+                out.Fail("not_allowed", "leader: for hire, not hired yet");
+                return;
+            }
             if (!Player_Has_Colony_At((int16_t)star)) {
                 out.Fail("not_allowed", "star: a system with one of the player's colonies");
                 return;
@@ -1266,6 +1292,56 @@ namespace antares::commands::internal {
             COLCALC::Do_Player_Colony_Calculations(MOX::PLAYER_NUM);
             MOX::FULL_DRAW_SCREEN_FLAG = 1;
             out.Int("eta", eta);
+        }
+
+        // hire_leader {leader, star (optional)}: a colony leader for hire, as the leaders screen
+        // hires one (OFFICER::Do_Hire_Officer): not enough BC is said so, else the offer's window
+        // (Hire_Officer_Popup, a native popup) and, accepted, paid and hired; with `star`, a
+        // hired leader then governs that system (the flyout it was picked from).
+        void Hire_Leader(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t leader = -1;
+            int64_t star = -1;
+            args.Int("star", &star);
+            if (!args.Int("leader", &leader) || leader < 0 || leader >= MAX_LEADERS) {
+                out.Fail("bad_args", "leader: a colony leader for hire");
+                return;
+            }
+            const s_leader_data& data = MOX::leaders[leader];
+            if (data.player_index != MOX::PLAYER_NUM || data.status != 4 || data.type != LEADER_TYPE_COLONY) {
+                out.Fail("bad_args", "leader: one of the player's colony leaders for hire");
+                return;
+            }
+            const int32_t cost = OFFICER::Officer_Cost(MOX::PLAYER_NUM, (int16_t)leader);
+            s_player& player = MOX::player[MOX::PLAYER_NUM];
+            if (player.bc < cost) {
+                char format[200];
+                char text[256];
+                strlcpy(format, HAROLD::H_Message(HESTR_123_YOU_HAVE_D_BC_IN_YOUR_), sizeof(format));
+                snprintf(text, sizeof(text), format, player.bc, OFFICER::Leader_Name((int16_t)leader, 1), cost);
+                GENDRAW::Message_Box(text);
+                out.Bool("hired", false);
+                return;
+            }
+            // The turn's offer window (Random_New_Officer_Popup's native popup) for this leader: the
+            // leaders screen's way in (Hire_Officer_Popup) draws the legacy window, on that screen.
+            const int8_t offered = player.officer_for_hire;
+            player.officer_for_hire = (int8_t)leader;
+            const bool hired = MAINPUPS::Random_New_Officer_Popup(MOX::PLAYER_NUM);
+            player.officer_for_hire = offered;
+            if (hired) {
+                OFFICER::Hire_Officer(MOX::PLAYER_NUM, (int16_t)leader);
+                if (Valid_Star(star) && Player_Has_Colony_At((int16_t)star)) {
+                    const int8_t eta = OFFICER::Get_Star_Leader_ETA(MOX::PLAYER_NUM, (int16_t)leader, (int16_t)star);
+                    OFFICER::Assign_Leader_To_Star(&player, &MOX::leaders[leader], &MOX::star[star], eta);
+                    out.Int("eta", eta);
+                }
+                COLCALC::Do_Player_Colony_Calculations(MOX::PLAYER_NUM);
+                MOX::FULL_DRAW_SCREEN_FLAG = 1;
+            }
+            out.Bool("hired", hired);
         }
 
         // release_governor {star}: the system's governor goes back to the pool.
@@ -1292,6 +1368,7 @@ namespace antares::commands::internal {
     void Add_Galaxy_Entries(std::vector<s_entry>* table) {
         table->push_back({"colony_leaders", e_kind::query, ANY_SCREEN, 1, "star (optional: turns to get there)", Query_Colony_Leaders});
         table->push_back({"assign_governor", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "leader, star", Assign_Governor});
+        table->push_back({"hire_leader", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "leader, star (optional): hire one for hire", Hire_Leader});
         table->push_back({"release_governor", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "star", Release_Governor});
         table->push_back({"planet_info", e_kind::command, ANY_SCREEN, 0, "planet: planet id (its potential, the right click's)", Planet_Info});
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);

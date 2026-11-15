@@ -37,5 +37,10 @@ namespace antares::commands::internal {
     std::string System_Json(int16_t star);
     // The `potential_colony` answer for a planet as JSON, or "" for a gas giant (popups carry it).
     std::string Potential_Json(int16_t planet);
+    // The `research` query's answer as JSON (the research window's picker carries it).
+    std::string Research_Json();
+    // A research choice as the change-research screen commits one; false if it isn't one of the
+    // choices.
+    bool Apply_Research_Choice(int32_t field, int32_t app);
 
 } // namespace antares::commands::internal

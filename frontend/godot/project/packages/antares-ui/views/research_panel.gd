@@ -8,6 +8,11 @@ extends "drop_panel.gd"
 ## would give. A click sends `choose_research` (a new field loses the breakthrough).
 
 signal command(dict: Dictionary)
+## Pick mode (the research window, owner 2026-11-14): a click answers the game's question
+## instead of sending `choose_research`; no close button. -1, -1: nothing left to choose.
+signal picked(field: int, app: int)
+
+var pick_mode := false
 
 const Themes := preload("../themes.gd")
 const AREA_WIDTH := 340.0
@@ -39,9 +44,14 @@ func show_research(result: Dictionary) -> void:
 		child.queue_free()
 	var current_field := int(result.field)
 	var current_app := int(result.app)
+	var choices := 0
 	for area: Dictionary in result.areas:
 		areas_box.add_child(_area(area, current_field, current_app))
+		choices += (area.get("apps", []) as Array).size()
 	progress.text = _research_text
+	$Fit/Box/Header/Close.visible = not pick_mode
+	if pick_mode and choices == 0:
+		picked.emit.call_deferred(-1, -1)
 
 
 func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
@@ -122,19 +132,25 @@ func _area(area: Dictionary, current_field: int, current_app: int) -> Control:
 				branch.hover(-1))
 		# Picked: the choice is sent and the drop-down goes back up (owner, 2026-11-13).
 		b.pressed.connect(func():
-			command.emit({"verb": "choose_research", "field": field, "app": id, "_reply_to": "_chosen"})
+			if _flashing:
+				return
+			if not pick_mode:
+				command.emit({"verb": "choose_research", "field": field, "app": id, "_reply_to": "_chosen"})
 			# The pick flashes three times in half a second, then the drop-down goes up (owner).
-			var picked: Array = branch.rows if gives_all else [b]
+			var lit_rows: Array = branch.rows if gives_all else [b]
 			_flashing = true
 			var flash := create_tween()
 			flash.tween_method(func(t: float):
 				var alpha := 0.15 + 0.85 * (0.5 + 0.5 * cos(t * 3.0 * TAU))
-				for lit in picked:
+				for lit in lit_rows:
 					if is_instance_valid(lit):
 						(lit as Control).modulate.a = alpha, 0.0, 1.0, 0.5)
 			flash.tween_callback(func():
 				_flashing = false
-				close()))
+				if pick_mode:
+					picked.emit(field, id)
+				else:
+					close()))
 		# A right click: the application's help, as the game's research screen gives it.
 		var app_name := String(app.name)
 		var help := String(app.get("description", ""))

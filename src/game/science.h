@@ -49,6 +49,12 @@ namespace SCIENCE {
      * footer_text: Footer paragraph shown under the discovery text.
      */
     void __cdecl Science_Room(char* intro_animation_name, uint16_t discovery_count, int16_t* discovery_data, char* footer_text);
+    // Antares (owner, 2026-11-14): the science room as a native window when a frontend answers
+    // popups; after a breakthrough the native research picker follows in it (TECH::Tech_Select).
+    bool Native_Room_Wanted();
+    void Native_Tech_Select(int16_t player_idx);
+    // The same with given discoveries (the popup preview).
+    void Native_Tech_Select_With(const char* room, uint16_t count, const int16_t* techs, const char* footer);
 
     /* Shows the science-room sequence for the active player's completed research.
      * player_idx: Player whose newly completed research should be presented.

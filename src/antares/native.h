@@ -170,6 +170,12 @@ namespace antares::native {
     std::string System_Json(int16_t star);
     // The `potential_colony` answer for a planet, or "" for a gas giant.
     std::string Potential_Json(int16_t planet);
+    // The `research` query's answer (the research window's picker, owner 2026-11-14), and a
+    // choice from it applied as the change-research screen does (false: not a choice).
+    std::string Research_Json();
+    // An application's help text (HELP.LBX's record body), UTF-8.
+    std::string Application_Help(int16_t app);
+    bool Apply_Research_Choice(int32_t field, int32_t app);
     // A system special's description (read from its file: MAINPUPS::System_Special_Desc's cached
     // pointer goes stale), UTF-8; "" when there is none.
     std::string Special_Description(int16_t special);

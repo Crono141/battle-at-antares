@@ -62,6 +62,27 @@ namespace antares::commands::internal {
                 MOX2::Put_Auto_Function(&saved_auto);
                 out.Int("player", other);
                 answer = 0;
+            } else if (popup == "research") {
+                // The research window: two discoveries, then the picker; the player's research is
+                // put back afterwards (a preview chooses nothing).
+                s_player& p = MOX::player[player];
+                const int8_t field = p.current_research_field;
+                const int8_t app = p.current_research_application;
+                const uint8_t breakthrough = p.research_breakthrough;
+                const int16_t techs[2] = {1, 50};
+                char room[32];
+                snprintf(room, sizeof(room), "SR_R%x_SC.LBX", (unsigned int)(uint8_t)p.race);
+                MOX2::action_func_t saved_auto = nullptr;
+                MOX2::Get_Auto_Function(&saved_auto);
+                SCIENCE::Native_Tech_Select_With(room, 2, techs, "Your scientists have completed their research!");
+                MOX2::Put_Auto_Function(&saved_auto);
+                out.Int("chosen_field", (uint8_t)p.current_research_field);
+                out.Int("chosen_app", (uint8_t)p.current_research_application);
+                p.current_research_field = field;
+                p.current_research_application = app;
+                p.research_breakthrough = breakthrough;
+                JIM::Play_Background_Music();
+                answer = 0;
             } else if (popup == "gnn") {
                 // The GNN window: the intro and one story (`event`, default 0) about the player's
                 // home planet.
@@ -134,7 +155,7 @@ namespace antares::commands::internal {
                 int8_t selected = 0;
                 answer = fields::Get_List_Field(10, 102, 245, "Diplomacy", &list[0][0], 50, &selected, flags, 17, nullptr, 0, nullptr, 0, nullptr);
             } else {
-                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute, colony_combat, choose, gnn or diplomacy");
+                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute, colony_combat, choose, gnn, diplomacy or research");
                 return;
             }
             MOX::PLAYER_NUM = player;
@@ -144,7 +165,7 @@ namespace antares::commands::internal {
 
     void Add_Preview_Entries(std::vector<s_entry>* table) {
         table->push_back({"preview_popup", e_kind::command, ANY_SCREEN, 0,
-            "popup (new_system, planet_pick, outpost_pick, attack_target, monster_tribute: star; colony_combat: colony; choose; gnn: event; diplomacy: player); developer verb", Preview_Popup});
+            "popup (new_system, planet_pick, outpost_pick, attack_target, monster_tribute: star; colony_combat: colony; choose; gnn: event; diplomacy: player; research); developer verb", Preview_Popup});
     }
 
 } // namespace antares::commands::internal

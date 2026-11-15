@@ -199,11 +199,14 @@ func _leader_row(leader: Dictionary, is_governor: bool) -> Control:
 	lines.add_child(name_line)
 	var where := "In the pool"
 	var here := int(leader.get("star", -1))
-	if is_governor:
+	var for_hire: bool = leader.get("for_hire", false)
+	if for_hire:
+		where = "For hire: %d BC" % int(leader.get("cost", 0))
+	elif is_governor:
 		where = "Governs here" if int(leader.get("eta", 0)) <= 0 else "On the way here: %d turns" % int(leader.eta)
 	elif here >= 0:
 		where = ("Governs " if int(leader.get("eta", 0)) <= 0 else "On the way to ") + String(leader.get("star_name", ""))
-	if not is_governor:
+	if not is_governor and not for_hire:
 		var eta := int(leader.get("eta_to", 0))
 		where += "  ·  " + ("arrives at once" if eta <= 0 else "arrives in %d turns" % eta)
 	lines.add_child(_label(where, 13, 0.8))
@@ -231,8 +234,10 @@ func _leader_row(leader: Dictionary, is_governor: bool) -> Control:
 		row.disabled = true
 	else:
 		var leader_id := int(leader.leader)
+		# One for hire: the hire offer first (owner, 2026-11-14), then it governs here.
+		var verb := "hire_leader" if for_hire else "assign_governor"
 		row.pressed.connect(func():
-			command.emit({"verb": "assign_governor", "leader": leader_id, "star": star, "_reply_to": "governor_changed"}))
+			command.emit({"verb": verb, "leader": leader_id, "star": star, "_reply_to": "governor_changed"}))
 	return row
 
 

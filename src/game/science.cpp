@@ -1,5 +1,9 @@
 #include "pch.h"
 
+#include "antares/native.h"
+
+#include <string>
+
 namespace SCIENCE {
     uint8_t finds_presented_by_scientist;
 
@@ -109,7 +113,159 @@ namespace SCIENCE {
         JIM::Play_Background_Music();
     }
 
+
+    // ---- Antares: the research window (owner, 2026-11-14) ----
+    // With a frontend answering popups, the science room plays in a native window instead of the
+    // legacy screen: the room (the person keeps moving), the tube's light, the tech's hologram and
+    // the monitor with the tech's name and description go to the window as the scene state, and
+    // each tech is a page answered by a click. After a research breakthrough the window stays up:
+    // the monitor closes and the native research picker drops over the room (Native_Tech_Select)
+    // instead of the legacy change-research screen.
+    namespace {
+        struct s_native_room {
+            std::string room;    // SR_R<race>_SC.LBX (scientist), _TR (trooper), _SP (spy)
+            std::string hologram; // TANM_<tech>.LBX, "" before the first page
+            std::string title;   // JSON strings
+            std::string text;
+            std::string footer;
+            bool closing = false; // the monitor closes (the picker comes next)
+        };
+        s_native_room native_room;
+        int16_t native_page = 0;
+
+        std::string Native_Room_State() {
+            const s_native_room& r = native_room;
+            std::string json = "{\"scene\":\"research\",\"placement\":\"research\",\"open_style\":\"slide\""
+                ",\"backdrop\":{\"lbx\":" + antares::native::Quote(r.room.c_str()) + ",\"entry\":0,\"loop_from\":0}"
+                ",\"text\":" + (r.footer.empty() ? std::string("\"\"") : r.footer) + ",\"text_box\":[145,436,380],\"text_color\":\"science\"";
+            // Drawn as Update_Science_Anims draws them: the tube's light, the hologram, the monitor.
+            // Closing (Science_Room's close): the hologram goes, the monitor plays back to its first
+            // frame, then the light goes too.
+            json += ",\"layers\":[{\"lbx\":\"SCIENCE.LBX\",\"entry\":2,\"loop_from\":0,\"close\":\"after\"}";
+            if (!r.hologram.empty()) {
+                json += ",{\"lbx\":" + antares::native::Quote(r.hologram.c_str()) + ",\"entry\":0,\"loop_from\":0,\"close\":\"hide\"}";
+            }
+            json += ",{\"lbx\":\"SCIENCE.LBX\",\"entry\":1,\"loop_from\":5,\"close\":\"reverse\"}]";
+            if (!r.title.empty()) {
+                // The monitor's text (Science_Room: at 0xDD,0x2C, 0xAF wide), once it has opened.
+                json += ",\"monitor\":{\"title\":" + r.title + ",\"text\":" + r.text + ",\"box\":[221,44,175,195],\"after_frame\":5}";
+            }
+            if (r.closing) {
+                json += ",\"closing\":true";
+            }
+            return json + "}";
+        }
+
+        void Native_Room_Music() {
+            JIM::Play_Streaming_Music(0x75, -2, 1);
+        }
+
+        void Native_Room_Open(const char* room, const char* footer) {
+            native_room = s_native_room();
+            native_room.room = room != nullptr ? room : "";
+            native_room.footer = footer != nullptr && footer[0] != '\0' ? antares::native::Quote(footer) : std::string();
+            native_page = 0;
+            antares::native::Set_Scene(Native_Room_State, Native_Room_Music);
+            Native_Room_Music();
+        }
+
+        void Native_Room_Close() {
+            antares::native::Popup("scene_end", "", "\"scene\":\"research\"", nullptr);
+            antares::native::Clear_Scene();
+        }
+
+        // The discoveries as pages: Science_Room's monitor text (the application's name and its
+        // help text, or for a captured weapon the modifications that came with it).
+        void Native_Room_Pages(uint16_t discovery_count, const int16_t* discovery_data) {
+            char bill_text[80];
+            JIM::Get_Text_Message("billtext.lbx", 4, bill_text, sizeof(bill_text));
+            for (uint16_t i = 0; i < discovery_count;) {
+                const int16_t entry = discovery_data[i];
+                const int16_t app = entry & 0x01FF;
+                char hologram[32];
+                snprintf(hologram, sizeof(hologram), "TANM_%03hi.LBX", app);
+                native_room.hologram = hologram;
+                native_room.title = antares::native::Quote(TECH::Technology_Applications_Name(app, MOX::PLAYER_NUM));
+                if ((entry & 0x4000) != 0 && i + 1 < discovery_count) {
+                    std::string mods = bill_text;
+                    int32_t mask = discovery_data[i + 1];
+                    for (uint16_t mod = WEAPON_MOD_HEAVY_MOUNT; mask != 0; mask >>= 1, ++mod) {
+                        if ((mask & 1) != 0) {
+                            mods += std::string("\n") + TECHDATA::weapon_modifications[mod].name;
+                        }
+                    }
+                    native_room.text = antares::native::Quote(mods.c_str());
+                    i += 2;
+                } else {
+                    native_room.text = antares::native::Quote_Utf8(antares::native::Application_Help(app));
+                    i += 1;
+                }
+                antares::native::Popup("scene", "", "\"scene\":\"research\",\"page\":" + std::to_string(native_page++), nullptr);
+            }
+        }
+
+        // The research picker over the room: the frontend's research panel answers a choice as
+        // field * 256 + application (as TECH::Commit_Selected_Entry commits one), or -1 when there
+        // is nothing to choose (the legacy screen returns at once then).
+        void Native_Research_Pick() {
+            native_room.closing = true;
+            while (true) {
+                int32_t answer = -1;
+                antares::native::Popup("research_pick", "", "\"research\":" + antares::native::Research_Json(), &answer);
+                if (answer < 0 || antares::native::Apply_Research_Choice(answer >> 8, answer & 0xFF)) {
+                    return;
+                }
+            }
+        }
+    } // namespace
+
+    bool Native_Room_Wanted() {
+        return antares::native::Popups_Native();
+    }
+
+    void Native_Tech_Select_With(const char* room, uint16_t count, const int16_t* techs, const char* footer) {
+        Native_Room_Open(room, footer);
+        Native_Room_Pages(count, techs);
+        MOX::player[MOX::PLAYER_NUM].current_research_field = 0;
+        MOX::player[MOX::PLAYER_NUM].research_breakthrough = 0;
+        Native_Research_Pick();
+        Native_Room_Close();
+    }
+
+    void Native_Tech_Select(int16_t player_idx) {
+        int16_t techs[4];
+        uint16_t count = 0;
+        char footer[256] = {};
+        s_player& player = MOX::player[player_idx];
+        MOX::cur_plyr_ptr = &player;
+        if (player.current_research_field != 0) {
+            // As Show_Off_Researched_Tech: the field's applications now researched.
+            const uint8_t field = (uint8_t)player.current_research_field;
+            const int16_t* field_techs = TECHDATA::technology_fields[field].tech;
+            for (uint16_t slot = 0; slot < 4; ++slot) {
+                const int16_t tech = field_techs[slot];
+                if (tech > TECH_APP_NO_TECH && player.tech_applications[tech] == TECH_RESEARCH_STATUS_RESEARCHED) {
+                    techs[count++] = tech;
+                }
+            }
+            if (count != 0) {
+                JIM::Get_Text_Message("billtext.lbx", 1, footer, 0xFA);
+                JIM::Decode_Text_Field(footer, field, 0xFA);
+            }
+        }
+        char room[32];
+        snprintf(room, sizeof(room), "SR_R%x_SC.LBX", (unsigned int)(uint8_t)player.race);
+        Native_Tech_Select_With(room, count, techs, footer);
+    }
+
     void __cdecl Science_Room(char* intro_animation_name, uint16_t discovery_count, int16_t* discovery_data, char* footer_text) {
+        if (Native_Room_Wanted()) {
+            // A stolen, captured or found tech: the window plays the pages and closes.
+            Native_Room_Open(intro_animation_name, footer_text);
+            Native_Room_Pages(discovery_count, discovery_data);
+            Native_Room_Close();
+            return;
+        }
         MOX2::action_func_t saved_auto_function = nullptr;
         int16_t science_hot_key;
         uint16_t remaining_discoveries;

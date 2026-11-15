@@ -315,6 +315,9 @@ namespace EVENTS {
 namespace DIP_SCRN {
     void __cdecl Diplomacy_Screen(int) {}
 } // namespace DIP_SCRN
+namespace SCIENCE {
+    void Native_Tech_Select_With(const char*, uint16_t, const int16_t*, const char*) {}
+} // namespace SCIENCE
 namespace MOX2 {
     void __cdecl Get_Auto_Function(action_func_t* slot) {
         *slot = nullptr;
@@ -337,7 +340,13 @@ namespace fields {
 namespace OFFICER {
     int8_t __cdecl Get_Star_Leader_ETA(int16_t, int16_t, int16_t) { return 5; }
     void __cdecl Assign_Leader_To_Star(s_player*, s_leader_data*, s_star_data*, int8_t) {}
+    // hire_leader (owner, 2026-11-14): leaders for hire and their cost.
+    int32_t __cdecl Officer_Cost(int16_t, int16_t) { return 100; }
+    void __cdecl Hire_Officer(int16_t, int16_t) {}
 } // namespace OFFICER
+namespace MAINPUPS {
+    bool __cdecl Random_New_Officer_Popup(int16_t) { return false; }
+} // namespace MAINPUPS
 
 // The to-do list (todo.cpp, WP3.4d): the reports chain's pieces it calls.
 namespace MAINPUPS {

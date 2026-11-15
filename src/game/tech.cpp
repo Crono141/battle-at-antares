@@ -124,6 +124,14 @@ namespace TECH {
     void __cdecl Tech_Select() {
         void* animation_buffer;
 
+        if (SCIENCE::Native_Room_Wanted()) {
+            // The discovery and the next choice in one native window (science.cpp).
+            palette::Save_Palette();
+            SCIENCE::Native_Tech_Select(MOX::PLAYER_NUM);
+            TECH::Reset_Screen();
+            return;
+        }
+
         palette::Save_Palette();
         animation_buffer = allocate::Allocate_First_Block(MOX::screen_seg, 0x7C830);
         file_ani::Set_File_Animation_Buffer(animation_buffer);

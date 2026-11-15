@@ -18,7 +18,26 @@ func open_at(center_x: float) -> void:
 	reset_size()
 	var width := get_parent_area_size().x
 	var inset := float(get_theme_constant("inset", "Screen"))
-	position.x = clampf(center_x - size.x * 0.5, inset + 8.0, width - size.x - inset - 48.0)
+	_slide_in(clampf(center_x - size.x * 0.5, inset + 8.0, width - size.x - inset - 48.0), float(get_theme_constant("content_top", "Screen")))
+
+
+## Opens at the top of `area` with its right edge at the area's, no lower than its bottom (the
+## research drop-down, owner 2026-11-14); `height` > 0 makes it exactly that tall (the research
+## picker, its frame over the research window's).
+func open_in(area: Rect2, height := 0.0) -> void:
+	if visible and not _closing:
+		return
+	var fit := get_node_or_null("Fit")
+	if fit != null and "bottom_margin" in fit:
+		fit.bottom_margin = maxf(get_viewport_rect().size.y - area.end.y, 0.0)
+	custom_minimum_size.y = height
+	reset_size()
+	var inset := float(get_theme_constant("inset", "Screen"))
+	_slide_in(maxf(area.end.x - size.x, inset + 8.0), area.position.y)
+
+
+func _slide_in(x: float, y: float) -> void:
+	position.x = x
 	if _tween:
 		_tween.kill()
 	if not visible:
@@ -26,7 +45,7 @@ func open_at(center_x: float) -> void:
 	_closing = false
 	show()
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_property(self, "position:y", float(get_theme_constant("content_top", "Screen")), SLIDE_TIME)
+	_tween.tween_property(self, "position:y", y, SLIDE_TIME)
 
 
 func close() -> void:
@@ -55,6 +74,6 @@ func dismiss() -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
-	if visible and not _closing and key and key.pressed and key.keycode == KEY_ESCAPE:
+	if visible and not _closing and key and key.pressed and key.keycode == KEY_ESCAPE and not get("pick_mode"):
 		close()
 		get_viewport().set_input_as_handled()

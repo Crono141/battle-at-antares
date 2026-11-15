@@ -366,6 +366,8 @@ func _drop_down(action_name: String, panel: Control, research_text: String, cent
 		panel.set_progress(research_text)
 		var research: Dictionary = await _query("research")
 		panel.show_research(research)
+		panel.open_in(_research_area()) # owner, 2026-11-14: right edge at the bar's, above the map controls
+		return
 	panel.open_at(center)
 
 
@@ -1207,6 +1209,9 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 	if kind == "popup" and String(request.get("popup", "")) in ["scene", "scene_end"]:
 		_on_scene_request(id, request)
 		return
+	if kind == "popup" and String(request.get("popup", "")) == "research_pick":
+		_on_research_pick(id, request)
+		return
 	_start_popup_map(dialog, request)
 	if request.has("scene_state"):
 		# A scene's list (diplomacy): the window stays up behind it, the list where the scene
@@ -1220,6 +1225,13 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 			dialog.bare_width = _scene_window.list_width()
 			overlay.color.a = 0.0
 		dialog.move_to_front()
+		# The list waits for the ambassador (owner, 2026-11-14): until the arrival is over or a
+		# click skips it.
+		if _scene_window.arriving():
+			dialog.hide()
+			await _scene_window.arrived
+			if not _scene_window.is_open():
+				return
 	dialog.race_id = _race_id
 	dialog.ask(id, kind, request)
 
@@ -1295,6 +1307,56 @@ func _smoke_diplomacy(shots: String) -> bool:
 	return box.has("r") and bool(box.r.get("ok", false)) and _scene_window != null and not _scene_window.visible
 
 
+## Smoke: the research window from the popup preview (two discoveries, then the picker): both
+## pages answer to a click, the monitor closes, the picker comes down over the room with its frame
+## on the window's (same top, right and bottom), a pick answers and both close.
+func _smoke_research(shots: String) -> bool:
+	var box := {}
+	_send({"verb": "preview_popup", "popup": "research"}, func(r: Dictionary): box["r"] = r)
+	var waited := 0.0
+	var pages := 0
+	var aligned := false
+	while not box.has("r") and waited < 60.0:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+		if _scene_window == null or not _scene_window.visible:
+			continue
+		if _picker != null and _picker.visible and not _picker._flashing:
+			await get_tree().create_timer(1.0).timeout # slid down
+			var scene_rect: Rect2 = _scene_window._frame.get_global_rect()
+			var picker_rect: Rect2 = _picker.get_global_rect()
+			aligned = absf(scene_rect.end.x - picker_rect.end.x) < 1.5 and absf(scene_rect.end.y - picker_rect.end.y) < 1.5 and \
+				absf(scene_rect.position.y - picker_rect.position.y) < 1.5
+			print("smoke: research picker %s over window %s, edges shared %s, monitor layers %s" % [picker_rect, scene_rect, aligned,
+				_scene_window._layers.map(func(l): return "%s:%s" % [l.key, "hidden" if l.hidden else str(l.frame)])])
+			if shots != "":
+				await host.shot(shots + "/native-research-picker.png")
+			# The first application on offer.
+			var first: Button = null
+			for b in _picker.find_children("*", "Button", true, false):
+				if b.theme_type_variation == &"ListItem" and b.is_visible_in_tree() and not (b as Button).disabled:
+					first = b
+					break
+			if first == null:
+				print("smoke: FAILED: no research choice in the picker")
+				return false
+			first.pressed.emit()
+			await get_tree().create_timer(1.5).timeout
+			waited += 1.5
+		elif _scene_window._id >= 0:
+			if pages == 0:
+				await get_tree().create_timer(2.5).timeout # slides down, the monitor opens, the art arrives
+				print("smoke: research page 0: monitor '%s' shown %s, text '%s'" % [_scene_window._monitor_title.text,
+					_scene_window._monitor.visible, _scene_window._text.text.left(60)])
+				if shots != "":
+					await host.shot(shots + "/native-research-page-0.png")
+			pages += 1
+			_scene_window._frame.gui_input.emit(_smoke_left_click())
+			await get_tree().create_timer(0.5).timeout
+	print("smoke: research pages %d, aligned %s, result %s, window %s" % [pages, aligned, box.get("r", {}), _scene_window.visible if _scene_window else false])
+	return box.has("r") and bool(box.r.get("ok", false)) and pages == 2 and aligned and _scene_window != null and not _scene_window.visible
+
+
 func _smoke_left_click() -> InputEventMouseButton:
 	var click := InputEventMouseButton.new()
 	click.button_index = MOUSE_BUTTON_LEFT
@@ -1323,7 +1385,71 @@ func _on_scene_request(id: int, request: Dictionary) -> void:
 	if String(request.popup) == "scene_end":
 		_scene_window.close(func(): _on_answered(id, 0))
 		return
+	_place_scene(request.get("scene_state", request))
 	_scene_window.show_page(id, request)
+
+
+## The research area (owner, 2026-11-14): from under the bar to above the map controls, its right
+## edge at the bar's right end. The research drop-down rests there, and the research window is
+## the scene at 4:3 with the same top, right and bottom edges, so the picker's frame lies on the
+## window's and the two read as one.
+func _research_area() -> Rect2:
+	var view := get_viewport().get_visible_rect().size
+	var bar: Control = _view("galaxy_bar")
+	var top := float(bar.get_theme_constant("content_top", "Screen"))
+	var right := bar.get_global_rect().end.x
+	var bottom := view.y - 8.0
+	var controls: Control = _views.get("map_controls")
+	if controls != null and controls.is_visible_in_tree():
+		bottom = controls.get_global_rect().position.y - maxf(float(bar.get_theme_constant("pane_gap", "Screen")), 6.0)
+	return Rect2(0.0, top, right, maxf(bottom - top, 200.0))
+
+
+func _research_scene_rect() -> Rect2:
+	var area := _research_area()
+	var m: Rect2 = _scene()._margins()
+	var width := (area.size.y - m.size.y) * 4.0 / 3.0 + m.size.x
+	return Rect2(maxf(area.end.x - width, 8.0), area.position.y, width, area.size.y)
+
+
+func _place_scene(state: Dictionary) -> void:
+	if String(state.get("placement", "")) == "research":
+		_scene().custom_rect = _research_scene_rect()
+
+
+var _picker: Control
+
+
+func _research_picker() -> Control:
+	if _picker == null:
+		_picker = load(_views_dir() + "/research_panel.tscn").instantiate()
+		_picker.name = "ResearchPicker"
+		_picker.theme = native_layer.theme
+		_picker.pick_mode = true
+		_picker.hide()
+		$Overlay.add_child(_picker)
+	return _picker
+
+
+## The research window's picker (science.cpp, owner 2026-11-14): the monitor closes, then the
+## research drop-down comes down over the room's right side, its right and bottom edges on the
+## window's; a pick answers field * 256 + application.
+func _on_research_pick(id: int, request: Dictionary) -> void:
+	var state: Dictionary = request.get("scene_state", {})
+	_place_scene(state)
+	_scene().show_state(state)
+	if _scene_window.arriving():
+		await _scene_window.arrived
+	var picker := _research_picker()
+	var bar := _view("galaxy_bar")
+	picker.set_progress(bar.research.text)
+	picker.show_research((request.get("research", {}) as Dictionary).merged({"ok": true})) # a query's reply carries "ok"
+	picker.move_to_front()
+	var rect: Rect2 = _scene_window._frame_rect()
+	picker.open_in(Rect2(0.0, rect.position.y, rect.end.x, rect.size.y), rect.size.y)
+	var choice: Array = await picker.picked
+	picker.close()
+	_on_answered(id, int(choice[0]) * 256 + int(choice[1]) if int(choice[0]) >= 0 else -1)
 
 
 ## A popup that works with the map (WP3.4c): a system-zoom one ("zoom": the camera flies into the
@@ -1474,6 +1600,7 @@ func _open_system(star_id: int, fly := true) -> void:
 ## Flies to a system with its orbits filling a share of the area the left panes leave free (the
 ## system pane, and the colony pane when it is open: WP3.4).
 const SYSTEM_ZOOM_CLOSER := 1.2 * 1.2 # two wheel notches (galaxy.gd's 1.2 a notch)
+const SYSTEM_ROOM_PER_HEIGHT := 1.15
 
 
 func _frame_system(star_id: int) -> void:
@@ -1504,6 +1631,9 @@ func _frame_system(star_id: int) -> void:
 		left = 0.0
 		right = view.x
 	var room := right - left_both if right - left_both >= view.x * 0.3 else right - left
+	# Never wider than the height allows (owner, 2026-11-14: on a 32:9 window the free width
+	# zoomed the system in past its art, muddy); a 16:9 screen's room is about this already.
+	room = minf(room, view.y * SYSTEM_ROOM_PER_HEIGHT)
 	var zoom: float = galaxy.zoom_for_scale(SYSTEM_VIEW_SCALE)
 	# The orbits as they looked two wheel notches closer (owner, 2026-11-13), but the camera (and
 	# so the star) at the framing zoom (owner, 2026-11-14: the star was drawn too large, over the
@@ -2968,6 +3098,8 @@ func _smoke_popups(shots: String) -> void:
 		cases.append({"popup": "colony_combat", "colony": enemy_colony})
 	var failed := not await _smoke_scene(shots)
 	if not await _smoke_diplomacy(shots):
+		failed = true
+	if not await _smoke_research(shots):
 		failed = true
 	for case: Dictionary in cases:
 		var box := {}

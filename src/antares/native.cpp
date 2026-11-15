@@ -906,6 +906,21 @@ namespace antares::native {
         return commands::internal::Potential_Json(planet);
     }
 
+    std::string Research_Json() {
+        if (MOX::player == nullptr) {
+            return "{}";
+        }
+        return commands::internal::Research_Json();
+    }
+
+    std::string Application_Help(int16_t app) {
+        return commands::internal::Application_Help(app);
+    }
+
+    bool Apply_Research_Choice(int32_t field, int32_t app) {
+        return MOX::player != nullptr && commands::internal::Apply_Research_Choice(field, app);
+    }
+
     std::string Special_Description(int16_t special) {
         if (special <= 0 || special >= SYSTEM_SPECIAL_COUNT) {
             return std::string();
