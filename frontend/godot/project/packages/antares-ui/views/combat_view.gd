@@ -463,6 +463,24 @@ func _draw_marks() -> void:
 				_marks.draw_set_transform(to, e.angle, e.sprite.scale)
 				_marks.draw_texture(tex, -Vector2(tex.get_width(), tex.get_height()) / 2.0, Color(1, 1, 1, 0.35))
 				_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# Missiles and fighters in flight (WP3.9c animates them): a marker in the owner's colour with the count.
+	var font := get_theme_default_font()
+	for missile: Dictionary in state.get("missiles", []):
+		var at := Vector2(float(missile.get("x", 0)), float(missile.get("y", 0)))
+		var owner_color := MONSTER_COLOR
+		for ship: Dictionary in _ships_list():
+			if int(ship.get("owner", -1)) == int(missile.get("owner", -2)):
+				owner_color = _color(ship)
+				break
+		var heading := -float(int(missile.get("facing", 0))) * PI / 8.0
+		var tip := at + Vector2(cos(heading), sin(heading)) * 7.0 * width * 1.5
+		_marks.draw_line(at, tip, owner_color, 2.0 * width)
+		_marks.draw_circle(at, 3.0 * width * 1.5, owner_color)
+		var count := int(missile.get("count", 1))
+		if count > 1:
+			_marks.draw_set_transform(at + Vector2(6, -6) * width, 0.0, Vector2.ONE / _zoom)
+			_marks.draw_string(font, Vector2.ZERO, str(count), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, owner_color)
+			_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# The order ring.
 	if _menu_ship >= 0 and _ships.has(_menu_ship):
 		_draw_menu(_ships[_menu_ship].shown, width)
