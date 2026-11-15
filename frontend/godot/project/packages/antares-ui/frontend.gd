@@ -45,6 +45,9 @@ var _fleet_from_system := -1
 ## WP3.5a: the Colonies panel's Building slot opened a colony's system and build pane; closing
 ## that system returns to the panel ("Return to Colonies").
 var _colonies_return := false
+## The right sidebar's panels (owner, 2026-11-14: they fly out from the right): action -> view.
+const SIDE_PANELS := {"colonies": "colonies_panel", "planets": "planets_panel"}
+var _switching_panel := false # one side panel replaces another: the camera stays fitted
 ## The camera's view of an open system: the legacy scale it flies to, and how much of the free
 ## area the system's orbits take.
 const SYSTEM_VIEW_SCALE := 7.0
@@ -302,11 +305,12 @@ func _on_native_screen(screen: int) -> void:
 		if design_list.get_meta("was_open", false):
 			design_list.set_meta("was_open", false)
 			design_list.open()
-		var colonies_view: Control = _views.get("colonies_panel")
-		if colonies_view != null and colonies_view.get_meta("was_open", false):
-			colonies_view.set_meta("was_open", false)
-			colonies_view.show()
-			colonies_view.refresh()
+		for panel_name: String in SIDE_PANELS.values():
+			var side_view: Control = _views.get(panel_name)
+			if side_view != null and side_view.get_meta("was_open", false):
+				side_view.set_meta("was_open", false)
+				side_view.show()
+				side_view.refresh()
 		if _fleet_ship >= 0:
 			_refresh_fleet()
 	else:
@@ -315,11 +319,12 @@ func _on_native_screen(screen: int) -> void:
 		_view("build_pane").dismiss() # a Cancel
 		design_list.set_meta("was_open", design_list.visible or design_list.get_meta("was_open", false))
 		design_list.hide()
-		var colonies_view: Control = _views.get("colonies_panel")
-		if colonies_view != null:
-			# Hidden, not closed: the camera stays fitted and the panel comes back with the galaxy.
-			colonies_view.set_meta("was_open", colonies_view.visible or colonies_view.get_meta("was_open", false))
-			colonies_view.hide()
+		for panel_name: String in SIDE_PANELS.values():
+			var side_view: Control = _views.get(panel_name)
+			if side_view != null:
+				# Hidden, not closed: the camera stays fitted and the panel comes back with the galaxy.
+				side_view.set_meta("was_open", side_view.visible or side_view.get_meta("was_open", false))
+				side_view.hide()
 		if options.visible:
 			options.close()
 		if game_menu.visible:
@@ -728,7 +733,7 @@ func _view(scene_name: String) -> Control:
 		if view.has_signal("planet_selected"):
 			view.planet_selected.connect(_on_pane_planet)
 		if view.has_signal("width_changed"):
-			view.width_changed.connect(_fit_beside_colonies)
+			view.width_changed.connect(_fit_beside_panel.bind(view))
 		if view.has_signal("build_chosen"):
 			view.build_chosen.connect(_colonies_build)
 		if view.has_signal("colony_opened"):
@@ -893,7 +898,7 @@ func _on_todo_item(item: Dictionary) -> void:
 
 ## The drop-downs and slide-outs that buttons open (owner, 2026-11-12): one at a time, over
 ## everything else (the system pane, the fleet panel).
-const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel", "colonies_panel"]
+const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel", "colonies_panel", "planets_panel"]
 
 
 ## Closes the flyouts a click at `at` falls outside of; true when the click landed on the map
@@ -1030,12 +1035,12 @@ func _on_view_action(action_name: String) -> void:
 				var figure: Control = bar.command_label if action_name == "command_points" else bar.research
 				var center := figure.get_global_rect().get_center().x
 				_drop_down(action_name, panel, bar.research.text, center)
-		"colonies":
-			var colonies := _view("colonies_panel")
-			if colonies.visible:
-				colonies.close()
+		"colonies", "planets":
+			var side_view := _view(SIDE_PANELS[action_name])
+			if side_view.visible:
+				side_view.close()
 			else:
-				_open_colonies()
+				_open_side_panel(action_name)
 		"designs":
 			var designs := _view("design_list")
 			if designs.visible:
@@ -1085,7 +1090,7 @@ func _on_view_closed(scene_name: String) -> void:
 				galaxy.forget_fit()
 			else:
 				galaxy.forget_flight()
-				_open_colonies() # back to the whole galaxy, the panel as it was
+				_open_side_panel("colonies") # back to the whole galaxy, the panel as it was
 		elif not _keep_camera:
 			galaxy.fly_back()
 		galaxy.redraw()
@@ -1095,10 +1100,10 @@ func _on_view_closed(scene_name: String) -> void:
 			_frame_system(_panel_star) # the free area widened again
 	elif scene_name == "design_list":
 		_view("side_tabs").show_open("designs", false)
-	elif scene_name == "colonies_panel":
-		_view("side_tabs").show_open("colonies", false)
+	elif scene_name in SIDE_PANELS.values():
+		_view("side_tabs").show_open(SIDE_PANELS.find_key(scene_name), false)
 		galaxy.selected = -1
-		if not _colonies_return:
+		if not _colonies_return and not _switching_panel:
 			galaxy.unfit() # the camera where it was before the panel
 	elif scene_name == "options_menu":
 		_view("side_tabs").show_open("options", false)
@@ -1141,9 +1146,10 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 			var colony_view: Control = _views.get("colony_pane")
 			if colony_view != null and colony_view.visible:
 				colony_view.refresh() # a turn, a purchase: the colony may have changed
-			var colonies_view: Control = _views.get("colonies_panel")
-			if colonies_view != null and colonies_view.visible:
-				colonies_view.refresh()
+			for panel_name: String in SIDE_PANELS.values():
+				var side_view: Control = _views.get(panel_name)
+				if side_view != null and side_view.visible:
+					side_view.refresh()
 			_have_empire = _have_empire or result.get("ok", false)
 			_race_id = int(result.get("race_id", -1))
 			_view("system_pane").race_id = _race_id
@@ -1541,6 +1547,101 @@ func _smoke_colonies(shots: String) -> bool:
 	return absf(galaxy.camera.zoom.x - zoom_before) < zoom_before * 0.01 and galaxy.camera.position.distance_to(position_before) < 2.0
 
 
+## WP3.5b (`-- --smoke --native --planets`): the Planets panel opens beside the fitted galaxy with
+## its tab armed, the toggles and a sort change the rows, a star click selects, a colony ship is
+## sent (the game's questions answered) and recalled, and the camera comes back on close.
+func _smoke_planets(shots: String) -> bool:
+	var zoom_before: float = galaxy.camera.zoom.x
+	var position_before: Vector2 = galaxy.camera.position
+	_on_view_action("planets")
+	await get_tree().create_timer(2.0).timeout
+	var panel := _view("planets_panel")
+	var tab: Button = _view("side_tabs").get_node("Planets")
+	var area: Rect2 = panel.get_global_rect()
+	var far := galaxy.get_global_transform_with_canvas() * Vector2(float(galaxy.data.width), 0.0)
+	print("smoke: planets panel %s, tab armed %s, %d of %d rows, rect %s, galaxy right edge %.0f, zoom %.3f" % [panel.visible,
+		tab.button_pressed, panel.planets.size(), panel._all.size(), area, far.x, galaxy.camera.zoom.x])
+	if shots != "":
+		await host.shot(shots + "/native-planets.png")
+	if not panel.visible or not tab.button_pressed or panel._all.is_empty() or far.x > area.position.x + 1.0:
+		return false
+	# The in-range toggle off shows more (or as many); every toggle on shows fewer (or as many).
+	var in_range: int = panel.planets.size()
+	var toggles: Array = panel.get_node("Box/Filters").get_children()
+	(toggles[0] as Button).button_pressed = false
+	var all: int = panel.planets.size()
+	for b: Button in toggles:
+		b.button_pressed = true
+	var strict: int = panel.planets.size()
+	print("smoke: planets in range %d, all %d, every toggle %d" % [in_range, all, strict])
+	if all < in_range or strict > in_range:
+		return false
+	for i in toggles.size():
+		(toggles[i] as Button).button_pressed = i == 0
+	# Sort by size, largest first.
+	for b in panel.columns_box.get_children():
+		if b is Button and (b as Button).text.begins_with("SIZE"):
+			(b as Button).pressed.emit()
+	var pops: Array = panel.planets.map(func(p: Dictionary) -> int: return int(p.max_pop))
+	var sorted := pops.duplicate()
+	sorted.sort()
+	sorted.reverse()
+	print("smoke: planets by size %s" % [pops.slice(0, 10)])
+	if pops != sorted:
+		return false
+	if panel.planets.is_empty():
+		print("smoke: no planet in range (send skipped)")
+	else:
+		# An empty planet: on one with a colony the screen shows no marker (nor can it recall).
+		var target: Dictionary = panel.planets[0]
+		for p: Dictionary in panel.planets:
+			if not p.has("owner"):
+				target = p
+				break
+		_on_star_clicked(int(target.star))
+		await get_tree().create_timer(0.3).timeout
+		print("smoke: star %d clicked: selected %d (wanted the first at that star), system pane %s" % [int(target.star), panel.selected, _view("system_pane").visible])
+		if panel.selected < 0 or _view("system_pane").visible:
+			return false
+		if not panel.colony_button.disabled:
+			panel.colony_button.button_pressed = true
+			await get_tree().process_frame
+			if shots != "":
+				await host.shot(shots + "/native-planets-armed.png")
+			var row: Control = panel._rows[int(target.planet)]
+			row.gui_input.emit(_smoke_click_at(row.get_global_rect().get_center()))
+			for i in 40:
+				await get_tree().create_timer(0.25).timeout
+				_smoke_answer()
+			var after: Dictionary = {}
+			for p: Dictionary in panel._all:
+				if int(p.planet) == int(target.planet):
+					after = p
+			print("smoke: sent a colony ship to %s: on its way %s" % [target.name, after.get("colony_eta", -1)])
+			if shots != "":
+				await host.shot(shots + "/native-planets-sent.png")
+			if int(after.get("colony_eta", -1)) < 0:
+				return false
+			var box := {}
+			_send({"verb": "planets_recall", "planet": int(target.planet), "kind": "colony"}, func(r: Dictionary): box["r"] = r)
+			for i in 40:
+				await get_tree().create_timer(0.25).timeout
+				_smoke_answer()
+				if box.has("r"):
+					break
+			print("smoke: recalled: %s" % [box.get("r", "no answer")])
+			if not box.has("r") or not box.r.get("recalled", false):
+				return false
+			panel.refresh()
+			await get_tree().create_timer(0.5).timeout
+		else:
+			print("smoke: no free colony ship (send skipped)")
+	panel.close()
+	await get_tree().create_timer(2.0).timeout
+	print("smoke: planets closed: tab armed %s, zoom %.3f (was %.3f)" % [tab.button_pressed, galaxy.camera.zoom.x, zoom_before])
+	return not tab.button_pressed and absf(galaxy.camera.zoom.x - zoom_before) < zoom_before * 0.01 and galaxy.camera.position.distance_to(position_before) < 2.0
+
+
 func _row_star_first(panel: Control, star: int) -> int:
 	for c: Dictionary in panel.colonies:
 		if int(c.star) == star:
@@ -1748,10 +1849,10 @@ func _on_answered(id: int, value: int, text := "") -> void:
 ## fleet panel it moves them there (black holes do nothing, as on the legacy map); otherwise the
 ## game decides, as the legacy map does, whether it opens the player's colony there (a legacy
 ## screen for now) or the system panel.
-## The Colonies panel (WP3.5a): opening it closes the system, colony and build panes and the fleet
-## panel, and the galaxy fits the space left of it.
-func _open_colonies() -> void:
-	var colonies := _view("colonies_panel")
+## A right sidebar panel (Colonies WP3.5a, Planets WP3.5b): opening it closes the system, colony
+## and build panes, the fleet panel and another side panel, and the galaxy fits the space left of it.
+func _open_side_panel(action_name: String) -> void:
+	var side_view := _view(SIDE_PANELS[action_name])
 	_view("build_pane").cancel()
 	var system_pane := _view("system_pane")
 	if system_pane.visible:
@@ -1762,15 +1863,16 @@ func _open_colonies() -> void:
 	if fleet_panel.visible:
 		_fleet_from_system = -1
 		fleet_panel.close()
-	_bring_up(colonies)
-	colonies.open_panel(_side_panel_area())
-	_view("side_tabs").show_open("colonies", true)
-	_fit_beside_colonies()
+	_switching_panel = true # another side panel closes: the camera stays fitted for this one
+	_bring_up(side_view)
+	_switching_panel = false
+	side_view.open_panel(_side_panel_area())
+	_view("side_tabs").show_open(action_name, true)
+	_fit_beside_panel(side_view)
 
 
-## The whole galaxy in the space left of the Colonies panel (again when the panel's width changes).
-func _fit_beside_colonies() -> void:
-	var colonies := _view("colonies_panel")
+## The whole galaxy in the space left of a side panel (again when the panel's width changes).
+func _fit_beside_panel(colonies: Control) -> void:
 	if not colonies.visible or native_screen != Screens.MAIN:
 		return
 	var area := _side_panel_area()
@@ -1824,10 +1926,11 @@ func _colonies_build(colony_id: int, star_id: int, planet_id: int, bought: bool,
 func _on_star_clicked(star_id: int) -> void:
 	if _popup_map_click(-1, star_id):
 		return
-	var colonies: Control = _views.get("colonies_panel")
-	if colonies != null and colonies.visible:
-		colonies.select_star(star_id) # the panel's row; the map stays (owner, 2026-11-14)
-		return
+	for panel_name: String in SIDE_PANELS.values():
+		var side_view: Control = _views.get(panel_name)
+		if side_view != null and side_view.visible:
+			side_view.select_star(star_id) # the panel's row; the map stays (owner, 2026-11-14)
+			return
 	if galaxy.relocating:
 		_end_relocating()
 		_send({"verb": "merge_relocations", "star": star_id})
@@ -2157,6 +2260,13 @@ func _smoke_native() -> void:
 			return
 	if "--popups" in OS.get_cmdline_user_args():
 		await _smoke_popups(shots)
+		return
+	if "--planets" in OS.get_cmdline_user_args():
+		if await _smoke_planets(shots):
+			print("smoke: planets OK")
+			game.request_game_quit()
+		else:
+			await host.smoke_fail("planets panel")
 		return
 	if "--colonies" in OS.get_cmdline_user_args():
 		if await _smoke_colonies(shots):

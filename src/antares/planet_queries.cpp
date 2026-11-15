@@ -146,6 +146,8 @@ namespace antares::commands::internal {
             out.Bool("colony_ships", colony_ships);
             out.Bool("outpost_ships", outpost_ships);
             out.Bool("flux", EVENTS::Event_Check_Hyperspace_Flux() != 0);
+            // The en-route marker in the player's colour (Load_Player_Icon: PLNTSUM.LBX 0x4C + colour).
+            out.Int("ship_icon", 0x4C + (int32_t)MOX::player[MOX::PLAYER_NUM].color);
             s_out rows = out.Add_List("planets");
             for (size_t i = 0; i < listed.size(); ++i) {
                 const int16_t p = listed[i];
