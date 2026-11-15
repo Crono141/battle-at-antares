@@ -370,7 +370,10 @@ func _process(delta: float) -> void:
 		if not i.is_empty() and _stage.modulate.a >= 1.0:
 			_intro_frame += 1
 			if _intro_frame >= i.frames.size():
-				_intro_frame = -1 # over: the actor takes its place
+				# Over: the actor takes its place, once its art is here (owner, 2026-11-14: the
+				# ambassador vanished for a moment as the list came up); the last frame holds.
+				var waiting: Dictionary = _state.get("actor", {})
+				_intro_frame = i.frames.size() - 1 if not waiting.is_empty() and _sprite(waiting).is_empty() else -1
 	else:
 		var actor: Dictionary = _state.get("actor", {})
 		var a := _sprite(actor)
@@ -396,9 +399,10 @@ func _show_art() -> void:
 		var i := _sprite(intro)
 		_intro.texture = i.frames[clampi(_intro_frame, 0, i.frames.size() - 1)] if not i.is_empty() else null
 	var actor: Dictionary = _state.get("actor", {})
+	var actor_sprite := _sprite(actor) # asked for during the intro, so it is here when it ends
 	_actor.visible = _intro_frame < 0 and not actor.is_empty()
 	if _actor.visible:
-		_place(_actor, _sprite(actor), _actor_frame, Vector2.ZERO, k)
+		_place(_actor, actor_sprite, _actor_frame, Vector2.ZERO, k)
 	for layer: Dictionary in _layers:
 		var rect: TextureRect = layer.rect
 		rect.visible = not layer.hidden
