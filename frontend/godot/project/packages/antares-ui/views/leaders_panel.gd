@@ -18,6 +18,9 @@ const Themes := preload("../themes.gd")
 const WIDTH := 430.0
 const VIEW_HEIGHT := 200.0
 const SHIP_TILE := Vector2(72, 56)
+## The cards' list always has room for two leaders (owner: a big fleet squeezed it to a sliver);
+## measured from the first card once one is shown.
+const CARDS_MIN_HEIGHT := 200.0
 
 var art: Node
 var stars: Array = [] # the galaxy's stars (sprites for the system view)
@@ -30,7 +33,9 @@ var picked_ship := -1 # the picked warship (Ship Officers)
 
 var _view_holder: Control
 var _system_view: Control
+var _ships_scroll: ScrollContainer
 var _ships: HFlowContainer
+var _cards_scroll: ScrollContainer
 var _cards: VBoxContainer
 var _place_label: Label
 var _colony_tab: Button
@@ -64,10 +69,15 @@ func _ready() -> void:
 	_system_view = preload("system_view.gd").new()
 	_system_view.art = art
 	_view_holder.add_child(_system_view)
+	# The warships scroll inside the fixed top, so a big fleet leaves the cards their room.
+	_ships_scroll = ScrollContainer.new()
+	_ships_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_view_holder.add_child(_ships_scroll)
 	_ships = HFlowContainer.new()
+	_ships.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_ships.add_theme_constant_override("h_separation", 4)
 	_ships.add_theme_constant_override("v_separation", 4)
-	_view_holder.add_child(_ships)
+	_ships_scroll.add_child(_ships)
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 6)
 	box.add_child(tabs)
@@ -77,14 +87,15 @@ func _ready() -> void:
 	_ship_tab = _toggle("SHIP OFFICERS", "Captains of your warships")
 	_ship_tab.pressed.connect(func(): _set_tab("ship"))
 	tabs.add_child(_ship_tab)
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	box.add_child(scroll)
+	_cards_scroll = ScrollContainer.new()
+	_cards_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_cards_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_cards_scroll.custom_minimum_size.y = CARDS_MIN_HEIGHT
+	box.add_child(_cards_scroll)
 	_cards = VBoxContainer.new()
 	_cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_cards.add_theme_constant_override("separation", 4)
-	scroll.add_child(_cards)
+	_cards_scroll.add_child(_cards)
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 6)
 	box.add_child(buttons)
@@ -195,7 +206,8 @@ func _cycle(step: int) -> void:
 
 func _show_place() -> void:
 	_system_view.visible = tab == "colony"
-	_ships.visible = tab == "ship"
+	_ships_scroll.visible = tab == "ship"
+	_ships_scroll.scroll_vertical = 0
 	_clear(_ships)
 	if places.is_empty():
 		_place_label.text = "No colonies" if tab == "colony" else "No warships"
@@ -257,6 +269,16 @@ func _show_cards() -> void:
 		none.text = "No leaders"
 		_cards.add_child(none)
 	_update_buttons()
+	_fit_cards.call_deferred()
+
+
+## Two cards' height for the list (and so the panel never squeezes them away).
+func _fit_cards() -> void:
+	if _cards.get_child_count() == 0 or not (_cards.get_child(0) is PanelContainer):
+		return
+	var card_height := (_cards.get_child(0) as Control).get_combined_minimum_size().y
+	if card_height > 0.0:
+		_cards_scroll.custom_minimum_size.y = card_height * 2.0 + float(_cards.get_theme_constant("separation"))
 
 
 func _card(leader: Dictionary) -> Control:

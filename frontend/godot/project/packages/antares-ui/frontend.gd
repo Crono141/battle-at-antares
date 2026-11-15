@@ -1892,9 +1892,23 @@ func _smoke_leaders_panel(shots: String) -> bool:
 			break
 	panel._set_tab("ship")
 	await get_tree().create_timer(0.5).timeout
-	print("smoke: leaders: ship officers %d, fleets %d, ships shown %d" % [panel.leaders.size(), panel.places.size(), panel._ships.get_child_count()])
+	# The biggest fleet: its ships scroll inside the fixed top, the cards keep two cards' room.
+	var biggest := 0
+	for i in panel.places.size():
+		if (panel.places[i].get("ships", []) as Array).size() > (panel.places[biggest].get("ships", []) as Array).size():
+			biggest = i
+	if not panel.places.is_empty():
+		panel.place = biggest
+		panel._show_place()
+		await get_tree().create_timer(0.3).timeout
+	var card_room: float = panel._cards_scroll.size.y
+	var two_cards: float = panel._cards_scroll.custom_minimum_size.y
+	print("smoke: leaders: ship officers %d, fleets %d, ships shown %d, top %.0f px, cards room %.0f px (two cards %.0f)" % [panel.leaders.size(),
+		panel.places.size(), panel._ships.get_child_count(), panel._view_holder.size.y, card_room, two_cards])
 	if shots != "":
 		await host.shot(shots + "/native-leaders-ships.png")
+	if panel._view_holder.size.y > panel.VIEW_HEIGHT + 1.0 or card_room + 1.0 < two_cards:
+		return false
 	if not await _smoke_side_resize(panel, shots, "leaders"):
 		return false
 	panel._set_tab("colony")
@@ -1912,6 +1926,10 @@ func _smoke_races_panel(shots: String) -> bool:
 	await get_tree().create_timer(0.8).timeout
 	var panel := _view("races_panel")
 	var tab: Button = _view("side_tabs").get_node("Races")
+	var eliminated := 0
+	for r: Dictionary in panel.races:
+		eliminated += 1 if r.eliminated else 0
+	print("smoke: races: %d eliminated shown with their portraits" % eliminated)
 	print("smoke: races panel %s, tab armed %s, %d empires, picked %d, galaxy zoom %.3f (was %.3f); %s; %s" % [panel.visible, tab.button_pressed,
 		panel.races.size(), panel.picked, galaxy.camera.zoom.x, zoom_before, panel._bonuses.text, panel._agents.text])
 	if shots != "":
@@ -1924,14 +1942,15 @@ func _smoke_races_panel(shots: String) -> bool:
 		var mission := int(r.mission)
 		var agents := int(panel.result.agents)
 		if agents > 0:
-			_send({"verb": "set_spies", "player": panel.picked, "count": spies + 1})
-			await get_tree().create_timer(0.2).timeout
-			panel.refresh()
-			await get_tree().create_timer(0.3).timeout
+			# A spy dragged from home onto the empire, and back (the strips' drop).
+			panel._move_spies(panel.HOME, panel.picked, 1)
+			await get_tree().create_timer(0.5).timeout
 			var more := int(panel._race(panel.picked).spies)
-			_send({"verb": "set_spies", "player": panel.picked, "count": spies})
-			print("smoke: races: spies %d -> %d and back" % [spies, more])
-			if more != spies + 1:
+			panel._move_spies(panel.picked, panel.HOME, 1)
+			await get_tree().create_timer(0.5).timeout
+			var back := int(panel._race(panel.picked).spies)
+			print("smoke: races: spies dragged %d -> %d and back to %d" % [spies, more, back])
+			if more != spies + 1 or back != spies:
 				return false
 		_send({"verb": "set_spies", "player": panel.picked, "mission": (mission + 1) % 3})
 		await get_tree().create_timer(0.2).timeout

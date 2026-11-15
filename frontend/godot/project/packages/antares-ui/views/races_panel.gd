@@ -3,8 +3,10 @@ extends "side_panel.gd"
 ## panel that flies out from the right, against the side tabs. The galaxy is not moved (owner).
 ## The other empires (up to 7) as one scrolling column of slots: the ruler's portrait in the
 ## empire's colour, the relations bar and word, the treaties (or No contact), and the player's
-## spies against that empire with ESPIONAGE / SABOTAGE / HIDE (their mission) and − / + (spies move
-## between home and that empire, as the screen's drag moves them). A click on a slot picks the
+## spies against that empire as the screen's spy icons with ESPIONAGE / SABOTAGE / HIDE (their
+## mission). Spies move as on the screen: drag from an icon (it and the ones right of it) onto
+## another empire's icons or the spies at home; − / + move one. Eliminated empires keep their slot:
+## the portrait under the red Eliminated sign (races.lbx 31), No contact. A click on a slot picks the
 ## empire; the fixed bottom has BONUSES (spy and agent), the spies at home, and AUDIENCE (the
 ## native diplomacy window), REPORT (the original Races screen for now), DECLARE WAR (carried out
 ## next turn, the game's question) and IGNORE.
@@ -15,6 +17,8 @@ signal width_changed
 const Themes := preload("../themes.gd")
 const WIDTH := 430.0
 const MISSIONS := ["ESPIONAGE", "SABOTAGE", "HIDE"]
+const ELIMINATED_SIGN := 31 # races.lbx: the red Eliminated sign over a portrait
+const HOME := -1 # a spy strip's owner: the spies at home
 
 var art: Node
 var races: Array = []
@@ -24,6 +28,7 @@ var picked := -1
 var _slots: VBoxContainer
 var _bonuses: Label
 var _agents: Label
+var _home_strip: Control
 var _buttons := {}
 
 
@@ -59,9 +64,17 @@ func _ready() -> void:
 	_bonuses = Label.new()
 	_bonuses.theme_type_variation = &"Name"
 	bottom.add_child(_bonuses)
+	var home := HBoxContainer.new()
+	home.add_theme_constant_override("separation", 8)
+	bottom.add_child(home)
 	_agents = Label.new()
 	_agents.theme_type_variation = &"Dim"
-	bottom.add_child(_agents)
+	home.add_child(_agents)
+	_home_strip = _SpyStrip.new()
+	_home_strip.owner_player = HOME
+	_home_strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_home_strip.dropped.connect(_move_spies)
+	home.add_child(_home_strip)
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 6)
@@ -119,6 +132,7 @@ func show_races(answer: Dictionary) -> void:
 	_bonuses.text = "BONUSES   %s %d%%   %s %d%%" % [String(answer.spy_bonus_label).strip_edges().trim_suffix(":"), int(answer.spy_bonus),
 		String(answer.agent_bonus_label).strip_edges().trim_suffix(":"), int(answer.agent_bonus)]
 	_agents.text = "Spies at home: %d" % int(answer.agents)
+	_home_strip.setup(art, int(answer.get("spy_icon", -1)), int(answer.agents))
 	_clear(_slots)
 	for r: Dictionary in races:
 		_slots.add_child(_slot(r))
@@ -128,6 +142,7 @@ func show_races(answer: Dictionary) -> void:
 func _slot(r: Dictionary) -> Control:
 	var p := int(r.player)
 	var met: bool = r.contact and not r.eliminated
+	var eliminated: bool = r.eliminated
 	var panel := PanelContainer.new()
 	panel.theme_type_variation = &"RowOpen" if p == picked else &"Row"
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -156,9 +171,17 @@ func _slot(r: Dictionary) -> Control:
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	portrait.bind(art)
-	if met:
+	if met or eliminated:
 		portrait.show_sprite("RACES.LBX", int(r.portrait))
 	frame.add_child(portrait)
+	if eliminated:
+		var sign_rect: TextureRect = preload("sprite_rect.gd").new()
+		sign_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		sign_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		sign_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		sign_rect.bind(art)
+		sign_rect.show_sprite("RACES.LBX", ELIMINATED_SIGN)
+		frame.add_child(sign_rect)
 	# The relations bar: red (hate) to green (harmony), the mark at the relation.
 	var bar := _RelationBar.new()
 	bar.value = float(int(r.relations) + 100) / 200.0
@@ -174,10 +197,17 @@ func _slot(r: Dictionary) -> Control:
 	var name_label := Label.new()
 	name_label.theme_type_variation = &"Name"
 	name_label.clip_text = true
-	name_label.text = ("%s (%s)" % [String(r.ruler), String(r.race)]) if met else String(result.get("no_contact", "No contact")).replace("^", "").strip_edges()
+	var no_contact := String(result.get("no_contact", "No contact")).replace("^", "").strip_edges()
+	name_label.text = ("%s (%s)" % [String(r.ruler), String(r.race)]) if met or eliminated else no_contact
 	if p == picked:
 		name_label.add_theme_color_override("font_color", get_theme_color("font_pressed_color", "Button"))
 	info.add_child(name_label)
+	if eliminated:
+		var gone := Label.new()
+		gone.theme_type_variation = &"Dim"
+		gone.text = no_contact
+		gone.add_theme_font_size_override("font_size", 13)
+		info.add_child(gone)
 	if not met:
 		return panel
 	var treaty := Label.new()
@@ -199,13 +229,13 @@ func _slot(r: Dictionary) -> Control:
 	minus.disabled = int(r.spies) <= 0
 	minus.pressed.connect(func(): command.emit({"verb": "set_spies", "player": p, "count": int(r.spies) - 1, "_reply_to": "_after_command"}))
 	spies.add_child(minus)
-	var count := Label.new()
-	count.text = "%d spies" % int(r.spies)
-	count.custom_minimum_size.x = 64
-	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	count.tooltip_text = "Theirs on you: %d" % int(r.their_spies)
-	count.mouse_filter = Control.MOUSE_FILTER_PASS
-	spies.add_child(count)
+	var strip := _SpyStrip.new()
+	strip.owner_player = p
+	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	strip.setup(art, int(result.get("spy_icon", -1)), int(r.spies))
+	strip.tooltip_text = "Your spies on them: %d (theirs on you: %d)\nDrag spies to another empire or home" % [int(r.spies), int(r.their_spies)]
+	strip.dropped.connect(_move_spies)
+	spies.add_child(strip)
 	var plus := _button("+", "One spy from home to them")
 	plus.custom_minimum_size = Vector2(28, 26)
 	plus.disabled = int(result.get("agents", 0)) <= 0 or int(r.spies) >= 63
@@ -263,6 +293,22 @@ func _after_command(_answer: Dictionary) -> void:
 	refresh()
 
 
+## Spies dragged from one strip to another: back home first, then out to the new empire (the
+## screen's commit, Update_Spy_Stuff, does the same through the agents' count).
+func _move_spies(from: int, to: int, n: int) -> void:
+	if from == to or n <= 0:
+		return
+	if from != HOME:
+		var src := _race(from)
+		var home_cmd := {"verb": "set_spies", "player": from, "count": int(src.get("spies", 0)) - n}
+		if to == HOME:
+			home_cmd["_reply_to"] = "_after_command"
+		command.emit(home_cmd)
+	if to != HOME:
+		var dst := _race(to)
+		command.emit({"verb": "set_spies", "player": to, "count": int(dst.get("spies", 0)) + n, "_reply_to": "_after_command"})
+
+
 func _button(text: String, tip: String) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -297,3 +343,92 @@ class _RelationBar extends Control:
 		if shown:
 			var y := size.y * (1.0 - value)
 			draw_rect(Rect2(-2, y - 2, size.x + 4, 4), Color.WHITE)
+
+
+## A row of spy icons (the screen's icon group): drawn side by side, overlapping when there are
+## many. Dragging from an icon takes it and every icon to its right (Draw_Icon_Group_Cursor);
+## another strip takes the drop.
+class _SpyStrip extends Control:
+	signal dropped(from: int, to: int, n: int)
+	const ICON := 26.0
+	var owner_player := -1
+	var count := 0
+	var _texture: Texture2D
+	var _art: Node
+	var _icon := -1
+	var _drop_hover := false
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(ICON * 3.0, ICON + 4.0)
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_DRAG
+		mouse_exited.connect(func():
+			_drop_hover = false
+			queue_redraw())
+
+	func setup(art: Node, icon: int, n: int) -> void:
+		count = n
+		_art = art
+		_icon = icon
+		if art != null and not art.loaded.is_connected(_on_loaded):
+			art.loaded.connect(_on_loaded)
+		_on_loaded("")
+		if tooltip_text == "":
+			tooltip_text = "Drag spies to an empire"
+		queue_redraw()
+
+	## The icon once the art has it (pictures arrive in the background, as sprite_rect.gd's do).
+	func _on_loaded(_key: String) -> void:
+		if _texture == null and _art != null and _icon >= 0:
+			_texture = _art.texture("RACES.LBX", _icon)
+			queue_redraw()
+
+	func _spacing() -> float:
+		if count <= 1:
+			return ICON + 2.0
+		return minf(ICON + 2.0, (size.x - ICON) / float(count - 1))
+
+	func _draw() -> void:
+		var box := Rect2(Vector2.ZERO, size)
+		draw_rect(box, Color(0, 0, 0, 0.35))
+		if _drop_hover:
+			draw_rect(box, Color(1.0, 0.85, 0.3, 0.9), false, 2.0)
+		var step := _spacing()
+		for i in count:
+			var at := Rect2(i * step, (size.y - ICON) * 0.5, ICON, ICON)
+			if _texture != null:
+				draw_texture_rect(_texture, at, false)
+			else:
+				draw_circle(at.get_center(), ICON * 0.4, Color(0.7, 0.8, 1.0))
+
+	func _get_drag_data(at_position: Vector2) -> Variant:
+		if count <= 0:
+			return null
+		var index := clampi(int(at_position.x / _spacing()), 0, count - 1)
+		var n := count - index
+		var preview := HBoxContainer.new()
+		var icon := TextureRect.new()
+		icon.texture = _texture
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.custom_minimum_size = Vector2(ICON, ICON)
+		preview.add_child(icon)
+		if n > 1:
+			var label := Label.new()
+			label.text = str(n)
+			label.add_theme_color_override("font_outline_color", Color.BLACK)
+			label.add_theme_constant_override("outline_size", 4)
+			preview.add_child(label)
+		set_drag_preview(preview)
+		return {"spies_from": owner_player, "n": n}
+
+	func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:
+		var ok: bool = data is Dictionary and data.has("spies_from") and int(data.spies_from) != owner_player
+		if ok != _drop_hover:
+			_drop_hover = ok
+			queue_redraw()
+		return ok
+
+	func _drop_data(_at_position: Vector2, data: Variant) -> void:
+		_drop_hover = false
+		queue_redraw()
+		dropped.emit(int(data.spies_from), owner_player, int(data.n))
