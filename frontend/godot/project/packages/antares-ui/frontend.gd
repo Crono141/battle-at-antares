@@ -943,8 +943,8 @@ func _close_flyouts_outside(at: Vector2) -> bool:
 			return false
 	var closed := false
 	for name in FLYOUTS:
-		if not _views.has(name):
-			continue
+		if not _views.has(name) or name in SIDE_PANELS.values():
+			continue # the side panels stay: the map beside them is part of them (owner, 2026-11-15)
 		var flyout: Control = _views[name]
 		if not flyout.visible or flyout.get_global_rect().has_point(at):
 			continue
@@ -1794,10 +1794,18 @@ func _smoke_fleets_panel(shots: String) -> bool:
 			break
 	if colony_star >= 0:
 		panel._relocate.button_pressed = true
-		_on_star_clicked(colony_star)
-		await get_tree().create_timer(0.3).timeout
+		# Real clicks on the map (owner, 2026-11-15: a map click closed the panel; calling the
+		# handler directly had hidden it).
+		var at: Vector2 = galaxy.get_global_transform_with_canvas() * galaxy.star_position(colony_star)
+		_smoke_mouse(true, at)
+		_smoke_mouse(false, at)
+		await get_tree().create_timer(0.4).timeout
 		var hint_from: String = panel._hint.text
-		_on_star_clicked(colony_star) # the same star: cancels (the game's message)
+		print("smoke: fleets relocate: a real click at %s: panel still open %s" % [at, panel.visible])
+		if not panel.visible:
+			return false
+		_smoke_mouse(true, at) # the same star: cancels (the game's message)
+		_smoke_mouse(false, at)
 		for i in 8:
 			await get_tree().create_timer(0.25).timeout
 			_smoke_answer()
@@ -1805,6 +1813,21 @@ func _smoke_fleets_panel(shots: String) -> bool:
 		if not hint_from.begins_with("Now click"):
 			return false
 		panel._relocate.button_pressed = false
+	# A real click on another of the player's fleets on the map: the panel shows that fleet.
+	for f: Dictionary in galaxy.fleets:
+		if int(f.owner) == int(galaxy.data.get("player", -1)) and int(f.ship) != int(panel.fleet.ship) and not f.moving:
+			var at: Vector2 = galaxy.get_global_transform_with_canvas() * Vector2(float(f.x), float(f.y))
+			galaxy._unhandled_input(_smoke_click_at(at))
+			var up := _smoke_click_at(at)
+			up.pressed = false
+			galaxy._unhandled_input(up)
+			await get_tree().create_timer(0.5).timeout
+			print("smoke: fleets: a click on fleet %d's icon: panel open %s, shows %d" % [int(f.ship), panel.visible, int(panel.fleet.get("ship", -1))])
+			if shots != "":
+				await host.shot(shots + "/native-fleets-clicked.png")
+			if not panel.visible:
+				return false
+			break
 	if not await _smoke_side_resize(panel, shots, "fleets"):
 		return false
 	panel.close()
@@ -2312,6 +2335,19 @@ func _open_fleet_from_pane(ship_id: int) -> void:
 ## Opens a fleet's panel (a map icon, the system panel's fleets, F1/F2): the game keeps the
 ## fleet box record and closes the system box, then the `fleet` query fills the panel.
 func _open_fleet(ship_id: int) -> void:
+	# With the Fleets panel open, a click on one of the player's fleets shows it there (owner,
+	# 2026-11-15); other fleets still open their box.
+	var fleets_view: Control = _views.get("fleets_panel")
+	if fleets_view != null and fleets_view.visible:
+		for f: Dictionary in galaxy.fleets:
+			if int(f.ship) != ship_id:
+				continue
+			if fleets_view.relocating and int(f.get("star", -1)) >= 0:
+				fleets_view.star_clicked(int(f.star)) # RELOCATE: a fleet at a star is its star
+				return
+			if int(f.owner) == int(galaxy.data.get("player", -1)):
+				fleets_view._show(ship_id)
+				return
 	var from_star := _panel_star if _view("system_pane").visible else -1
 	if from_star >= 0:
 		_keep_camera = true # the pane goes, the map stays at the system

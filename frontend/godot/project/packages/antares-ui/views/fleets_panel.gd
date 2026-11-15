@@ -260,13 +260,18 @@ func _fill_grid(keep: Array) -> void:
 		tile.disabled = not ship.get("orderable", false)
 		tile.tooltip_text = "%s (%s)" % [ship.name, ship.type]
 		tile.set_pressed_no_signal(int(ship.id) in keep)
+		# As the fleet box's ships (owner, 2026-11-15): clear, blue when picked, no button face.
+		for state in ["normal", "disabled", "focus"]:
+			tile.add_theme_stylebox_override(state, _tile_style(false, false))
+		tile.add_theme_stylebox_override("hover", _tile_style(false, true))
+		tile.add_theme_stylebox_override("pressed", _tile_style(true, false))
+		tile.add_theme_stylebox_override("hover_pressed", _tile_style(true, true))
 		var lbx := "SHIPS.LBX@%d" % int(ship.palette) if ship.has("palette") else "SHIPS.LBX"
 		if art != null:
 			tile.icon = art.texture(lbx, int(ship.picture))
 		var id := int(ship.id)
 		tile.mouse_entered.connect(func(): _show_detail(id))
 		tile.toggled.connect(func(_on: bool): _on_pick())
-		Themes.glowing(tile)
 		_grid.add_child(tile)
 		_tiles[id] = tile
 	_scrap.disabled = selected_ships().is_empty()
@@ -290,7 +295,6 @@ func _on_all() -> void:
 		var tile: Button = _tiles[id]
 		if not tile.disabled:
 			tile.set_pressed_no_signal(any_off)
-			Themes.glow(tile)
 	_on_pick()
 
 
@@ -433,6 +437,26 @@ func _line(holder: Control, text: String, variation: StringName) -> Label:
 
 
 # ---- Helpers ----
+
+static var _tile_styles := {}
+
+
+## A ship tile's look, the fleet box's (fleet_panel.tscn "selected_ship"): picked a blue fill with a
+## light edge, otherwise clear with a faint edge (lighter under the pointer).
+static func _tile_style(picked: bool, hovered: bool) -> StyleBox:
+	var key := "%s%s" % [picked, hovered]
+	if not _tile_styles.has(key):
+		var style := StyleBoxFlat.new()
+		style.set_border_width_all(2)
+		if picked:
+			style.bg_color = Color(0.1, 0.25, 0.75, 0.9)
+			style.border_color = Color(0.55, 0.75, 1, 1) if not hovered else Color(0.8, 0.9, 1, 1)
+		else:
+			style.bg_color = Color(0, 0, 0, 0.0)
+			style.border_color = Color(0.55, 0.75, 1, 0.55) if hovered else Color(1, 1, 1, 0.08)
+		_tile_styles[key] = style
+	return _tile_styles[key]
+
 
 func _button(text: String, tip: String) -> Button:
 	var b := Button.new()
