@@ -1221,7 +1221,9 @@ func _end_turn_notice() -> void:
 		_turn_notice.hide()
 	if _turn_over_galaxy:
 		_turn_over_galaxy = false
-		if native_screen == Screens.LEGACY:
+		# Not under a question over the galaxy (owner, 2026-11-14: a GNN that came during the
+		# hand-back lost the bar and tabs until its first page was clicked); its answer hands back.
+		if native_screen == Screens.LEGACY and not _question_over_galaxy:
 			_frame_view.hide()
 			for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
 				_view(chrome).hide()
