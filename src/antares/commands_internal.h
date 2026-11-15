@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+struct s_ship_design;
+
 namespace antares::commands::internal {
 
     // Game text (CP850, with colour and layout control bytes) as clean UTF-8.
@@ -23,6 +25,9 @@ namespace antares::commands::internal {
     // WP3.4: the colony pane (colony_queries.cpp).
     void Add_Colony_Entries(std::vector<s_entry>* table);
     void Add_Planet_Entries(std::vector<s_entry>* table);
+    void Add_Fleet_Panel_Entries(std::vector<s_entry>* table);
+    // A design's parts as the build list shows them (hull, shield, ..., weapons, specials).
+    void Design_Parts(s_ship_design& design, s_out item);
     void Add_Save_Entries(std::vector<s_entry>* table);
     // WP3.4c: `preview_popup`, a developer verb (popup_preview.cpp).
     void Add_Preview_Entries(std::vector<s_entry>* table);

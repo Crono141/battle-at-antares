@@ -46,7 +46,7 @@ var _fleet_from_system := -1
 ## that system returns to the panel ("Return to Colonies").
 var _colonies_return := false
 ## The right sidebar's panels (owner, 2026-11-14: they fly out from the right): action -> view.
-const SIDE_PANELS := {"colonies": "colonies_panel", "planets": "planets_panel"}
+const SIDE_PANELS := {"colonies": "colonies_panel", "planets": "planets_panel", "fleets": "fleets_panel"}
 var _switching_panel := false # one side panel replaces another: the camera stays fitted
 ## The camera's view of an open system: the legacy scale it flies to, and how much of the free
 ## area the system's orbits take.
@@ -763,6 +763,10 @@ func _view(scene_name: String) -> Control:
 			view.planet_selected.connect(_on_pane_planet)
 		if view.has_signal("width_changed"):
 			view.width_changed.connect(_fit_beside_panel.bind(view))
+		if view.has_signal("fleet_marked"):
+			view.fleet_marked.connect(func(ship: int):
+				galaxy.selected_fleet = ship
+				galaxy.redraw())
 		if view.has_signal("build_chosen"):
 			view.build_chosen.connect(_colonies_build)
 		if view.has_signal("colony_opened"):
@@ -927,7 +931,7 @@ func _on_todo_item(item: Dictionary) -> void:
 
 ## The drop-downs and slide-outs that buttons open (owner, 2026-11-12): one at a time, over
 ## everything else (the system pane, the fleet panel).
-const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel", "colonies_panel", "planets_panel"]
+const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel", "colonies_panel", "planets_panel", "fleets_panel"]
 
 
 ## Closes the flyouts a click at `at` falls outside of; true when the click landed on the map
@@ -1064,7 +1068,7 @@ func _on_view_action(action_name: String) -> void:
 				var figure: Control = bar.command_label if action_name == "command_points" else bar.research
 				var center := figure.get_global_rect().get_center().x
 				_drop_down(action_name, panel, bar.research.text, center)
-		"colonies", "planets":
+		"colonies", "planets", "fleets":
 			var side_view := _view(SIDE_PANELS[action_name])
 			if side_view.visible:
 				side_view.close()
@@ -1706,6 +1710,109 @@ func _smoke_side_resize(panel: Control, shots: String, tag: String) -> bool:
 	return ok
 
 
+## WP3.5c (`--fleets`): the Fleets panel opens on one of the player's fleets with its tab armed,
+## the cycler moves to another fleet, the filters change the grid, a ship's detail shows, ALL picks,
+## the picked ships go to a star (then back), RELOCATE takes a from and a to star and the same
+## star again cancels, the panel follows a window drag, and the camera comes back on close.
+func _smoke_fleets_panel(shots: String) -> bool:
+	var zoom_before: float = galaxy.camera.zoom.x
+	var position_before: Vector2 = galaxy.camera.position
+	_on_view_action("fleets")
+	await get_tree().create_timer(0.7).timeout
+	var panel := _view("fleets_panel")
+	var tab: Button = _view("side_tabs").get_node("Fleets")
+	print("smoke: fleets panel %s, tab armed %s, fleet '%s' with %d ships, marked %d" % [panel.visible, tab.button_pressed,
+		panel.fleet.get("title", ""), (panel.fleet.get("ships", []) as Array).size(), galaxy.selected_fleet])
+	if shots != "":
+		await host.shot(shots + "/native-fleets.png")
+	if not panel.visible or not tab.button_pressed or panel.fleet.is_empty():
+		return false
+	var first_fleet := int(panel.fleet.ship)
+	panel._cycle(0)
+	await get_tree().create_timer(0.4).timeout
+	print("smoke: fleets next: '%s' (was ship %d, now %d)" % [panel.fleet.get("title", ""), first_fleet, int(panel.fleet.ship)])
+	# A fleet with warships, for the detail and the filters.
+	var tries := 0
+	while tries < 12 and not (panel.fleet.ships as Array).any(func(s: Dictionary) -> bool: return s.get("combat", false)):
+		panel._cycle(0)
+		await get_tree().create_timer(0.3).timeout
+		tries += 1
+	var all_count: int = panel._tiles.size()
+	panel._set_filter("support")
+	var support_count: int = panel._tiles.size()
+	panel._set_filter("combat")
+	var combat_count: int = panel._tiles.size()
+	panel._set_filter("")
+	print("smoke: fleets filters: all %d, support %d, combat %d" % [all_count, support_count, combat_count])
+	if support_count + combat_count > all_count:
+		return false
+	await get_tree().create_timer(0.4).timeout
+	var detail_lines: int = panel._detail.find_children("*", "Label", true, false).size()
+	print("smoke: fleets detail for ship %d: %d lines" % [panel._detail_ship, detail_lines])
+	if shots != "":
+		await host.shot(shots + "/native-fleets-detail.png")
+	if detail_lines == 0:
+		return false
+	# ALL, a move to a nearby star and back (the fleet's own star).
+	panel._on_all()
+	var picked: Array = panel.selected_ships()
+	var home := int(panel.fleet.get("star", -1))
+	print("smoke: fleets ALL picked %d of %d; fleet at star %d" % [picked.size(), panel._tiles.size(), home])
+	if picked.is_empty():
+		return false
+	if home >= 0:
+		var target := -1
+		var best := INF
+		var here: Vector2 = galaxy.star_position(home)
+		for star: Dictionary in galaxy.stars:
+			var d: float = here.distance_to(Vector2(float(star.x), float(star.y)))
+			if int(star.id) != home and not star.black_hole and d < best:
+				best = d
+				target = int(star.id)
+		_on_star_clicked(target)
+		for i in 12:
+			await get_tree().create_timer(0.25).timeout
+			_smoke_answer()
+		var moved := false
+		for s: Dictionary in panel.fleet.get("ships", []):
+			moved = moved or true
+		print("smoke: fleets sent to star %d: fleet now '%s' (%s)" % [target, panel.fleet.get("title", ""), panel.fleet.get("status", "")])
+		if shots != "":
+			await host.shot(shots + "/native-fleets-moved.png")
+		panel._on_all() # back home
+		if panel.selected_ships().is_empty():
+			panel._on_all()
+		_on_star_clicked(home)
+		for i in 8:
+			await get_tree().create_timer(0.25).timeout
+			_smoke_answer()
+	# RELOCATE: from a star with a colony of the player's, to another, then cancelled.
+	var colony_star := -1
+	for star: Dictionary in galaxy.stars:
+		if int(star.get("owner", -1)) == int(galaxy.data.get("player", -2)):
+			colony_star = int(star.id)
+			break
+	if colony_star >= 0:
+		panel._relocate.button_pressed = true
+		_on_star_clicked(colony_star)
+		await get_tree().create_timer(0.3).timeout
+		var hint_from: String = panel._hint.text
+		_on_star_clicked(colony_star) # the same star: cancels (the game's message)
+		for i in 8:
+			await get_tree().create_timer(0.25).timeout
+			_smoke_answer()
+		print("smoke: fleets relocate from %d: '%s', then the same star: '%s'" % [colony_star, hint_from, panel._hint.text])
+		if not hint_from.begins_with("Now click"):
+			return false
+		panel._relocate.button_pressed = false
+	if not await _smoke_side_resize(panel, shots, "fleets"):
+		return false
+	panel.close()
+	await get_tree().create_timer(0.6).timeout
+	print("smoke: fleets closed: tab armed %s, zoom %.3f (was %.3f), marked %d" % [tab.button_pressed, galaxy.camera.zoom.x, zoom_before, galaxy.selected_fleet])
+	return not tab.button_pressed and absf(galaxy.camera.zoom.x - zoom_before) < zoom_before * 0.01 and galaxy.selected_fleet == -1
+
+
 func _row_star_first(panel: Control, star: int) -> int:
 	for c: Dictionary in panel.colonies:
 		if int(c.star) == star:
@@ -1917,6 +2024,7 @@ func _on_answered(id: int, value: int, text := "") -> void:
 ## and build panes, the fleet panel and another side panel, and the galaxy fits the space left of it.
 func _open_side_panel(action_name: String) -> void:
 	var side_view := _view(SIDE_PANELS[action_name])
+	var fleet_shown := _fleet_ship # Fleets opens on the fleet whose box was open
 	_view("build_pane").cancel()
 	var system_pane := _view("system_pane")
 	if system_pane.visible:
@@ -1930,7 +2038,12 @@ func _open_side_panel(action_name: String) -> void:
 	_switching_panel = true # another side panel closes: the camera stays fitted for this one
 	_bring_up(side_view)
 	_switching_panel = false
-	side_view.open_panel(_side_panel_area())
+	if "fleets" in side_view:
+		side_view.player = int(galaxy.data.get("player", -1))
+		side_view.fleets = galaxy.fleets
+		side_view.open_panel(_side_panel_area(), fleet_shown)
+	else:
+		side_view.open_panel(_side_panel_area())
 	_view("side_tabs").show_open(action_name, true)
 	_fit_beside_panel(side_view)
 
@@ -1993,6 +2106,8 @@ func _on_star_clicked(star_id: int) -> void:
 	for panel_name: String in SIDE_PANELS.values():
 		var side_view: Control = _views.get(panel_name)
 		if side_view != null and side_view.visible:
+			if "fleets" in side_view:
+				side_view.fleets = galaxy.fleets
 			side_view.select_star(star_id) # the panel's row; the map stays (owner, 2026-11-14)
 			return
 	if galaxy.relocating:
@@ -2268,6 +2383,10 @@ func _on_star_hovered(star_id: int) -> void:
 	_hovered_star = star_id
 	var fleet_panel := _view("fleet_panel")
 	var ships: Array = fleet_panel.selected_ships() if fleet_panel.visible else []
+	var fleets_view: Control = _views.get("fleets_panel")
+	if fleets_view != null and fleets_view.visible and not fleets_view.relocating:
+		fleet_panel = fleets_view # the Fleets panel's picked ships get the route preview
+		ships = fleets_view.selected_ships()
 	if star_id < 0 or ships.is_empty() or galaxy.relocating:
 		if not galaxy.preview.is_empty():
 			galaxy.preview = {}
@@ -2283,6 +2402,9 @@ func _on_star_hovered(star_id: int) -> void:
 
 
 func _end_relocating() -> void:
+	var fleets_view: Control = _views.get("fleets_panel")
+	if fleets_view != null and fleets_view.relocating:
+		fleets_view._set_relocating(false) # a right click leaves the Fleets panel's RELOCATE too
 	if galaxy.relocating:
 		galaxy.relocating = false
 		Input.set_default_cursor_shape(Input.CURSOR_ARROW)
@@ -2327,15 +2449,17 @@ func _smoke_native() -> void:
 		return
 	# The side panels' steps, any of them in one launch (one game start for several checks), with
 	# quick camera flights: the steps wait on the flights.
-	var panel_steps: Array = ["--colonies", "--planets"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
+	var panel_steps: Array = ["--colonies", "--planets", "--fleets"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
 	if not panel_steps.is_empty():
 		galaxy.flight_time = 0.15
 		for step: String in panel_steps:
 			var passed := false
 			if step == "--colonies":
 				passed = await _smoke_colonies(shots)
-			else:
+			elif step == "--planets":
 				passed = await _smoke_planets(shots)
+			else:
+				passed = await _smoke_fleets_panel(shots)
 			if not passed:
 				await host.smoke_fail(step.trim_prefix("--") + " panel")
 				return

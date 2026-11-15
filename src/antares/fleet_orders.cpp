@@ -412,6 +412,11 @@ namespace antares::commands::internal {
                 item.Int("id", id);
                 item.Str("name", Ship_Label(id));
                 item.Str("type", Ship_Type_Name(item_ship.d.ship_type));
+                // The Fleets screen's filters (FLT2::Ok_To_Add_Ship): combat, or support (transports,
+                // colony and outpost ships).
+                item.Bool("combat", item_ship.d.ship_type == SHIP_TYPE_COMBAT);
+                item.Bool("support", item_ship.d.ship_type == SHIP_TYPE_TRANSPORT || item_ship.d.ship_type == SHIP_TYPE_COLONY ||
+                    item_ship.d.ship_type == SHIP_TYPE_OUTPOST);
                 item.Int("hull", (int8_t)item_ship.d.size);
                 // KEN::Do_Get_Ship_Picture_Seg: SHIPS.LBX, picture + colour of the builder * 50.
                 const int16_t builder = (int8_t)item_ship.d.previous_owner;

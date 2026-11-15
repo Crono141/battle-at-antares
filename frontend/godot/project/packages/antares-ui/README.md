@@ -17,9 +17,12 @@ then reads RETURN TO COLONIES). A click on a star picks its colony's row.
 The Planets tab (or P) lists the planets you could settle, with the original's five toggles and
 sortable columns; arm SEND COLONY SHIP or SEND OUTPOST SHIP and click a planet to send the
 nearest free ship, and click a ship's marker in a row to turn it back.
+The Fleets tab (or F) shows your fleets one at a time (◀ ▶), their ships with the Support and
+Combat filters and the hovered ship's details; pick ships (ALL picks them all) and click a star to
+send them, SCRAP scraps them, RELOCATE takes the star to relocate from and then where to.
 Its look comes from a theme package (Antares UI: Chrome or Antares UI: Glass; enable either or
 both, and switch in Options > Theme). Screens it
-doesn't redraw yet (fleets, leaders, races, the ship designer, saving and loading and the rest) open as the
+doesn't redraw yet (leaders, races, the ship designer, saving and loading and the rest) open as the
 original screens.
 The classic build (`antares`) doesn't have it.
 
@@ -35,9 +38,10 @@ modding guide's "UI packages" (`docs/content/authoring-mods/ui-packages.md`).
 |---|---|---|
 | Ctrl+G | Galaxy | Switches between this package's galaxy and the original one, for comparing (no button). |
 | Mouse wheel, drag | Galaxy | Zooms towards the pointer and moves the map. |
-| Esc | Galaxy | Closes the system pane, the Colonies or Planets panel, the design list, the options or the game menu. |
+| Esc | Galaxy | Closes the system pane, the Colonies, Planets or Fleets panel, the design list, the options or the game menu. |
 | C | Galaxy | Opens or closes the Colonies panel. |
 | P | Galaxy | Opens or closes the Planets panel. |
+| F | Galaxy | Opens or closes the Fleets panel. |
 
 The original galaxy's keys (F1 to F6, F9, Alt+V, Alt+F1 to Alt+F8, T, G) do what they do there,
 and each also has a button on the map. Zoom is the mouse wheel.

@@ -59,10 +59,11 @@ metadata/key = "L"
 
 [node name="Fleets" type="Button" parent="."]
 layout_mode = 2
+toggle_mode = true
 focus_mode = 0
 script = ExtResource("2")
 label = "Fleets"
-metadata/screen = 4
+metadata/action = "fleets"
 metadata/key = "F"
 
 [node name="Planets" type="Button" parent="."]

@@ -762,30 +762,6 @@ namespace antares::commands::internal {
             }
         };
 
-        // A design's parts, as the popup lists them (Build_Ship_Design_Info_Formatted_Paragraph).
-        void Design_Parts(s_ship_design& design, s_out item) {
-            item.Str("hull", Utf8(TECHDATA::hull_data[design.size].name, 40));
-            item.Str("shield", Utf8(TECHDATA::shields[design.shield_type].name, 40));
-            item.Str("computer", Utf8(TECHDATA::computers[design.computer_type].name, 40));
-            item.Str("armor", Utf8(TECHDATA::armor[design.armor_type].name, 40));
-            item.Str("drive", Utf8(TECHDATA::drives[design.ftl_type].name, 40));
-            s_out weapons = item.Add_List("weapons");
-            for (s_ship_weapons& weapon : design.ship_weapon) {
-                if (weapon.type == 0) {
-                    continue;
-                }
-                char text[200];
-                COLBLDG::Build_Weapon_String(&weapon, text, sizeof(text), 0, (uint8_t)weapon.count);
-                weapons.Append_Object().Str("text", std::to_string((int)weapon.count) + " " + Utf8(text, sizeof(text)));
-            }
-            s_out specials = item.Add_List("specials");
-            for (int i = 0; i < 39; ++i) {
-                if (struct_::Test_Bit_Field(design.special_device_flags, i)) {
-                    specials.Append_Object().Str("text", Utf8(TECHDATA::specials[i].name, 60));
-                }
-            }
-        }
-
         // One buildable item with what the popup's detail box shows (Draw_Cost_And_Time_Info,
         // Build_Ship_Design_Info_Formatted_Paragraph): cost here, build time, upkeep, the picture,
         // and a design's parts.
@@ -1027,6 +1003,30 @@ namespace antares::commands::internal {
         }
 
     } // namespace
+
+    // A design's parts, as the popup lists them (Build_Ship_Design_Info_Formatted_Paragraph).
+    void Design_Parts(s_ship_design& design, s_out item) {
+        item.Str("hull", Utf8(TECHDATA::hull_data[design.size].name, 40));
+        item.Str("shield", Utf8(TECHDATA::shields[design.shield_type].name, 40));
+        item.Str("computer", Utf8(TECHDATA::computers[design.computer_type].name, 40));
+        item.Str("armor", Utf8(TECHDATA::armor[design.armor_type].name, 40));
+        item.Str("drive", Utf8(TECHDATA::drives[design.ftl_type].name, 40));
+        s_out weapons = item.Add_List("weapons");
+        for (s_ship_weapons& weapon : design.ship_weapon) {
+            if (weapon.type == 0) {
+                continue;
+            }
+            char text[200];
+            COLBLDG::Build_Weapon_String(&weapon, text, sizeof(text), 0, (uint8_t)weapon.count);
+            weapons.Append_Object().Str("text", std::to_string((int)weapon.count) + " " + Utf8(text, sizeof(text)));
+        }
+        s_out specials = item.Add_List("specials");
+        for (int i = 0; i < 39; ++i) {
+            if (struct_::Test_Bit_Field(design.special_device_flags, i)) {
+                specials.Append_Object().Str("text", Utf8(TECHDATA::specials[i].name, 60));
+            }
+        }
+    }
 
     // An application's help text, as the game's help popup shows it (HELP.LBX's record body).
     std::string Application_Help(int16_t app) {
