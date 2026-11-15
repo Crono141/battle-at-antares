@@ -1310,8 +1310,9 @@ namespace antares::commands::internal {
                 return;
             }
             const s_leader_data& data = MOX::leaders[leader];
-            if (data.player_index != MOX::PLAYER_NUM || data.status != 4 || data.type != LEADER_TYPE_COLONY) {
-                out.Fail("bad_args", "leader: one of the player's colony leaders for hire");
+            // Ship officers too (the Leaders panel's Ship Officers tab, WP3.7).
+            if (data.player_index != MOX::PLAYER_NUM || data.status != 4) {
+                out.Fail("bad_args", "leader: one of the player's leaders for hire");
                 return;
             }
             const int32_t cost = OFFICER::Officer_Cost(MOX::PLAYER_NUM, (int16_t)leader);
@@ -1333,7 +1334,7 @@ namespace antares::commands::internal {
             player.officer_for_hire = offered;
             if (hired) {
                 OFFICER::Hire_Officer(MOX::PLAYER_NUM, (int16_t)leader);
-                if (Valid_Star(star) && Player_Has_Colony_At((int16_t)star)) {
+                if (data.type == LEADER_TYPE_COLONY && Valid_Star(star) && Player_Has_Colony_At((int16_t)star)) {
                     const int8_t eta = OFFICER::Get_Star_Leader_ETA(MOX::PLAYER_NUM, (int16_t)leader, (int16_t)star);
                     OFFICER::Assign_Leader_To_Star(&player, &MOX::leaders[leader], &MOX::star[star], eta);
                     out.Int("eta", eta);

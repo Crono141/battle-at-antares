@@ -26,6 +26,7 @@ namespace antares::commands::internal {
     void Add_Colony_Entries(std::vector<s_entry>* table);
     void Add_Planet_Entries(std::vector<s_entry>* table);
     void Add_Fleet_Panel_Entries(std::vector<s_entry>* table);
+    void Add_Empire_Panel_Entries(std::vector<s_entry>* table);
     // A design's parts as the build list shows them (hull, shield, ..., weapons, specials).
     void Design_Parts(s_ship_design& design, s_out item);
     void Add_Save_Entries(std::vector<s_entry>* table);

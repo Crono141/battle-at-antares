@@ -43,18 +43,20 @@ metadata/key = "I"
 
 [node name="Races" type="Button" parent="."]
 layout_mode = 2
+toggle_mode = true
 focus_mode = 0
 script = ExtResource("2")
 label = "Races"
-metadata/screen = 6
+metadata/action = "races"
 metadata/key = "R"
 
 [node name="Leaders" type="Button" parent="."]
 layout_mode = 2
+toggle_mode = true
 focus_mode = 0
 script = ExtResource("2")
 label = "Leaders"
-metadata/screen = 29
+metadata/action = "leaders"
 metadata/key = "L"
 
 [node name="Fleets" type="Button" parent="."]

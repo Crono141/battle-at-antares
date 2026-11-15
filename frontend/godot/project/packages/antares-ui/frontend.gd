@@ -46,7 +46,10 @@ var _fleet_from_system := -1
 ## that system returns to the panel ("Return to Colonies").
 var _colonies_return := false
 ## The right sidebar's panels (owner, 2026-11-14: they fly out from the right): action -> view.
-const SIDE_PANELS := {"colonies": "colonies_panel", "planets": "planets_panel", "fleets": "fleets_panel"}
+const SIDE_PANELS := {"colonies": "colonies_panel", "planets": "planets_panel", "fleets": "fleets_panel",
+	"leaders": "leaders_panel", "races": "races_panel"}
+## Side panels the galaxy isn't fitted for (owner, 2026-11-14: "The galaxy is not moved" for Races).
+const SIDE_PANELS_UNFITTED := ["races_panel"]
 var _switching_panel := false # one side panel replaces another: the camera stays fitted
 ## The camera's view of an open system: the legacy scale it flies to, and how much of the free
 ## area the system's orbits take.
@@ -801,6 +804,12 @@ func _view(scene_name: String) -> Control:
 ## A view's command; one with "_reply_to" gets its result back through that method of the view
 ## (the system panel's colony information).
 func _on_view_command(dict: Dictionary, view: Control) -> void:
+	# The Fleets panel's LEADERS: the Leaders panel's Ship Officers tab (owner's design).
+	if String(dict.get("verb", "")) == "open" and int(dict.get("screen", -1)) == 29 and view == _views.get("fleets_panel"):
+		var leaders_view := _view("leaders_panel")
+		leaders_view.tab = "ship"
+		_open_side_panel("leaders")
+		return
 	if dict.has("_reply_to"):
 		var method: String = dict["_reply_to"]
 		dict.erase("_reply_to")
@@ -931,7 +940,7 @@ func _on_todo_item(item: Dictionary) -> void:
 
 ## The drop-downs and slide-outs that buttons open (owner, 2026-11-12): one at a time, over
 ## everything else (the system pane, the fleet panel).
-const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel", "colonies_panel", "planets_panel", "fleets_panel"]
+const FLYOUTS := ["game_menu", "options_menu", "design_list", "command_points", "research_panel", "tax_panel", "todo_panel", "colonies_panel", "planets_panel", "fleets_panel", "leaders_panel", "races_panel"]
 
 
 ## Closes the flyouts a click at `at` falls outside of; true when the click landed on the map
@@ -1068,7 +1077,7 @@ func _on_view_action(action_name: String) -> void:
 				var figure: Control = bar.command_label if action_name == "command_points" else bar.research
 				var center := figure.get_global_rect().get_center().x
 				_drop_down(action_name, panel, bar.research.text, center)
-		"colonies", "planets", "fleets":
+		"colonies", "planets", "fleets", "leaders", "races":
 			var side_view := _view(SIDE_PANELS[action_name])
 			if side_view.visible:
 				side_view.close()
@@ -1836,6 +1845,112 @@ func _smoke_fleets_panel(shots: String) -> bool:
 	return not tab.button_pressed and absf(galaxy.camera.zoom.x - zoom_before) < zoom_before * 0.01 and galaxy.selected_fleet == -1
 
 
+## WP3.7 (`--leaders`): the Leaders panel opens with its tab armed on the colony leaders and a
+## system shown, a star click moves the cycler, a governor goes to the pool and is assigned back
+## (the game's questions answered), the Ship Officers tab lists fleets, and the panel follows a
+## window drag.
+func _smoke_leaders_panel(shots: String) -> bool:
+	_on_view_action("leaders")
+	await get_tree().create_timer(0.8).timeout
+	var panel := _view("leaders_panel")
+	var tab: Button = _view("side_tabs").get_node("Leaders")
+	print("smoke: leaders panel %s, tab armed %s, %d colony leaders, %d systems, shown '%s', system drawn %s" % [panel.visible,
+		tab.button_pressed, panel.leaders.size(), panel.places.size(), panel._place_label.text, not panel._system_view.system.is_empty()])
+	if shots != "":
+		await host.shot(shots + "/native-leaders.png")
+	if not panel.visible or not tab.button_pressed:
+		return false
+	if panel.places.size() >= 2:
+		var star := int(panel.places[1].star)
+		_on_star_clicked(star)
+		await get_tree().create_timer(0.4).timeout
+		print("smoke: leaders: star %d clicked: shown '%s' (wanted '%s')" % [star, panel._place_label.text, panel.places[1].name])
+		if panel.place != 1:
+			return false
+	# A governor to the pool and back.
+	for leader: Dictionary in panel.leaders:
+		if int(leader.status) == 1 and leader.has("star"):
+			var id := int(leader.leader)
+			var home := int(leader.star)
+			panel.picked = id
+			panel._act("pool")
+			for i in 8:
+				await get_tree().create_timer(0.2).timeout
+				_smoke_answer()
+			var pooled: Dictionary = panel._leader(id)
+			panel.picked = id
+			panel.select_star(home)
+			panel._act("assign")
+			for i in 8:
+				await get_tree().create_timer(0.2).timeout
+				_smoke_answer()
+			var back: Dictionary = panel._leader(id)
+			print("smoke: leaders: %s pooled (status %d) and assigned back (status %d, '%s')" % [leader.card.name, int(pooled.get("status", -1)),
+				int(back.get("status", -1)), back.get("state", "")])
+			if int(pooled.get("status", -1)) != 0 or int(back.get("status", -1)) != 1:
+				return false
+			break
+	panel._set_tab("ship")
+	await get_tree().create_timer(0.5).timeout
+	print("smoke: leaders: ship officers %d, fleets %d, ships shown %d" % [panel.leaders.size(), panel.places.size(), panel._ships.get_child_count()])
+	if shots != "":
+		await host.shot(shots + "/native-leaders-ships.png")
+	if not await _smoke_side_resize(panel, shots, "leaders"):
+		return false
+	panel._set_tab("colony")
+	panel.close()
+	await get_tree().create_timer(0.6).timeout
+	return not tab.button_pressed
+
+
+## WP3.7 (`--races`): the Race Relations panel opens with its tab armed and the galaxy not moved,
+## a met empire picked, a spy goes there and comes home, the mission changes and back, IGNORE
+## toggles twice, and the panel follows a window drag.
+func _smoke_races_panel(shots: String) -> bool:
+	var zoom_before: float = galaxy.camera.zoom.x
+	_on_view_action("races")
+	await get_tree().create_timer(0.8).timeout
+	var panel := _view("races_panel")
+	var tab: Button = _view("side_tabs").get_node("Races")
+	print("smoke: races panel %s, tab armed %s, %d empires, picked %d, galaxy zoom %.3f (was %.3f); %s; %s" % [panel.visible, tab.button_pressed,
+		panel.races.size(), panel.picked, galaxy.camera.zoom.x, zoom_before, panel._bonuses.text, panel._agents.text])
+	if shots != "":
+		await host.shot(shots + "/native-races.png")
+	if not panel.visible or not tab.button_pressed or absf(galaxy.camera.zoom.x - zoom_before) > zoom_before * 0.01:
+		return false
+	if panel.picked >= 0:
+		var r: Dictionary = panel._race(panel.picked)
+		var spies := int(r.spies)
+		var mission := int(r.mission)
+		var agents := int(panel.result.agents)
+		if agents > 0:
+			_send({"verb": "set_spies", "player": panel.picked, "count": spies + 1})
+			await get_tree().create_timer(0.2).timeout
+			panel.refresh()
+			await get_tree().create_timer(0.3).timeout
+			var more := int(panel._race(panel.picked).spies)
+			_send({"verb": "set_spies", "player": panel.picked, "count": spies})
+			print("smoke: races: spies %d -> %d and back" % [spies, more])
+			if more != spies + 1:
+				return false
+		_send({"verb": "set_spies", "player": panel.picked, "mission": (mission + 1) % 3})
+		await get_tree().create_timer(0.2).timeout
+		_send({"verb": "set_spies", "player": panel.picked, "mission": mission})
+		panel._act("IGNORE")
+		await get_tree().create_timer(0.3).timeout
+		var ignoring: bool = panel._race(panel.picked).get("ignoring", false)
+		panel._act("IGNORE")
+		await get_tree().create_timer(0.3).timeout
+		print("smoke: races: ignore toggled to %s and back to %s" % [ignoring, panel._race(panel.picked).get("ignoring", false)])
+		if ignoring == panel._race(panel.picked).get("ignoring", false):
+			return false
+	if not await _smoke_side_resize(panel, shots, "races"):
+		return false
+	panel.close()
+	await get_tree().create_timer(0.6).timeout
+	return not tab.button_pressed
+
+
 func _row_star_first(panel: Control, star: int) -> int:
 	for c: Dictionary in panel.colonies:
 		if int(c.star) == star:
@@ -2048,6 +2163,7 @@ func _on_answered(id: int, value: int, text := "") -> void:
 func _open_side_panel(action_name: String) -> void:
 	var side_view := _view(SIDE_PANELS[action_name])
 	var fleet_shown := _fleet_ship # Fleets opens on the fleet whose box was open
+	var system_shown := _panel_star # Leaders opens on the system whose pane was open
 	_view("build_pane").cancel()
 	var system_pane := _view("system_pane")
 	if system_pane.visible:
@@ -2065,6 +2181,9 @@ func _open_side_panel(action_name: String) -> void:
 		side_view.player = int(galaxy.data.get("player", -1))
 		side_view.fleets = galaxy.fleets
 		side_view.open_panel(_side_panel_area(), fleet_shown)
+	elif action_name == "leaders":
+		side_view.stars = galaxy.stars
+		side_view.open_panel(_side_panel_area(), system_shown)
 	else:
 		side_view.open_panel(_side_panel_area())
 	_view("side_tabs").show_open(action_name, true)
@@ -2075,6 +2194,9 @@ func _open_side_panel(action_name: String) -> void:
 func _fit_beside_panel(colonies: Control) -> void:
 	if not colonies.visible or native_screen != Screens.MAIN:
 		return
+	for unfitted: String in SIDE_PANELS_UNFITTED:
+		if colonies == _views.get(unfitted):
+			return
 	var area := _side_panel_area()
 	var inset := get_theme_constant_from(colonies, "inset")
 	var gap := maxf(get_theme_constant_from(colonies, "pane_gap"), 6.0)
@@ -2485,7 +2607,7 @@ func _smoke_native() -> void:
 		return
 	# The side panels' steps, any of them in one launch (one game start for several checks), with
 	# quick camera flights: the steps wait on the flights.
-	var panel_steps: Array = ["--colonies", "--planets", "--fleets"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
+	var panel_steps: Array = ["--colonies", "--planets", "--fleets", "--leaders", "--races"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
 	if not panel_steps.is_empty():
 		galaxy.flight_time = 0.15
 		for step: String in panel_steps:
@@ -2494,8 +2616,12 @@ func _smoke_native() -> void:
 				passed = await _smoke_colonies(shots)
 			elif step == "--planets":
 				passed = await _smoke_planets(shots)
-			else:
+			elif step == "--fleets":
 				passed = await _smoke_fleets_panel(shots)
+			elif step == "--leaders":
+				passed = await _smoke_leaders_panel(shots)
+			else:
+				passed = await _smoke_races_panel(shots)
 			if not passed:
 				await host.smoke_fail(step.trim_prefix("--") + " panel")
 				return
