@@ -282,11 +282,22 @@ func show_design(result: Dictionary) -> void:
 		if b:
 			b.disabled = not result.get("picture_cycles", true)
 	_show_systems()
-	var hull := int(result.hull_space)
-	var used := int(result.space_used)
+	# Battle Pods take negative space (the game subtracts it from what is used): shown as the hull
+	# growing by it, and what is used the same, so the free space is the game's and the bar adds
+	# up (owner, 2026-11-15: 19/31 with 12 free drew a full bar).
+	var extra := 0
+	var specials_space := 0
+	for sp: Dictionary in result.specials:
+		if int(sp.space) < 0:
+			extra -= int(sp.space)
+		else:
+			specials_space += int(sp.space)
+	var hull := int(result.hull_space) + extra
+	var used := int(result.space_used) + extra
 	_space_label.text = "SPACE %d / %d · %s" % [used, hull, ("%d free" % (hull - used)) if used <= hull else ("%d OVER" % (used - hull))]
+	_space_label.tooltip_text = ("The hull's %d, and %d more from Battle Pods" % [int(result.hull_space), extra]) if extra > 0 else ""
 	_space_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35) if used > hull else get_theme_color("font_color", "Label"))
-	_space_bar.set_parts(hull, used, int(result.weapon_space), int(result.special_space))
+	_space_bar.set_parts(hull, used, int(result.weapon_space), specials_space)
 	_cost_label.text = "COST %d BC" % int(result.cost)
 	_build.disabled = not result.get("buildable", false)
 	_build.tooltip_text = "Save the design in its slot" if not _build.disabled else "The parts need more space than the hull has"

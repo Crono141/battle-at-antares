@@ -2194,6 +2194,22 @@ func _smoke_design_panel(shots: String) -> bool:
 		(panel.design.specials as Array).size()])
 	if not special.is_empty() and (panel.design.specials as Array).size() != specials_before + 1:
 		return false
+	# Battle Pods (negative space): the bar shows them as more hull, its parts add up to what is used.
+	var pods := {}
+	for sp: Dictionary in panel._specials:
+		if int(sp.space) < 0 and not sp.get("fitted", false):
+			pods = sp
+	if not pods.is_empty():
+		panel.add_special(int(pods.special))
+		await get_tree().create_timer(0.5).timeout
+		var bar: Control = panel._space_bar
+		var other: int = bar.used - bar.weapons - bar.specials
+		print("smoke: design: %s fitted: '%s', bar hull %d used %d (other %d, weapons %d, specials %d), game %d/%d" % [pods.name,
+			panel._space_label.text, bar.hull, bar.used, other, bar.weapons, bar.specials, int(panel.design.space_used), int(panel.design.hull_space)])
+		if other < 0 or bar.hull - bar.used != int(panel.design.hull_space) - int(panel.design.space_used):
+			return false
+		if shots != "":
+			await host.shot(shots + "/native-design-pods.png")
 	parts.fold()
 	await get_tree().create_timer(0.3).timeout
 	if parts.visible:
