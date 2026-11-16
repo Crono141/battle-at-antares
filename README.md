@@ -25,9 +25,9 @@ Battle at Antares bugs here, not to Redone.
 
 - **A native interface** (0.5.0, the Godot build `antares-godot`): a galaxy map you can pan and
   zoom, with the system, colony and build panes, colonies, planets, fleets, leaders, races, info,
-  research and ship design as panels over it, a start-of-turn to-do list, and two themes (Glass
-  built in; Chrome, the original metal, as its own download). The original screens remain the
-  "Legacy interface" setting.
+  research and ship design as panels over it, a start-of-turn to-do list, and two themes (Glass,
+  and Chrome with the original metal), both plain packages that can start your own. The original
+  screens remain the "Legacy interface" setting.
 - **HD art.** The drawing library works at two resolutions: the original 640x480 palette screen
   stays authoritative for game logic, and every draw also renders into a 4x screen with HD art
   where a pack provides it. The HD art itself is on the
