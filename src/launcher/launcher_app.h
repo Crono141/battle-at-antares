@@ -156,7 +156,6 @@ namespace launcher {
         int load_save_ = 0; // 0: none, 1-10: SAVE<n>.GAM
         bool close_on_launch_ = false;
         // WP3.1a: start the Godot build (antares-godot, beside antares) instead of the SDL one.
-        bool use_godot_ = false;
         bool Godot_Available_() const;
         std::string Godot_Executable_() const;
         bool auto_window_ = true; // set the window size to match the scaler (WP5.5)
