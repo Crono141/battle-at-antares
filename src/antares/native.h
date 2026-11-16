@@ -170,6 +170,12 @@ namespace antares::native {
     // Posts a "combat" request (`fields`: JSON members without braces) and waits for the answer;
     // *answer gets the answer's text (the action, as JSON). Returns the answer's value.
     int32_t Ask_Combat(const std::string& fields, std::string* answer);
+    // WP3.9d: the frontend plays combat effects ("animate" requests). Each effect is posted as an
+    // "animate" request (`fields`: JSON members without braces, "event" the effect) and the rules
+    // wait until the frontend has played it (or skipped it). Without a claim nothing is asked, so
+    // scripts that claim only "combat" see no change.
+    bool Animate_Native();
+    void Ask_Animate(const std::string& fields);
     // Posts the current scene state (Set_Scene) as snapshot `name` when it changed since the last
     // post, so a frontend follows steps that ask nothing (AI turns, a ship's move, step by step).
     void Post_Scene_Snapshot(const char* name);

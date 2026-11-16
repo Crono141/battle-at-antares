@@ -18,6 +18,7 @@ namespace antares::combat {
         bool s_active = false;
         int16_t s_star = -1;
         uint64_t s_last_frame_ms = 0;
+        void Flush_Motion(); // WP3.9d, below
 
         // The legacy shield's outline layers (cmbtdrw1.cpp, Draw_Ship_To_Bitmap's switch on
         // (shield_arc_max + 19) / 10): 2, 4, 6, 8 or 10 layers, by the arc's maximum.
@@ -301,6 +302,7 @@ namespace antares::combat {
         if (!s_active) {
             return;
         }
+        Flush_Motion();
         s_active = false;
         native::Post_Snapshot_Json("combat", State_Json());
         native::Clear_Scene();
@@ -320,17 +322,202 @@ namespace antares::combat {
         native::Serve_Sprites_Now(4); // the scene's art while no request waits (AI turns)
     }
 
+    namespace {
+        // A move or turn being gathered (Turn_Step, Move_Step), posted as one segment.
+        struct s_motion {
+            int kind = 0; // 0 none, 1 turn, 2 move
+            int16_t ship = -1;
+            int16_t from_facing = 0, to_facing = 0, dir = 0;
+            int16_t from_x = 0, from_y = 0, to_x = 0, to_y = 0;
+            int32_t steps = 0;
+        };
+        s_motion s_motion_pending;
+        uint64_t s_event_seq = 0;
+
+        std::string Write(yyjson_mut_doc* doc) {
+            char* text = yyjson_mut_write(doc, 0, nullptr);
+            std::string json = text != nullptr ? text : "{}";
+            free(text);
+            yyjson_mut_doc_free(doc);
+            return json;
+        }
+
+        // Posts one effect: an "animate" request while Animating (the rules wait for it), else
+        // the 3.9c "combat_event" snapshot for observers.
+        void Post_Event(const std::string& event) {
+            if (Animating()) {
+                native::Ask_Animate("\"event\":" + event);
+            } else {
+                native::Post_Scene_Snapshot("combat");
+                native::Post_Snapshot_Json("combat_event", event);
+            }
+        }
+
+        void Flush_Motion() {
+            s_motion& m = s_motion_pending;
+            if (m.kind == 0) {
+                return;
+            }
+            yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
+            yyjson_mut_val* root = yyjson_mut_obj(doc);
+            yyjson_mut_doc_set_root(doc, root);
+            s_out out(doc, root);
+            out.Str("kind", m.kind == 1 ? "turn" : "move");
+            out.Int("seq", (int64_t)++s_event_seq);
+            out.Int("ship", m.ship);
+            out.Int("steps", m.steps);
+            if (m.kind == 1) {
+                out.Int("from", m.from_facing);
+                out.Int("to", m.to_facing);
+                out.Int("dir", m.dir);
+            } else {
+                out.Int("x0", m.from_x);
+                out.Int("y0", m.from_y);
+                out.Int("x1", m.to_x);
+                out.Int("y1", m.to_y);
+                out.Int("facing", MOX::combat_data[m.ship].facing_dir);
+            }
+            m = s_motion{};
+            Post_Event(Write(doc));
+        }
+
+        // Every other effect: the motion so far first, so the frontend has the ship where it is.
+        void Post_Effect(yyjson_mut_doc* doc) {
+            Flush_Motion();
+            Post_Event(Write(doc));
+        }
+
+        yyjson_mut_doc* Effect_Doc(const char* kind, s_out* out) {
+            yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
+            yyjson_mut_val* root = yyjson_mut_obj(doc);
+            yyjson_mut_doc_set_root(doc, root);
+            *out = s_out(doc, root);
+            out->Str("kind", kind);
+            out->Int("seq", (int64_t)++s_event_seq);
+            return doc;
+        }
+    } // namespace
+
+    bool Animating() {
+        return s_active && MOX::super_fast_flag == 0 && native::Animate_Native();
+    }
+
+    void Turn_Step(int16_t ship, int16_t from, int16_t to) {
+        if (!s_active) {
+            return;
+        }
+        s_motion& m = s_motion_pending;
+        if (m.kind != 1 || m.ship != ship) {
+            Flush_Motion();
+            m.kind = 1;
+            m.ship = ship;
+            m.from_facing = from;
+            m.dir = (int16_t)(((to - from + 16) % 16) == 1 ? 1 : -1);
+        }
+        m.to_facing = to;
+        m.steps++;
+    }
+
+    void Move_Step(int16_t ship, int16_t from_x, int16_t from_y, int16_t to_x, int16_t to_y) {
+        if (!s_active) {
+            return;
+        }
+        s_motion& m = s_motion_pending;
+        if (m.kind != 2 || m.ship != ship) {
+            Flush_Motion();
+            m.kind = 2;
+            m.ship = ship;
+            m.from_x = from_x;
+            m.from_y = from_y;
+        }
+        m.to_x = to_x;
+        m.to_y = to_y;
+        m.steps++;
+    }
+
+    void Motion_End() {
+        if (s_active) {
+            Flush_Motion();
+        }
+    }
+
+    void Teleport(int16_t ship, int16_t to_x, int16_t to_y) {
+        if (!s_active) {
+            return;
+        }
+        s_out out(nullptr, nullptr);
+        yyjson_mut_doc* doc = Effect_Doc("teleport", &out);
+        out.Int("ship", ship);
+        out.Int("x0", MOX::combat_data[ship].x);
+        out.Int("y0", MOX::combat_data[ship].y);
+        out.Int("x1", to_x);
+        out.Int("y1", to_y);
+        Post_Effect(doc);
+    }
+
+    void Destroyed(int16_t ship, int16_t killer, int16_t death) {
+        if (!s_active) {
+            return;
+        }
+        s_out out(nullptr, nullptr);
+        yyjson_mut_doc* doc = Effect_Doc("destroyed", &out);
+        out.Int("ship", ship);
+        out.Int("killer", killer);
+        out.Int("death", death);
+        out.Int("size", MOX::combat_data[ship].size_class);
+        Post_Effect(doc);
+    }
+
+    void Missile_Launch(int16_t stack, int16_t from, int16_t to, bool at_missile, int16_t tx, int16_t ty) {
+        if (!s_active) {
+            return;
+        }
+        const s_missile& msl = MOX::missile[stack];
+        s_out out(nullptr, nullptr);
+        yyjson_mut_doc* doc = Effect_Doc("missile_launch", &out);
+        out.Int("stack", stack);
+        out.Int("from", from);
+        out.Int("to", to);
+        out.Bool("at_missile", at_missile);
+        out.Int("weapon", msl.type);
+        out.Str("name", commands::internal::Utf8(TECHDATA::weapons[msl.type].name, 40));
+        out.Int("weapon_type", TECHDATA::weapons[msl.type].type);
+        out.Int("count", msl.quantity);
+        out.Int("x", msl.x);
+        out.Int("y", msl.y);
+        out.Int("tx", tx);
+        out.Int("ty", ty);
+        Post_Effect(doc);
+    }
+
+    void Missile_Arrive(int16_t stack, int16_t x, int16_t y) {
+        if (!s_active) {
+            return;
+        }
+        const s_missile& msl = MOX::missile[stack];
+        s_out out(nullptr, nullptr);
+        yyjson_mut_doc* doc = Effect_Doc("missile_arrive", &out);
+        out.Int("stack", stack);
+        out.Int("to", msl.target_unit_idx);
+        out.Bool("at_missile", msl.target_is_missile != 0);
+        out.Int("weapon", msl.type);
+        out.Int("count", msl.quantity);
+        out.Int("x", x);
+        out.Int("y", y);
+        Post_Effect(doc);
+    }
+
     void Beam(int16_t from, int16_t to, int16_t non_ship_target, const s_beam_fx_entry* entries) {
         if (!s_active || entries == nullptr) {
             return;
         }
-        // The state first, so the frontend has every ship where the volley starts.
-        native::Post_Scene_Snapshot("combat");
+        Flush_Motion();
         yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
         yyjson_mut_val* root = yyjson_mut_obj(doc);
         yyjson_mut_doc_set_root(doc, root);
         s_out out(doc, root);
         out.Str("kind", "beam");
+        out.Int("seq", (int64_t)++s_event_seq);
         out.Int("from", from);
         out.Int("to", to);
         out.Bool("missile", non_ship_target != 0);
@@ -348,11 +535,7 @@ namespace antares::combat {
             shot.Int("count", e.shot_count);
             shot.Int("flags", e.result_flags);
         }
-        char* text = yyjson_mut_write(doc, 0, nullptr);
-        std::string json = text != nullptr ? text : "{}";
-        free(text);
-        yyjson_mut_doc_free(doc);
-        native::Post_Snapshot_Json("combat_event", json);
+        Post_Event(Write(doc));
     }
 
     std::string Apply_Action(const std::string& json, int16_t active_player_id, int16_t* next_ship_flag) {

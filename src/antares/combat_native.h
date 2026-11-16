@@ -34,6 +34,30 @@ namespace antares::combat {
     // damage, shield hits and missile impacts the frontend reads from successive states.
     void Beam(int16_t from, int16_t to, int16_t non_ship_target, const struct s_beam_fx_entry* entries);
 
+    // WP3.9d (combat-plan.md section 13, foundation 1): the battle's effects as "animate" requests.
+    // Each effect is posted when the rules reach it and the rules wait until the frontend has
+    // played it, so order and pacing stay legacy's. A move or turn is posted in segments: the
+    // steps gather while the rules run them, and any other effect (defensive fire, a missile
+    // reaching the ship) first posts the segment travelled so far; Motion_End posts the rest.
+    // True while effects go to the frontend: a native battle whose frontend claims "animate",
+    // not in super-fast mode. The legacy code then skips its own drawing where that drawing
+    // holds no rules (moves and turns, so far).
+    bool Animating();
+    // Rotate_Ship turned `ship` one facing step (`from` to `to`, 0-15).
+    void Turn_Step(int16_t ship, int16_t from, int16_t to);
+    // Move_Ship moved `ship` one interpolation step (combat pixels, the ship's top-left corner).
+    void Move_Step(int16_t ship, int16_t from_x, int16_t from_y, int16_t to_x, int16_t to_y);
+    // The move or turn ended (posts the last segment).
+    void Motion_End();
+    // A sub-space teleporter or phase shifter jump (grid squares).
+    void Teleport(int16_t ship, int16_t to_x, int16_t to_y);
+    // Destroy_Ship_By: `ship` dies (`death`: 1 normal, 2+ the exploding kinds), before its explosion.
+    void Destroyed(int16_t ship, int16_t killer, int16_t death);
+    // Fire_Missile: stack `stack` leaves `from` for ship (or stack) `to`, aimed at (tx, ty) pixels.
+    void Missile_Launch(int16_t stack, int16_t from, int16_t to, bool at_missile, int16_t tx, int16_t ty);
+    // Resolve_Missile: stack `stack` reached its target at (x, y) pixels; hits follow in the state.
+    void Missile_Arrive(int16_t stack, int16_t x, int16_t y);
+
     // The human player's input for MOX::cur_ship. False when the battle isn't native (the legacy
     // fields then read input); true once one action was applied (*next_ship_flag as the turn loop
     // expects).

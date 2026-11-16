@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/combat_native.h"
 
 namespace CMBTMOV1 {
     namespace {
@@ -81,6 +82,7 @@ namespace CMBTMOV1 {
         while (ship->facing_dir != target_facing && ship->unit_status == 0) {
             timer::Mark_Time();
 
+            const int16_t previous_facing = current_facing;
             current_facing += step;
             if (current_facing < 0) {
                 current_facing += 16;
@@ -88,6 +90,7 @@ namespace CMBTMOV1 {
             current_facing %= 16;
 
             ship->facing_dir = (int8_t)current_facing;
+            antares::combat::Turn_Step(ship_idx, previous_facing, current_facing); // WP3.9d
             moved_count = 0;
 
             if (!COMBINIT::Does_Combat_Ship_Have_Special(ship_idx, SPECIAL_INERTIAL_NULLIFIER)) {
@@ -109,7 +112,8 @@ namespace CMBTMOV1 {
                 }
             }
 
-            if (MOX::super_fast_flag == 0 && CMBTDRW1::Ship_On_Screen(ship_idx) != 0) {
+            // WP3.9d: a native battle's frontend draws the turn (Turn_Step); this block only draws.
+            if (MOX::super_fast_flag == 0 && !antares::combat::Animating() && CMBTDRW1::Ship_On_Screen(ship_idx) != 0) {
                 video::Set_Page_Off();
                 for (int16_t i = 0; i < MOX::combat_total_ship_count; ++i) {
                     const int16_t tractor_target_idx = MOX::combat_data[i].special_cooldown == COMBAT_SHIP_NONE
@@ -149,6 +153,7 @@ namespace CMBTMOV1 {
             }
         }
 
+        antares::combat::Motion_End(); // WP3.9d
         MOX::dont_draw_ship = saved_dont_draw;
     }
 
@@ -275,6 +280,7 @@ namespace CMBTMOV1 {
             if (Teleporter_Destination_In_Range(
                     ship_idx, dest_x_px, dest_y_px)) {
                 CMBTFIR2::Set_Teleporter_Used(ship_idx);
+                antares::combat::Teleport(ship_idx, dest_x, dest_y); // WP3.9d
                 Draw_Teleporting_Ship(ship_idx, dest_x, dest_y);
                 skip_normal_move = true;
             }
@@ -310,6 +316,9 @@ namespace CMBTMOV1 {
 
             if (MOX::super_fast_flag == 0) {
                 CMBTSPEC::Start_Ship_Engine_SFX();
+            }
+            // WP3.9d: a native battle's frontend draws the move (Move_Step); this block only draws.
+            if (MOX::super_fast_flag == 0 && !antares::combat::Animating()) {
                 video::Set_Page_Off();
                 CMBTDRW1::Full_Draw_Combat_Screen();
 
@@ -370,8 +379,11 @@ namespace CMBTMOV1 {
                         break;
                     }
 
+                    const int16_t step_from_x = cur_x_px;
+                    const int16_t step_from_y = cur_y_px;
                     special::Absolute_Interpolate_Line(
                         &cur_x_px, &cur_y_px, start_x_px, start_y_px, dest_x_px, dest_y_px, speed_px);
+                    antares::combat::Move_Step(ship_idx, step_from_x, step_from_y, cur_x_px, cur_y_px); // WP3.9d
 
                     ship->x = cur_x_px / 20;
                     ship->y = cur_y_px / 20;
@@ -397,7 +409,7 @@ namespace CMBTMOV1 {
                         }
                     }
 
-                    if (MOX::super_fast_flag == 0) {
+                    if (MOX::super_fast_flag == 0 && !antares::combat::Animating()) { // WP3.9d: drawing only
                         graphics::Set_Window(0, 0, 639, 350);
                         video::Clip_On();
                         video::Set_Page_Off();
@@ -450,6 +462,7 @@ namespace CMBTMOV1 {
                 }
             }
 
+            antares::combat::Motion_End(); // WP3.9d: the last segment, while the engine sound runs
             if (MOX::super_fast_flag == 0) {
                 CMBTSPEC::End_Ship_Engine_SFX();
             }

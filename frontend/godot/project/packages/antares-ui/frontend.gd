@@ -15,7 +15,7 @@ extends Node
 ## The game's screens (SCREEN_* values, res://screens.gd) this package draws natively.
 @export var claimed_screens: Array[int] = [Screens.MAIN, Screens.SHOW_COMMAND_POINTS]
 ## The request kinds its dialog answers; the rest ("choose") keep the legacy popup.
-@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup", "choose", "todo", "combat"]
+@export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup", "choose", "todo", "combat", "animate"]
 ## Start with the native views on (Ctrl+G switches); `-- --smoke` without `--native` starts off.
 @export var start_native := true
 
@@ -1317,6 +1317,10 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 	# WP3.9b: a decision in a native battle goes to the battle scene, not a dialog.
 	if kind == "combat":
 		_combat_view().on_request(id, request)
+		return
+	# WP3.9d: a battle effect the rules wait for; answered once it has played.
+	if kind == "animate":
+		_combat_view().on_animate(id, request)
 		return
 	var dialog: Control = _views.get("dialog")
 	if dialog == null:
@@ -4849,6 +4853,7 @@ func _smoke_combat(shots: String) -> bool:
 		if int(waited * 20.0) % 10 == 0 and not _smoke_answer() and view._my_turn():
 			view._act({"action": "auto"})
 	print("smoke: effects seen %s" % [counts])
+	print("smoke: effects played for the engine %s" % [view.animated]) # WP3.9d
 	print("smoke: battle over after %.0f s (scene shown: %s)" % [waited, view.visible])
 	return not view.visible
 

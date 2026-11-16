@@ -54,6 +54,12 @@ namespace antares::native_script {
         }
         native::s_request request;
         while (native::Take_Request(&request)) {
+            if (request.kind == "animate") {
+                // WP3.9d: a script has nothing to play; the effect counts as played at once.
+                native::Answer_Request(request.id, 1);
+                Note(notes, "native animate " + request.json);
+                continue;
+            }
             s_request_id = request.id;
             Note(notes, "native request " + request.json);
         }

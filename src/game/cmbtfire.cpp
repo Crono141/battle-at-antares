@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/combat_native.h"
 
 #include "lua/lua_game.h"
 
@@ -393,6 +394,7 @@ namespace CMBTFIRE {
         if (MOX::apply_damage_to_planet == 1) {
             if (ship.unit_status == 0) {
                 int16_t destruction_type = death_state > 1 ? death_state : 1;
+                antares::combat::Destroyed(ship_idx, killer_ship_idx, destruction_type); // WP3.9d
                 if (MOX::super_fast_flag == 0) {
                     CMBTSPEC::Destroy_Ship_FX(
                         ship_idx, draw_x, draw_y, destruction_type);

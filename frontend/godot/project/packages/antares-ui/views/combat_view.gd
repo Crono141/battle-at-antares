@@ -63,6 +63,11 @@ var _order := {} # ships still to act this round (int)
 ## WP3.9c: effects playing (beams, sparks, explosions, damage numbers, shield flashes), each
 ## {kind, t (seconds since start), life, ...}; drawn over the ships, dropped when done.
 var _effects: Array = []
+# WP3.9d: the effect the engine is waiting for ("animate" request): {id, t, dur}; empty when none.
+var _animating := {}
+var animated := {} # effects played, by kind (the smoke reports them)
+const MOVE_STEP_TIME := 0.012 # seconds per legacy move step (2 px); tuned with the ships (3.9f)
+const TURN_STEP_TIME := 0.05 # seconds per 22.5 degree facing step
 
 var _world: Node2D
 var _backdrop: Node2D
@@ -179,9 +184,63 @@ func on_request(id: int, request: Dictionary) -> void:
 	grab_focus()
 
 
+## WP3.9d: an effect the rules wait for (combat_native.cpp, "animate" requests): plays it, then
+## answers. One at a time: the engine posts the next only after this answer.
+func on_animate(id: int, request: Dictionary) -> void:
+	if not _animating.is_empty():
+		_finish_animation() # cannot happen (the engine waits), but never leave one unanswered
+	var event: Dictionary = request.get("event", {})
+	var st: Dictionary = request.get("scene_state", {})
+	var dur := 0.0
+	var event_kind := String(event.get("kind", ""))
+	animated[event_kind] = int(animated.get(event_kind, 0)) + 1
+	if not st.is_empty():
+		show_state(st)
+	if visible:
+		var index := int(event.get("ship", -1))
+		match String(event.get("kind", "")):
+			"move":
+				var ship := _ship(index)
+				if _ships.has(index) and not ship.is_empty():
+					var off := _center(ship) - Vector2(float(ship.get("x", 0)), float(ship.get("y", 0))) * 20.0
+					dur = float(event.get("steps", 1)) * MOVE_STEP_TIME
+					var e: Dictionary = _ships[index]
+					var p0 := Vector2(float(event.get("x0", 0)), float(event.get("y0", 0))) + off
+					# Continue from where the ship is shown when the segment follows the last one.
+					if e.shown.distance_to(p0) < 30.0:
+						p0 = e.shown
+					e.motion = {"p0": p0, "p1": Vector2(float(event.get("x1", 0)), float(event.get("y1", 0))) + off, "t": 0.0, "dur": dur}
+			"turn":
+				dur = float(event.get("steps", 1)) * TURN_STEP_TIME
+			"beam":
+				dur = play_event(event)
+			"destroyed":
+				dur = 1.0 # the explosion (from the state's change, _diff_effects)
+			"teleport":
+				dur = 0.25
+			_:
+				dur = 0.0
+	_animating = {"id": id, "t": 0.0, "dur": dur}
+	if dur <= 0.0:
+		_finish_animation()
+
+
+func _finish_animation() -> void:
+	var id := int(_animating.get("id", -1))
+	_animating = {}
+	for e: Dictionary in _ships.values():
+		if e.has("motion"):
+			e.shown = e.motion.p1
+			e.erase("motion")
+	if id >= 0:
+		game.answer_request(id, 1)
+
+
 func close() -> void:
 	if not visible:
 		return
+	if not _animating.is_empty():
+		_finish_animation()
 	hide()
 	_opened = false
 	_request_id = -1
@@ -359,7 +418,15 @@ func _process(delta: float) -> void:
 	for index in _ships.keys():
 		var e: Dictionary = _ships[index]
 		var goal: Vector2 = e.get("goal", e.shown)
-		e.shown = e.shown.lerp(goal, minf(1.0, delta * 18.0))
+		if e.has("motion"): # WP3.9d: a move segment at the legacy pace
+			var m: Dictionary = e.motion
+			m.t += delta
+			var k := clampf(m.t / maxf(m.dur, 0.001), 0.0, 1.0)
+			e.shown = (m.p0 as Vector2).lerp(m.p1, k)
+			if k >= 1.0:
+				e.erase("motion")
+		else:
+			e.shown = e.shown.lerp(goal, minf(1.0, delta * 18.0))
 		var goal_angle: float = e.get("goal_angle", e.angle)
 		e.angle = lerp_angle(e.angle, goal_angle, minf(1.0, delta * 14.0))
 		e.sprite.position = e.shown
@@ -368,6 +435,10 @@ func _process(delta: float) -> void:
 		_cam = _cam.lerp(_cam_goal, minf(1.0, delta * 6.0))
 		if _cam.distance_to(_cam_goal) < 1.0:
 			_cam_goal = Vector2.INF
+	if not _animating.is_empty():
+		_animating.t += delta
+		if _animating.t >= _animating.dur:
+			_finish_animation()
 	for effect: Dictionary in _effects:
 		effect.t += delta
 	_effects = _effects.filter(func(effect: Dictionary) -> bool: return effect.t < effect.life)
@@ -1356,9 +1427,9 @@ func _beam_color(name: String) -> Color:
 
 ## A volley from the engine (combat_native.cpp, Beam): each weapon's shots one after another, from
 ## the shooter to its target (a ship, or a missile stack's point), sparks where they land.
-func play_event(event: Dictionary) -> void:
+func play_event(event: Dictionary) -> float:
 	if not visible or String(event.get("kind", "")) != "beam":
-		return
+		return 0.0
 	var from := int(event.get("from", -1))
 	var to := int(event.get("to", -1))
 	var missile := bool(event.get("missile", false))
@@ -1377,6 +1448,7 @@ func play_event(event: Dictionary) -> void:
 				"missile": missile, "point": point, "jitter": jitter, "color": _beam_color(name), "projectile": projectile})
 			delay += SHOT_GAP
 		delay += 0.05
+	return delay + SHOT_LIFE + 0.18 # the last shot has landed
 
 
 ## What changed between two states: ships destroyed (the game's explosion), hull damage (a number

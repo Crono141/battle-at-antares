@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/combat_native.h"
 
 namespace CMBTMIS {
     static int16_t incoming_x[MAX_COMBAT_FLYERS];
@@ -678,6 +679,7 @@ namespace CMBTMIS {
         if (!Is_Missile_Target_Alive(missile_idx)) {
             return 0;
         }
+        antares::combat::Missile_Arrive(missile_idx, x, y); // WP3.9d
 
         int16_t shield_idx = 0;
         int16_t evade = 0;
@@ -1690,6 +1692,7 @@ namespace CMBTMIS {
                     ((MOX::missile[missile_idx].type != WEAPON_PROTON_TORPEDO ||
                          proton_torpedo_apply_speed_base != 0) &&
                         MOX::missile[missile_idx].type != WEAPON_DRAGON_BREATH))) {
+                antares::combat::Missile_Launch(missile_idx, source_idx, target_idx, is_anti_rocket != 0, target_coords_x, target_coords_y); // WP3.9d
                 CMBTSPEC::Missile_Launch_FX(missile_idx, target_coords_x, target_coords_y, is_anti_rocket);
             } else {
                 Resolve_Missile(missile_idx, target_coords_x, target_coords_y);

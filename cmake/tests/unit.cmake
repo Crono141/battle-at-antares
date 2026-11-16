@@ -1620,6 +1620,7 @@ orion2re_add_unit_test(test_cmbtfire
     FAKE_SOURCES
         tests/fakes/fake_lua_game_runtime.cpp
         tests/fakes/fake_stasis_runtime.cpp
+        tests/fakes/fake_combat_native.cpp
 )
 
 orion2re_add_unit_test(test_cmbtspec

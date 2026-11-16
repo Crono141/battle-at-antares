@@ -67,7 +67,8 @@ namespace antares::native {
             KIND_TEXT = 16,
             KIND_POPUP = 32,
             KIND_TODO = 64,
-            KIND_COMBAT = 128 };
+            KIND_COMBAT = 128,
+            KIND_ANIMATE = 256 };
 
         uint32_t Kind_Bit(const std::string& kind) {
             return kind == "message" ? KIND_MESSAGE
@@ -78,6 +79,7 @@ namespace antares::native {
                 : kind == "popup"    ? KIND_POPUP
                 : kind == "todo"     ? KIND_TODO
                 : kind == "combat"   ? KIND_COMBAT
+                : kind == "animate"  ? KIND_ANIMATE
                                      : 0;
         }
 
@@ -900,6 +902,16 @@ namespace antares::native {
 
     bool Combat_Native() {
         return Claimed_Kind(KIND_COMBAT) && MOX::game_type == 0; // network battles: combat::Begin
+    }
+
+    bool Animate_Native() {
+        return Combat_Native() && Claimed_Kind(KIND_ANIMATE);
+    }
+
+    void Ask_Animate(const std::string& fields) {
+        if (Animate_Native()) {
+            Ask("animate", "", fields);
+        }
     }
 
     int32_t Ask_Combat(const std::string& fields, std::string* answer) {
