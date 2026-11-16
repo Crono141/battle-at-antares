@@ -11,13 +11,15 @@ The game is built in three layers:
    through (queries it reads, commands it sends).
 2. **The layout:** which panels exist, where they sit and what they do. The Godot build has one
    built in, **Antares UI**: the galaxy as a map you can zoom and drag, with panels over it. It
-   shows when the setting `interface legacy_ui` (the launcher's "Legacy interface") is off; it is on
-   by default, so the game starts with the original screens.
+   shows when the setting `interface legacy_ui` (the launcher's "Legacy interface") is off, which
+   is the default since 0.5.0; on, the game shows the original screens.
 3. **The theme:** how the panels and buttons look. Theme packages (Antares UI: Chrome and Antares
    UI: Glass ship with the game) style any layout that uses the theme names; see "Themes" below.
 
-A **UI package** changes the layout: it replaces some or all of Antares UI. Antares UI's source
-ships with the game in `ui-source/` (a Godot project, see its README) as the place to start.
+A **UI package** changes the layout: it replaces some or all of Antares UI. Antares UI's source is
+in the repository and the source download (`frontend/godot/project/`, a Godot 4.7 project; the
+interface is `packages/antares-ui/`) as the place to start. To restyle rather than rearrange, start
+from a copy of a theme: `data/mods/antares-ui-chrome.zip` or `antares-ui-glass.zip`.
 Neither a UI package nor a theme changes saves: saves don't record them, and a save loads with or
 without them.
 

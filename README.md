@@ -1,221 +1,192 @@
 # Battle at Antares
 
-**Battle at Antares** is an HD remaster of Master of Orion II. It is an enhanced fork of
-[Orion2 Redone (orion2re)](https://github.com/orion2re/orion2re), the faithful restoration of the
-Master of Orion II engine, in the way [Augustus](https://github.com/Keriew/augustus) is to Julius.
+**Master of Orion II with a new interface.** Battle at Antares is an HD remaster of Master of Orion
+II: the original game's rules, races and AI, played from a galaxy map you can pan and zoom, with
+the game's screens as panels over it instead of full-screen pages. It is built on
+[Orion2 Redone](https://github.com/orion2re/orion2re), the faithful restoration of the Master of
+Orion II engine, in the way [Augustus](https://github.com/Keriew/augustus) is to Julius.
 
-Version 0.5.0: Linux, Windows and (experimental) Apple Silicon macOS builds on the
-[releases page](https://github.com/Crono141/battle-at-antares/releases), HD art from
-[battle-at-antares-hd](https://github.com/Crono141/battle-at-antares-hd/releases). You need your own
-Master of Orion II 1.31 (GOG or Steam); `INSTALL.txt` in the download says how to set it up.
-0.5.0 opens in the game's new native interface (the galaxy map with panels); the original screens
-are one setting away. Development continues on `main` (next: space combat in the native interface).
+![The galaxy map](docs/screenshots/galaxy.jpg)
+
+**Version 0.5.0** for Windows, Linux and (experimental) Apple Silicon macOS is on the
+[releases page](https://github.com/Crono141/battle-at-antares/releases). You need your own copy of
+Master of Orion II 1.31 (GOG or Steam).
 
 If you enjoy it, you can support the work on [Ko-fi](https://ko-fi.com/crono141).
+
+## The new interface
+
+Every panel works through the same rules code the original screens use, so the game plays exactly
+as Master of Orion II does, and saves, mods and multiplayer are unchanged.
+
+**The galaxy** is the home view. The wheel zooms smoothly, a drag pans, and wide screens show more
+of the galaxy. Influence borders, fleets with their routes and arrival times, and the map's hidden
+keys as buttons. The top bar keeps your treasury, tax rate, command points, food, freighters and
+research one click away.
+
+**Systems and colonies.** Click a star and the camera flies to it; its planets come out on their
+orbits and the system pane lists its fleets, governor and planets. Click a colony and its pane opens
+beside the planet: production, morale, the population at work, defences and buildings, with the
+build list (drag to reorder, refits included) next to it.
+
+<table>
+<tr>
+<td><img src="docs/screenshots/system.jpg" alt="A star system, its planets on their orbits and the system pane"></td>
+<td><img src="docs/screenshots/colony.jpg" alt="The colony pane and the build list beside the system"></td>
+</tr>
+<tr>
+<td align="center">A system, zoomed in from the map</td>
+<td align="center">A colony and its build list</td>
+</tr>
+</table>
+
+**Your empire** slides out from the right edge while the galaxy stays in view: Colonies, Planets,
+Fleets, Leaders, Races and Info, each sortable.
+
+<table>
+<tr>
+<td><img src="docs/screenshots/colonies.jpg" alt="The Colonies panel"></td>
+<td><img src="docs/screenshots/planets.jpg" alt="The Planets panel"></td>
+</tr>
+<tr>
+<td align="center">Colonies</td>
+<td align="center">Planets</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/fleets.jpg" alt="The Fleets panel"></td>
+<td><img src="docs/screenshots/officers.jpg" alt="Ship officers in the Leaders panel"></td>
+</tr>
+<tr>
+<td align="center">Fleets</td>
+<td align="center">Leaders: ship officers</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/races.jpg" alt="The Races panel"></td>
+<td><img src="docs/screenshots/info.jpg" alt="The Info panel"></td>
+</tr>
+<tr>
+<td align="center">Races</td>
+<td align="center">Info</td>
+</tr>
+</table>
+
+**Ship design** is a panel too: pick the hull and picture, fit drives, armour, shields and
+computers, add weapons with their arcs and mods and the specials, and watch the space and cost as
+you build.
+
+<table>
+<tr>
+<td><img src="docs/screenshots/ship-designs.jpg" alt="The ship designs list"></td>
+<td><img src="docs/screenshots/ship-design.jpg" alt="Designing a ship, with the parts list"></td>
+</tr>
+<tr>
+<td align="center">Your designs</td>
+<td align="center">Designing a doom star</td>
+</tr>
+</table>
+
+**Less interruption.** A start-of-turn to-do list collects empty build queues, ships that arrived,
+leader offers and news, instead of stopping the turn for each one. Turn notices, saving and loading,
+leaders for hire, the turn summary, the battle target choice and the bombing and invasion choices
+show over the map; diplomacy and the news play in a window over it.
+
+**Still the original screens:** space combat (a native battle is in the works), ground combat and a
+few rarer windows. They appear as they always did and hand back to the map. The original interface
+everywhere is one setting away: **Legacy interface** in the launcher's settings.
+
+## Themes
+
+Two themes come with the game, and the game's Options > Theme switches between them while you play:
+
+- **Chrome** (the default): the original screens' metal, at a smaller size.
+- **Glass**: dark glass panels with thin steel edges.
+
+<table>
+<tr>
+<td><img src="docs/screenshots/colony.jpg" alt="The colony pane in the Chrome theme"></td>
+<td><img src="docs/screenshots/colony-glass.jpg" alt="The colony pane in the Glass theme"></td>
+</tr>
+<tr>
+<td align="center">Chrome</td>
+<td align="center">Glass</td>
+</tr>
+</table>
+
+A theme is an ordinary package (`data/mods/antares-ui-chrome.zip`, `antares-ui-glass.zip`): unzip a
+copy of one to make your own. Themes never affect saves. Changing the layout itself is possible
+too: [UI packages](docs/content/authoring-mods/ui-packages.md) explains how.
+
+## Getting started
+
+1. Make a new folder and copy your Master of Orion II 1.31 folder into it (the one with
+   `ORION95.EXE` and the `.LBX` files).
+2. Extract the Battle at Antares download into it.
+3. Start `antares-launcher` and press Play.
+
+`INSTALL.txt` in the download has the details, including macOS and Linux notes. Saves from the
+original game and from Orion2 Redone load.
+
+**HD art** (optional, recommended): the art packs from
+[battle-at-antares-hd](https://github.com/Crono141/battle-at-antares-hd/releases) go into
+`data/mods/` as they are; tick them in the launcher. Every sprite, the diplomacy rooms and the
+cutscenes are redrawn or upscaled for today's screens. They are art only and never affect saves.
+
+## Also different from Redone
+
+- **HD rendering.** The drawing library works at two resolutions: the original 640x480 palette
+  screen stays authoritative for game logic, and every draw also renders at 4x with HD art where a
+  pack provides it. Making an art pack: [art packs](docs/content/authoring-mods/art-packs.md).
+- **A launcher** (`antares-launcher`): tick packages, keep named profiles, see which mods a save
+  needs, change settings, and play.
+- **Mouse wheel** scrolls every list; **Ogg Vorbis** music works in mods.
+- **Mods.** Redone's mods load (`requires.engine` still checks Redone's mod API, 2.x); packages that
+  need Antares features add `requires: { antares: ">=0.5.0" }`. Art-only packages are not recorded in
+  saves, so turning one on or off never stops a save from loading.
+- **Identity.** The game is `antares-godot` (the native interface) and `antares` (the original
+  screens only); the config file is `data/antares.cfg` (an existing `orion2re.cfg` is read on first
+  run); environment knobs are `ANTARES_*`.
+- **Online multiplayer is off by default.** Redone's community router belongs to Redone; set
+  `interface router` to a router you run. Hotseat and LAN play work as before.
+
+## What's next
+
+Space combat in the native interface: the battle on a field you can pan and zoom, a camera that
+shows where every shot comes from, shields and hull damage at a glance on every ship, a turn order
+you can see, and orders from a ring around your ship, drawn with the game's own art.
 
 ## Credits
 
 Almost everything that makes this game play like Master of Orion II is the work of the **Orion2
 Redone** project: Serge Koval, Christopher Wellons, Rocco and the other Redone contributors. Their
-restoration of the game rules, AI, combat, saves and mod system is what Battle at Antares builds
-on, and their fixes are merged here as they land. Please support and credit their project. Report
-Battle at Antares bugs here, not to Redone.
+restoration of the game rules, AI, combat, saves and mod system is what Battle at Antares builds on,
+and their fixes are merged here as they land. Please support and credit their project. Report Battle
+at Antares bugs [here](https://github.com/Crono141/battle-at-antares/issues), not to Redone.
 
-## What is different from Redone
+The native interface is made with [Godot](https://godotengine.org) (MIT). The themes' lettering is
+Russo One and Saira Semi Condensed (SIL Open Font License).
 
-- **A native interface** (0.5.0, the Godot build `antares-godot`): a galaxy map you can pan and
-  zoom, with the system, colony and build panes, colonies, planets, fleets, leaders, races, info,
-  research and ship design as panels over it, a start-of-turn to-do list, and two themes (Glass,
-  and Chrome with the original metal), both plain packages that can start your own. The original
-  screens remain the "Legacy interface" setting.
-- **HD art.** The drawing library works at two resolutions: the original 640x480 palette screen
-  stays authoritative for game logic, and every draw also renders into a 4x screen with HD art
-  where a pack provides it. The HD art itself is on the
-  [battle-at-antares-hd releases page](https://github.com/Crono141/battle-at-antares-hd/releases).
-- **A launcher** (`antares-launcher`): tick packages, keep named profiles, see which mods a save
-  needs, change settings, and play.
-- **Mouse wheel** scrolls every list; **Ogg Vorbis** music works in mods.
-- **Identity.** The binary is `antares`, the config file is `data/antares.cfg` (an existing
-  `orion2re.cfg` is read on first run), and environment knobs are `ANTARES_*` (`ORION2RE_*` still
-  works for now).
-- **Mods.** Redone mods keep loading: `requires.engine` still checks Redone's mod API version
-  (2.x). Packages that need Antares features can add `requires: { antares: ">=0.1.0" }`.
-  Art-only packages (only `data/hd/` or `data/art/`, no rules) are not recorded in saves, so
-  turning an art pack on or off never stops a save from loading. Making one (full-colour art
-  with masks for player colours and glass): [docs/content/authoring-mods/art-packs.md](docs/content/authoring-mods/art-packs.md).
-- **Online multiplayer is off by default.** Redone's community router belongs to Redone; set
-  `interface router` to a router you run. Hotseat and LAN play work as before.
+Battle at Antares is developed with AI assistance under human direction: the owner sets the design,
+reviews and plays every change, and is responsible for the result.
 
-Saves use Redone's game-state format, so Redone saves load in Battle at Antares.
+## Building from source
+
+Clone with submodules (`git clone --recurse-submodules`), then build with CMake presets (CMake 3.20+,
+Ninja):
+
+```sh
+cmake --preset linux-release && cmake --build --preset linux-release   # antares, antares-launcher
+cmake --preset linux-godot && cmake --build --preset linux-godot       # libantares for the Godot build
+```
+
+The native interface is the Godot 4.7 project in `frontend/godot/project/`: open it in the Godot
+editor with `libantares` built, set the game folder (`ANTARES_GAME_DIR`), and run. Windows builds
+cross-compile with the `mingw-win64-release` preset; macOS uses `osx-release`. Unit tests:
+`tools/run-tests.sh`. Redone's own README covers the engine's build options in more detail:
+[orion2re/README.md](https://github.com/orion2re/orion2re/blob/main/README.md).
 
 ## Licence
 
 GPLv3 or later, as Redone (see [`LICENSE`](LICENSE)). You need your own copy of Master of Orion II;
-no original or derived game assets are in this repository.
-
----
-
-The rest of this file is Redone's README, kept as it is upstream. Build and test instructions
-apply unchanged; the game binary is named `antares` instead of `orion2re`.
-
-# orion2re
-
-This project is a restoration effort for the Master of Orion II game engine. Check our [documentation portal](https://moo2mod.com/redone/doc/) too.
-
-The game is fully playable and includes all bug fixes and optional community improvements up to the latest version of the unofficial 1.50 patch.
-
-All rights to Master of Orion II, its assets, trademarks, and related intellectual property belong to their corresponding owners.
-
-This repository does not include the original game data. To play, you must own a legitimate copy of Master of Orion II and provide the original game files from a supported release such as GOG or Steam.
-
-## License
-
-Original orion2re code and documentation are free software licensed under
-the GNU General Public License, version 3 or any later version. See
-[`LICENSE`](LICENSE) for the full license text.
-
-This license does not apply to Master of Orion II, its assets, trademarks,
-or other intellectual property. Third-party components retain their own
-licenses and copyright notices in their source files and vendor directories.
-
-## AI-assisted development
-
-This project was built with assistance from AI agents operating under human direction. Human contributors wrote code, reviewed, tested, and approved AI-assisted changes, and remain responsible for the final work.
-
-## Requirements
-
-- CMake 3.20 or newer
-- Ninja
-- Either:
-  - macOS build environment with an arm64-capable Clang toolchain
-  - Windows build environment with an MSVC toolchain
-  - Linux build environment with optional MinGW-w64 cross-compilers
-- Original Master of Orion II game files from GOG or Steam
-
-Supported build paths:
-
-- Native macOS arm64 builds
-- Native Linux builds
-- Native Windows builds with MSVC for x86 and x64
-- Linux-hosted MinGW-w64 cross-builds for Win32 and Win64
-
-macOS builds use the native host architecture.
-
-## Downloads and CI packages
-
-Download stable builds from [GitHub Releases](https://github.com/orion2re/orion2re/releases).
-New release ZIPs include the tag, for example `orion2re-win-win32-v2.0.0.zip`;
-older assets keep their original names. Windows x86/x64 and macOS ARM64 are available.
-
-For development builds, select a successful **main** run under
-[Actions / CI and packages](https://github.com/orion2re/orion2re/actions/workflows/ci.yml)
-and download its platform artifact (sign-in required; retained for 30 days).
-The download is the distributable ZIP itself, such as `orion2re-win-win32-main.zip`,
-with the executable and `data/` at its root, not inside another archive or directory.
-The workflow run identifies the exact commit.
-
-Extract the ZIP over your existing game installation. Packages include runtime
-data but no commercial game files or `orion2re.cfg`, so your configuration survives
-updates. macOS builds are not Developer ID signed or notarized and may require
-approval in System Settings / Privacy & Security. Extract with Archive Utility or
-`ditto`, keeping the app, executable, and data together to preserve the app symlink.
-
-## Vendored submodules
-
-The project uses vendored submodules for third-party dependencies.
-
-Clone the repository with submodules:
-
-```sh
-git clone --recurse-submodules <repo-url>
-```
-
-If you already cloned the repository without submodules, initialize and update them with:
-
-```sh
-git submodule update --init --recursive
-```
-
-## Build
-
-Configure and build with a preset:
-
-```sh
-cmake --preset win32-debug
-cmake --build --preset win32-debug
-```
-
-Native macOS example:
-
-```sh
-cmake --preset osx-debug
-cmake --build --preset osx-debug
-```
-
-Router-only Linux example:
-
-```sh
-cmake --preset linux-router
-cmake --build --preset linux-router
-```
-
-This skips the `orion2re` game target and is the preferred path when you only need `orion2re-router`, especially on a headless Linux machine. Prefer `-DORION2RE_BUILD_GAME=OFF` for router-only work.
-
-Tests are opt-in and are not built by default. To configure, build, and run the current unit tests:
-
-```sh
-tools/run-tests.sh
-```
-
-For the full preset list and per-platform details, see `CMakePresets.json`.
-
-Supported source-owned mods are stored under `data/mods/`. Normal game builds package `data/base/` as `data/base.zip`, package each source-owned mod as `data/mods/<package>.zip`, and deploy all archives when `ORION2RE_GAME_DIR` is configured.
-
-Build only the distributable mod ZIP archives with:
-
-```sh
-cmake --build --preset win32-debug --target package-supported-mods
-```
-
-Archives are written under the build tree at `data/mods/<package>.zip`. To deploy only the mods to a configured target game directory, use:
-
-```sh
-cmake --build --preset win32-debug --target deploy-supported-mods
-```
-
-The game does not enable deployed mods automatically. Add `enable <package>;` to
-`data/orion2re.cfg`, for example `enable v150;` for standard 1.50, `enable v150i;` for the
-single-player 1.50 Improved profile, or `enable v150i-mp;` for its multiplayer overrides.
-
-Random-sequence mismatches log every recorded original caller and captured local caller, including absolute addresses and executable-relative RVAs for symbol lookup.
-
-Example release build:
-
-```sh
-cmake --preset win32-release
-cmake --build --preset win32-release
-```
-
-## Cross-compiling Windows builds from Linux
-
-Install MinGW-w64 cross-compilers and Ninja first. On Debian or Ubuntu, the required packages are typically:
-
-```sh
-sudo apt install gcc-mingw-w64 g++-mingw-w64 binutils-mingw-w64 ninja-build
-```
-
-Then configure and build one of the MinGW presets:
-
-```sh
-cmake --preset mingw-win32-debug
-cmake --build --preset mingw-win32-debug
-```
-
-or:
-
-```sh
-cmake --preset mingw-win64-release
-cmake --build --preset mingw-win64-release
-```
-
-See `CMakePresets.json` for the available MinGW presets.
+no original game files are in this repository. The screenshots in `docs/screenshots/` show the
+game's art for illustration; the Chrome theme in the downloads carries metal cut from the game's
+screens. Master of Orion II and its assets belong to their owners.
