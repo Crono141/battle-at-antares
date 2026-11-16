@@ -4,11 +4,14 @@
 [Orion2 Redone (orion2re)](https://github.com/orion2re/orion2re), the faithful restoration of the
 Master of Orion II engine, in the way [Augustus](https://github.com/Keriew/augustus) is to Julius.
 
-Version 0.1.1: Linux, Windows and (experimental) Apple Silicon macOS builds on the
+Version 0.5.0: Linux, Windows and (experimental) Apple Silicon macOS builds on the
 [releases page](https://github.com/Crono141/battle-at-antares/releases), HD art from
 [battle-at-antares-hd](https://github.com/Crono141/battle-at-antares-hd/releases). You need your own
 Master of Orion II 1.31 (GOG or Steam); `INSTALL.txt` in the download says how to set it up.
-Development continues on `main` (a native user interface in Godot); fixes to 0.1 go to `release/0.1`.
+0.5.0 opens in the game's new native interface (the galaxy map with panels); the original screens
+are one setting away. Development continues on `main` (next: space combat in the native interface).
+
+If you enjoy it, you can support the work on [Ko-fi](https://ko-fi.com/crono141).
 
 ## Credits
 
@@ -20,6 +23,11 @@ Battle at Antares bugs here, not to Redone.
 
 ## What is different from Redone
 
+- **A native interface** (0.5.0, the Godot build `antares-godot`): a galaxy map you can pan and
+  zoom, with the system, colony and build panes, colonies, planets, fleets, leaders, races, info,
+  research and ship design as panels over it, a start-of-turn to-do list, and two themes (Glass
+  built in; Chrome, the original metal, as its own download). The original screens remain the
+  "Legacy interface" setting.
 - **HD art.** The drawing library works at two resolutions: the original 640x480 palette screen
   stays authoritative for game logic, and every draw also renders into a 4x screen with HD art
   where a pack provides it. The HD art itself is on the
