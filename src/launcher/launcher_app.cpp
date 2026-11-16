@@ -320,6 +320,17 @@ namespace launcher {
     std::string c_launcher::Godot_Executable_() const {
 #if defined(_WIN32)
         return game_dir_ + "antares-godot.exe";
+#elif defined(__APPLE__)
+        // 0.5.0: on macOS the Godot build is an app bundle beside the launcher; its program is the
+        // one file in Contents/MacOS (named by the export).
+        std::error_code error;
+        const std::filesystem::path folder = std::filesystem::path(game_dir_) / "antares-godot.app" / "Contents" / "MacOS";
+        for (std::filesystem::directory_iterator entry(folder, error), end; !error && entry != end; entry.increment(error)) {
+            if (entry->is_regular_file(error)) {
+                return entry->path().string();
+            }
+        }
+        return (folder / "antares-godot").string();
 #else
         return game_dir_ + "antares-godot";
 #endif

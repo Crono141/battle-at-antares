@@ -163,6 +163,10 @@ namespace godot {
         // An exported build lives in the game folder, beside antares.
         if (dir.is_empty() && OS::get_singleton()->has_feature("template")) {
             dir = OS::get_singleton()->get_executable_path().get_base_dir();
+            // macOS: the program sits in <game folder>/antares-godot.app/Contents/MacOS.
+            if (dir.ends_with(".app/Contents/MacOS")) {
+                dir = dir.get_base_dir().get_base_dir().get_base_dir();
+            }
         }
         if (dir.begins_with("res://") || dir.begins_with("user://")) {
             dir = ProjectSettings::get_singleton()->globalize_path(dir);
