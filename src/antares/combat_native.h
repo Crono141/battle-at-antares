@@ -16,6 +16,8 @@
 // Game thread only.
 
 #include <cstdint>
+#include <initializer_list>
+#include <utility>
 #include <string>
 
 namespace antares::combat {
@@ -43,6 +45,11 @@ namespace antares::combat {
     // not in super-fast mode. The legacy code then skips its own drawing where that drawing
     // holds no rules (moves and turns, so far).
     bool Animating();
+    // The legacy screen draws this battle's effects itself: not super-fast and not animated
+    // natively. The rules around each effect run either way (D25: animation never decides results).
+    bool Legacy_Draws();
+    // Any other effect, with integer fields: Effect("gyro", {{"from", 3}, {"to", 7}}).
+    void Effect(const char* kind, std::initializer_list<std::pair<const char*, int64_t>> fields);
     // Rotate_Ship turned `ship` one facing step (`from` to `to`, 0-15).
     void Turn_Step(int16_t ship, int16_t from, int16_t to);
     // Move_Ship moved `ship` one interpolation step (combat pixels, the ship's top-left corner).

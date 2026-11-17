@@ -72,6 +72,8 @@ namespace CMBTSPEC {
      * @param explosion_type Explosion effect variant.
      */
     void __cdecl Destroy_Ship_FX(int16_t ship_idx, int16_t x, int16_t y, int16_t explosion_type);
+    // WP3.9d (A5): what Destroy_Ship_FX's rules do, without drawing (super-fast, or a native battle).
+    void Destroy_Ship_Rules(int16_t ship_idx, int16_t x, int16_t y, int16_t explosion_type);
 
     /** Draws a stasis ball sprite centered on a combat ship.
      * @param ship_idx Combat ship index to center on.

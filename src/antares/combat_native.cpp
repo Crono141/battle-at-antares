@@ -402,6 +402,22 @@ namespace antares::combat {
         return s_active && MOX::super_fast_flag == 0 && native::Animate_Native();
     }
 
+    bool Legacy_Draws() {
+        return MOX::super_fast_flag == 0 && !Animating();
+    }
+
+    void Effect(const char* kind, std::initializer_list<std::pair<const char*, int64_t>> fields) {
+        if (!s_active) {
+            return;
+        }
+        s_out out(nullptr, nullptr);
+        yyjson_mut_doc* doc = Effect_Doc(kind, &out);
+        for (const auto& field : fields) {
+            out.Int(field.first, field.second);
+        }
+        Post_Effect(doc);
+    }
+
     void Turn_Step(int16_t ship, int16_t from, int16_t to) {
         if (!s_active) {
             return;

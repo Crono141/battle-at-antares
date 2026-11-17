@@ -218,11 +218,45 @@ func on_animate(id: int, request: Dictionary) -> void:
 				dur = 1.0 # the explosion (from the state's change, _diff_effects)
 			"teleport":
 				dur = 0.25
+			# WP3.9d-2: placeholders until each effect gets its own art (stages 3.9g-3.9i): a
+			# coloured line from shooter to target, the game's explosion, or a short hold.
+			"stasis", "tractor", "plasma_web", "stellar", "black_hole", "absorber", "fighters", "bombs":
+				dur = _placeholder_line(event)
+			"gyro":
+				dur = float(event.get("steps", 8)) * TURN_STEP_TIME * 0.5
+			"blast":
+				var at := _effect_point(index if index >= 0 else int(event.get("ship", -1)), Vector2(float(event.get("x", 0)), float(event.get("y", 0))))
+				_effects.append({"kind": "explosion", "t": 0.0, "life": 1.1, "at": at, "entry": 5})
+				dur = 1.1
+			"retreat":
+				dur = 0.6
+			"missiles_step":
+				dur = 0.055 # one legacy frame: the missiles' positions are in the state
+			"cloak", "lightning", "anti_missile", "missile_kill", "missile_launch", "missile_arrive", "damage":
+				dur = 0.25
 			_:
 				dur = 0.0
 	_animating = {"id": id, "t": 0.0, "dur": dur}
 	if dur <= 0.0:
 		_finish_animation()
+
+
+const PLACEHOLDER_COLORS := {"stasis": Color(0.6, 0.85, 1.0), "tractor": Color(0.5, 0.7, 1.0), "plasma_web": Color(0.5, 1.0, 0.5),
+	"stellar": Color(1.0, 1.0, 1.0), "black_hole": Color(0.6, 0.3, 0.9), "absorber": Color(1.0, 0.6, 0.9), "fighters": Color(1.0, 0.9, 0.5),
+	"bombs": Color(1.0, 0.55, 0.3)}
+
+
+## A special's stand-in: one line from the shooter (or a fighter stack's point) to the target.
+func _placeholder_line(event: Dictionary) -> float:
+	var kind := String(event.get("kind", ""))
+	var from := int(event.get("from", -1))
+	var to := int(event.get("to", -1))
+	var point := Vector2(float(event.get("x", 0)), float(event.get("y", 0)))
+	if kind == "fighters":
+		from = -1
+	_effects.append({"kind": "shot", "t": 0.0, "life": 0.5, "from": from, "to": to, "missile": false, "point": point,
+		"jitter": Vector2.ZERO, "color": PLACEHOLDER_COLORS.get(kind, AMBER), "projectile": false, "from_point": point})
+	return 0.5
 
 
 func _finish_animation() -> void:
@@ -1495,7 +1529,7 @@ func _draw_effects(width: float) -> void:
 		var k := clampf(t / life, 0.0, 1.0)
 		match String(effect.kind):
 			"shot":
-				var from := _effect_point(int(effect.from), Vector2.ZERO)
+				var from := _effect_point(int(effect.from), effect.get("from_point", Vector2.ZERO))
 				var to: Vector2 = effect.point if effect.missile else _effect_point(int(effect.to), Vector2.ZERO)
 				to += effect.jitter
 				var color: Color = effect.color

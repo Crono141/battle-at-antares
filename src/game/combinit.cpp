@@ -3282,8 +3282,12 @@ namespace COMBINIT {
                 struct_damage_total += arc_struct_damage;
             }
 
-            if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+            // WP3.9d (A7): cur_ship follows the damaged ship in every battle, as it did when drawn.
+            if (MOX::apply_damage_to_planet == 1) {
                 MOX::cur_ship = i;
+            }
+            antares::combat::Effect("damage", {{"ship", i}, {"armor", total_damage}, {"structure", struct_damage_total}});
+            if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
                 if (CMBTDRW1::Ship_Completely_On_Screen(i) == 0) {
                     COMBINIT::Snap_Center_Combat_Screen(ship->x, ship->y);
                 }

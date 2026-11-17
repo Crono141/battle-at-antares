@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "game/cmbtfir2.h"
 #include "game/cmbtmis.h"
 #include "game/cmbtspec.h"
 #include "game/combat1.h"
@@ -440,6 +441,17 @@ namespace CMBTSPEC {
     void __cdecl Destroy_Ship_FX(
         int16_t ship_idx, int16_t, int16_t, int16_t explosion_type) {
         destroy_fx_type = explosion_type;
+        MOX::combat_data[ship_idx].unit_status = 5;
+    }
+
+    // WP3.9d: as cmbtspec.cpp's (the explosion's rules without drawing).
+    void Destroy_Ship_Rules(int16_t ship_idx, int16_t x, int16_t y, int16_t explosion_type) {
+        if (MOX::combat_data[ship_idx].previous_owner < 10 && explosion_type != 1) {
+            int16_t damage = CMBTFIR2::Damage_From_Ship_Exploding(ship_idx);
+            Do_Spherical_SFX(ship_idx, x, y, explosion_type, damage);
+        } else {
+            destroy_fx_type = explosion_type;
+        }
         MOX::combat_data[ship_idx].unit_status = 5;
     }
 

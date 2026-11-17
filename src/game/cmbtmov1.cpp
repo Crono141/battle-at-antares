@@ -113,7 +113,7 @@ namespace CMBTMOV1 {
             }
 
             // WP3.9d: a native battle's frontend draws the turn (Turn_Step); this block only draws.
-            if (MOX::super_fast_flag == 0 && !antares::combat::Animating() && CMBTDRW1::Ship_On_Screen(ship_idx) != 0) {
+            if (antares::combat::Legacy_Draws() && CMBTDRW1::Ship_On_Screen(ship_idx) != 0) {
                 video::Set_Page_Off();
                 for (int16_t i = 0; i < MOX::combat_total_ship_count; ++i) {
                     const int16_t tractor_target_idx = MOX::combat_data[i].special_cooldown == COMBAT_SHIP_NONE
@@ -300,15 +300,12 @@ namespace CMBTMOV1 {
             int16_t start_y_px = ship->y * 20;
             int16_t speed_px;
 
-            if (MOX::net_flag != 0) {
-                speed_px = 6;
-            } else {
-                if (MOX::speedx2_flag == 1) {
-                    speed_px = 12;
-                } else {
-                    speed_px = 2;
-                }
-            }
+            // WP3.9d (B1): the move steps 2 px whatever the speed setting, so x2 and network games
+            // roll defensive fire and move chasing missiles as often as normal speed (12 and 6 px
+            // used to); x2 only draws every sixth step, the network game every third.
+            speed_px = 2;
+            const int16_t draw_every = MOX::net_flag != 0 ? 3 : (MOX::speedx2_flag == 1 ? 6 : 1);
+            int16_t step_count = 0;
 
             int16_t cur_x_px = start_x_px;
             int16_t cur_y_px = start_y_px;
@@ -318,7 +315,7 @@ namespace CMBTMOV1 {
                 CMBTSPEC::Start_Ship_Engine_SFX();
             }
             // WP3.9d: a native battle's frontend draws the move (Move_Step); this block only draws.
-            if (MOX::super_fast_flag == 0 && !antares::combat::Animating()) {
+            if (antares::combat::Legacy_Draws()) {
                 video::Set_Page_Off();
                 CMBTDRW1::Full_Draw_Combat_Screen();
 
@@ -409,7 +406,7 @@ namespace CMBTMOV1 {
                         }
                     }
 
-                    if (MOX::super_fast_flag == 0 && !antares::combat::Animating()) { // WP3.9d: drawing only
+                    if (antares::combat::Legacy_Draws() && (++step_count % draw_every == 0 || (cur_x_px == dest_x_px && cur_y_px == dest_y_px))) { // WP3.9d: drawing only
                         graphics::Set_Window(0, 0, 639, 350);
                         video::Clip_On();
                         video::Set_Page_Off();
@@ -701,12 +698,7 @@ namespace CMBTMOV1 {
         int16_t start_x = ship->x * 20;
         int16_t start_y = ship->y * 20;
 
-        int16_t speed;
-        if (MOX::speedx2_flag == 1 || MOX::net_flag != 0) {
-            speed = 12;
-        } else {
-            speed = 2;
-        }
+        int16_t speed = 2; // WP3.9d (B3): as Move_Ship steps, whatever the speed setting
 
         int16_t current_x = start_x;
         int16_t current_y = start_y;
@@ -820,7 +812,7 @@ namespace CMBTMOV1 {
         int16_t vanish_out, vanish_in;
         int32_t pitch;
 
-        if (MOX::super_fast_flag != 0) {
+        if (!antares::combat::Legacy_Draws()) { // WP3.9d: super-fast, or the frontend draws it
             return;
         }
 

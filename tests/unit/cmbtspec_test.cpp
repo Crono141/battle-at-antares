@@ -206,6 +206,7 @@ DOCTEST_TEST_CASE("cloak animation accepts the positive uint7 step domain") {
         CMBTSPEC::animation.cloak_steps.fast = test_case.fast;
         MOX::speedx2_flag = test_case.speedx2;
         MOX::net_flag = test_case.network;
+        MOX::super_fast_flag = 0; // WP3.9d: the cloak draws only when the legacy screen draws
 
         CMBTSPEC::Draw_Cloak(0, 1);
 

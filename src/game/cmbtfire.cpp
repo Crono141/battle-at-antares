@@ -395,17 +395,11 @@ namespace CMBTFIRE {
             if (ship.unit_status == 0) {
                 int16_t destruction_type = death_state > 1 ? death_state : 1;
                 antares::combat::Destroyed(ship_idx, killer_ship_idx, destruction_type); // WP3.9d
-                if (MOX::super_fast_flag == 0) {
+                if (antares::combat::Legacy_Draws()) {
                     CMBTSPEC::Destroy_Ship_FX(
                         ship_idx, draw_x, draw_y, destruction_type);
                 } else {
-                    ship.unit_status = 5;
-                    if (destruction_type > 1 && ship.previous_owner < 10) {
-                        int16_t damage =
-                            CMBTFIR2::Damage_From_Ship_Exploding(ship_idx);
-                        CMBTSPEC::Do_Spherical_SFX(
-                            ship_idx, draw_x, draw_y, destruction_type, damage);
-                    }
+                    CMBTSPEC::Destroy_Ship_Rules(ship_idx, draw_x, draw_y, destruction_type); // WP3.9d (A5)
                 }
             }
         } else {
@@ -1404,7 +1398,9 @@ namespace CMBTFIRE {
                                     MOX::combat_data[source_ship_idx].special_status_flag = 6;
                                 }
 
-                                if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+                                // WP3.9d (A3): the volley so far is played (and its hits on a missile
+                                // stack applied) in every battle, drawn or not.
+                                if (MOX::apply_damage_to_planet == 1) {
                                     bool needs_snap = false;
                                     if (flag == 0) {
                                         if (CMBTDRW1::Ship_Completely_On_Screen(target_ship_idx) == 0) {
@@ -1416,7 +1412,7 @@ namespace CMBTFIRE {
                                         }
                                     }
 
-                                    if (needs_snap && weapon_type_class == WEAPON_TYPE_BEAM) {
+                                    if (needs_snap && weapon_type_class == WEAPON_TYPE_BEAM && antares::combat::Legacy_Draws()) {
                                         int16_t snap_x, snap_y;
                                         if (flag == 0) {
                                             snap_x = MOX::combat_data[target_ship_idx].x;
@@ -1543,7 +1539,7 @@ namespace CMBTFIRE {
                                     MOX::combat_data[source_ship_idx].special_status_flag = 6;
                                 }
 
-                                if (fire_result_flags == 1 && MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+                                if (fire_result_flags == 1 && MOX::apply_damage_to_planet == 1) { // WP3.9d (A3): queued in every battle
                                     if (weapon_type_class == WEAPON_TYPE_BEAM) {
                                         beam_fx_entries[beam_fx_count].weapon_id = weapon->weapon_id;
                                         if (primary_damage_total > 0 || secondary_damage_total > 0) {
@@ -1555,15 +1551,20 @@ namespace CMBTFIRE {
                                             beam_fx_entries[beam_fx_count + 1].result_flags = (secondary_damage_total > 0) ? 1 : 0;
 
                                             beam_fx_count++;
-                                            video::Set_Page_Back();
-                                            CMBTDRW1::Draw_Ship_Status(14, 0x178, MOX::cur_ship);
-                                            CMBTDRW1::Draw_Grey_Damage_Bars(14, 0x178, MOX::cur_ship);
-                                            CMBTDRW1::Draw_Crew_Level_Stars(MOX::cur_ship, 15, 0x17B);
-                                            video::Set_Page_Off();
+                                            if (antares::combat::Legacy_Draws()) {
+                                                video::Set_Page_Back();
+                                                CMBTDRW1::Draw_Ship_Status(14, 0x178, MOX::cur_ship);
+                                                CMBTDRW1::Draw_Grey_Damage_Bars(14, 0x178, MOX::cur_ship);
+                                                CMBTDRW1::Draw_Crew_Level_Stars(MOX::cur_ship, 15, 0x17B);
+                                                video::Set_Page_Off();
+                                            }
                                         }
                                         beam_fx_count++;
                                     } else if (weapon_type_class == WEAPON_TYPE_BOMB) {
-                                        CMBTDRW1::Draw_Bombs(source_ship_idx, target_ship_idx, weapon->weapon_id, total_hits_on_target);
+                                        antares::combat::Effect("bombs", {{"from", source_ship_idx}, {"to", target_ship_idx}, {"weapon", weapon->weapon_id}, {"hits", total_hits_on_target}}); // WP3.9d
+                                        if (antares::combat::Legacy_Draws()) {
+                                            CMBTDRW1::Draw_Bombs(source_ship_idx, target_ship_idx, weapon->weapon_id, total_hits_on_target);
+                                        }
                                     }
                                 }
                             }
@@ -1950,7 +1951,8 @@ namespace CMBTFIRE {
 
         int16_t is_dead = Is_Combat_Ship_Dead(target_ship_idx);
 
-        if (MOX::apply_damage_to_planet != 0 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("absorber", {{"from", source_ship_idx}, {"to", target_ship_idx}, {"damage", damage}}); // WP3.9d
+        if (MOX::apply_damage_to_planet != 0 && antares::combat::Legacy_Draws()) {
             if (CMBTDRW1::Ship_Completely_On_Screen(target_ship_idx) == 0) {
                 COMBINIT::Snap_Center_Combat_Screen(MOX::combat_data[target_ship_idx].x, MOX::combat_data[target_ship_idx].y);
             }
@@ -2059,7 +2061,8 @@ namespace CMBTFIRE {
         int16_t speed_step;
         int16_t loop_counter;
 
-        if (MOX::apply_damage_to_planet != 0 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("black_hole", {{"from", source_idx}, {"to", target_idx}}); // WP3.9d
+        if (MOX::apply_damage_to_planet != 0 && antares::combat::Legacy_Draws()) {
             anim_seg = (s_animation_header*)buffer::Buffer_Reload("cmbtsfx.lbx", 0x2F /* 47 */, MOX::global_cache_seg);
             animate::Draw_Palette(anim_seg);
             frame_count = animate::Get_Animation_Frame_Count(anim_seg);

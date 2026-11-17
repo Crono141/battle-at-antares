@@ -2105,11 +2105,26 @@ namespace COMBAT1 {
 
         s_combat_data* ship = &MOX::combat_data[ship_idx];
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
-            if (CMBTDRW1::Ship_On_Screen(ship_idx) == 0) {
+        // WP3.9d (A4): the retreating ship turns to its side's edge as a rule (missiles chase and
+        // hit, defensive fire) in every battle; before, only the animation turned it.
+        if (MOX::apply_damage_to_planet == 1) {
+            const bool draws = antares::combat::Legacy_Draws();
+            if (draws && CMBTDRW1::Ship_On_Screen(ship_idx) == 0) {
                 COMBINIT::Snap_Center_Combat_Screen(ship->x, ship->y);
             }
-            CMBTDRW1::Draw_Retreating_Ship(ship_idx);
+            const int16_t exit_facing = (MOX::combat_attacker_player == ship->owner) ? 8 : 0;
+            if (ship->facing_dir != exit_facing) {
+                if (draws) {
+                    COMBINIT::Snap_Center_Combat_Screen(ship->x, ship->y); // as Draw_Retreating_Ship did first
+                }
+                CMBTMOV1::Rotate_Ship(ship_idx, exit_facing, MOX::cur_combat_x * -20 + ship->x * 20, MOX::cur_combat_y * -20 + ship->y * 20);
+            }
+            if (CMBTFIRE::Is_Combat_Ship_Dead(ship_idx) == 0) {
+                antares::combat::Effect("retreat", {{"ship", ship_idx}, {"facing", exit_facing}});
+                if (draws) {
+                    CMBTDRW1::Draw_Retreating_Ship(ship_idx); // facing already set: only the warp-out
+                }
+            }
             if (!Validate_Retreating_Ship(ship_idx)) {
                 return;
             }
@@ -2740,9 +2755,12 @@ namespace COMBAT1 {
                 }
 
                 if (screen_updated != 0) {
-                    video::Set_Page_Off();
-                    CMBTDRW1::Draw_Main_Combat_Screen();
-                    RUSS::Mox_Sync_Update();
+                    antares::combat::Effect("missiles_step", {}); // WP3.9d: positions in the state
+                    if (antares::combat::Legacy_Draws()) {
+                        video::Set_Page_Off();
+                        CMBTDRW1::Draw_Main_Combat_Screen();
+                        RUSS::Mox_Sync_Update();
+                    }
                 }
 
                 for (int16_t j = 0; j < resolve_count; ++j) {

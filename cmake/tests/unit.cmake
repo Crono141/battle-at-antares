@@ -1629,6 +1629,7 @@ orion2re_add_unit_test(test_cmbtspec
     PRODUCTION_SOURCES
         src/game/cmbtspec.cpp
     FAKE_SOURCES
+        tests/fakes/fake_combat_native.cpp
         tests/fakes/fake_cmbtspec_runtime.cpp
 )
 
@@ -1653,6 +1654,7 @@ orion2re_add_unit_test(test_stasis_area_effects
         src/game/combat1.cpp
         src/game/random.cpp
     FAKE_SOURCES
+        tests/fakes/fake_combat_native_draws.cpp
         tests/fakes/fake_stasis_area_effects_runtime.cpp
 )
 

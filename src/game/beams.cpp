@@ -1262,8 +1262,26 @@ namespace BEAMS {
                 special_timer[0] = 3;
             }
 
+            // WP3.9d (A3): the volley's hits on a missile stack are a rule. The loop below applied
+            // them as each beam reached the stack, so super-fast mode destroyed nothing; now they
+            // apply here, in the same order, in every battle; the loop only draws.
+            if (is_non_ship_target != 0) {
+                for (int16_t e = 0; e < 10 && fx_entries[e].weapon_id != 0; ++e) {
+                    if (fx_entries[e].accum_hit_x > 0) {
+                        MOX::missile[target_id].quantity -= fx_entries[e].accum_hit_x;
+                        if (MOX::missile[target_id].quantity <= 0) {
+                            CMBTMIS::Kill_Missile(target_id);
+                        }
+                    }
+                }
+            }
+
             bool bExitLoop = false;
+            const bool draws = antares::combat::Legacy_Draws(); // WP3.9d: the loop only draws
             do {
+                if (!draws) {
+                    break;
+                }
                 int16_t has_reflected = 0;
                 timer::Mark_Time();
                 video::Set_Page_Off();
@@ -1584,10 +1602,6 @@ namespace BEAMS {
                             s_beam_fx_entry* fx = &fx_entries[fx_idx_val];
                             if (fx->accum_hit_x > 0 || fx->accum_hit_y > 0) {
                                 Add_Damage_Indicator_For_Missile(target_center_x, target_center_y, 1, fx->accum_hit_x);
-                                MOX::missile[target_id].quantity -= fx->accum_hit_x;
-                                if (MOX::missile[target_id].quantity <= 0) {
-                                    CMBTMIS::Kill_Missile(target_id);
-                                }
                                 if (fx->accum_hit_x != 0) {
                                     ERICNET::Mox_Play_Sound(0x1c);
                                 }

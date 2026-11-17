@@ -706,7 +706,7 @@ namespace CMBTMIS {
                     }
                 }
 
-                if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+                if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) { // posts its effect (WP3.9d)
                     CMBTSPEC::Lightning_Field(target_unit_idx, missile_idx, x, y);
                 }
             }
@@ -793,7 +793,7 @@ namespace CMBTMIS {
                     sys_dmg_accum += sys_dmg;
                 }
 
-                if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+                if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) { // posts its effect (WP3.9d)
                     Fighter_Combat_SFX(missile_idx, x, y, dmg_accum, sys_dmg_accum);
                 }
 
@@ -880,7 +880,8 @@ namespace CMBTMIS {
 
         if (sys_dmg_accum + dmg_accum > 0) {
             if (target_is_missile == 0) {
-                if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+                antares::combat::Effect("damage", {{"ship", target_unit_idx}, {"armor", dmg_accum}, {"structure", sys_dmg_accum}}); // WP3.9d
+                if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
                     if (!CMBTDRW1::Ship_Completely_On_Screen(target_unit_idx)) {
                         COMBINIT::Snap_Center_Combat_Screen(x / 20, y / 20);
                     }
@@ -1244,6 +1245,10 @@ namespace CMBTMIS {
     }
 
     void __cdecl Fighter_Combat_SFX(int16_t missile_idx, int16_t x, int16_t y, int16_t dmg, int16_t sys_dmg) {
+        antares::combat::Effect("fighters", {{"stack", missile_idx}, {"to", MOX::missile[missile_idx].target_unit_idx}, {"x", x}, {"y", y}, {"armor", dmg}, {"structure", sys_dmg}}); // WP3.9d
+        if (!antares::combat::Legacy_Draws()) {
+            return; // the frontend plays it (or super-fast)
+        }
         int16_t missile_type;
         int16_t target_unit_idx;
         int16_t target_x_scr, target_y_scr;
@@ -1687,11 +1692,9 @@ namespace CMBTMIS {
                 target_coords_y = MOX::missile[target_idx].y;
             }
 
-            if (MOX::apply_damage_to_planet == 1 &&
-                (MOX::super_fast_flag == 0 ||
-                    ((MOX::missile[missile_idx].type != WEAPON_PROTON_TORPEDO ||
-                         proton_torpedo_apply_speed_base != 0) &&
-                        MOX::missile[missile_idx].type != WEAPON_DRAGON_BREATH))) {
+            // WP3.9d (A6): proton torpedoes and dragon breath fly (and may dissipate) in every
+            // battle; super-fast mode used to resolve them at once.
+            if (MOX::apply_damage_to_planet == 1) {
                 antares::combat::Missile_Launch(missile_idx, source_idx, target_idx, is_anti_rocket != 0, target_coords_x, target_coords_y); // WP3.9d
                 CMBTSPEC::Missile_Launch_FX(missile_idx, target_coords_x, target_coords_y, is_anti_rocket);
             } else {

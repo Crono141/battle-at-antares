@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/combat_native.h"
 
 #include "antares/cosmetic_random.h"
 
@@ -86,6 +87,10 @@ namespace CMBTSPEC {
     }
 
     void __cdecl Draw_Cloak(int16_t ship_idx, int16_t cloak_type) {
+        antares::combat::Effect("cloak", {{"ship", ship_idx}, {"kind", cloak_type}}); // WP3.9d
+        if (!antares::combat::Legacy_Draws()) {
+            return; // the frontend plays it (or super-fast)
+        }
         int16_t unused_x, unused_y;
         int16_t offset_x, offset_y;
         int16_t rel_x, rel_y;
@@ -241,6 +246,10 @@ namespace CMBTSPEC {
     }
 
     void __cdecl Lightning_Field(int16_t ship_idx, int16_t missile_idx, int16_t target_x, int16_t target_y) {
+        antares::combat::Effect("lightning", {{"ship", ship_idx}, {"stack", missile_idx}}); // WP3.9d
+        if (!antares::combat::Legacy_Draws()) {
+            return; // the frontend plays it (or super-fast)
+        }
         int16_t off_x, off_y;
         int16_t target_x_rel_center, target_y_rel_center;
         int16_t missile_draw_x, missile_draw_y;
@@ -483,7 +492,8 @@ namespace CMBTSPEC {
         s_animation_header* anim;
         s_animation_header* temp_bitmap;
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("stasis", {{"from", source_ship_idx}, {"to", target_ship_idx}}); // WP3.9d
+        if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
             if (!CMBTDRW1::Ship_Completely_On_Screen(target_ship_idx)) {
                 COMBINIT::Snap_Center_Combat_Screen(MOX::combat_data[target_ship_idx].x, MOX::combat_data[target_ship_idx].y);
             }
@@ -565,31 +575,41 @@ namespace CMBTSPEC {
         int16_t saved_dont_draw;
         int32_t sound_handle = 0;
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
-            if (!CMBTDRW1::Ship_Completely_On_Screen(target_idx)) {
-                COMBINIT::Snap_Center_Combat_Screen(MOX::combat_data[target_idx].x, MOX::combat_data[target_idx].y);
-            }
-
+        // WP3.9d (A1, A2): the spin is a rule. In a battle it is rolled and applied whether or not
+        // the legacy screen draws it, always as the normal-speed animation turned the ship: 8 steps
+        // in the beam effect (4 with x2 before), then the rolled spin.
+        const bool draws = antares::combat::Legacy_Draws();
+        if (MOX::apply_damage_to_planet == 1) {
+            const int16_t start_facing = MOX::combat_data[target_idx].facing_dir;
+            int16_t screen_x = 0;
+            int16_t screen_y = 0;
             saved_dont_draw = MOX::dont_draw_ship;
-            MOX::dont_draw_ship = target_idx;
+            if (draws) {
+                if (!CMBTDRW1::Ship_Completely_On_Screen(target_idx)) {
+                    COMBINIT::Snap_Center_Combat_Screen(MOX::combat_data[target_idx].x, MOX::combat_data[target_idx].y);
+                }
 
-            video::Set_Page_Back();
-            CMBTDRW1::Full_Draw_Combat_Screen();
-            CMBTDRW1::Draw_Main_Combat_Screen();
-            video::Copy_Back_To_Off();
-            video::Set_Page_Off();
-            graphics::Set_Window(0, 0, 639, 350);
-            video::Clip_On();
+                MOX::dont_draw_ship = target_idx;
 
-            int16_t screen_x = (MOX::combat_data[target_idx].x - MOX::cur_combat_x) * 20;
-            int16_t screen_y = (MOX::combat_data[target_idx].y - MOX::cur_combat_y) * 20;
+                video::Set_Page_Back();
+                CMBTDRW1::Full_Draw_Combat_Screen();
+                CMBTDRW1::Draw_Main_Combat_Screen();
+                video::Copy_Back_To_Off();
+                video::Set_Page_Off();
+                graphics::Set_Window(0, 0, 639, 350);
+                video::Clip_On();
 
-            CMBTDRW1::Draw_Ship(target_idx, screen_x, screen_y);
-            video::Clip_Off();
-            graphics::Reset_Window();
+                screen_x = (MOX::combat_data[target_idx].x - MOX::cur_combat_x) * 20;
+                screen_y = (MOX::combat_data[target_idx].y - MOX::cur_combat_y) * 20;
 
-            RUSS::Mox_Sync_Update();
-            CMBTSPEC::Draw_Gyro_Special_Effect(source_idx, target_idx);
+                CMBTDRW1::Draw_Ship(target_idx, screen_x, screen_y);
+                video::Clip_Off();
+                graphics::Reset_Window();
+
+                RUSS::Mox_Sync_Update();
+                CMBTSPEC::Draw_Gyro_Special_Effect(source_idx, target_idx); // turns the ship as it draws
+            }
+            MOX::combat_data[target_idx].facing_dir = (int8_t)((start_facing + 8) % 16);
 
             for (int i = 0; i < 19; ++i) {
                 rotations_left += (int16_t)game_random::Random(13);
@@ -601,9 +621,16 @@ namespace CMBTSPEC {
                 rotations_left += (int16_t)game_random::Random(13);
             }
 
-            graphics::Set_Window(0, 0, 639, 350);
-            video::Clip_On();
-            sound_handle = ERICNET::Mox_Play_Sound(3);
+            antares::combat::Effect("gyro", {{"from", source_idx}, {"to", target_idx}, {"facing", start_facing}, {"steps", 8 + rotations_left}});
+            if (!draws) {
+                MOX::combat_data[target_idx].facing_dir = (int8_t)((start_facing + 8 + rotations_left) % 16);
+                rotations_left = 0;
+            }
+            if (draws) {
+                graphics::Set_Window(0, 0, 639, 350);
+                video::Clip_On();
+                sound_handle = ERICNET::Mox_Play_Sound(3);
+            }
 
             if (rotations_left > 0) {
                 do {
@@ -625,11 +652,13 @@ namespace CMBTSPEC {
                 } while (rotations_left != 0);
             }
 
-            video::Clip_Off();
-            graphics::Reset_Window();
-            video::Set_Page_Back();
-            CMBTDRW1::Full_Draw_Combat_Screen();
-            video::Set_Page_Off();
+            if (draws) {
+                video::Clip_Off();
+                graphics::Reset_Window();
+                video::Set_Page_Back();
+                CMBTDRW1::Full_Draw_Combat_Screen();
+                video::Set_Page_Off();
+            }
             MOX::dont_draw_ship = saved_dont_draw;
         }
 
@@ -656,7 +685,8 @@ namespace CMBTSPEC {
 
         MOX::combat_data[target_idx].structure_damage += applied_damage;
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("damage", {{"ship", target_idx}, {"armor", 0}, {"structure", applied_damage}});
+        if (MOX::apply_damage_to_planet == 1 && draws) {
             int16_t screen_x = (MOX::combat_data[target_idx].x - MOX::cur_combat_x) * 20;
             int16_t screen_y = (MOX::combat_data[target_idx].y - MOX::cur_combat_y) * 20;
 
@@ -672,7 +702,8 @@ namespace CMBTSPEC {
         int16_t dst_x;
         int16_t dst_y;
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("tractor", {{"from", source_ship_idx}, {"to", target_ship_idx}}); // WP3.9d
+        if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
             allocate::Push_Block(MOX::screen_seg);
             s_animation_header* h1 = (s_animation_header*)allocate::Allocate_Next_Block(MOX::screen_seg, 50000);
 
@@ -764,7 +795,8 @@ namespace CMBTSPEC {
         int16_t target_x = MOX::missile[missile_idx].x - cur_combat_x_offset;
         int16_t target_y = MOX::missile[missile_idx].y - cur_combat_y_offset;
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("anti_missile", {{"ship", ship_idx}, {"stack", missile_idx}}); // WP3.9d
+        if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
             Draw_Anti_Missile_Rockets(ship_idx, ship_x, ship_y, missile_idx, tech_level);
         }
 
@@ -794,7 +826,8 @@ namespace CMBTSPEC {
             }
         }
 
-        if (count_destroyed > 0 && MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("missile_kill", {{"stack", missile_idx}, {"count", count_destroyed}}); // WP3.9d
+        if (count_destroyed > 0 && MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
             ERICNET::Mox_Play_Sound(0x1c);
             s_animation_header* anim_seg = (s_animation_header*)buffer::Buffer_Reload(COLONY::CMBTSFX_LBX, 7, MOX::global_cache_seg);
             int16_t frame_count = animate::Get_Animation_Frame_Count(anim_seg);
@@ -897,11 +930,12 @@ namespace CMBTSPEC {
         missile = &MOX::missile[missile_idx];
         target_unit_idx = missile->target_unit_idx;
 
-        if (MOX::speedx2_flag == 1 || MOX::net_flag != 0) {
-            step = 9;
-        } else {
-            step = 3;
-        }
+        // WP3.9d (B2): the flight steps 3 px whatever the speed setting (x2 and network games
+        // stepped 9, which changed the hit tests); x2 only draws every third step.
+        step = 3;
+        const int16_t draw_every = (MOX::speedx2_flag == 1 || MOX::net_flag != 0) ? 3 : 1;
+        int16_t step_count = 0;
+        const bool draws = antares::combat::Legacy_Draws();
 
         if ((missile->type == WEAPON_PROTON_TORPEDO &&
                 CMBTMIS::proton_torpedo_apply_speed_base == 0) ||
@@ -910,7 +944,7 @@ namespace CMBTSPEC {
             missile->travel_dist = 10000;
         }
 
-        if (MOX::super_fast_flag == 0) {
+        if (draws) {
             switch (missile->type) {
                 case WEAPON_NUCLEAR_MISSILE:
                     sound_handle = ERICNET::Mox_Play_Sound(0x20);
@@ -951,7 +985,7 @@ namespace CMBTSPEC {
 
                 hit_flag = (uint8_t)CMBTMIS::Move_Missile(missile_idx, tx, ty, step << 2);
 
-                if (MOX::super_fast_flag == 0) {
+                if (draws && (++step_count % draw_every == 0 || hit_flag != 0)) {
                     video::Set_Page_Off();
                     CMBTDRW1::Draw_Main_Combat_Screen();
                     RUSS::Mox_Sync_Update();
@@ -989,7 +1023,8 @@ namespace CMBTSPEC {
         int16_t frame_step;
         uint32_t sound_handle;
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("stellar", {{"from", attacker_idx}, {"to", target_idx}}); // WP3.9d
+        if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
             if (CMBTDRW1::Ship_Completely_On_Screen(target_idx) == 0) {
                 COMBINIT::Snap_Center_Combat_Screen(MOX::combat_data[target_idx].x, MOX::combat_data[target_idx].y);
             }
@@ -1066,7 +1101,8 @@ namespace CMBTSPEC {
             total_struct_damage += current_struct_damage;
         }
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("damage", {{"ship", target_idx}, {"armor", total_damage}, {"structure", total_struct_damage}}); // WP3.9d
+        if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
             palette::Restore_Glass_Remap_Block(MOX::shield_remap_colors);
             BEAMS::Add_Damage_Indicator_For_Ship(
                 (MOX::combat_data[target_idx].x - MOX::cur_combat_x) * 20,
@@ -1086,7 +1122,8 @@ namespace CMBTSPEC {
         int16_t shots_left = source_ship->weapons[weapon_slot_idx].shots_left;
         int16_t weapon_id = source_ship->weapons[weapon_slot_idx].weapon_id;
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("plasma_web", {{"from", attacker_idx}, {"to", target_idx}}); // WP3.9d
+        if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
             if (!CMBTDRW1::Ship_Completely_On_Screen(target_idx)) {
                 COMBINIT::Snap_Center_Combat_Screen(target_ship->x, target_ship->y);
             }
@@ -1194,6 +1231,22 @@ namespace CMBTSPEC {
         }
 
         target_ship->plasma_web_damage += accumulated_damage;
+    }
+
+    void Destroy_Ship_Rules(int16_t ship_idx, int16_t x, int16_t y, int16_t explosion_type) {
+        // Destroy_Ship_FX's rules in its order: the blast before the ship counts as destroyed
+        // (super-fast had it the other way round), the web damage cleared and the grids rebuilt
+        // as after the explosion.
+        s_combat_data* ship = &MOX::combat_data[ship_idx];
+        if (ship->previous_owner < 10 && explosion_type != 1) {
+            int16_t damage = CMBTFIR2::Damage_From_Ship_Exploding(ship_idx);
+            Do_Spherical_SFX(ship_idx, x, y, explosion_type, damage);
+            ship->unit_status = 5 /* DESTROYED */;
+            return;
+        }
+        ship->plasma_web_damage = 0;
+        ship->unit_status = 5 /* DESTROYED */;
+        COMBAT1::Assign_Combat_Grids(MOX::cur_ship);
     }
 
     void __cdecl Destroy_Ship_FX(int16_t ship_idx, int16_t x, int16_t y, int16_t explosion_type) {
@@ -1623,7 +1676,7 @@ namespace CMBTSPEC {
         int16_t center_dx_2;
         int16_t center_dy_2;
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0 && CMBTDRW1::Ship_Completely_On_Screen(source_ship_idx) == 0) {
+        if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws() && CMBTDRW1::Ship_Completely_On_Screen(source_ship_idx) == 0) {
             COMBINIT::Snap_Center_Combat_Screen(MOX::combat_data[source_ship_idx].x, MOX::combat_data[source_ship_idx].y);
         }
 
@@ -1731,7 +1784,8 @@ namespace CMBTSPEC {
 
         COMBINIT::Ship_Center_Offsets(source_ship_idx, &center_dx_2, &center_dy_2);
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        antares::combat::Effect("blast", {{"ship", source_ship_idx}, {"type", effect_type}, {"x", effect_x}, {"y", effect_y}}); // WP3.9d
+        if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
             MOX::dont_draw_ship = source_ship_idx;
             video::Set_Page_Back();
             CMBTDRW1::Draw_Main_Combat_Screen();
@@ -1982,7 +2036,8 @@ namespace CMBTSPEC {
                 damage_out = applied_damage;
             }
 
-            if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+            antares::combat::Effect("damage", {{"ship", ship_idx}, {"armor", damage_out}, {"structure", struct_damage}}); // WP3.9d
+            if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
                 BEAMS::Add_Damage_Indicator_For_Ship(
                     (MOX::combat_data[ship_idx].x - MOX::cur_combat_x) * 20,
                     (MOX::combat_data[ship_idx].y - MOX::cur_combat_y) * 20,
@@ -1993,7 +2048,7 @@ namespace CMBTSPEC {
             }
         }
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
             BEAMS::Draw_Damage_Message_Queue_Until_Done();
         }
 
@@ -2009,7 +2064,7 @@ namespace CMBTSPEC {
 
         allocate::Pop_Block(MOX::screen_seg);
 
-        if (MOX::apply_damage_to_planet == 1 && MOX::super_fast_flag == 0) {
+        if (MOX::apply_damage_to_planet == 1 && antares::combat::Legacy_Draws()) {
             CMBTDRW1::Refresh_Combat_Screen_Full();
         }
     }
