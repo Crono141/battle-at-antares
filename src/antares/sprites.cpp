@@ -287,6 +287,33 @@ namespace antares::sprites {
             // portrait's 128-255 came out black).
             Declared_Palette_Rgb(lbx, entry, palette_rgb);
             Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx == "DIPLOMAT.LBX" && entry >= 13 && palette_entry < 0 && !Declared_Palette_Rgb(lbx, entry, palette_rgb)) {
+            // A diplomacy room (race * 2 + 13) or its ambassador (+ 14): the race's palette, the full
+            // 256 colours of entry `race`, which Diplomacy_Mouse_Init loads (Draw_Palette of the
+            // cursor picture); neither carries colours of its own. Without it the 1x frames came out
+            // grey with a speckled ambassador (0.5.0 without the HD packs, Reddit report).
+            palette_entry = (entry - 13) / 2;
+        } else if (lbx == "EVENTS.LBX" && entry >= 1 && palette_entry < 0 && !Declared_Palette_Rgb(lbx, entry, palette_rgb)) {
+            // The GNN room (entry 1) and its story pictures: EVENTS.LBX 0's full palette, which
+            // Event_Fade_In loads, then the picture's own colours (184-247) as it is drawn.
+            std::vector<uint64_t> gnn_palette;
+            size_t gnn_size = 0;
+            if (Read_Entry("EVENTS.LBX", 0, &gnn_palette, &gnn_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(gnn_palette.data()), gnn_size, palette_rgb);
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if ((lbx == "SCIENCE.LBX" || lbx.rfind("TANM_", 0) == 0) && !Declared_Palette_Rgb(lbx, entry, palette_rgb) &&
+            Game_Palette(0, palette_rgb)) {
+            // The research room's monitor, tube light and hologram: the galaxy's palette (Science_Room
+            // loads none) under SCIENCE.LBX 0's colours 192-255 (its Draw_Palette), then the
+            // picture's own (a hologram's 149-191, applied as it is drawn). Without them the monitor
+            // and the tube came out as green noise (same report).
+            std::vector<uint64_t> science_palette;
+            size_t science_size = 0;
+            if (Read_Entry("SCIENCE.LBX", 0, &science_palette, &science_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(science_palette.data()), science_size, palette_rgb);
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
         } else {
             // Other art its own, if declared.
             Declared_Palette_Rgb(lbx, entry, palette_rgb);
