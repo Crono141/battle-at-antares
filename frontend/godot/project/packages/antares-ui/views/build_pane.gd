@@ -2,7 +2,7 @@ extends PanelContainer
 ## The build pane (WP3.4b, the owner's design: "CHANGE: the build pane: item details, Auto build /
 ## Repeat build, the build list, the buildable list with Buildings / Units tabs, OK and Cancel"; the
 ## tabs became one list on the owner's request, 2026-11-17: the units, a short fixed list, pinned
-## above the buildings, which scroll). Slides out from the colony pane's right edge. From the
+## above the buildings; each takes half the column and scrolls). Slides out from the colony pane's right edge. From the
 ## `build_options` query: what CHANGE offers (Units and Buildings, and Refit: the warships in orbit,
 ## each choosing a design of its size in a popup, shown in place of the list while REFIT is on), each item's details (the original's help text, or a design's parts) and the colony's
 ## queue, shown as the game's seven numbered slots. Items are clicked onto the end of the list or
@@ -62,7 +62,6 @@ func _ready() -> void:
 	$Box/Buttons/Ok.pressed.connect(_ok)
 	tabs_refit.toggled.connect(func(_on: bool): _show_items())
 	preload("../themes.gd").glowing(tabs_refit)
-	lists.resized.connect(_fit_units)
 	for b: Button in [auto_button, repeat_button]:
 		preload("../themes.gd").glowing(b)
 	# The list takes drops: an item from the right, or one of its own moved.
@@ -288,7 +287,6 @@ func _show_items() -> void:
 		return
 	_fill(units_box, options.units)
 	_fill(items_box, options.buildings)
-	_fit_units.call_deferred()
 
 
 func _fill(box: VBoxContainer, list: Array) -> void:
@@ -312,19 +310,6 @@ func _fill(box: VBoxContainer, list: Array) -> void:
 			set_drag_preview(_drag_preview(item))
 			return {"build_item": id}, Callable(), Callable())
 		box.add_child(b)
-
-
-## The units take the height they need; only when the buildings would then get less than they need
-## (up to 40% of the column) do the units stop at half the column and scroll too.
-func _fit_units() -> void:
-	if not units_scroll.visible:
-		return
-	var sep := lists.get_theme_constant("separation")
-	var room := lists.size.y - units_title.size.y - items_title.size.y - 3 * sep
-	var units_want := units_box.get_combined_minimum_size().y
-	var buildings_want := items_box.get_combined_minimum_size().y
-	var cap := maxf(room * 0.5, room - minf(buildings_want, room * 0.4))
-	units_scroll.custom_minimum_size.y = maxf(minf(units_want, cap), 0.0)
 
 
 ## REFIT: the warships in orbit; one chooses its new design in a popup.
