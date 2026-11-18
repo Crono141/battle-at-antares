@@ -27,24 +27,6 @@ size_flags_horizontal = 3
 theme_type_variation = &"Heading"
 text = "Build"
 
-[node name="Buildings" type="Button" parent="Box/Header"]
-custom_minimum_size = Vector2(120, 32)
-layout_mode = 2
-size_flags_vertical = 4
-focus_mode = 0
-theme_type_variation = &"Toggle"
-toggle_mode = true
-text = "BUILDINGS"
-
-[node name="Units" type="Button" parent="Box/Header"]
-custom_minimum_size = Vector2(100, 32)
-layout_mode = 2
-size_flags_vertical = 4
-focus_mode = 0
-theme_type_variation = &"Toggle"
-toggle_mode = true
-text = "UNITS"
-
 [node name="Refit" type="Button" parent="Box/Header"]
 custom_minimum_size = Vector2(90, 32)
 layout_mode = 2
@@ -130,11 +112,37 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_type_variation = &"Row"
 
-[node name="Scroll" type="ScrollContainer" parent="Box/Columns/Right"]
+[node name="Lists" type="VBoxContainer" parent="Box/Columns/Right"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="UnitsTitle" type="Label" parent="Box/Columns/Right/Lists"]
+layout_mode = 2
+theme_type_variation = &"Section"
+text = "UNITS"
+clip_text = true
+
+[node name="UnitsScroll" type="ScrollContainer" parent="Box/Columns/Right/Lists"]
 layout_mode = 2
 horizontal_scroll_mode = 0
 
-[node name="Items" type="VBoxContainer" parent="Box/Columns/Right/Scroll"]
+[node name="Units" type="VBoxContainer" parent="Box/Columns/Right/Lists/UnitsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
+
+[node name="ItemsTitle" type="Label" parent="Box/Columns/Right/Lists"]
+layout_mode = 2
+theme_type_variation = &"Section"
+text = "BUILDINGS"
+clip_text = true
+
+[node name="Scroll" type="ScrollContainer" parent="Box/Columns/Right/Lists"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Items" type="VBoxContainer" parent="Box/Columns/Right/Lists/Scroll"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 0

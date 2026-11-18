@@ -1,9 +1,10 @@
 extends PanelContainer
 ## The build pane (WP3.4b, the owner's design: "CHANGE: the build pane: item details, Auto build /
-## Repeat build, the build list, the buildable list with Buildings / Units tabs, OK and Cancel").
-## Slides out from the colony pane's right edge. From the `build_options` query: what CHANGE offers
-## (Buildings, Units, and Refit: the warships in orbit, each choosing a design of its size in a
-## popup), each item's details (the original's help text, or a design's parts) and the colony's
+## Repeat build, the build list, the buildable list with Buildings / Units tabs, OK and Cancel"; the
+## tabs became one list on the owner's request, 2026-11-17: the units, a short fixed list, pinned
+## above the buildings, which scroll). Slides out from the colony pane's right edge. From the
+## `build_options` query: what CHANGE offers (Units and Buildings, and Refit: the warships in orbit,
+## each choosing a design of its size in a popup, shown in place of the list while REFIT is on), each item's details (the original's help text, or a design's parts) and the colony's
 ## queue, shown as the game's seven numbered slots. Items are clicked onto the end of the list or
 ## dragged between its items; list items drag to a new place the same way. The pane keeps a working copy of the queue and the edits made to it, by
 ## the original popup's rules (seven slots, a repeat stays with its item, a bought front item stays
@@ -24,8 +25,6 @@ const TRADE_GOODS := -2
 const SLOTS := 7
 const ROW_HEIGHT := 30.0
 
-@onready var tabs_buildings: Button = $Box/Header/Buildings
-@onready var tabs_units: Button = $Box/Header/Units
 @onready var tabs_refit: Button = $Box/Header/Refit
 @onready var detail: VBoxContainer = $Box/Columns/Left/Detail/Scroll/Box
 @onready var detail_scroll: ScrollContainer = $Box/Columns/Left/Detail/Scroll
@@ -34,7 +33,12 @@ const ROW_HEIGHT := 30.0
 @onready var auto_button: Button = $Box/Columns/Left/Toggles/Auto
 @onready var repeat_button: Button = $Box/Columns/Left/Toggles/Repeat
 @onready var queue_box: VBoxContainer = $Box/Columns/Left/Queue/Box
-@onready var items_box: VBoxContainer = $Box/Columns/Right/Scroll/Items
+@onready var lists: VBoxContainer = $Box/Columns/Right/Lists
+@onready var units_title: Label = $Box/Columns/Right/Lists/UnitsTitle
+@onready var units_scroll: ScrollContainer = $Box/Columns/Right/Lists/UnitsScroll
+@onready var units_box: VBoxContainer = $Box/Columns/Right/Lists/UnitsScroll/Units
+@onready var items_title: Label = $Box/Columns/Right/Lists/ItemsTitle
+@onready var items_box: VBoxContainer = $Box/Columns/Right/Lists/Scroll/Items
 
 var bottom_clear := 0.0 # set_bottom_clear
 var art: Node
@@ -56,12 +60,9 @@ func _ready() -> void:
 	$Box/Header/Close.pressed.connect(cancel)
 	$Box/Buttons/Cancel.pressed.connect(cancel)
 	$Box/Buttons/Ok.pressed.connect(_ok)
-	var group := ButtonGroup.new()
-	for b: Button in [tabs_buildings, tabs_units, tabs_refit]:
-		b.button_group = group
-		b.toggled.connect(func(_on: bool): _show_items())
-		preload("../themes.gd").glowing(b)
-	tabs_buildings.set_pressed_no_signal(true)
+	tabs_refit.toggled.connect(func(_on: bool): _show_items())
+	preload("../themes.gd").glowing(tabs_refit)
+	lists.resized.connect(_fit_units)
 	for b: Button in [auto_button, repeat_button]:
 		preload("../themes.gd").glowing(b)
 	# The list takes drops: an item from the right, or one of its own moved.
@@ -117,6 +118,8 @@ func open(id: int, is_bought: bool) -> void:
 	bought = is_bought
 	_edits.clear()
 	_refitting.clear()
+	tabs_refit.set_pressed_no_signal(false)
+	preload("../themes.gd").glow(tabs_refit)
 	command.emit({"verb": "query", "what": "build_options", "colony": id, "_reply_to": "show_options"})
 
 
@@ -272,18 +275,28 @@ func _pair(slot: int) -> Vector2i:
 func _show_items() -> void:
 	if not is_node_ready() or options.is_empty():
 		return
-	for child in items_box.get_children():
-		items_box.remove_child(child)
-		child.queue_free()
-	if tabs_refit.button_pressed:
+	for box in [units_box, items_box]:
+		for child in box.get_children():
+			box.remove_child(child)
+			child.queue_free()
+	var refit := tabs_refit.button_pressed
+	units_title.visible = not refit
+	units_scroll.visible = not refit
+	items_title.text = "REFIT" if refit else "BUILDINGS"
+	if refit:
 		_show_refit_ships()
 		return
-	var list: Array = options.buildings if tabs_buildings.button_pressed else options.units
+	_fill(units_box, options.units)
+	_fill(items_box, options.buildings)
+	_fit_units.call_deferred()
+
+
+func _fill(box: VBoxContainer, list: Array) -> void:
 	for item: Dictionary in list:
 		if item.get("separator", false):
 			var gap := Control.new()
-			gap.custom_minimum_size.y = 12
-			items_box.add_child(gap)
+			gap.custom_minimum_size.y = 8
+			box.add_child(gap)
 			continue
 		var b := Button.new()
 		b.text = String(item.name)
@@ -298,7 +311,20 @@ func _show_items() -> void:
 		b.set_drag_forwarding(func(_at: Vector2) -> Variant:
 			set_drag_preview(_drag_preview(item))
 			return {"build_item": id}, Callable(), Callable())
-		items_box.add_child(b)
+		box.add_child(b)
+
+
+## The units take the height they need; only when the buildings would then get less than they need
+## (up to 40% of the column) do the units stop at half the column and scroll too.
+func _fit_units() -> void:
+	if not units_scroll.visible:
+		return
+	var sep := lists.get_theme_constant("separation")
+	var room := lists.size.y - units_title.size.y - items_title.size.y - 3 * sep
+	var units_want := units_box.get_combined_minimum_size().y
+	var buildings_want := items_box.get_combined_minimum_size().y
+	var cap := maxf(room * 0.5, room - minf(buildings_want, room * 0.4))
+	units_scroll.custom_minimum_size.y = maxf(minf(units_want, cap), 0.0)
 
 
 ## REFIT: the warships in orbit; one chooses its new design in a popup.
