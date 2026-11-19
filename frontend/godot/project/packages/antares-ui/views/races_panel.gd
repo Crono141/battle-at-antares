@@ -139,7 +139,14 @@ func show_races(answer: Dictionary) -> void:
 	_home_strip.held = int(_carry.n) if not _carry.is_empty() and int(_carry.from) == HOME else 0
 	_clear(_slots)
 	_strips = [_home_strip]
-	for r: Dictionary in races:
+	# From the top down (owner, 2026-11-19: met empires sat below empty No-contact rows, in player
+	# order): the empires met, then the eliminated, then those not met, each in player order.
+	var rank := func(r: Dictionary) -> int:
+		return 2 if not r.contact else (1 if r.eliminated else 0)
+	var ordered: Array = races.duplicate()
+	ordered.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return rank.call(a) < rank.call(b) or (rank.call(a) == rank.call(b) and int(a.player) < int(b.player)))
+	for r: Dictionary in ordered:
 		_slots.add_child(_slot(r))
 	_update_buttons()
 

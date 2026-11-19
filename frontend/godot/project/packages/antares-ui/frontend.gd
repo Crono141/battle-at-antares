@@ -1061,8 +1061,8 @@ const VIEW_HELP := {
 		"Row/Freighters": 291, "Row/Research": 292, "Row/Turn": 296},
 	"side_tabs": {"Colonies": 293, "Planets": 294, "Fleets": 295, "Leaders": 297, "Races": 298, "Info": 299,
 		"ShipDesign": 509}, # the build screen's Design button's help (owner)
-	"build_pane": {"Box/Columns/Right/Lists/UnitsTitle": 504, "Box/Columns/Right/Lists/UnitsScroll": 504,
-		"Box/Columns/Right/Lists/ItemsTitle": 501, "Box/Header/Refit": 508,
+	"build_pane": {"Box/Columns/Right/Lists/UnitsFrame/UnitsBox/UnitsTitle": 504, "Box/Columns/Right/Lists/UnitsFrame/UnitsBox/UnitsScroll": 504,
+		"Box/Columns/Right/Lists/ItemsFrame/ItemsBox/ItemsTitle": 501, "Box/Header/Refit": 508,
 		"Box/Columns/Left/Detail": 505, "Box/Columns/Left/Queue": 506, "Box/Columns/Left/Toggles/Auto": 507,
 		"Box/Columns/Left/Toggles/Repeat": 510, "Box/Buttons/Ok": 511, "Box/Buttons/Cancel": 537},
 }
@@ -1075,7 +1075,7 @@ func _attach_view_help(scene_name: String, view: Control) -> void:
 			attach_help(control, int(VIEW_HELP[scene_name][path]))
 	if scene_name == "build_pane":
 		# The lower list: buildings, or the warships in orbit while REFIT is on.
-		var list := view.get_node_or_null("Box/Columns/Right/Lists/Scroll") as Control
+		var list := view.get_node_or_null("Box/Columns/Right/Lists/ItemsFrame/ItemsBox/Scroll") as Control
 		if list:
 			attach_help(list, func() -> int:
 				return 508 if view.tabs_refit.button_pressed else 501)
@@ -1275,6 +1275,12 @@ func _on_result(id: int, result: Dictionary) -> void:
 ## Snapshots of watched queries: the galaxy bar follows the empire.
 func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 	match snapshot_name:
+		"system":
+			# The shown system each turn (owner, 2026-11-19: during a run of turns the planets kept
+			# their orbits until the turns stopped).
+			if result.get("ok", false) and galaxy.system_star >= 0 and int(result.get("star", -1)) == galaxy.system_star:
+				galaxy.show_system(galaxy.system_star, result)
+				galaxy.redraw()
 		"empire":
 			_view("galaxy_bar").show_empire(result)
 			var colony_view: Control = _views.get("colony_pane")
@@ -2766,6 +2772,7 @@ func _colonies_build(colony_id: int, star_id: int, planet_id: int, bought: bool,
 		_frame_system(star_id)
 		galaxy.show_system(star_id, result)
 		galaxy.redraw()
+		_send({"verb": "watch", "what": "system", "star": star_id}) # its planets move each turn
 		pane.race_id = _race_id
 		pane.show_system(result, String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")"), star_id)
 		(pane.get_node("Box/Back") as Button).text = "RETURN TO COLONIES"
@@ -2826,6 +2833,7 @@ func _open_system(star_id: int, fly := true) -> void:
 			_frame_system(star_id)
 		galaxy.show_system(star_id, result)
 		galaxy.redraw()
+		_send({"verb": "watch", "what": "system", "star": star_id}) # its planets move each turn
 		pane.race_id = _race_id
 		pane.show_system(result, String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")"), star_id))
 
@@ -3108,7 +3116,14 @@ func _end_relocating() -> void:
 func _place_fleet_panel(fleet_panel: Control, world: Vector2) -> void:
 	var view := get_viewport().get_visible_rect().size
 	var at: Vector2 = galaxy.get_global_transform_with_canvas() * world
-	var x := view.x - fleet_panel.size.x - 24.0 if at.x < view.x * 0.5 else 24.0
+	# Beside the fleet (owner, 2026-11-19: it opened at the far edge of the screen): to its right,
+	# or to its left where there is no room, clear of the side tabs.
+	var right_edge := view.x - 60.0
+	var gap := 36.0
+	var x := at.x + gap
+	if x + fleet_panel.size.x > right_edge:
+		x = at.x - gap - fleet_panel.size.x
+	x = clampf(x, 12.0, right_edge - fleet_panel.size.x)
 	var y := clampf(at.y - fleet_panel.size.y * 0.5, 56.0, view.y - fleet_panel.size.y - 80.0)
 	fleet_panel.position = Vector2(x, y)
 

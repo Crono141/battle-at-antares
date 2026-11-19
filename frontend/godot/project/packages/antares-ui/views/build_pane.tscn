@@ -107,43 +107,61 @@ theme_type_variation = &"Row"
 layout_mode = 2
 theme_override_constants/separation = 2
 
-[node name="Right" type="PanelContainer" parent="Box/Columns"]
+[node name="Right" type="VBoxContainer" parent="Box/Columns"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_type_variation = &"Row"
 
 [node name="Lists" type="VBoxContainer" parent="Box/Columns/Right"]
 layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="UnitsFrame" type="PanelContainer" parent="Box/Columns/Right/Lists"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_type_variation = &"Row"
+
+[node name="UnitsBox" type="VBoxContainer" parent="Box/Columns/Right/Lists/UnitsFrame"]
+layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="UnitsTitle" type="Label" parent="Box/Columns/Right/Lists"]
+[node name="UnitsTitle" type="Label" parent="Box/Columns/Right/Lists/UnitsFrame/UnitsBox"]
 layout_mode = 2
 theme_type_variation = &"Section"
 text = "UNITS"
 clip_text = true
 
-[node name="UnitsScroll" type="ScrollContainer" parent="Box/Columns/Right/Lists"]
+[node name="UnitsScroll" type="ScrollContainer" parent="Box/Columns/Right/Lists/UnitsFrame/UnitsBox"]
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
-[node name="Units" type="VBoxContainer" parent="Box/Columns/Right/Lists/UnitsScroll"]
+[node name="Units" type="VBoxContainer" parent="Box/Columns/Right/Lists/UnitsFrame/UnitsBox/UnitsScroll"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 0
 
-[node name="ItemsTitle" type="Label" parent="Box/Columns/Right/Lists"]
+[node name="ItemsFrame" type="PanelContainer" parent="Box/Columns/Right/Lists"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_type_variation = &"Row"
+
+[node name="ItemsBox" type="VBoxContainer" parent="Box/Columns/Right/Lists/ItemsFrame"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ItemsTitle" type="Label" parent="Box/Columns/Right/Lists/ItemsFrame/ItemsBox"]
 layout_mode = 2
 theme_type_variation = &"Section"
 text = "BUILDINGS"
 clip_text = true
 
-[node name="Scroll" type="ScrollContainer" parent="Box/Columns/Right/Lists"]
+[node name="Scroll" type="ScrollContainer" parent="Box/Columns/Right/Lists/ItemsFrame/ItemsBox"]
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
-[node name="Items" type="VBoxContainer" parent="Box/Columns/Right/Lists/Scroll"]
+[node name="Items" type="VBoxContainer" parent="Box/Columns/Right/Lists/ItemsFrame/ItemsBox/Scroll"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 0

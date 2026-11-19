@@ -34,11 +34,11 @@ const ROW_HEIGHT := 30.0
 @onready var repeat_button: Button = $Box/Columns/Left/Toggles/Repeat
 @onready var queue_box: VBoxContainer = $Box/Columns/Left/Queue/Box
 @onready var lists: VBoxContainer = $Box/Columns/Right/Lists
-@onready var units_title: Label = $Box/Columns/Right/Lists/UnitsTitle
-@onready var units_scroll: ScrollContainer = $Box/Columns/Right/Lists/UnitsScroll
-@onready var units_box: VBoxContainer = $Box/Columns/Right/Lists/UnitsScroll/Units
-@onready var items_title: Label = $Box/Columns/Right/Lists/ItemsTitle
-@onready var items_box: VBoxContainer = $Box/Columns/Right/Lists/Scroll/Items
+@onready var units_title: Label = $Box/Columns/Right/Lists/UnitsFrame/UnitsBox/UnitsTitle
+@onready var units_scroll: ScrollContainer = $Box/Columns/Right/Lists/UnitsFrame/UnitsBox/UnitsScroll
+@onready var units_box: VBoxContainer = $Box/Columns/Right/Lists/UnitsFrame/UnitsBox/UnitsScroll/Units
+@onready var items_title: Label = $Box/Columns/Right/Lists/ItemsFrame/ItemsBox/ItemsTitle
+@onready var items_box: VBoxContainer = $Box/Columns/Right/Lists/ItemsFrame/ItemsBox/Scroll/Items
 
 var bottom_clear := 0.0 # set_bottom_clear
 var art: Node
@@ -293,6 +293,7 @@ func _show_items() -> void:
 	var refit := tabs_refit.button_pressed
 	units_title.visible = not refit
 	units_scroll.visible = not refit
+	$Box/Columns/Right/Lists/UnitsFrame.visible = not refit # its own frame (owner, 2026-11-19)
 	items_title.text = "REFIT" if refit else "BUILDINGS"
 	if refit:
 		_show_refit_ships()

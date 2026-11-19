@@ -56,6 +56,7 @@ namespace antares::native {
         struct s_watch {
             std::string what;
             std::string last; // the last posted answer
+            std::string args; // the watch command itself: the query's arguments ("star")
         };
         std::vector<s_watch> s_watches;
         uint64_t s_snapshot_seq = 0;
@@ -169,12 +170,13 @@ namespace antares::native {
                 const bool watch = strcmp(verb, "watch") == 0;
                 const std::string name = what != nullptr ? what : "";
                 const auto it = std::find_if(s_watches.begin(), s_watches.end(), [&](const s_watch& w) { return w.what == name; });
-                if (watch && commands::Run_Query(screen, name).empty()) {
+                if (watch && commands::Run_Query(screen, name, json).empty()) {
                     result = Bridge_Result(id, false, "unknown_query");
                 } else {
                     if (watch && it == s_watches.end()) {
-                        s_watches.push_back({name, {}});
+                        s_watches.push_back({name, {}, json});
                     } else if (watch) {
+                        it->args = json; // the same query with these arguments (another star)
                         it->last.clear(); // post the current answer again
                     } else if (it != s_watches.end()) {
                         s_watches.erase(it);
@@ -191,7 +193,7 @@ namespace antares::native {
         // Re-runs the watched queries and posts the ones whose answer changed.
         void Refresh_Snapshots(int16_t screen) {
             for (s_watch& watch : s_watches) {
-                std::string answer = commands::Run_Query(screen, watch.what);
+                std::string answer = watch.args.empty() ? commands::Run_Query(screen, watch.what) : commands::Run_Query(screen, watch.what, watch.args);
                 if (answer.empty() || answer == watch.last) {
                     continue;
                 }

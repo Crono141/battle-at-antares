@@ -628,6 +628,21 @@ namespace antares::commands {
         return result;
     }
 
+    std::string Run_Query(int16_t screen, const std::string& what, const std::string& args_json) {
+        const s_entry* entry = Find(what, e_kind::query);
+        if (entry == nullptr) {
+            return {};
+        }
+        yyjson_doc* doc = yyjson_read(args_json.data(), args_json.size(), 0);
+        if (doc == nullptr || !yyjson_is_obj(yyjson_doc_get_root(doc))) {
+            yyjson_doc_free(doc);
+            return Run_Query(screen, what);
+        }
+        std::string result = Execute(*entry, screen, 0, yyjson_doc_get_root(doc), false);
+        yyjson_doc_free(doc);
+        return result;
+    }
+
     const std::vector<s_entry>& Table() {
         return Mutable_Table();
     }

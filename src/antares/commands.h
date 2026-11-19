@@ -86,6 +86,8 @@ namespace antares::commands {
 
     // Runs a query by name, for snapshots: the result fields plus "version", or "" when unknown.
     std::string Run_Query(int16_t screen, const std::string& what);
+    // The same with the query's arguments (a JSON object: a watched system's "star").
+    std::string Run_Query(int16_t screen, const std::string& what, const std::string& args_json);
 
     // The table, for the contract listing and tests.
     const std::vector<s_entry>& Table();
