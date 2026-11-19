@@ -3016,7 +3016,10 @@ func _place_build_pane() -> void:
 		for b in tabs.find_children("*", "Button", true, false):
 			if (b as Control).is_visible_in_tree():
 				right = minf(right, (b as Control).get_global_rect().position.x - gap)
-	pane.place_at(colony_pane.get_global_rect().end.x + gap, right)
+	# Where the colony pane rests when open, not where it is now (owner, 2026-11-19: opened while
+	# the colony pane was still sliding in, as after a landing, the build list sat over it).
+	var colony_end := float(colony_pane._shown_left) + float(colony_pane.WIDTH)
+	pane.place_at(colony_end + gap, right)
 
 
 func _on_pane_planet(planet_id: int) -> void:
@@ -4998,6 +5001,13 @@ func _smoke_settle(shots: String) -> void:
 		await host.shot(shots + "/native-settled.png")
 	if not landing_seen or not colony_pane.visible or not _view("build_pane").visible or not _view("system_pane").visible:
 		await host.smoke_fail("settling did not end with the system, the colony and its build list open")
+		return
+	# The build list beside the colony pane, not over it (owner, 2026-11-19: BuildLeft.png).
+	var build_left: float = _view("build_pane").get_global_rect().position.x
+	var colony_right: float = colony_pane.get_global_rect().end.x
+	print("smoke: settle: build list starts at %.0f, colony pane ends at %.0f" % [build_left, colony_right])
+	if build_left < colony_right:
+		await host.smoke_fail("the build list overlaps the colony pane")
 		return
 	game.request_game_quit()
 	print("smoke: asked the game to quit")
