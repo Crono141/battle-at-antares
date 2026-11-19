@@ -78,6 +78,7 @@ var system_fleets_alpha := 1.0:
 func fleet_alpha(fleet: Dictionary) -> float:
 	return system_fleets_alpha if system_star >= 0 and int(fleet.get("star", -1)) == system_star else 1.0
 var system_scale := 0.25 # world units per system box pixel
+var _system_tweens: Array[Tween] = [] # the open system's fades, stopped when another opens
 var selected_planet := -1
 ## How long a camera flight takes, and the view it left (Back returns to it).
 const FLIGHT_TIME := 1.0
@@ -401,28 +402,44 @@ func show_system(star_id: int, result: Dictionary) -> void:
 	system_star = star_id
 	if fresh:
 		selected_planet = -1
-		create_tween().tween_property(self, "others_alpha", OTHERS_IN_SYSTEM, maxf(flight_time, 0.3))
+		# A system closing just before (another system's question, a to-do item) stops fading:
+		# its end would otherwise clear this one and leave every star dimmed (owner, 2026-11-19).
+		for tween in _system_tweens:
+			if tween.is_valid():
+				tween.kill()
+		_system_tweens.clear()
+		_system_tweens.append(create_tween())
+		_system_tweens[-1].tween_property(self, "others_alpha", OTHERS_IN_SYSTEM, maxf(flight_time, 0.3))
 		# The system's own fleets stay by its star, clickable as on the map (owner, 2026-11-19,
 		# reversing 2026-11-13's fade: more intuitive than the pane's list, which keeps them too).
 		system_fleets_alpha = 1.0
 		$Orbits.modulate.a = 0.0
-		create_tween().tween_property($Orbits, "modulate:a", 1.0, maxf(flight_time, 0.3)).set_delay(flight_time * 0.5)
+		_system_tweens.append(create_tween())
+		_system_tweens[-1].tween_property($Orbits, "modulate:a", 1.0, maxf(flight_time, 0.3)).set_delay(flight_time * 0.5)
 	$Orbits.queue_redraw()
 
 
 func hide_system() -> void:
 	if system.is_empty():
 		return
+	for tween in _system_tweens:
+		if tween.is_valid():
+			tween.kill()
+	_system_tweens.clear()
+	var hiding := system_star
 	var fade := create_tween()
-	create_tween().tween_property(self, "others_alpha", 1.0, maxf(flight_time, 0.3))
-	create_tween().tween_property(self, "system_fleets_alpha", 1.0, maxf(flight_time, 0.3))
+	var others := create_tween()
+	others.tween_property(self, "others_alpha", 1.0, maxf(flight_time, 0.3))
 	fade.tween_property($Orbits, "modulate:a", 0.0, 0.3)
 	fade.tween_callback(func():
+		if system_star != hiding:
+			return # another system opened meanwhile: it stays
 		system = {}
 		system_star = -1
 		system_fleets_alpha = 1.0
 		selected_planet = -1
 		$Orbits.queue_redraw())
+	_system_tweens.append_array([fade, others])
 
 
 ## Flies the camera to `world` at `zoom`, so that `world` ends at `screen` (a point in the area the

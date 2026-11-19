@@ -4807,6 +4807,11 @@ func _smoke_todo(shots: String) -> bool:
 					await get_tree().create_timer(1.0).timeout
 					print("smoke: to-do colonize asked: system pane visible %s on %d, galaxy system %d" % [_view("system_pane").visible,
 						int(_view("system_pane").star), galaxy.system_star])
+					# The map shows the asking system, not every star dimmed (owner, 2026-11-19: from
+					# another system's pane the galaxy flew there but never brightened the new star).
+					if galaxy.system_star != int(item.get("star", -1)):
+						await host.smoke_fail("the question's system is not the one shown on the map")
+						return false
 				if shots != "" and asked.size() == 1:
 					await host.shot(shots + "/native-todo-colonize.png")
 				if dialog._kind == "popup" and dialog.options.size() > 0:
