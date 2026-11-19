@@ -3201,6 +3201,9 @@ func _smoke_native() -> void:
 		if arg == "--film":
 			await _smoke_film(shots)
 			return
+		if arg == "--queue-drag":
+			await _smoke_queue_drag(shots)
+			return
 		if arg == "--settle":
 			await _smoke_settle(shots)
 			return
@@ -4942,6 +4945,85 @@ func _query(what: String) -> Dictionary:
 		await get_tree().create_timer(0.05).timeout
 		waited += 0.05
 	return box.get("r", {})
+
+
+## Reordering the build list by dragging (owner, 2026-11-19): with real mouse events, the third
+## item is pressed and moved over the first: it follows the pointer and a gap opens there; released,
+## it is first. A drag let go outside the list changes nothing.
+func _smoke_queue_drag(shots: String) -> void:
+	var colony := -1
+	for c in 64:
+		var data: Dictionary = await _query_args({"what": "colony", "colony": c})
+		if data.get("ok", false) and not data.get("outpost", false):
+			colony = c
+			break
+	var star: int = int((await _query_args({"what": "colony", "colony": colony})).star)
+	_open_colony_at(star, colony, true)
+	var build := _view("build_pane")
+	var waited := 0.0
+	while (not build.visible or build.options.is_empty()) and waited < 10.0:
+		await get_tree().create_timer(0.2).timeout
+		waited += 0.2
+	await get_tree().create_timer(1.0).timeout
+	for item: Dictionary in build.options.buildings:
+		if build._queue.size() >= 3:
+			break
+		if not item.get("separator", false):
+			build._add(int(item.id))
+	await get_tree().create_timer(0.5).timeout
+	var before: Array = build._queue.map(func(q: Dictionary) -> int: return int(q.id))
+	var rows: Array = build.queue_box.get_children()
+	var factor := get_window().content_scale_factor
+	var row_center := func(i: int) -> Vector2:
+		var now: Array = build.queue_box.get_children() # the list is rebuilt by each drop
+		var name_button: Control = null
+		for b in (now[i] as Node).get_children():
+			if b is Button and (b as Button).text != "X":
+				name_button = b
+		return (name_button.get_global_rect().get_center() if name_button else (now[i] as Control).get_global_rect().get_center())
+	var from: Vector2 = row_center.call(2)
+	var to: Vector2 = (rows[0] as Control).get_global_rect().position + Vector2(40.0, 4.0)
+	_smoke_mouse(true, from * factor)
+	await get_tree().process_frame
+	for step in 12:
+		var motion := InputEventMouseMotion.new()
+		motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+		motion.position = from.lerp(to, (step + 1) / 12.0) * factor
+		Input.parse_input_event(motion)
+		await get_tree().create_timer(0.03).timeout
+	await get_tree().create_timer(0.3).timeout
+	var ghost_on: bool = build._ghost != null and build._ghost.visible
+	var gap: int = build._drag_gap
+	var spacer_h: float = build._spacer.custom_minimum_size.y if build._spacer != null else 0.0
+	print("smoke: queue drag: %s, ghost %s, gap %d, gap height %.0f" % [before, ghost_on, gap, spacer_h])
+	if shots != "":
+		await host.shot(shots + "/native-queue-drag.png")
+	_smoke_mouse(false, to * factor)
+	await get_tree().create_timer(0.4).timeout
+	var after: Array = build._queue.map(func(q: Dictionary) -> int: return int(q.id))
+	print("smoke: queue drag dropped: %s" % [after])
+	var moved_ok: bool = before.size() >= 3 and after.size() == before.size() and int(after[0]) == int(before[2])
+	# Out of the list: no change.
+	var again: Array = after.duplicate()
+	var row2: Vector2 = row_center.call(1)
+	_smoke_mouse(true, row2 * factor)
+	await get_tree().process_frame
+	var away := Vector2(row2.x + 700.0, row2.y)
+	for step in 8:
+		var motion := InputEventMouseMotion.new()
+		motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+		motion.position = row2.lerp(away, (step + 1) / 8.0) * factor
+		Input.parse_input_event(motion)
+		await get_tree().create_timer(0.03).timeout
+	_smoke_mouse(false, away * factor)
+	await get_tree().create_timer(0.4).timeout
+	var unchanged: bool = build._queue.map(func(q: Dictionary) -> int: return int(q.id)) == again
+	print("smoke: queue drag let go outside: unchanged %s, ghost gone %s" % [unchanged, build._ghost == null])
+	if not ghost_on or gap != 0 or spacer_h < build.ROW_HEIGHT * 0.5 or not moved_ok or not unchanged or build._ghost != null:
+		await host.smoke_fail("the build list drag did not lift, open its gap, or land")
+		return
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
 
 
 ## Settling from the system view (owner, 2026-11-19): a planet with a colony ship in orbit has

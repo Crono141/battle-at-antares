@@ -64,9 +64,8 @@ func _ready() -> void:
 	preload("../themes.gd").glowing(tabs_refit)
 	for b: Button in [auto_button, repeat_button]:
 		preload("../themes.gd").glowing(b)
-	# The list takes drops: an item from the right, or one of its own moved.
+	# The list takes drags (_arm_drag): an item from the right, or one of its own moved.
 	queue_box.custom_minimum_size.y = SLOTS * ROW_HEIGHT + (SLOTS - 1) * 2
-	queue_panel.set_drag_forwarding(Callable(), _can_drop, _drop)
 	_marker = Control.new()
 	_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_marker.draw.connect(_draw_marker)
@@ -329,9 +328,7 @@ func _fill(box: VBoxContainer, list: Array) -> void:
 		var id := int(item.id)
 		b.mouse_entered.connect(func(): _show_detail(item))
 		b.pressed.connect(func(): _add(id))
-		b.set_drag_forwarding(func(_at: Vector2) -> Variant:
-			set_drag_preview(_drag_preview(item))
-			return {"build_item": id}, Callable(), Callable())
+		_arm_drag(b, {"kind": "item", "id": id, "item": item})
 		box.add_child(b)
 
 
@@ -361,9 +358,7 @@ func _show_refit_ships() -> void:
 			b.add_theme_font_size_override("font_size", 19)
 			b.mouse_entered.connect(func(): _show_detail(ship))
 			b.pressed.connect(func(): _open_refit_popup(ship, b, -1))
-			b.set_drag_forwarding(func(_at: Vector2) -> Variant:
-				set_drag_preview(_drag_preview(ship))
-				return {"refit_ship": ship}, Callable(), Callable())
+			_arm_drag(b, {"kind": "refit", "ship": ship, "item": ship})
 			row.add_child(b)
 			items_box.add_child(row)
 		if shown == 0:
@@ -490,19 +485,32 @@ func _draw_marker() -> void:
 
 
 ## The seven slots, numbered, empty ones shown; each item drags to a new place.
+## While a drag is on (_drag.active), the dragged item's rows are left out and a gap (_spacer)
+## opens where it would land.
 func _show_queue() -> void:
 	for child in queue_box.get_children():
 		queue_box.remove_child(child)
-		child.queue_free()
+		if child != _spacer:
+			child.queue_free()
 	queue_title.text = "BUILD LIST   %d / %d" % [_queue.size(), SLOTS]
+	var hidden := _drag_hidden()
+	# A new item's gap takes the room of the last empty rows (a moved item's rows left their own).
+	var extra := maxi(_spacer_rows() - hidden.y, 0)
+	var rows_in := 0 # rows put in so far: numbered where they will be, the gap counted
 	for slot in SLOTS:
+		if slot >= hidden.x and slot < hidden.x + hidden.y:
+			continue # the dragged item: on the pointer
+		if slot >= SLOTS - extra and slot >= _queue.size():
+			continue
+		var place := rows_in + (_spacer_rows() if _drag_gap >= 0 and rows_in >= _drag_gap else 0)
+		rows_in += 1
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 6)
 		row.custom_minimum_size.y = ROW_HEIGHT
 		row.mouse_filter = Control.MOUSE_FILTER_PASS
 		var number := Label.new()
 		number.theme_type_variation = &"Dim"
-		number.text = str(slot + 1)
+		number.text = str(place + 1)
 		number.custom_minimum_size.x = 18
 		number.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(number)
@@ -540,10 +548,7 @@ func _show_queue() -> void:
 				shown = design.merged({"refit_cost": int(entry.refit.cost)}, true) if not design.is_empty() else entry
 			name_button.mouse_entered.connect(func(): _show_detail(shown))
 			if not (slot == 0 and bought):
-				var s := slot
-				name_button.set_drag_forwarding(func(_at: Vector2) -> Variant:
-					set_drag_preview(_drag_preview(entry))
-					return {"build_slot": s}, Callable(), Callable())
+				_arm_drag(name_button, {"kind": "slot", "slot": slot, "item": entry})
 			row.add_child(name_button)
 		if not (slot == 0 and bought):
 			var remove := Button.new()
@@ -554,6 +559,159 @@ func _show_queue() -> void:
 			remove.pressed.connect(func(): _delete(s2))
 			row.add_child(remove)
 		queue_box.add_child(row)
+	if _spacer != null and _drag.get("active", false) and _drag_gap >= 0:
+		queue_box.add_child(_spacer)
+		queue_box.move_child(_spacer, mini(_drag_gap, queue_box.get_child_count() - 1))
+
+
+# ---- Dragging (owner, 2026-11-19: drag and drop onto the list was broken, its rows took the drop,
+# and a thin line was all it showed): the row comes off and follows the pointer, and a gap opens in
+# the list where it would land. A plain click on a list item still adds it at the end. ----
+
+var _drag := {} # {kind: slot / item / refit, slot, id, ship, item, start, active}
+var _ghost: Control
+var _spacer: Control
+var _drag_gap := -1 # the gap among the shown rows (the dragged item's rows left out)
+var _spacer_tween: Tween
+const DRAG_THRESHOLD := 6.0
+
+
+func _arm_drag(control: Control, info: Dictionary) -> void:
+	control.gui_input.connect(func(event: InputEvent):
+		var press := event as InputEventMouseButton
+		if press and press.button_index == MOUSE_BUTTON_LEFT and press.pressed:
+			_drag = info.merged({"start": press.global_position, "active": false}, true))
+
+
+## The dragged item's rows in the queue (a slot drag): its first slot and how many.
+func _drag_hidden() -> Vector2i:
+	if _drag.get("active", false) and String(_drag.kind) == "slot":
+		return _pair(int(_drag.slot))
+	return Vector2i(-1, 0)
+
+
+func _spacer_rows() -> int:
+	if not _drag.get("active", false) or _drag_gap < 0:
+		return 0
+	return _drag_hidden().y if String(_drag.kind) == "slot" else 1
+
+
+func _input(event: InputEvent) -> void:
+	if _drag.is_empty() or not visible:
+		return
+	var motion := event as InputEventMouseMotion
+	if motion:
+		if not _drag.active and motion.global_position.distance_to(_drag.start) > DRAG_THRESHOLD:
+			if String(_drag.kind) != "slot" and _queue.size() >= SLOTS:
+				_drag = {} # a full list takes nothing new
+				return
+			_begin_drag()
+		if _drag.get("active", false):
+			_follow(motion.global_position)
+		return
+	var release := event as InputEventMouseButton
+	if release and release.button_index == MOUSE_BUTTON_LEFT and not release.pressed:
+		if _drag.get("active", false):
+			get_viewport().set_input_as_handled() # not a click on the button under it
+			_finish_drag(release.global_position)
+		_drag = {}
+
+
+func _begin_drag() -> void:
+	_drag.active = true
+	_ghost = PanelContainer.new()
+	_ghost.theme_type_variation = &"RowOpen"
+	_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ghost.top_level = true
+	_ghost.z_index = 10
+	var preview := _drag_preview(_drag.item)
+	preview.modulate.a = 1.0
+	_ghost.add_child(preview)
+	add_child(_ghost)
+	_ghost.custom_minimum_size = Vector2(queue_box.size.x, ROW_HEIGHT * _drag_hidden().y if String(_drag.kind) == "slot" else ROW_HEIGHT)
+	_spacer = Control.new()
+	_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_drag_gap = -1
+	_follow(get_global_mouse_position())
+
+
+## The ghost on the pointer; over the list, the gap where it would land.
+func _follow(at: Vector2) -> void:
+	if _ghost == null:
+		return
+	_ghost.global_position = at - Vector2(24.0, ROW_HEIGHT * 0.5)
+	var gap := _gap_for(at) if queue_panel.get_global_rect().has_point(at) else -1
+	if gap == _drag_gap:
+		return
+	_drag_gap = gap
+	if _spacer_tween:
+		_spacer_tween.kill()
+	_spacer.custom_minimum_size.y = 0.0
+	_show_queue()
+	if gap >= 0:
+		_spacer_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		_spacer_tween.tween_property(_spacer, "custom_minimum_size:y", _spacer_rows() * (ROW_HEIGHT + 2.0) - 2.0, 0.12)
+
+
+## The gap among the shown rows under `at`: whole items only (an item and its repeat stay
+## together), never ahead of a bought first item.
+func _gap_for(at: Vector2) -> int:
+	var hidden := _drag_hidden()
+	var shown: Array = [] # the queue's slots still in the list, in order
+	for slot in _queue.size():
+		if not (slot >= hidden.x and slot < hidden.x + hidden.y):
+			shown.append(slot)
+	var pitch := ROW_HEIGHT + 2.0
+	var y := (queue_box.get_global_transform().affine_inverse() * at).y
+	# Rows under the open gap sit lower by its height; the gap itself keeps the place.
+	var open := _spacer_rows() * pitch
+	if _drag_gap >= 0:
+		if y >= _drag_gap * pitch and y < _drag_gap * pitch + open:
+			return _drag_gap
+		if y >= _drag_gap * pitch + open:
+			y -= open
+	var gap := clampi(roundi(y / pitch), 0, shown.size())
+	while gap > 0 and gap < shown.size() and int(_queue[shown[gap]].id) == REPEAT:
+		gap += 1
+	if bought and not shown.is_empty() and int(shown[0]) == 0:
+		gap = maxi(gap, _pair(0).y)
+	return gap
+
+
+func _finish_drag(at: Vector2) -> void:
+	var gap := _drag_gap
+	var info := _drag
+	if _ghost != null:
+		_ghost.queue_free()
+		_ghost = null
+	if _spacer_tween:
+		_spacer_tween.kill()
+	_drag = {}
+	_drag_gap = -1
+	if _spacer != null:
+		if _spacer.get_parent() != null:
+			_spacer.get_parent().remove_child(_spacer)
+		_spacer.queue_free()
+		_spacer = null
+	if gap < 0 or not queue_panel.get_global_rect().has_point(at):
+		_show_queue() # dropped elsewhere: nothing changes
+		return
+	match String(info.kind):
+		"slot":
+			# The gap counts the shown rows; in the queue's own slots the dragged rows come back.
+			var src := _pair(int(info.slot))
+			var to := gap if gap <= src.x else gap + src.y
+			_move_to(src.x, to)
+			_show_queue()
+		"item":
+			_add(int(info.id), gap)
+		"refit":
+			var ship: Dictionary = info.ship
+			var targets: Array = ship.get("targets", [])
+			if targets.size() == 1:
+				_refit(ship, targets[0], gap)
+			else:
+				_open_refit_popup(ship, queue_box, gap)
 
 
 ## The detail box: picture, name, cost here, build time, upkeep; a design's parts.
