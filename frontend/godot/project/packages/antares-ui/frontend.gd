@@ -1168,7 +1168,7 @@ func _on_view_closed(scene_name: String) -> void:
 			galaxy.fly_back()
 		galaxy.redraw()
 	elif scene_name == "colony_pane":
-		_view("build_pane").cancel()
+		_view("build_pane").close_keeping()
 		if _panel_star >= 0 and _view("system_pane").visible:
 			_frame_system(_panel_star) # the free area widened again
 	elif scene_name == "design_list" or scene_name == "design_panel":
@@ -2561,7 +2561,7 @@ func _open_side_panel(action_name: String) -> void:
 	var fleets_view: Control = _views.get("fleets_panel")
 	if action_name == "leaders" and fleets_view != null and fleets_view.visible and not fleets_view.fleet.is_empty():
 		side_view.want_fleet = int(fleets_view.fleet.ship) # Ship Officers opens on the Fleets panel's fleet (owner)
-	_view("build_pane").cancel()
+	_view("build_pane").close_keeping()
 	var system_pane := _view("system_pane")
 	if system_pane.visible:
 		_keep_camera = true # the panel's fit is the next flight; the view before the system is kept
@@ -2789,7 +2789,7 @@ func _on_colony_chosen(colony_id: int) -> void:
 	var pane := _view("colony_pane")
 	var was_open: bool = pane.colony_id >= 0
 	if colony_id != pane.colony_id:
-		_view("build_pane").cancel() # another colony: its edits go
+		_view("build_pane").close_keeping() # another colony: its edits are kept, as OK
 	if colony_id < 0:
 		pane.close() # its `closed` re-frames the system
 		return

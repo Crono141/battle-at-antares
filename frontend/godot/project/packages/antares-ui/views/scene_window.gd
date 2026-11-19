@@ -171,7 +171,7 @@ func show_state(state: Dictionary) -> void:
 	if state.get("closing", false) and not _closing:
 		_start_closing()
 	_text.text = String(state.get("text", ""))
-	_text.visible = not _closing # the research picker covers the room then
+	_text.visible = not _closing and not arriving() # the research picker covers the room then
 	_text.add_theme_color_override("font_color", SCIENCE_NORMAL if state.get("text_color", "") == "science" else Color(0.95, 0.93, 0.85))
 	var monitor: Dictionary = state.get("monitor", {})
 	_monitor_title.text = String(monitor.get("title", ""))
@@ -352,6 +352,9 @@ func _process(delta: float) -> void:
 	var now_arriving := arriving()
 	if _was_arriving and not now_arriving and _open:
 		arrived.emit()
+	# The paragraph comes once the speaker is there (owner, 2026-11-19: the ambassador's words
+	# showed before the first frame of the room), as the lists over the scene do.
+	_text.visible = not _closing and not now_arriving
 	_was_arriving = now_arriving
 	# While opening, the stage stays centred on the frame's middle (sliding, it moves with it).
 	_stage.position.y = _margins().position.y if _slides() else _margins().position.y - (_frame.position.y - _frame_rect().position.y)

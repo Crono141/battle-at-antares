@@ -152,6 +152,18 @@ func cancel() -> void:
 		closed.emit()
 
 
+## Closed by a click away from it (the galaxy, another colony, a side panel): the changes are kept,
+## as OK (owner, 2026-11-19: clicking outside after adding things acted as Cancel).
+func close_keeping() -> void:
+	if not visible:
+		return
+	if _edits.is_empty() and auto_button.button_pressed == bool(options.get("auto", false)):
+		cancel()
+	else:
+		_close_refit_popup()
+		_ok()
+
+
 ## Hidden at once (a legacy screen took over): a Cancel.
 func dismiss() -> void:
 	_close_refit_popup()
