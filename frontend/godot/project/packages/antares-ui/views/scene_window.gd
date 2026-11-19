@@ -19,7 +19,8 @@ extends Control
 ##   layers:   [{lbx, entry, loop_from, close}] more animations over the actor, each from frame 0
 ##             (the research room's light, hologram and monitor); `close` says what "closing" does
 ##             to it: "hide" at once, "reverse" plays its frames back to the first and hides it,
-##             "after" hides it when the reversing ones are done;
+##             "after" hides it when the reversing ones are done; x, y place it (1x pixels, as
+##             animate::Draw at x, y: the council's members), "frame" holds it on one frame;
 ##   monitor:  {title, text, box [x, y, w, h], after_frame} text on the monitor (the "reverse"
 ##             layer) once that has reached `after_frame`;
 ##   closing:  the layers close (the research picker comes next; `arrived` when done);
@@ -422,7 +423,7 @@ func _show_art() -> void:
 		var rect: TextureRect = layer.rect
 		rect.visible = not layer.hidden
 		if rect.visible:
-			_place(rect, _sprite(layer.spec), int(layer.frame), Vector2.ZERO, k)
+			_place(rect, _sprite(layer.spec), int(layer.frame), Vector2(float(layer.spec.get("x", 0)), float(layer.spec.get("y", 0))), k)
 	var monitor_on := false
 	for layer: Dictionary in _layers:
 		if String(layer.spec.get("close", "")) == "reverse":
@@ -548,6 +549,9 @@ func _step_layers() -> void:
 				layer.hidden = true
 			else:
 				reversing = true
+			continue
+		if layer.spec.has("frame"):
+			layer.frame = int(layer.spec.frame)
 			continue
 		layer.frame = int(layer.frame) + 1
 		if int(layer.frame) >= s.frames.size():

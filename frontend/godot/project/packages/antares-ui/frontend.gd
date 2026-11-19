@@ -3121,6 +3121,9 @@ func _smoke_native() -> void:
 		if arg == "--film":
 			await _smoke_film(shots)
 			return
+		if arg == "--council":
+			await _smoke_council(shots)
+			return
 		if arg == "--occupation":
 			await _smoke_occupation(shots)
 			return
@@ -4833,6 +4836,48 @@ func _query(what: String) -> Dictionary:
 		await get_tree().create_timer(0.05).timeout
 		waited += 0.05
 	return box.get("r", {})
+
+
+## WP3.11d: a council meeting in the scene window (popup preview, a scratch save): its pages
+## answer a click, the vote comes as a list over the scene (abstain), the ruling list (accept);
+## it closes back to the galaxy.
+func _smoke_council(shots: String) -> void:
+	var box := {}
+	_send({"verb": "preview_popup", "popup": "council"}, func(r: Dictionary): box["r"] = r)
+	var waited := 0.0
+	var pages := 0
+	var lists: Array = []
+	var shot_page := false
+	while not box.has("r") and waited < 120.0:
+		await get_tree().create_timer(0.5).timeout
+		waited += 0.5
+		var dialog: Control = _views.get("dialog")
+		if dialog != null and dialog.visible and overlay.visible:
+			await get_tree().create_timer(1.0).timeout
+			lists.append(dialog.get_node("Fit/Box/Text").text.left(60))
+			if shots != "":
+				await host.shot(shots + "/native-council-list-%d.png" % lists.size())
+			# The vote: the third line is ABSTAIN; the ruling: the first is ACCEPT.
+			dialog._answer(dialog.OPTION_ANSWER + (2 if lists.size() == 1 else 0) if dialog._kind == "popup" else (2 if lists.size() == 1 else 0))
+			continue
+		if _scene_window != null and _scene_window.visible and not _scene_window.arriving():
+			if not shot_page:
+				await get_tree().create_timer(2.5).timeout
+				shot_page = true
+				print("smoke: council scene title '%s', text '%s', layers %d, galaxy %s, bar %s" % [_scene_window._title.text, _scene_window._text.text.left(80),
+					_scene_window._layers.size(), galaxy.visible, _view("galaxy_bar").visible])
+				if shots != "":
+					await host.shot(shots + "/native-council.png")
+			pages += 1
+			_scene_window._frame.gui_input.emit(_smoke_left_click())
+	await get_tree().create_timer(1.5).timeout
+	print("smoke: council over %s after %d clicks, lists %s, window %s, galaxy %s, legacy %s" % [box.has("r"), pages, lists,
+		_scene_window != null and _scene_window.visible, galaxy.visible, legacy.visible])
+	if not box.has("r") or (_scene_window != null and _scene_window.visible) or legacy.visible:
+		await host.smoke_fail("the council did not finish back on the galaxy")
+		return
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
 
 
 ## The occupation question natively (owner, 2026-11-19): asked beside the colony's system, the

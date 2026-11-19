@@ -402,3 +402,7 @@ namespace ANTAROOM {
 namespace OCPOLPUP {
     void __cdecl Occupation_Policy_Popup() {} // popup_preview's "occupation"
 } // namespace OCPOLPUP
+
+namespace council {
+    void __cdecl Main_Council_Screen() {} // popup_preview's "council"
+} // namespace council

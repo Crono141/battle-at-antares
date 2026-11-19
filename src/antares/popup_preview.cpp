@@ -83,6 +83,11 @@ namespace antares::commands::internal {
                 p.research_breakthrough = breakthrough;
                 JIM::Play_Background_Music();
                 answer = 0;
+            } else if (popup == "council") {
+                // WP3.11d: a council meeting, for tests on a scratch save only: it runs the rules
+                // (relations change; a ruling accepted ends the game at the next turn).
+                council::Main_Council_Screen();
+                answer = 0;
             } else if (popup == "occupation") {
                 // The occupation question for the player's home colony; its policy is put back.
                 const int16_t home = MOX::player[player].home_planet_id;
