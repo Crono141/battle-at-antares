@@ -398,3 +398,7 @@ namespace ERIC {
 namespace ANTAROOM {
     void __cdecl Main_Antaran_Room_Screen(int16_t) {} // popup_preview's "antarans" (WP3.11c)
 } // namespace ANTAROOM
+
+namespace OCPOLPUP {
+    void __cdecl Occupation_Policy_Popup() {} // popup_preview's "occupation"
+} // namespace OCPOLPUP

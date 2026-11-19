@@ -832,6 +832,19 @@ namespace REPORT {
 
             if (colony->owner == (int8_t)player_idx &&
                 COLONY::Colony_Needs_Occupation_Policy(i)) {
+                if (show_screen != 0 && antares::native::Galaxy_Will_Be_Native() && antares::native::Popups_Native()) {
+                    // Antares (owner, 2026-11-19): the question over the native galaxy, beside the
+                    // captured colony's system, not the legacy colony screen; the frontend opens the
+                    // colony's pane after it.
+                    MOX::screen_data = MOX::planet[colony->planet].star_index;
+                    COLONY::orbit_temp = (int16_t)MOX::planet[colony->planet].orbit;
+                    OCPOLPUP::Occupation_Policy_Popup();
+                    COLONY::Col_Calc_Wrapper(i);
+                    if (COLONY::Colony_Needs_Occupation_Policy(i)) {
+                        colony->occupation_policy = 3; // never asked again in a loop
+                    }
+                    continue;
+                }
                 if (show_screen != 0) {
                     MOVEBOX::Remove_Box_Check();
                     MOX::current_screen = SCREEN_COLONY;

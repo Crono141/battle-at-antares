@@ -15,6 +15,7 @@ namespace TEST_COLONY {
     extern int refuse_after;
     extern int sells;
     extern bool answer_sell;
+    extern bool captured_people;
     extern std::vector<std::string> build_calls;
 } // namespace TEST_COLONY
 
@@ -143,6 +144,27 @@ DOCTEST_TEST_CASE("the colony query reads the colony screen's values (WP3.4)") {
     DOCTEST_CHECK(Has_(c, "\"garrison\":{\"marines\":13,\"marine_sprite\":124,\"armor\":6,\"armor_sprite\":126}"));
     // Buildings: the barracks, not the satellites.
     DOCTEST_CHECK(Has_(c, "\"buildings\":[{\"building\":22,\"name\":\"B22\",\"sellable\":true,\"refund\":150,"));
+}
+
+DOCTEST_TEST_CASE("the occupation policy: shown for captured people, set by set_occupation (owner, 2026-11-19)") {
+    Set_Up_();
+    TEST_COLONY::captured_people = false;
+    DOCTEST_CHECK_FALSE(Has_(Run_("{\"verb\":\"query\",\"what\":\"colony\",\"colony\":0}"), "\"occupation\""));
+    TEST_COLONY::captured_people = true;
+    c_colonies_[0].occupation_policy = 3;
+    c_players_[0].traits[TRAIT_CURRENT_GOVERNMENT] = GOVERNMENT_DICTATORSHIP;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"colony\",\"colony\":0}"), "\"occupation\":{\"annihilate\":false,\"can_annihilate\":true}"));
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"set_occupation\",\"colony\":0,\"annihilate\":1}"), "\"annihilate\":true"));
+    DOCTEST_CHECK(c_colonies_[0].occupation_policy == 0);
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"set_occupation\",\"colony\":0,\"annihilate\":0}"), "\"annihilate\":false"));
+    DOCTEST_CHECK(c_colonies_[0].occupation_policy == 3);
+    // Democracies keep conquered people: annihilation is refused, and the pane greys it out.
+    c_players_[0].traits[TRAIT_CURRENT_GOVERNMENT] = GOVERNMENT_DEMOCRACY;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"colony\",\"colony\":0}"), "\"can_annihilate\":false"));
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"set_occupation\",\"colony\":0,\"annihilate\":1}"), "refused"));
+    DOCTEST_CHECK(c_colonies_[0].occupation_policy == 3);
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"set_occupation\",\"colony\":0,\"annihilate\":2}"), "bad_args"));
+    TEST_COLONY::captured_people = false;
 }
 
 DOCTEST_TEST_CASE("the help query reads a help record by topic (the right click's help)") {

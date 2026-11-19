@@ -16,6 +16,7 @@ namespace TEST_COLONY {
     int refuse_after = -1;   // Give_Colonist_New_Job says no after this many moves (-1: never)
     int sells = 0;
     bool answer_sell = true; // the game's question
+    bool captured_people = false; // Colony_Pop_Is_Annihilation_Target for every pop
 } // namespace TEST_COLONY
 
 namespace COLCALC {
@@ -51,6 +52,13 @@ namespace COLONY {
             case BUILDING_STAR_FORTRESS: return 0;
             default: return -1;
         }
+    }
+    int16_t orbit_temp = 0;
+    bool __cdecl Colony_Pop_Is_Annihilation_Target(const s_colony*, uint32_t) {
+        return TEST_COLONY::captured_people;
+    }
+    void __cdecl Col_Calc_Wrapper(int16_t) {
+        ++TEST_COLONY::colony_calculations;
     }
     void __cdecl Buy_Or_Unbuy_Product(int16_t colony_idx, bool) {
         ++TEST_COLONY::buys;

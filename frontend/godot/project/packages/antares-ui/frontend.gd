@@ -1411,6 +1411,9 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		_on_research_pick(id, request)
 		return
 	_start_popup_map(dialog, request)
+	if kind == "popup" and String(request.get("popup", "")) == "occupation" and not request.has("scene_state"):
+		# After an invasion (owner, 2026-11-19): the captured colony's pane once answered.
+		_occupation_open = [int(request.get("star", -1)), int(request.get("colony", -1))]
 	if request.has("scene_state"):
 		# A scene's list (diplomacy): the window stays up behind it, the list where the scene
 		# had it.
@@ -2439,7 +2442,7 @@ func _on_scene_request(id: int, request: Dictionary) -> void:
 
 ## After the colony landing (WP3.11a, owner 2026-11-19): the new colony and its build list, so the
 ## click that ends the landing arrives at the build decision.
-func _open_landed_colony(star: int, colony: int) -> void:
+func _open_landed_colony(star: int, colony: int, with_build := true) -> void:
 	if star < 0 or colony < 0:
 		return
 	var waited := 0.0
@@ -2454,7 +2457,7 @@ func _open_landed_colony(star: int, colony: int) -> void:
 		return
 	_on_colony_chosen(colony)
 	await get_tree().create_timer(0.4).timeout
-	if native_screen == Screens.MAIN and not _view("build_pane").visible:
+	if with_build and native_screen == Screens.MAIN and not _view("build_pane").visible:
 		_open_build_pane(colony, false)
 
 
@@ -2531,6 +2534,8 @@ var _popup_pick_star := false
 
 func _start_popup_map(dialog: Control, request: Dictionary) -> void:
 	_popup_zoom = int(request.get("zoom", -1))
+	if _scene_window != null and _scene_window.is_open():
+		_popup_zoom = -1 # over a scene (the landing's occupation question): the map stays
 	_popup_pick_star = bool(request.get("pick_star", false))
 	var on_map: bool = (_popup_zoom >= 0 or _popup_pick_star) and galaxy.visible and not galaxy.stars.is_empty()
 	dialog.placement = ("left" if _popup_zoom >= 0 else "top") if on_map else ""
@@ -2584,7 +2589,14 @@ func _popup_map_click(planet_id: int, star_id: int) -> bool:
 	return false
 
 
+var _occupation_open: Array = [] # [star, colony] to open once the occupation question is answered
+
+
 func _on_answered(id: int, value: int, text := "") -> void:
+	if not _occupation_open.is_empty():
+		var open: Array = _occupation_open
+		_occupation_open = []
+		_open_landed_colony(int(open[0]), int(open[1]), false)
 	if _scene_window != null and _scene_window.is_open():
 		# A list over a scene: the scene goes on (no hand-back to the legacy view between its
 		# requests; scene_end closes it and comes back here).
@@ -3108,6 +3120,9 @@ func _smoke_native() -> void:
 			return
 		if arg == "--film":
 			await _smoke_film(shots)
+			return
+		if arg == "--occupation":
+			await _smoke_occupation(shots)
 			return
 		if arg == "--antarans":
 			await _smoke_antarans(shots)
@@ -4818,6 +4833,53 @@ func _query(what: String) -> Dictionary:
 		await get_tree().create_timer(0.05).timeout
 		waited += 0.05
 	return box.get("r", {})
+
+
+## The occupation question natively (owner, 2026-11-19): asked beside the colony's system, the
+## colony's pane after; and the colony pane's KEEP / ANNIHILATE on a colony with captured people.
+func _smoke_occupation(shots: String) -> void:
+	var box := {}
+	_send({"verb": "preview_popup", "popup": "occupation"}, func(r: Dictionary): box["r"] = r)
+	var waited := 0.0
+	var dialog: Control = null
+	while waited < 10.0:
+		await get_tree().create_timer(0.2).timeout
+		waited += 0.2
+		dialog = _views.get("dialog")
+		if dialog != null and dialog.visible and dialog.popup_name == "occupation":
+			break
+	if dialog == null or not dialog.visible or dialog.popup_name != "occupation":
+		print("smoke: occupation: no question (the government keeps conquered people: %s)" % box.get("r", {}))
+	else:
+		await get_tree().create_timer(1.5).timeout
+		print("smoke: occupation question '%s', placement %s, galaxy system %d" % [dialog.get_node("Fit/Box/Text").text.left(80), dialog.placement, galaxy.system_star])
+		if shots != "":
+			await host.shot(shots + "/native-occupation.png")
+		dialog._answer(1) # NO: keep
+	waited = 0.0
+	while waited < 6.0 and _view("colony_pane").colony_id < 0:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	print("smoke: occupation answered %s; colony pane %s on %d" % [box.get("r", {}), _view("colony_pane").visible, _view("colony_pane").colony_id])
+	var found := -1
+	for c in 64:
+		var colony: Dictionary = await _query_args({"what": "colony", "colony": c})
+		if colony.get("ok", false) and colony.has("occupation"):
+			found = c
+			print("smoke: colony %d has captured people: %s" % [c, colony.occupation])
+			break
+	if found >= 0:
+		_on_colony_chosen(found)
+		await get_tree().create_timer(1.5).timeout
+		var pane := _view("colony_pane")
+		print("smoke: occupation control visible %s, keep %s, annihilate %s (disabled %s)" % [pane._occupation.visible,
+			pane._keep_button.button_pressed, pane._annihilate_button.button_pressed, pane._annihilate_button.disabled])
+		if shots != "":
+			await host.shot(shots + "/native-occupation-pane.png")
+	else:
+		print("smoke: no colony with captured people in this save")
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
 
 
 ## WP3.11c: the Antarans' message in the scene window (popup preview): the room loops, the message

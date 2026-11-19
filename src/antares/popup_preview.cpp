@@ -83,6 +83,16 @@ namespace antares::commands::internal {
                 p.research_breakthrough = breakthrough;
                 JIM::Play_Background_Music();
                 answer = 0;
+            } else if (popup == "occupation") {
+                // The occupation question for the player's home colony; its policy is put back.
+                const int16_t home = MOX::player[player].home_planet_id;
+                const int16_t colony = MOX::planet[home].colony_index;
+                const char saved_policy = MOX::colony[colony].occupation_policy;
+                MOX::screen_data = MOX::planet[home].star_index;
+                COLONY::orbit_temp = (int16_t)MOX::planet[home].orbit;
+                OCPOLPUP::Occupation_Policy_Popup();
+                MOX::colony[colony].occupation_policy = saved_policy;
+                answer = 0;
             } else if (popup == "antarans") {
                 // WP3.11c: the Antarans' message (the attack's message set).
                 ANTAROOM::Main_Antaran_Room_Screen(0);

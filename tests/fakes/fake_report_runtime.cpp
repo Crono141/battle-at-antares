@@ -206,6 +206,9 @@ namespace COLONY {
     void __cdecl Colony_Screen() {
     }
 
+    void __cdecl Col_Calc_Wrapper(int16_t) {
+    }
+
     bool __cdecl Colony_Needs_Occupation_Policy(int16_t colony_idx) {
         const s_colony* colony = &MOX::colony[colony_idx];
         if (colony->occupation_policy != 4) {
@@ -414,3 +417,7 @@ namespace SHIPMOVE {
 namespace NEXTTURN {
     void Do_Autosave() { ++TEST_REPORT::autosave_calls; }
 }
+
+namespace OCPOLPUP {
+    void __cdecl Occupation_Policy_Popup() {} // the native occupation question (not in these tests)
+} // namespace OCPOLPUP

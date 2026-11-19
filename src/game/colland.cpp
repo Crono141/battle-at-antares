@@ -248,6 +248,12 @@ namespace COLLAND {
                 ",\"text\":" + antares::native::Quote(Native_Landing_Text(COLONY::planet_handle).c_str()) + ",\"text_box\":[20,100,600,140],\"text_align\":\"left\"}";
             native_landing.start = SDL_GetTicks();
             antares::native::Set_Scene(Native_Landing_State, Native_Landing_Tick);
+            if (COLONY::Colony_Needs_Occupation_Policy(COLONY::colony_handle)) {
+                // As the legacy screen, before the click: the question over the window (owner,
+                // 2026-11-19).
+                OCPOLPUP::Occupation_Policy_Popup();
+                COLONY::Col_Calc_Wrapper(COLONY::colony_handle);
+            }
             antares::native::Popup("scene", "", "\"scene\":\"landing\",\"page\":0", nullptr); // until a click
             COLONY::Reset_Field_Mode();
             sound::Fadeout_Sound(pod1d_sfx, 10);
@@ -278,8 +284,7 @@ namespace COLLAND {
         Load_Anims();
         COLONY::Load_Planet_Screen();
 
-        if (antares::native::Galaxy_Will_Be_Native() && antares::native::Popups_Native() &&
-            !COLONY::Colony_Needs_Occupation_Policy(COLONY::colony_handle)) {
+        if (antares::native::Galaxy_Will_Be_Native() && antares::native::Popups_Native()) {
             Native_Landing();
             const int16_t star_idx = MOX::planet[MOX::colony[COLONY::colony_handle].planet].star_index;
             if (COLCALC::N_Colonies_And_Outposts_At_Star(star_idx) == 1 && MOX::settings.animations_on) {

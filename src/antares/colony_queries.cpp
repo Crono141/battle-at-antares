@@ -291,6 +291,17 @@ namespace antares::commands::internal {
             }
         }
 
+        // OCPOLPUP::Occupation_Policy_Popup asks only governments other than Democracy and Federation.
+
+        bool Occupation_Can_Annihilate(int16_t owner) {
+
+            const int8_t government = MOX::player[owner].traits[TRAIT_CURRENT_GOVERNMENT];
+
+            return government != GOVERNMENT_DEMOCRACY && government != GOVERNMENT_FEDERATION;
+
+        }
+
+
         void Query_Colony(int16_t, const s_args& args, s_out& out) {
             if (!Have_Game(out)) {
                 return;
@@ -335,6 +346,19 @@ namespace antares::commands::internal {
             out.Int("government", government);
             out.Int("government_sprite", k_government_icons + government);
             out.Int("morale", (int8_t)colony.morale);
+            // The occupation policy (owner, 2026-11-19: the legacy colony screen's button, natively):
+            // for colonies with conquered people (or natives, with annihilation allowed).
+            {
+                bool targets = false;
+                for (int16_t i = 0; i < (uint8_t)colony.n_pops && !targets; ++i) {
+                    targets = COLONY::Colony_Pop_Is_Annihilation_Target(&colony, POP::Load(&colony.pop[i]));
+                }
+                if (targets) {
+                    s_out occupation = out.Add_Object("occupation");
+                    occupation.Bool("annihilate", colony.occupation_policy == 0);
+                    occupation.Bool("can_annihilate", Occupation_Can_Annihilate(colony.owner));
+                }
+            }
             out.Int("morale_icons", std::min<int16_t>(std::abs(masks), 20));
             out.Int("morale_sprite", masks >= 0 ? k_morale_happy : k_morale_unhappy);
             // The four rows: BC, food, industry, research (Draw_Colony_Info_Production).
@@ -681,6 +705,32 @@ namespace antares::commands::internal {
             const bool sold = COLONY::Scrap_Building(c, (int16_t)building, false);
             out.Bool("sold", sold);
             out.Int("bc", MOX::player[MOX::colony[c].owner].bc);
+        }
+
+        // The occupation policy (OCPOLPUP::Occupation_Policy_Popup's two answers): annihilate the
+        // conquered people (0) or keep them (3). Democracies and Federations always keep them.
+        void Set_Occupation(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            int64_t annihilate_arg = -1;
+            if (!args.Int("colony", &colony_id) || !args.Int("annihilate", &annihilate_arg) || annihilate_arg < 0 || annihilate_arg > 1) {
+                out.Fail("bad_args", "colony, annihilate (1 or 0)");
+                return;
+            }
+            const bool annihilate = annihilate_arg == 1;
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            const int16_t c = (int16_t)colony_id;
+            if (annihilate && !Occupation_Can_Annihilate(MOX::colony[c].owner)) {
+                out.Fail("refused", "your government keeps conquered people");
+                return;
+            }
+            MOX::colony[c].occupation_policy = annihilate ? 0 : 3;
+            COLONY::Col_Calc_Wrapper(c);
+            out.Bool("annihilate", annihilate);
         }
 
         // The colony screen's BUY (COLONY::Buy_Or_Unbuy_Product): un-buys a bought item, else asks
@@ -1093,6 +1143,7 @@ namespace antares::commands::internal {
         table->push_back({"send_colonists", e_kind::command, galaxy, 0, "from, pop, to, job (-1: any)", Send_Colonists});
         table->push_back({"sell_building", e_kind::command, galaxy, 0, "colony, building", Sell_Building});
         table->push_back({"buy", e_kind::command, galaxy, 0, "colony", Buy});
+        table->push_back({"set_occupation", e_kind::command, galaxy, 0, "colony, annihilate", Set_Occupation});
         table->push_back({"build_options", e_kind::query, ANY_SCREEN, 1, "colony", Query_Build_Options});
         table->push_back({"build_commit", e_kind::command, galaxy, 0, "colony, edits [{add, repeat} / {delete} / {move} / {refit, design}], auto", Build_Commit});
     }

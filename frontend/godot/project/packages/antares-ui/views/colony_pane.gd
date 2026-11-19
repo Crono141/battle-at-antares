@@ -58,7 +58,64 @@ var _job_panels := {} # job -> its row's panel (drop targets)
 var _info_popup: Control
 
 
+## The occupation policy (owner, 2026-11-19: the legacy colony screen's button, natively): for a
+## colony with conquered people, keep them or annihilate them; Democracies and Federations keep them.
+var _occupation: VBoxContainer
+var _keep_button: Button
+var _annihilate_button: Button
+
+
+func _make_occupation() -> void:
+	_occupation = VBoxContainer.new()
+	var title := Label.new()
+	title.theme_type_variation = &"Section"
+	title.text = "CAPTURED PEOPLE"
+	_occupation.add_child(title)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var group := ButtonGroup.new()
+	_keep_button = Button.new()
+	_keep_button.text = "KEEP"
+	_keep_button.tooltip_text = "They stay and work for you"
+	_annihilate_button = Button.new()
+	_annihilate_button.text = "ANNIHILATE"
+	for b: Button in [_keep_button, _annihilate_button]:
+		b.toggle_mode = true
+		b.button_group = group
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(0, 30)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(b)
+	_keep_button.pressed.connect(func(): _set_occupation(false))
+	_annihilate_button.pressed.connect(func(): _set_occupation(true))
+	_occupation.add_child(row)
+	var box: Control = $Scroll/Box
+	box.add_child(_occupation)
+	box.move_child(_occupation, $Scroll/Box/Transport.get_index())
+	_occupation.hide()
+
+
+func _show_occupation() -> void:
+	var occupation: Dictionary = colony.get("occupation", {})
+	_occupation.visible = not occupation.is_empty()
+	if occupation.is_empty():
+		return
+	var annihilate := bool(occupation.get("annihilate", false))
+	_keep_button.set_pressed_no_signal(not annihilate)
+	_annihilate_button.set_pressed_no_signal(annihilate)
+	var allowed := bool(occupation.get("can_annihilate", false))
+	_annihilate_button.disabled = not allowed
+	_annihilate_button.tooltip_text = "One captured population unit is removed each turn" if allowed else "Your government keeps conquered people"
+	for b: Button in [_keep_button, _annihilate_button]:
+		preload("../themes.gd").glow(b)
+
+
+func _set_occupation(annihilate: bool) -> void:
+	command.emit({"verb": "set_occupation", "colony": colony_id, "annihilate": 1 if annihilate else 0, "_reply_to": "_after_command"})
+
+
 func _ready() -> void:
+	_make_occupation()
 	$Scroll/Box/Header/Close.pressed.connect(close)
 	$Scroll/Box/Transport.pressed.connect(_open_original)
 	$Scroll/Box/View.pressed.connect(_open_landscape)
@@ -139,6 +196,7 @@ func show_colony(result: Dictionary) -> void:
 	_fill($Scroll/Box/Money, _icon_row(result.rows.bc.icons, WIDTH - 40.0))
 	_fill($Scroll/Box/Build, _build_box(result.build))
 	_show_jobs()
+	_show_occupation()
 	_fill($Scroll/Box/Defences, _defences_row())
 	# Only what is built shows (owner): no defences, no section.
 	var any_defence: bool = colony.defences.any(func(d: Dictionary) -> bool: return d.built)
