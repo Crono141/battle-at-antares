@@ -82,8 +82,8 @@ namespace {
             snprintf(g_stars_[i].name, sizeof(g_stars_[i].name), "Star%d", i);
             g_stars_[i].x = (int16_t)(100 * (i + 1));
             g_stars_[i].y = 50;
-            for (auto& slot : g_stars_[i].planet_index) {
-                slot = -1;
+            for (size_t slot_i = 0; slot_i < sizeof(g_stars_[i].planet_index) / sizeof(g_stars_[i].planet_index[0]); ++slot_i) { // packed: no references
+                g_stars_[i].planet_index[slot_i] = -1;
             }
         }
         g_stars_[2].spectral_class = STAR_CLASS_BLACK_HOLE;

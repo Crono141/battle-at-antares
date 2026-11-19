@@ -65,7 +65,7 @@ namespace antares::commands::internal {
             std::vector<int16_t> ships;
             for (int16_t node = MOX::ship_stack_start[stack]; node != -1 && (int16_t)ships.size() < MAX_SHIPS;
                  node = MOX::ship_node[node].next_node) {
-                ships.push_back(MOX::ship_node[node].ship_idx);
+                ships.push_back(int16_t(MOX::ship_node[node].ship_idx)); // a copy: the field is packed
             }
             return ships;
         }

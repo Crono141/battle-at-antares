@@ -4,12 +4,12 @@
 #if defined(ORION2RE_ASAN_BUILD)
 #include <sanitizer/common_interface_defs.h>
 #endif
-#if defined(__APPLE__)
-#include <mach-o/dyld.h>
-#endif
 
 #include "config/config_loader.h"
+#include "game/user_paths.h"
+#include "game/turn_oracle.h"
 #include "lua/lua_mod_runtime.h"
+#include "startup_directory.h"
 #include "startup_options.h"
 #include "antares/identity.h"
 
@@ -59,9 +59,15 @@ static void SDLCALL Game_Log_Output_(void* userdata, int category, SDL_LogPriori
 }
 #endif
 
+#if defined(ORION2RE_DEBUG_BUILD) || defined(ORION2RE_ASAN_BUILD)
+static const char* Logs_Parent_Path_() {
+    return user_paths::Is_Enabled() ? user_paths::Get_Directory(user_paths::USER_DIRECTORY_STATE) : SDL_GetBasePath();
+}
+#endif
+
 static void Configure_Game_Log_() {
 #if defined(ORION2RE_DEBUG_BUILD)
-    const char* base_path = SDL_GetBasePath();
+    const char* base_path = Logs_Parent_Path_();
     char logs_path[1024];
     char log_file_path[1024];
 
@@ -110,7 +116,7 @@ extern "C" const char* __lsan_default_suppressions() {
 #endif
 
 static void Configure_Sanitizer_Runtime_() {
-    const char* base_path = SDL_GetBasePath();
+    const char* base_path = Logs_Parent_Path_();
     if (base_path == nullptr) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "ASAN: unable to resolve game directory: %s", SDL_GetError());
         return;
@@ -169,6 +175,12 @@ static void Configure_Sanitizer_Runtime_() {
 #endif
 
 int main(int argc, char** argv) {
+#if defined(ORION2RE_DATADIR)
+    const char* installed_datadir = ORION2RE_DATADIR;
+#else
+    const char* installed_datadir = nullptr;
+#endif
+    user_paths::Init(SDL_GetBasePath(), user_paths::PLATFORM_USES_XDG, installed_datadir);
     Configure_Game_Log_();
 
 #if defined(ORION2RE_ASAN_BUILD)
@@ -186,40 +198,66 @@ int main(int argc, char** argv) {
     MOX2::skip_intro = startup_options.skip_intro ? 1 : 0;
     MAINMENU::autoload_save_slot = static_cast<int16_t>(startup_options.load_save - 1);
 
-    const char* base_path = SDL_GetBasePath();
-#if defined(__APPLE__)
-    char executable_path[PATH_MAX];
-    uint32_t executable_path_size = sizeof(executable_path);
-    char resolved_path[PATH_MAX];
-    if (_NSGetExecutablePath(executable_path, &executable_path_size) != 0 || realpath(executable_path, resolved_path) == nullptr) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: unable to resolve executable path: %s", strerror(errno));
+    std::string original_game_directory;
+    if (!startup::Resolve_Game_Asset_Directory(startup_options.game_directory, &original_game_directory, &startup_error)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: %s", startup_error.c_str());
+        printf("%s\n", startup_error.c_str());
         Shutdown_Game_Log_();
-        return -1;
+        return EXIT_FAILURE;
     }
-    char* filename = strrchr(resolved_path, '/');
-    if (filename == nullptr) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: executable path has no directory: '%s'", resolved_path);
+
+#if defined(ORION2RE_DEBUG_BUILD)
+    if (!turn_oracle::Prepare(&startup_options, &startup_error)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: %s", startup_error.c_str());
+        printf("%s\n", startup_error.c_str());
         Shutdown_Game_Log_();
-        return -1;
+        return EXIT_FAILURE;
     }
-    filename[1] = '\0';
-    if (chdir(resolved_path) != 0) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: unable to set working directory to '%s': %s", resolved_path, strerror(errno));
-        Shutdown_Game_Log_();
-        return -1;
-    }
+    if (turn_oracle::Is_Enabled()) MOX2::skip_intro = 1;
 #endif
 
-    char* current_directory = SDL_GetCurrentDirectory();
-    const char* vfs_base_path = current_directory != nullptr ? current_directory : base_path;
-
-    if (vfs::Init(vfs_base_path) == 0) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: vfs::Init failed for base path '%s'", vfs_base_path != nullptr ? vfs_base_path : "");
-        if (current_directory != nullptr) {
-            SDL_free(current_directory);
-        }
+    std::string game_directory;
+    if (!antares::Set_Game_Directory(&game_directory, &startup_error)) { // Antares: hosted builds keep the host's folder
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: %s", startup_error.c_str());
         Shutdown_Game_Log_();
         return -1;
+    }
+
+    std::string data_directory;
+    if (!startup::Resolve_Data_Directory(game_directory, installed_datadir, &data_directory) ||
+        vfs::Init(data_directory.c_str()) == 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: unable to initialize data directory '%s'", data_directory.c_str());
+        Shutdown_Game_Log_();
+        return -1;
+    }
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "data directory: %s", data_directory.c_str());
+
+    if (!original_game_directory.empty()) {
+        if (vfs::Add_Raw_Search_Path(original_game_directory.c_str()) == 0) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: game-dir exceeds the supported path length");
+            vfs::Shutdown();
+            Shutdown_Game_Log_();
+            return EXIT_FAILURE;
+        }
+        MOX2::use_explicit_game_directory = true;
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "original game directory: %s", original_game_directory.c_str());
+    }
+
+    if (user_paths::Is_Enabled()) {
+        const std::string user_mods_path = std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_DATA)) + "mods/";
+        bool paths_valid = vfs::Set_User_Config_Path(user_paths::Get_Directory(user_paths::USER_DIRECTORY_CONFIG)) != 0 &&
+            vfs::Set_User_Mods_Path(user_mods_path.c_str()) != 0 &&
+            vfs::Add_Raw_Search_Path(game_directory.c_str()) != 0;
+        for (const std::string& directory : user_paths::Get_Game_Asset_Directories()) {
+            paths_valid = vfs::Add_Raw_Search_Path(directory.c_str()) != 0 && paths_valid;
+        }
+        if (!paths_valid) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: XDG search path exceeds the supported path length");
+            vfs::Shutdown();
+            Shutdown_Game_Log_();
+            user_paths::Shutdown();
+            return -1;
+        }
     }
 
     config::s_effective_config effective_config;
@@ -236,26 +274,27 @@ int main(int argc, char** argv) {
         config::Shutdown_Config_Loader();
         config::Shutdown_Runtime();
         vfs::Shutdown();
-        if (current_directory != nullptr) {
-            SDL_free(current_directory);
-        }
         Shutdown_Game_Log_();
         return -1;
     }
     SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
         config_loaded ? "configuration: loaded %s" : "configuration: %s not found; using defaults", startup_config_path);
 
-    const int result = platform::Run_Main_Loop(nullptr);
+    int result = platform::Run_Main_Loop(nullptr);
+#if defined(ORION2RE_DEBUG_BUILD)
+    if (turn_oracle::Is_Enabled()) {
+        if (result == 0) result = turn_oracle::Exit_Status();
+        turn_oracle::Shutdown();
+    }
+#endif
 
     orion2re::lua::Shutdown_Lua();
-    ai_state::Shutdown();
+    AIDATA::Reset(&AIDATA::state);
     config::Shutdown_Config_Loader();
     config::Shutdown_Runtime();
     vfs::Shutdown();
-    if (current_directory != nullptr) {
-        SDL_free(current_directory);
-    }
     Shutdown_Game_Log_();
+    user_paths::Shutdown();
 
     return result;
 }

@@ -110,14 +110,18 @@ The view represents the travel range known for each contacted empire. It can hel
 
 ![Influence overlay on the galaxy map](../../assets/images/manual/empire-overlay.png)
 
-At the farthest zoom level of an extended Maximum galaxy, the map draws automatic outlines to make the view readable even when the optional overlay is off. These outlines are separate from the Alt+V views.
+With `interface maximum_galaxy_display = overview;`, the farthest zoom level of an extended Maximum galaxy draws automatic outlines to make the view readable even when the optional overlay is off. These outlines override the Alt+V views. The default `classic` display retains the normal Alt+V cycle instead.
+
+### Maximum Galaxy Display
+
+The default, `interface maximum_galaxy_display = classic;`, uses the classic main-map presentation at Maximum's farthest zoom level: normal star names and ownership colors, star artwork, black-hole animation, highlight ordering, and Alt+V's off/fill/borders cycle. Visited-system dots, overview markers, and forced automatic influence outlines are disabled in that view. Normal discovery rules still apply. Set `interface maximum_galaxy_display = overview;` to enable the large-map aids instead; classic labels may overlap on dense maps. The setting does not change other galaxy sizes, closer zoom levels, map dimensions, or zoom scaling. This is a local preference, excluded from saves and multiplayer synchronization.
 
 
 ### Main-map Overview Star Markers
 
 The optional `interface main_map_overview_markers = true;` setting replaces star-type pictures with compact markers when an extended Maximum galaxy is zoomed out to its all-stars view. Known owned systems use player colors, unvisited neutral systems use bluish-gray, visited or contested neutral systems use gray, and black holes keep their distinct overview marker. Other galaxy sizes and closer zoom levels retain normal star-type pictures. The setting is disabled by default.
 
-Overview markers identify map objects; they do not show influence.
+Overview markers identify map objects; they do not show influence. `maximum_galaxy_display = classic` takes precedence over this setting at Maximum's farthest zoom level.
 
 
 ### Title Screen
@@ -178,7 +182,7 @@ The stored production value (including bought production) and total production c
 
 ### Automatics (Design Dock)
 
-In the Ship Design screen, the Automatics are the two boxes that list the ship's essentials - engine, armor, shield and computer. In version 2.00, the beam attack value includes the Battle Scanner bonus if present in the design, in the same way that Augmented Engines, Reinforced Hull, Heavy Armor and Hard Shields are shown. In addition, Augmented Engines are no longer counted twice in the Beam Defense value.
+In the Ship Design screen, the Automatics are the two boxes that list the ship's essentials - engine, armor, shield and computer. In Orion2 Redone, the beam attack value includes the Battle Scanner bonus if present in the design, in the same way that Augmented Engines, Reinforced Hull, Heavy Armor and Hard Shields are shown. In addition, Augmented Engines are no longer counted twice in the Beam Defense value.
 
 ![Revised interface layout](../../assets/images/manual/image55.png)
 
@@ -372,7 +376,7 @@ Fixed the bug that erroneously led to displaying a turned off weapon slot as ye
 
 Planet shields work in a slightly confusing way in tactical combat. Depending on the presence of defensive buildings on a planet, regular ship class shields can be added or not, while game info misleadingly claims they are always added. This is now fixed, the ordinary shield bonus is no longer displayed when there are no ground defenses.
 
-For example a planet has a Radiation shield, no defensive buildings, and its owner possesses the Class X shield tech. The old display showed 15 damage blocked, while only 5 was actually blocked. Version 2.00 displays 5 damage blocked in this case.
+For example a planet has a Radiation shield, no defensive buildings, and its owner possesses the Class X shield tech. The old display showed 15 damage blocked, while only 5 was actually blocked. Orion2 Redone displays 5 damage blocked in this case.
 
 ---
 

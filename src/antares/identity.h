@@ -25,6 +25,10 @@ namespace antares {
      *  orion2re.cfg when only that one exists. */
     std::string Resolve_Startup_Config_Path(const std::string& requested, bool selected, const std::function<bool(const char*)>& file_exists);
 
+    // The game folder (Redone cd117a3 uses the executable's folder). Hosted (the Godot build), the
+    // executable is the host's, which has already changed into the game folder: keep that.
+    bool Set_Game_Directory(std::string* directory, std::string* error);
+
     /** Reads ANTARES_<name>, falling back to the legacy ORION2RE_<name> for one release. */
     const char* Get_Env(const char* name);
 } // namespace antares

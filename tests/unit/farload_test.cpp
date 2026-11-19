@@ -2,6 +2,7 @@
 
 #include "doctest/doctest.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <filesystem>
@@ -123,9 +124,117 @@ namespace test_farload_buffer_detail {
         }
         return result;
     }
+
+    void Mount_Packages(const std::vector<std::string>& packages) {
+        auto* transaction = vfs::Begin_Mount_Transaction();
+        DOCTEST_REQUIRE(transaction != nullptr);
+        std::string diagnostic;
+        for (const auto& package : packages) {
+            DOCTEST_REQUIRE(vfs::Stage_Package_Mount(transaction, package.c_str(), &diagnostic));
+        }
+        DOCTEST_REQUIRE(vfs::Commit_Mount_Transaction(transaction));
+    }
 } // namespace test_farload_buffer_detail
 
 DOCTEST_TEST_SUITE("farload buffer vfs") {
+    DOCTEST_TEST_CASE("base translations match scrap prompt argument contracts without enabling a mod") {
+        using namespace test_farload_buffer_detail;
+        const std::vector<std::pair<std::string, std::string>> sidecars = {
+            {"hfstrngs.json5", Read_File_Contents(fs::path(STRING_OVERRIDE_BASE_DATA_DIR) / "hfstrngs.json5")},
+            {"hsstrngs.json5", Read_File_Contents(fs::path(STRING_OVERRIDE_BASE_DATA_DIR) / "hsstrngs.json5")},
+            {"histrngs.json5", Read_File_Contents(fs::path(STRING_OVERRIDE_BASE_DATA_DIR) / "histrngs.json5")},
+        };
+        for (const auto& sidecar : sidecars) {
+            DOCTEST_REQUIRE_FALSE(sidecar.second.empty());
+        }
+
+        struct s_case {
+            const char* filename;
+            std::vector<int> corrected_messages;
+        };
+        const s_case cases[] = {
+            {"HFSTRNGS.LBX", {128, 129}},
+            {"HSSTRNGS.LBX", {122, 123, 124, 125, 126, 128, 129}},
+            {"HISTRNGS.LBX", {126}},
+            {"HESTRNGS.LBX", {}},
+            {"HGSTRNGS.LBX", {}},
+        };
+        for (const s_case& test_case : cases) {
+            DOCTEST_CAPTURE(test_case.filename);
+            Scoped_Test_Directory test_dir;
+            std::vector<std::string> original;
+            std::string packed;
+            for (int index = 0; index < 397; ++index) {
+                std::string text = "unchanged message " + std::to_string(index);
+                if (std::find(test_case.corrected_messages.begin(), test_case.corrected_messages.end(), index) != test_case.corrected_messages.end()) {
+                    text = index >= 128 ? "value %d BC%s"
+                        : index == 126  ? "name %s name %s extra %s"
+                                        : "name %s extra %s";
+                }
+                original.push_back(text);
+                packed += text;
+                packed.push_back('\0');
+            }
+            test_dir.Write_Lbx_File(test_case.filename, {Records({packed}, (uint16_t)packed.size())});
+            test_dir.Write_Zip_File("data/base.zip", sidecars);
+            DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()));
+
+            std::vector<char> table(packed.size());
+            farload::Farload_Data_Static(test_case.filename, 0, table.data(), 0, 1, (int32_t)table.size());
+            string_overrides::Apply_Table(test_case.filename, &table, 397);
+
+            size_t offset = 0;
+            for (int index = 0; index < 397; ++index) {
+                DOCTEST_CAPTURE(index);
+                const char* text = table.data() + offset;
+                offset += strlen(text) + 1;
+                if (std::find(test_case.corrected_messages.begin(), test_case.corrected_messages.end(), index) == test_case.corrected_messages.end()) {
+                    DOCTEST_CHECK(text == original[index]);
+                    continue;
+                }
+
+                std::string signature;
+                for (const char* p = text; *p != '\0'; ++p) {
+                    if (*p == '%') {
+                        ++p;
+                        DOCTEST_REQUIRE((*p == 's' || *p == 'd'));
+                        signature += *p;
+                    }
+                }
+                const char* expected = "s";
+                if (index >= 128) {
+                    expected = "d";
+                } else if (index == 126) {
+                    expected = "ss";
+                }
+                DOCTEST_REQUIRE(signature == expected);
+
+                char output[300];
+                if (index >= 128) {
+                    for (int value : {1, 25}) {
+                        int length = snprintf(output, sizeof(output), text, value);
+                        DOCTEST_REQUIRE(length > 0);
+                        DOCTEST_REQUIRE(length < (int)sizeof(output));
+                        DOCTEST_CHECK(std::string(output).find(std::to_string(value) + " BC") != std::string::npos);
+                    }
+                } else if (index == 126) {
+                    int length = snprintf(output, sizeof(output), text, "Orion", "Captain");
+                    DOCTEST_REQUIRE(length > 0);
+                    DOCTEST_REQUIRE(length < (int)sizeof(output));
+                    const std::string formatted(output);
+                    DOCTEST_REQUIRE(formatted.find("Orion") != std::string::npos);
+                    DOCTEST_REQUIRE(formatted.find("Captain") != std::string::npos);
+                    DOCTEST_CHECK(formatted.find("Orion") < formatted.find("Captain"));
+                } else {
+                    int length = snprintf(output, sizeof(output), text, "Alkari");
+                    DOCTEST_REQUIRE(length > 0);
+                    DOCTEST_REQUIRE(length < (int)sizeof(output));
+                    DOCTEST_CHECK(std::string(output).find("Alkari") != std::string::npos);
+                }
+            }
+        }
+    }
+
     DOCTEST_TEST_CASE("JSON5 overrides use caller supplied logical IDs and preserve missing strings") {
         using namespace test_farload_buffer_detail;
         Scoped_Test_Directory test_dir;
@@ -312,6 +421,313 @@ DOCTEST_TEST_SUITE("farload buffer vfs") {
         strlcpy(output, "original", sizeof(output));
         string_overrides::Apply_String("custom.lbx", 1, output, sizeof(output));
         DOCTEST_CHECK(std::string(output) == "original");
+    }
+
+    DOCTEST_TEST_CASE("JSON5 sidecars merge per string across directory and ZIP packages") {
+        using namespace test_farload_buffer_detail;
+        for (bool upper_zip : {false, true}) {
+            for (bool lower_zip : {false, true}) {
+                DOCTEST_CAPTURE(upper_zip);
+                DOCTEST_CAPTURE(lower_zip);
+                Scoped_Test_Directory test_dir;
+                const std::vector<std::string> originals = {"base one", "base two", "base three", "base four"};
+                std::string packed;
+                for (const auto& text : originals) {
+                    packed += text;
+                    packed.push_back('\0');
+                }
+                test_dir.Write_Lbx_File("custom.lbx", {Records(originals, 32), packed});
+                const auto package = [&](const char* name, bool zip, const char* json) {
+                    const std::string path = std::string("data/mods/") + name;
+                    if (zip) {
+                        test_dir.Write_Zip_File(path + ".zip", {{"data/custom.json5", json}});
+                    } else {
+                        test_dir.Write_File(path + "/data/custom.json5", json);
+                    }
+                };
+                package("upper", upper_zip, "{1:'upper',3:''}");
+                package("lower", lower_zip, "{1:'lower',2:'lower only',3:'lower third'}");
+                DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()));
+                const auto message = [&](size_t id) {
+                    char output[32] = {};
+                    string_overrides::Load_Message("custom.lbx", 0, (uint32_t)id - 1, 32, id, output, sizeof(output));
+                    return std::string(output);
+                };
+                Mount_Packages({"upper", "lower"});
+                DOCTEST_CHECK(message(1) == "upper");
+                DOCTEST_CHECK(message(2) == "lower only");
+                DOCTEST_CHECK(message(3).empty());
+                DOCTEST_CHECK(message(4) == "base four");
+                std::vector<char> table(packed.begin(), packed.end());
+                string_overrides::Apply_Table("custom.lbx", &table, 4);
+                const std::string expected("upper\0lower only\0\0base four\0", 28);
+                DOCTEST_CHECK(std::string(table.data(), table.size()) == expected);
+                char* raw = string_overrides::Load_Raw_Table("custom.lbx", 1, nullptr, 0, 4);
+                DOCTEST_REQUIRE(raw != nullptr);
+                DOCTEST_CHECK(std::string(raw) == "upper");
+                DOCTEST_CHECK(std::string(raw + strlen(raw) + 1) == "lower only");
+                std::free(raw);
+                Mount_Packages({"lower", "upper"});
+                DOCTEST_CHECK(message(1) == "lower");
+                DOCTEST_CHECK(message(2) == "lower only");
+                DOCTEST_CHECK(message(3) == "lower third");
+                Mount_Packages({"upper"});
+                DOCTEST_CHECK(message(1) == "upper");
+                DOCTEST_CHECK(message(2) == "base two");
+                DOCTEST_CHECK(message(3).empty());
+                auto* transaction = vfs::Begin_Mount_Transaction();
+                std::string diagnostic;
+                DOCTEST_REQUIRE(transaction != nullptr);
+                DOCTEST_REQUIRE(vfs::Stage_Package_Mount(transaction, "lower", &diagnostic));
+                DOCTEST_CHECK(message(1) == "lower");
+                DOCTEST_CHECK(message(2) == "lower only");
+                DOCTEST_REQUIRE(vfs::Begin_Mount_Transaction_Commit(transaction));
+                DOCTEST_CHECK(message(2) == "lower only");
+                vfs::Rollback_Mount_Transaction_Commit(transaction);
+                vfs::Discard_Mount_Transaction(transaction);
+                DOCTEST_CHECK(message(1) == "upper");
+                DOCTEST_CHECK(message(2) == "base two");
+            }
+        }
+    }
+
+    DOCTEST_TEST_CASE("JSON5 strings merge through every VFS source without exposing private package paths") {
+        using namespace test_farload_buffer_detail;
+        Scoped_Test_Directory test_dir;
+        test_dir.Write_Lbx_File("fallback/custom.lbx", {Records(std::vector<std::string>(7, "original"), 32)});
+        test_dir.Write_File("data/overrides/custom.json5", "{1:'loose'}");
+        test_dir.Write_Zip_File("data/mods/upper.zip", {{"data/custom.json5", "{1:'package conflict',2:'upper'}"}});
+        test_dir.Write_File("data/mods/lower/data/custom.json5", "{2:'lower conflict',3:'lower'}");
+        test_dir.Write_Zip_File("data/base.zip", {{"custom.json5", "{4:'base ZIP'}"}});
+        test_dir.Write_File("data/custom.json5", "{5:'data'}");
+        test_dir.Write_File("custom.json5", "{6:'raw'}");
+        test_dir.Write_File("fallback/custom.json5", "{7:'fallback'}");
+        DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()));
+        DOCTEST_REQUIRE(vfs::Set_Raw_Fallback_Path((test_dir.root_path() / "fallback").string().c_str()));
+        Mount_Packages({"upper", "lower"});
+        const char* expected[] = {"loose", "upper", "lower", "base ZIP", "data", "raw", "fallback"};
+        for (size_t id = 1; id <= std::size(expected); ++id) {
+            DOCTEST_CAPTURE(id);
+            char output[32] = {};
+            string_overrides::Load_Message("custom.lbx", 0, (uint32_t)id - 1, 32, id, output, sizeof(output));
+            DOCTEST_CHECK(std::string(output) == expected[id - 1]);
+        }
+        char output[32] = "original";
+        string_overrides::Apply_String("mods/upper/data/custom.lbx", 1, output, sizeof(output));
+        DOCTEST_CHECK(std::string(output) == "package conflict");
+        strlcpy(output, "original", sizeof(output));
+        string_overrides::Apply_String("mods/upper/data/custom.lbx", 3, output, sizeof(output));
+        DOCTEST_CHECK(std::string(output) == "original");
+    }
+
+    DOCTEST_TEST_CASE("merged sidecars stop at a whole LBX and include JSON from that same layer") {
+        using namespace test_farload_buffer_detail;
+        for (bool middle_zip : {false, true}) {
+            DOCTEST_CAPTURE(middle_zip);
+            Scoped_Test_Directory test_dir;
+            test_dir.Write_Lbx_File("custom.lbx", {Records({"base one", "base two", "base three"}, 32)});
+            const fs::path middle_path = "data/mods/middle/data/custom.lbx";
+            test_dir.Write_Lbx_File(middle_path, {Records({"middle one", "middle two", "middle three"}, 32)});
+            if (middle_zip) {
+                const auto lbx = Read_File_Contents(test_dir.root_path() / middle_path);
+                fs::remove_all(test_dir.root_path() / "data/mods/middle");
+                test_dir.Write_Zip_File("data/mods/middle.zip",
+                    {{"data/custom.lbx", lbx}, {"data/custom.json5", "{3:'middle JSON'}"}});
+            } else {
+                test_dir.Write_File("data/mods/middle/data/custom.json5", "{3:'middle JSON'}");
+            }
+            test_dir.Write_Zip_File("data/mods/upper.zip", {{"data/custom.json5", "{1:'upper'}"}});
+            test_dir.Write_File("data/mods/lower/data/custom.json5", "{2:42}");
+            DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()));
+            const auto message = [&](size_t id) {
+                char output[32] = {};
+                string_overrides::Load_Message("custom.lbx", 0, (uint32_t)id - 1, 32, id, output, sizeof(output));
+                return std::string(output);
+            };
+            Mount_Packages({"upper", "middle", "lower"});
+            DOCTEST_CHECK(message(1) == "upper");
+            DOCTEST_CHECK(message(2) == "middle two");
+            DOCTEST_CHECK(message(3) == "middle JSON");
+            Mount_Packages({"middle", "lower"});
+            DOCTEST_CHECK(message(1) == "middle one");
+            DOCTEST_CHECK(message(2) == "middle two");
+            DOCTEST_CHECK(message(3) == "middle JSON");
+            Mount_Packages({"upper", "lower", "middle"});
+            char output[32] = "unchanged";
+            std::string diagnostic;
+            DOCTEST_CHECK_FALSE(string_overrides::Try_Apply_String("custom.lbx", 1, output, sizeof(output), &diagnostic));
+            DOCTEST_CHECK(std::string(output) == "unchanged");
+            Mount_Packages({"upper", "middle", "lower"});
+            DOCTEST_CHECK(message(2) == "middle two");
+            DOCTEST_CHECK(message(3) == "middle JSON");
+        }
+    }
+
+    DOCTEST_TEST_CASE("merged sidecar caches track lower-layer edits errors removal and recreation") {
+        using namespace test_farload_buffer_detail;
+        Scoped_Test_Directory test_dir;
+        test_dir.Write_Lbx_File("custom.lbx", {Records({"base one", "base two"}, 32)});
+        test_dir.Write_File("data/mods/upper/data/custom.json5", "{1:'upper'}");
+        const fs::path lower_path = "data/mods/lower/data/custom.json5";
+        test_dir.Write_File(lower_path, "{2:'first'}");
+        DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()));
+        Mount_Packages({"upper", "lower"});
+        const auto message = [&]() {
+            char output[32] = {};
+            string_overrides::Load_Message("custom.lbx", 0, 1, 32, 2, output, sizeof(output));
+            return std::string(output);
+        };
+        DOCTEST_CHECK(message() == "first");
+        const auto timestamp = fs::last_write_time(test_dir.root_path() / lower_path);
+        test_dir.Write_File(lower_path, "{2:'other'}");
+        fs::last_write_time(test_dir.root_path() / lower_path, timestamp);
+        DOCTEST_CHECK(message() == "other");
+        test_dir.Write_File(lower_path, "{2:42}");
+        char output[32] = "unchanged";
+        std::string diagnostic;
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            DOCTEST_CHECK_FALSE(string_overrides::Try_Apply_String("custom.lbx", 1, output, sizeof(output), &diagnostic));
+            DOCTEST_CHECK(std::string(output) == "unchanged");
+            std::vector<char> table = {'a', '\0'};
+            const auto original = table;
+            DOCTEST_CHECK_FALSE(string_overrides::Try_Apply_Table("custom.lbx", &table, 1, 1, false, &diagnostic));
+            DOCTEST_CHECK(table == original);
+        }
+        fs::remove(test_dir.root_path() / lower_path);
+        DOCTEST_CHECK(message() == "base two");
+        test_dir.Write_File(lower_path, "{2:'again'}");
+        DOCTEST_CHECK(message() == "again");
+    }
+
+    DOCTEST_TEST_CASE("higher package LBX files override lower JSON5 sidecars across mount changes") {
+        using namespace test_farload_buffer_detail;
+        for (bool lbx_zip : {false, true}) {
+            for (bool json_zip : {false, true}) {
+                DOCTEST_CAPTURE(lbx_zip);
+                DOCTEST_CAPTURE(json_zip);
+                Scoped_Test_Directory test_dir;
+                test_dir.Write_Lbx_File("TECHDESC.LBX", {"", Records({"base description"}, 100)});
+                const std::string json = "{1:'+20 to marine defense'}";
+                if (json_zip) {
+                    test_dir.Write_Zip_File("data/mods/v150.zip", {{"data/techdesc.json5", json}});
+                } else {
+                    test_dir.Write_File("data/mods/v150/data/techdesc.json5", json);
+                }
+                const fs::path lbx_path = "data/mods/vdc/data/TECHDESC.LBX";
+                test_dir.Write_Lbx_File(lbx_path, {"", Records({"+30% to marine defense"}, 100)});
+                if (lbx_zip) {
+                    const std::string lbx = Read_File_Contents(test_dir.root_path() / lbx_path);
+                    fs::remove_all(test_dir.root_path() / "data/mods/vdc");
+                    test_dir.Write_Zip_File("data/mods/vdc.zip", {{"data/TECHDESC.LBX", lbx}});
+                }
+                DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()));
+                const auto mount = [&](const std::vector<std::string>& packages) {
+                    auto* transaction = vfs::Begin_Mount_Transaction();
+                    DOCTEST_REQUIRE(transaction != nullptr);
+                    std::string diagnostic;
+                    for (const auto& package : packages) {
+                        DOCTEST_REQUIRE(vfs::Stage_Package_Mount(transaction, package.c_str(), &diagnostic));
+                    }
+                    DOCTEST_REQUIRE(vfs::Commit_Mount_Transaction(transaction));
+                };
+                const auto description = [&]() {
+                    char output[100] = {};
+                    farload::Farload_Data_Static("TECHDESC.LBX", 1, output, 0, 1, 100);
+                    string_overrides::Apply_String("TECHDESC.LBX", 1, output, sizeof(output));
+                    return std::string(output);
+                };
+                mount({"v150"});
+                DOCTEST_CHECK(description() == "+20 to marine defense");
+                mount({"vdc", "v150"});
+                DOCTEST_CHECK(description() == "+30% to marine defense");
+                mount({"v150", "vdc"});
+                DOCTEST_CHECK(description() == "+20 to marine defense");
+                for (bool rollback : {false, true}) {
+                    auto* transaction = vfs::Begin_Mount_Transaction();
+                    DOCTEST_REQUIRE(transaction != nullptr);
+                    std::string diagnostic;
+                    DOCTEST_REQUIRE(vfs::Stage_Package_Mount(transaction, "vdc", &diagnostic));
+                    DOCTEST_REQUIRE(vfs::Stage_Package_Mount(transaction, "v150", &diagnostic));
+                    DOCTEST_CHECK(description() == "+30% to marine defense");
+                    if (rollback) {
+                        DOCTEST_REQUIRE(vfs::Begin_Mount_Transaction_Commit(transaction));
+                        DOCTEST_CHECK(description() == "+30% to marine defense");
+                        vfs::Rollback_Mount_Transaction_Commit(transaction);
+                    }
+                    vfs::Discard_Mount_Transaction(transaction);
+                    DOCTEST_CHECK(description() == "+20 to marine defense");
+                }
+                mount({"vdc", "v150"});
+                DOCTEST_CHECK(description() == "+30% to marine defense");
+                mount({"v150"});
+                DOCTEST_CHECK(description() == "+20 to marine defense");
+            }
+        }
+    }
+
+    DOCTEST_TEST_CASE("whole LBX precedence applies to loose overrides base ZIPs data and raw fallback") {
+        using namespace test_farload_buffer_detail;
+        struct s_case {
+            const char* lbx_path;
+            const char* json_path;
+            bool base_zip;
+        };
+        const s_case cases[] = {
+            {"data/overrides/custom.lbx", "data/custom.json5", false},
+            {"data/custom.lbx", "custom.json5", false},
+            {"custom.lbx", "fallback/custom.json5", false},
+            {"custom.lbx", "data/custom.json5", true},
+        };
+        for (const auto& value : cases) {
+            DOCTEST_CAPTURE(value.lbx_path);
+            DOCTEST_CAPTURE(value.json_path);
+            Scoped_Test_Directory test_dir;
+            test_dir.Write_Lbx_File(value.lbx_path, {Records({"higher LBX"}, 32)});
+            test_dir.Write_File(value.json_path, "{1:'lower JSON'}");
+            if (value.base_zip) {
+                const auto lbx = Read_File_Contents(test_dir.root_path() / value.lbx_path);
+                test_dir.Write_Zip_File("data/base.zip", {{"custom.lbx", lbx}});
+            }
+            DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()));
+            DOCTEST_REQUIRE(vfs::Set_Raw_Fallback_Path((test_dir.root_path() / "fallback").string().c_str()));
+            char output[32] = {};
+            string_overrides::Load_Message("custom.lbx", 0, 0, 32, 1, output, sizeof(output));
+            DOCTEST_CHECK(std::string(output) == "higher LBX");
+        }
+    }
+
+    DOCTEST_TEST_CASE("shadowed JSON is ignored by every string loader while same-layer JSON still applies") {
+        using namespace test_farload_buffer_detail;
+        Scoped_Test_Directory test_dir;
+        test_dir.Write_Lbx_File("data/overrides/custom.lbx",
+            {std::string("a\0b\0", 4), Records({"first", "second"}, 32)});
+        test_dir.Write_File("data/custom.json5", "{1:42}");
+        DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()));
+        std::string diagnostic;
+        char output[32] = "first";
+        DOCTEST_REQUIRE(string_overrides::Try_Apply_String("custom.lbx", 1, output, sizeof(output), &diagnostic));
+        DOCTEST_CHECK(std::string(output) == "first");
+        std::vector<char> table = {'a', '\0', 'b', '\0'};
+        DOCTEST_REQUIRE(string_overrides::Try_Apply_Table("custom.lbx", &table, 2, 1, false, &diagnostic));
+        DOCTEST_CHECK((table == std::vector<char>{'a', '\0', 'b', '\0'}));
+        char* raw = string_overrides::Load_Raw_Table("custom.lbx", 0, nullptr, 0, 2);
+        DOCTEST_REQUIRE(raw != nullptr);
+        DOCTEST_CHECK(std::string(raw) == "a");
+        std::free(raw);
+        string_overrides::Load_Message("custom.lbx", 1, 0, 32, 1, output, sizeof(output));
+        DOCTEST_CHECK(std::string(output) == "first");
+
+        test_dir.Write_File("data/overrides/custom.json5", "{1:'same layer'}");
+        string_overrides::Load_Message("custom.lbx", 1, 0, 32, 1, output, sizeof(output));
+        DOCTEST_CHECK(std::string(output) == "same layer");
+        string_overrides::Load_Message("custom.lbx", 1, 1, 32, 2, output, sizeof(output));
+        DOCTEST_CHECK(std::string(output) == "second");
+        fs::remove(test_dir.root_path() / "data/overrides/custom.json5");
+        string_overrides::Load_Message("custom.lbx", 1, 0, 32, 1, output, sizeof(output));
+        DOCTEST_CHECK(std::string(output) == "first");
+        fs::remove(test_dir.root_path() / "data/overrides/custom.lbx");
+        DOCTEST_CHECK_FALSE(string_overrides::Try_Apply_String("custom.lbx", 1, output, sizeof(output), &diagnostic));
+        DOCTEST_CHECK(diagnostic.find("expected positive decimal string IDs and string values") != std::string::npos);
     }
 
     DOCTEST_TEST_CASE("sidecar edits removal and recreation are detected by content") {

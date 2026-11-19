@@ -249,7 +249,7 @@ namespace antares::commands::internal {
                 }
                 weapon_space += d.weapon_space[i];
                 s_out item = weapons.Append_Object();
-                const int16_t count = std::max<int16_t>(d.weapon_count[i], 1);
+                const int16_t count = std::max<int16_t>(int16_t(d.weapon_count[i]), 1);
                 item.Int("slot", i);
                 item.Int("weapon", w);
                 item.Str("name", Utf8(count < 2 ? TECHDATA::weapons[w].name : TECHDATA::weapons[w].name_plural, 40));

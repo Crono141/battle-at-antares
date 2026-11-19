@@ -3,4 +3,5 @@ mkdocs-to-pdf==0.12.1
 weasyprint==70.0
 pillow==13.0.0
 fonttools[woff]==4.67.0
-pypdf==6.21.2
+pypdf==6.21.4
+soupsieve==4.1

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "legacy_ids.h"
 #include "game/ship_config.h"
 #include "game/shipstak.h"
 
@@ -273,15 +274,15 @@ namespace INITSHIP {
         }
 
         MOX::cur_combat_x = -1000;
-        aidesign::Auto_Design_Ship(player_idx, &plr->ship_designs[0], 0);
+        aidesign::Auto_Design_Ship(&game::current, legacy_world::Player_Id(player_idx), &plr->ship_designs[0], 0);
         MOX::cur_combat_x = 0;
 
         for (int16_t i = 1; i < SHIP_SIZE_COUNT; ++i) {
-            aidesign::Auto_Design_Ship(player_idx, &plr->ship_designs[i], i - design_flag);
+            aidesign::Auto_Design_Ship(&game::current, legacy_world::Player_Id(player_idx), &plr->ship_designs[i], i - design_flag);
         }
 
         if (plr->objectives != PLAYER_OBJECTIVE_HUMAN) {
-            aidesign::Auto_Design_Ship(player_idx, &plr->ship_designs[SHIP_SIZE_DOOM_STAR], HULL_DOOM_STAR);
+            aidesign::Auto_Design_Ship(&game::current, legacy_world::Player_Id(player_idx), &plr->ship_designs[SHIP_SIZE_DOOM_STAR], HULL_DOOM_STAR);
 
             int16_t pic_mod_8 = (int16_t)(plr->ship_designs[SHIP_SIZE_DOOM_STAR].picture_num % 8);
             DESIGN::Get_Ship_Design_Name(
@@ -350,7 +351,7 @@ namespace INITSHIP {
         Update_Equipment_On_Ships_Being_Built(player_idx);
 
         for (int16_t i = 0; i < SHIP_SIZE_COUNT; ++i) {
-            aidesign::Auto_Design_Ship(player_idx, &MOX::player[player_idx].ship_designs[i], i);
+            aidesign::Auto_Design_Ship(&game::current, legacy_world::Player_Id(player_idx), &MOX::player[player_idx].ship_designs[i], i);
         }
     }
 
@@ -708,7 +709,7 @@ namespace INITSHIP {
             return;
         }
 
-        aidesign::Auto_Design_Ship(owner_idx, design, HULL_DOOM_STAR);
+        aidesign::Auto_Design_Ship(&game::current, legacy_world::Player_Id(owner_idx), design, HULL_DOOM_STAR);
         strlcpy(design->name, TECHDATA::hull_data[HULL_DOOM_STAR].name, sizeof(design->name));
     }
 
@@ -770,6 +771,7 @@ namespace INITSHIP {
         int16_t result;
         s_ship_data* ship = &MOX::ship[ship_idx];
         const uint8_t builder = ship->d.previous_owner;
+        const SHIP_CONFIG::s_monster_hit_points& hit_points = SHIP_CONFIG::monster.hit_points;
 
         if (builder <= 9) {
             return Get_Design_Structure(ship->d);
@@ -784,16 +786,16 @@ namespace INITSHIP {
                 break;
 
             case 11:
-                result = SHIP_CONFIG::monster.hit_points.event_crystal_dragon;
+                result = hit_points.event_crystal >= 0 ? hit_points.event_crystal : hit_points.event_crystal_dragon;
                 if (ship->d.ftl_type <= 0) {
-                    return SHIP_CONFIG::monster.hit_points.system_crystal_hydra_dragon;
+                    return hit_points.system_crystal >= 0 ? hit_points.system_crystal : hit_points.system_crystal_hydra_dragon;
                 }
                 break;
 
             case 12:
-                result = SHIP_CONFIG::monster.hit_points.event_crystal_dragon;
+                result = hit_points.event_dragon >= 0 ? hit_points.event_dragon : hit_points.event_crystal_dragon;
                 if (ship->d.ftl_type <= 0) {
-                    return SHIP_CONFIG::monster.hit_points.system_crystal_hydra_dragon;
+                    return hit_points.system_dragon >= 0 ? hit_points.system_dragon : hit_points.system_crystal_hydra_dragon;
                 }
                 break;
 
@@ -807,7 +809,7 @@ namespace INITSHIP {
             case 14:
                 result = SHIP_CONFIG::monster.hit_points.event_hydra;
                 if (ship->d.ftl_type <= 0) {
-                    return SHIP_CONFIG::monster.hit_points.system_crystal_hydra_dragon;
+                    return hit_points.system_hydra >= 0 ? hit_points.system_hydra : hit_points.system_crystal_hydra_dragon;
                 }
                 break;
 

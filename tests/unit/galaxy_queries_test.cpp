@@ -62,11 +62,11 @@ namespace {
             g_stars_[i].y = 50;
             g_stars_[i].owner = -1;
             g_stars_[i].wormhole_star_id = -1;
-            for (auto& slot : g_stars_[i].planet_index) {
-                slot = -1;
+            for (size_t slot_i = 0; slot_i < sizeof(g_stars_[i].planet_index) / sizeof(g_stars_[i].planet_index[0]); ++slot_i) { // packed: no references
+                g_stars_[i].planet_index[slot_i] = -1;
             }
-            for (auto& officer : g_stars_[i].officer_index) {
-                officer = -1;
+            for (size_t officer_i = 0; officer_i < sizeof(g_stars_[i].officer_index) / sizeof(g_stars_[i].officer_index[0]); ++officer_i) { // packed: no references
+                g_stars_[i].officer_index[officer_i] = -1;
             }
             g_planets_[i] = s_planet_data{};
             g_planets_[i].colony_index = -1;

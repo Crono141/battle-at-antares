@@ -3,6 +3,7 @@
 #include "doctest/doctest.h"
 
 #include "game/build_queue.h"
+#include "game/colcalc.h"
 #include "lua/lua_game.h"
 
 namespace TEST_COLONY_POP_GROWTH {
@@ -23,6 +24,20 @@ namespace TEST_COLONY_POP_GROWTH {
 }
 
 namespace {
+    const game::s_view* AI_World_() {
+        static const game::s_view world{
+            .players = MOX::player,
+            .stars = MOX::star,
+            .colonies = MOX::colony,
+            .planets = MOX::planet,
+            .settings = &MOX::settings,
+            .player_count = &MOX::NUM_PLAYERS,
+            .star_count = &MOX::NUM_STARS,
+            .colony_count = &MOX::NUM_COLONIES,
+        };
+        return &world;
+    }
+
     s_colony* Prepare_Growth_Modifier_() {
         TEST_COLONY_POP_GROWTH::Reset_();
 
@@ -802,12 +817,14 @@ DOCTEST_TEST_CASE("uncolonized planet AI separates size weight from Subterranean
     planet->gravity_class = PLANET_GRAVITY_NORMAL_G;
 
     DOCTEST_CHECK(AIDATA::Uncolonized_Planet_Worth_To_Player(
+        AI_World_(),
         planet, &MOX::player[0]) == 27);
 
     MOX::player[0].traits[TRAIT_SUBTERRANEAN] = 1;
     COLCALC::pop_bonus_subterranean[PLANET_SIZE_MEDIUM] = 9;
 
     DOCTEST_CHECK(AIDATA::Uncolonized_Planet_Worth_To_Player(
+        AI_World_(),
         planet, &MOX::player[0]) == 43);
 }
 
@@ -823,10 +840,8 @@ DOCTEST_TEST_CASE("configured Growth values drive both AI planet-worth consumers
 
     for (const s_growth_case& test_case : cases) {
         TEST_COLONY_POP_GROWTH::Reset_();
-        static s_ai_colony_info ai_colony_info[MAX_COLONIES];
-        memset(ai_colony_info, 0, sizeof(ai_colony_info));
-        AIDATA::ai_colony_info = &ai_colony_info;
-        ai_colony_info[0].race = 0;
+        AIDATA::s_state ai;
+        ai.colonies[legacy_world::Colony_Id(0)].dominant_race = legacy_world::Player_Id(0);
         MOX::NUM_PLAYERS = 1;
         MOX::settings.game_difficulty = GAME_DIFFICULTY_TUTOR;
 
@@ -855,25 +870,28 @@ DOCTEST_TEST_CASE("configured Growth values drive both AI planet-worth consumers
 
         MOX::player[0].traits[TRAIT_POP_GROWTH_BONUS] = original_value;
         const int16_t original_colony_worth =
-            AIDATA::Colony_Worth_To_Player(colony, &MOX::player[0]);
+            AIDATA::Colony_Worth_To_Player(&ai, AI_World_(), legacy_world::Colony_Id(0), colony, &MOX::player[0]);
         const int32_t original_planet_worth =
             AIDATA::Uncolonized_Planet_Worth_To_Player(
+                AI_World_(),
                 planet, &MOX::player[0]);
 
         MOX::player[0].traits[TRAIT_POP_GROWTH_BONUS] = replacement_value;
         const int16_t unmatched_colony_worth =
-            AIDATA::Colony_Worth_To_Player(colony, &MOX::player[0]);
+            AIDATA::Colony_Worth_To_Player(&ai, AI_World_(), legacy_world::Colony_Id(0), colony, &MOX::player[0]);
         const int32_t unmatched_planet_worth =
             AIDATA::Uncolonized_Planet_Worth_To_Player(
+                AI_World_(),
                 planet, &MOX::player[0]);
         DOCTEST_CHECK(unmatched_colony_worth != original_colony_worth);
         DOCTEST_CHECK(unmatched_planet_worth != original_planet_worth);
 
         configured_value = replacement_value;
         const int16_t configured_colony_worth =
-            AIDATA::Colony_Worth_To_Player(colony, &MOX::player[0]);
+            AIDATA::Colony_Worth_To_Player(&ai, AI_World_(), legacy_world::Colony_Id(0), colony, &MOX::player[0]);
         const int32_t configured_planet_worth =
             AIDATA::Uncolonized_Planet_Worth_To_Player(
+                AI_World_(),
                 planet, &MOX::player[0]);
         configured_value = original_value;
 
@@ -942,6 +960,7 @@ DOCTEST_TEST_CASE("planet maintenance consumers preserve unsigned modifiers") {
         DOCTEST_CHECK(info.maintenance == modifiers[i]);
 
         worth[i] = AIDATA::Uncolonized_Planet_Worth_To_Player(
+            AI_World_(),
             planet, &MOX::player[0]);
     }
 
@@ -988,18 +1007,20 @@ DOCTEST_TEST_CASE("uncolonized planet AI food worth is configurable per half-foo
     planet->food_per_farmer = 2;
 
     int32_t biological_worth = AIDATA::Uncolonized_Planet_Worth_To_Player(
+        AI_World_(),
         planet, &MOX::player[0]);
-    AIDATA::uncolonized_planet_food_worth.biological = 100;
+    AIDATA::planet_valuation_rules.food.biological = 100;
     int32_t configured_biological_worth =
-        AIDATA::Uncolonized_Planet_Worth_To_Player(planet, &MOX::player[0]);
+        AIDATA::Uncolonized_Planet_Worth_To_Player(AI_World_(), planet, &MOX::player[0]);
     DOCTEST_CHECK(configured_biological_worth > biological_worth);
 
     MOX::player[0].traits[TRAIT_CYBERNETIC] = 1;
     int32_t cybernetic_worth = AIDATA::Uncolonized_Planet_Worth_To_Player(
+        AI_World_(),
         planet, &MOX::player[0]);
-    AIDATA::uncolonized_planet_food_worth.cybernetic = 100;
+    AIDATA::planet_valuation_rules.food.cybernetic = 100;
     int32_t configured_cybernetic_worth =
-        AIDATA::Uncolonized_Planet_Worth_To_Player(planet, &MOX::player[0]);
+        AIDATA::Uncolonized_Planet_Worth_To_Player(AI_World_(), planet, &MOX::player[0]);
     DOCTEST_CHECK(configured_cybernetic_worth > cybernetic_worth);
 }
 
@@ -1014,9 +1035,10 @@ DOCTEST_TEST_CASE("uncolonized planet special worth saturates without signed ove
     planet->mineral_class = MINERAL_RESOURCE_ULTRA_RICH;
     planet->planet_special = SYSTEM_SPECIAL_GEM_DEPOSITS;
     COLCALC::minerals_per_mine[MINERAL_RESOURCE_ULTRA_RICH] = UINT8_MAX;
-    AIDATA::uncolonized_planet_special_worth.gem_deposits = INT32_MAX;
+    AIDATA::planet_valuation_rules.special.gem_deposits = INT32_MAX;
 
     DOCTEST_CHECK(AIDATA::Uncolonized_Planet_Worth_To_Player(
+        AI_World_(),
         planet, &MOX::player[0]) == UINT16_MAX);
 }
 
@@ -1046,6 +1068,26 @@ DOCTEST_TEST_CASE("configured extinction preserves the final AI population") {
     COLCALC::Apply_Colony_Pop_Growth(colony);
 
     DOCTEST_CHECK(colony->n_pops == 1);
+}
+
+DOCTEST_TEST_CASE("extinction stops after removing the last pop of an unprotected race") {
+    s_colony* colony = Prepare_Starving_Colony_();
+    MOX::NUM_PLAYERS = 2;
+    colony->n_pops = 2;
+    colony->pop[0] = 0;
+    colony->pop[1] = 1;
+    colony->pop_growth[0] = 0;
+    colony->pop_growth[1] = -2000;
+    colony->specialty = 5;
+    MOX::player[0].objectives = PLAYER_OBJECTIVE_HUMAN;
+    COLCALC::planet_extinction = 1;
+
+    COLCALC::Apply_Colony_Pop_Growth(colony);
+
+    DOCTEST_REQUIRE(colony->n_pops == 1);
+    DOCTEST_CHECK(colony->pop[0] == 0);
+    DOCTEST_CHECK(colony->specialty == 5);
+    DOCTEST_CHECK(colony->pop_roundoff[1] == 0);
 }
 
 DOCTEST_TEST_CASE("classic zero colony survives while settlers are inbound") {
@@ -1618,4 +1660,14 @@ DOCTEST_TEST_CASE("legacy autobuild Trade Goods after a building starts next tur
     COLCALC::Apply_Production(colony);
     DOCTEST_CHECK((colony->production_spent == 40));
     DOCTEST_CHECK((MOX::player[0].bc == 0));
+}
+
+DOCTEST_TEST_CASE("Format_Quotient writes the fraction without overrunning the buffer") {
+    // Regression test for the colony-screen crash: the fraction snprintf was
+    // passed one byte more than the buffer had left, tripping the fortified
+    // snprintf check. Any value with a non-zero remainder exercises it.
+    DOCTEST_CHECK(std::string(COLCALC::Format_Quotient(100, 40)) == "+2.5");
+    DOCTEST_CHECK(std::string(COLCALC::Format_Quotient(-100, 40)) == "-2.5");
+    DOCTEST_CHECK(std::string(COLCALC::Format_Quotient(1, 3)) == "+0.33333");
+    DOCTEST_CHECK(std::string(COLCALC::Format_Quotient(999999999, 40)) == "+24999999.975");
 }

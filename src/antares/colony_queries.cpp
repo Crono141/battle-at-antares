@@ -840,7 +840,7 @@ namespace antares::commands::internal {
                     s_out target = targets.Append_Object();
                     target.Int("design", slot);
                     target.Str("name", Utf8(design.name, sizeof(design.name)));
-                    target.Int("cost", AIBUILD::Refit_Cost(colony.owner, &ship.d, &design));
+                    target.Int("cost", AIBUILD::Refit_Cost(&MOX::player[colony.owner], &ship.d, &design));
                 }
             }
         }

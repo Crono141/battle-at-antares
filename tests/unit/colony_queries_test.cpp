@@ -208,8 +208,8 @@ DOCTEST_TEST_CASE("build_options lists what CHANGE offers; build_commit replays 
         std::vector<std::string>{"add 22 quiet", "add -50 repeat quiet", "move 1 0", "delete 2", "commit quiet"});
     DOCTEST_CHECK(TEST_NATIVE::seeds_set == std::vector<uint32_t>{0, 1234}); // the colony's number, then back
     DOCTEST_CHECK(TEST_NATIVE::random_seed == 1234);
-    DOCTEST_CHECK(c_colonies_[0].producing[0] == 22);
-    DOCTEST_CHECK(c_colonies_[0].producing[1] == BUILDING_STAR_BASE);
+    DOCTEST_CHECK(+c_colonies_[0].producing[0] == 22);
+    DOCTEST_CHECK(+c_colonies_[0].producing[1] == BUILDING_STAR_BASE);
     DOCTEST_CHECK(c_colonies_[0].auto_building == 1);
     DOCTEST_CHECK_FALSE(COLBLDG::quiet_ui);
     DOCTEST_CHECK(COLONY::colony_handle == -7);
@@ -249,7 +249,7 @@ DOCTEST_TEST_CASE("REFIT lists the warships in orbit and their designs; a refit 
     // A design of another size is refused, as the popup refuses it.
     commit = Run_("{\"verb\":\"build_commit\",\"colony\":0,\"edits\":[{\"refit\":3,\"design\":2},{\"refit\":3,\"design\":1}]}");
     DOCTEST_CHECK(Has_(commit, "\"applied\":1"));
-    DOCTEST_CHECK(c_colonies_[0].producing[1] == COLBLDG::Colony_Production_From_Ship_Index(3));
+    DOCTEST_CHECK(+c_colonies_[0].producing[1] == COLBLDG::Colony_Production_From_Ship_Index(3));
     DOCTEST_CHECK(ships[3].status == 4);
     DOCTEST_CHECK(std::string(ships[3].d.name) == "New Guard");
     // A refit taken off again in the same commit puts the ship back (the popup would scrap it).
@@ -260,7 +260,7 @@ DOCTEST_TEST_CASE("REFIT lists the warships in orbit and their designs; a refit 
     DOCTEST_CHECK(Has_(commit, "\"applied\":2"));
     DOCTEST_CHECK(ships[3].status == 0);
     DOCTEST_CHECK(std::string(ships[3].d.name) == "Old Guard");
-    DOCTEST_CHECK(c_colonies_[0].producing[1] == COLONY_PRODUCTION_NONE);
+    DOCTEST_CHECK(+c_colonies_[0].producing[1] == COLONY_PRODUCTION_NONE);
 }
 
 namespace TEST_NATIVE {
@@ -289,7 +289,7 @@ DOCTEST_TEST_CASE("a cluster of colonists moves together; buildings sell with th
     const int32_t bc = c_players_[0].bc;
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"sell_building\",\"colony\":0,\"building\":22}"), "\"sold\":true"));
     DOCTEST_CHECK(c_colonies_[0].buildings[BUILDING_MARINE_BARRACKS] == 0);
-    DOCTEST_CHECK(c_players_[0].bc == bc + 150);
+    DOCTEST_CHECK(+c_players_[0].bc == bc + 150);
     // Not standing, or one that can't be scrapped: refused before any question.
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"sell_building\",\"colony\":0,\"building\":22}"), "refused"));
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"sell_building\",\"colony\":0,\"building\":3}"), "refused"));

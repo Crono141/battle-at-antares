@@ -3,6 +3,7 @@
 #include "doctest/doctest.h"
 #include "game/initgame.h"
 #include "game/newgame.h"
+#include "game/newgame_options.h"
 #include "game/random.h"
 
 namespace TEST_NEWGAME {
@@ -18,8 +19,101 @@ DOCTEST_TEST_CASE("fixed new-game player count is unchanged") {
     game_random::Set_Random_Seed(0x12345678);
     const uint32_t seed = game_random::Get_Random_Seed();
 
-    DOCTEST_CHECK(INITGAME::Resolve_New_Game_Player_Count(5, players) == 5);
-    DOCTEST_CHECK(game_random::Get_Random_Seed() == seed);
+    for (int16_t count = 2; count <= MAX_PLAYERS; ++count) {
+        DOCTEST_CHECK(INITGAME::Resolve_New_Game_Player_Count(count, players) == count);
+        DOCTEST_CHECK(game_random::Get_Random_Seed() == seed);
+    }
+}
+
+DOCTEST_TEST_CASE("invalid setup counts use a fixed fallback without resolving Random") {
+    const uint32_t prior_seed = game_random::Get_Random_Seed();
+    constexpr uint32_t seed = 0x12345678;
+    game_random::Set_Random_Seed(seed);
+    const int invalid_fallbacks[] = {INT16_MIN, -1, 0, 1, NEW_GAME_RANDOM_PLAYER_COUNT, INT16_MAX};
+    for (int count = INT8_MIN; count <= INT8_MAX; ++count) {
+        DOCTEST_CAPTURE(count);
+        const bool valid = (count >= 2 && count <= MAX_PLAYERS) ||
+            count == NEW_GAME_RANDOM_PLAYER_COUNT;
+        DOCTEST_CHECK(INITGAME::Normalize_New_Game_Player_Count(count, 6) == (valid ? count : 6));
+        for (int fallback : invalid_fallbacks) {
+            DOCTEST_CHECK(INITGAME::Normalize_New_Game_Player_Count(count, fallback) == (valid ? count : 5));
+        }
+        DOCTEST_CHECK(game_random::Get_Random_Seed() == seed);
+    }
+    for (int16_t fallback = 2; fallback <= MAX_PLAYERS; ++fallback) {
+        DOCTEST_CHECK(INITGAME::Normalize_New_Game_Player_Count(0, fallback) == fallback);
+    }
+    game_random::Set_Random_Seed(prior_seed);
+}
+
+DOCTEST_TEST_CASE("new-game player selector safely round-trips every stored count byte") {
+    const s_settings prior = MOX::settings;
+    const uint32_t prior_seed = game_random::Get_Random_Seed();
+    constexpr uint32_t seed = 0x12345678;
+    game_random::Set_Random_Seed(seed);
+    for (int count = INT8_MIN; count <= INT8_MAX; ++count) {
+        DOCTEST_CAPTURE(count);
+        MOX::settings.number_of_players = (int8_t)count;
+        const bool valid = (count >= 2 && count <= MAX_PLAYERS) ||
+            count == NEW_GAME_RANDOM_PLAYER_COUNT;
+        const int expected = valid ? count : 5;
+        NEWGAME::Globals_To_Temps();
+        DOCTEST_CHECK(NEWGAME::Random_Player_Count_Selected() ==
+            (expected == NEW_GAME_RANDOM_PLAYER_COUNT));
+        DOCTEST_CHECK(NEWGAME::opp_button_variable >= 0);
+        DOCTEST_CHECK(NEWGAME::opp_button_variable < MAX_PLAYERS);
+        DOCTEST_CHECK(NEWGAME::opp_button_variable ==
+            (expected == NEW_GAME_RANDOM_PLAYER_COUNT ? MAX_PLAYERS - 1 : expected - 2));
+        NEWGAME::Temps_To_Globals();
+        DOCTEST_CHECK(NEWGAME::Random_Player_Count_Selected() ==
+            (expected == NEW_GAME_RANDOM_PLAYER_COUNT));
+        DOCTEST_CHECK(MOX::settings.number_of_players == expected);
+        DOCTEST_CHECK(NEWGAME::Player_Count_For_Initialization() == expected);
+        DOCTEST_CHECK(game_random::Get_Random_Seed() == seed);
+    }
+    MOX::settings = prior;
+    NEWGAME::Globals_To_Temps();
+    game_random::Set_Random_Seed(prior_seed);
+}
+
+DOCTEST_TEST_CASE("cached Random selection is independent of the persisted player count") {
+    struct s_options_scope {
+        s_settings saved_settings = MOX::settings;
+        bool saved_random = NEWGAME::Random_Player_Count_Selected();
+        uint16_t saved_combat = NEWGAME::combat_button_variable;
+        int16_t saved_selectors[7] = {
+            NEWGAME::opp_button_variable, NEWGAME::diff_button_variable,
+            NEWGAME::xenon_attacks_button_variable, NEWGAME::civ_button_variable,
+            NEWGAME::gal_size_button_variable, NEWGAME::random_events_button_variable,
+            NEWGAME::gal_age_button_variable,
+        };
+
+        ~s_options_scope() {
+            // The cached choice can differ from the persisted count after setup.
+            NEWGAME::opp_button_variable = saved_random ? NEWGAME::NEW_GAME_PLAYER_COUNT_RANDOM : 0;
+            NEWGAME::Temps_To_Globals();
+            NEWGAME::opp_button_variable = saved_selectors[0];
+            NEWGAME::diff_button_variable = saved_selectors[1];
+            NEWGAME::xenon_attacks_button_variable = saved_selectors[2];
+            NEWGAME::civ_button_variable = saved_selectors[3];
+            NEWGAME::gal_size_button_variable = saved_selectors[4];
+            NEWGAME::random_events_button_variable = saved_selectors[5];
+            NEWGAME::gal_age_button_variable = saved_selectors[6];
+            NEWGAME::combat_button_variable = saved_combat;
+            MOX::settings = saved_settings;
+        }
+    } scope;
+
+    MOX::settings.number_of_players = NEW_GAME_RANDOM_PLAYER_COUNT;
+    NEWGAME::Globals_To_Temps();
+    MOX::settings.number_of_players = MAX_PLAYERS;
+    DOCTEST_CHECK(NEWGAME::Random_Player_Count_Selected());
+    DOCTEST_CHECK(NEWGAME::Player_Count_For_Initialization() == NEW_GAME_RANDOM_PLAYER_COUNT);
+
+    NEWGAME::Globals_To_Temps();
+    MOX::settings.number_of_players = NEW_GAME_RANDOM_PLAYER_COUNT;
+    DOCTEST_CHECK_FALSE(NEWGAME::Random_Player_Count_Selected());
+    DOCTEST_CHECK(NEWGAME::Player_Count_For_Initialization() == NEW_GAME_RANDOM_PLAYER_COUNT);
 }
 
 DOCTEST_TEST_CASE("Random handles a zero bound without advancing the seed") {

@@ -261,7 +261,7 @@ namespace COLBLDG {
 } // namespace COLBLDG
 
 namespace AIBUILD {
-    int16_t __cdecl Refit_Cost(int16_t, s_ship_design*, s_ship_design*) {
+    int16_t __cdecl Refit_Cost(const s_player*, const s_ship_design*, const s_ship_design*) {
         return 25;
     }
 } // namespace AIBUILD

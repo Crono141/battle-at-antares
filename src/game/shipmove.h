@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <optional>
 #include "types.h"
 
 struct s_wormhole_data;
@@ -8,6 +9,7 @@ namespace SHIPMOVE {
     extern uint8_t jump_gate_speed_bonus;
     extern uint16_t warp_interdictor_range;
     extern bool jump_gate_pass_nebula;
+    extern s_ratio16 phase_shifter_speed_multiplier;
 
     struct s_ship_communication_range {
         uint8_t tachyon;
@@ -33,6 +35,7 @@ namespace SHIPMOVE {
     void __cdecl Update_Player_Ship_Range(s_player* player);
 
     void __cdecl Ships_Try_To_Move_To(int16_t* ship_list, int16_t target_star_idx, s_ship_move_info* move_info);
+    void Evaluate_Fleet_Move_From_Star(int16_t* ship_list, int16_t target_star_idx, int16_t origin_star, s_ship_move_info* move_info);
 
     void __cdecl Make_Ships_Move_To(int16_t* ship_list, int16_t destination_star_idx, s_ship_move_info* move_info);
     bool __cdecl Apply_Player_Movement_Order(int16_t* ship_list, int16_t destination_star_idx, s_ship_move_info* move_info);
@@ -58,6 +61,8 @@ namespace SHIPMOVE {
     bool __cdecl Ship_Is_Moving(const s_ship_data* ship);
 
     void __cdecl Make_Ship_Arrive_At_Star(s_ship_data* ship, int16_t star_idx);
+    // Stop at the current position, without arrival/visibility/mission effects.
+    bool Stop_Ship_Transit(s_ship_data* ship, std::optional<uint32_t> current_star);
     void __cdecl Update_Ship_ETAs(int16_t player_id);
 
     void __cdecl Do_Hyperspace_Beast(int32_t player_idx);

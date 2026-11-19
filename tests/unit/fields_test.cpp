@@ -24,6 +24,7 @@ namespace {
     };
 
     int g_test_auto_function_calls = 0;
+    int g_test_update_function_calls = 0;
     int g_test_auto_script_mode = 0;
     int g_test_auto_script_step = 0;
     int16_t g_test_auto_script_button = 0;
@@ -42,6 +43,10 @@ namespace {
 
     void Test_Auto_Function_Increment_() {
         ++g_test_auto_function_calls;
+    }
+
+    void Test_Update_Function_Increment_() {
+        ++g_test_update_function_calls;
     }
 
     void Test_Auto_Function_Queue_Keyboard_Input_() {
@@ -73,6 +78,34 @@ namespace {
                 }
                 ++g_test_auto_script_step;
                 break;
+            case 4:
+                if (g_test_auto_script_step == 0) {
+                    mouse::User_Mouse_Wheel_Handler(12, 24, 0.0f, -1.0f);
+                } else if (g_test_auto_script_step == 1) {
+                    test::fakes::g_mouse_pointer_x = 12;
+                    test::fakes::g_mouse_pointer_y = 44;
+                } else if (g_test_auto_script_step == 2) {
+                    fields::Exit_List_Field();
+                }
+                ++g_test_auto_script_step;
+                break;
+            case 5:
+                if (g_test_auto_script_step == 0) {
+                    mouse::User_Mouse_Wheel_Handler(12, 24, 0.0f, -1.0f);
+                } else if (g_test_auto_script_step == 1) {
+                    fields::Exit_List_Field();
+                }
+                ++g_test_auto_script_step;
+                break;
+            case 6:
+                if (g_test_auto_script_step == 0) {
+                    mouse::User_Mouse_Wheel_Handler(12, 24, 0.0f, -1.0f);
+                } else if (g_test_auto_script_step == 1) {
+                    test::fakes::g_keyboard_status = 1;
+                    test::fakes::g_read_key_value = 0x1C0D;
+                }
+                ++g_test_auto_script_step;
+                break;
             default:
                 break;
         }
@@ -82,6 +115,7 @@ namespace {
         Fields_Test_Reset() {
             test::fakes::Reset_All_();
             g_test_auto_function_calls = 0;
+            g_test_update_function_calls = 0;
             g_test_auto_script_mode = 0;
             g_test_auto_script_step = 0;
             g_test_auto_script_button = 0;
@@ -92,6 +126,7 @@ namespace {
         ~Fields_Test_Reset() {
             test::fakes::Reset_All_();
             g_test_auto_function_calls = 0;
+            g_test_update_function_calls = 0;
             g_test_auto_script_mode = 0;
             g_test_auto_script_step = 0;
             g_test_auto_script_button = 0;
@@ -106,7 +141,7 @@ namespace {
 DOCTEST_TEST_SUITE("fields cpp") {
 
 DOCTEST_TEST_CASE("timed wait supports the complete unsigned word duration domain") {
-    const uint32_t durations[] = {1, 32767, 32768, 65535};
+    const uint32_t durations[] = {1, 900, 32767, 32768, 65535};
 
     for (uint32_t duration : durations) {
         Fields_Test_Reset reset;
@@ -115,6 +150,60 @@ DOCTEST_TEST_CASE("timed wait supports the complete unsigned word duration domai
         fields::Timed_Wait_For_Input(duration);
 
         DOCTEST_CHECK(g_test_auto_function_calls == duration);
+        DOCTEST_CHECK(test::fakes::g_mark_time_calls == duration);
+        DOCTEST_REQUIRE(test::fakes::g_release_time_calls.size() == duration);
+        for (int32_t ticks : test::fakes::g_release_time_calls) {
+            DOCTEST_CHECK(ticks == 1);
+        }
+    }
+}
+
+DOCTEST_TEST_CASE("quick auto function always paces and updates regardless of callback activity") {
+    for (bool active : {false, true}) {
+        Fields_Test_Reset reset;
+        fields::Assign_Auto_Function(Test_Auto_Function_Increment_, 1);
+        fields::Assign_Update_Function(Test_Update_Function_Increment_);
+        if (!active) {
+            fields::Deactivate_Auto_Function();
+        }
+
+        fields::Quick_Call_Auto_Function();
+
+        DOCTEST_CHECK(g_test_auto_function_calls == (active ? 1 : 0));
+        DOCTEST_CHECK(g_test_update_function_calls == 1);
+        DOCTEST_CHECK(test::fakes::g_mark_time_calls == 1);
+        DOCTEST_CHECK(test::fakes::g_release_time_calls == std::vector<int32_t>{1});
+        fields::Assign_Update_Function(nullptr);
+    }
+}
+
+DOCTEST_TEST_CASE("timed wait paces every iteration with auto callback disabled") {
+    Fields_Test_Reset reset;
+    fields::Assign_Auto_Function(Test_Auto_Function_Increment_, 1);
+    fields::Deactivate_Auto_Function();
+    fields::Assign_Update_Function(nullptr);
+
+    fields::Timed_Wait_For_Input(900);
+
+    DOCTEST_CHECK(g_test_auto_function_calls == 0);
+    DOCTEST_CHECK(test::fakes::g_mark_time_calls == 900);
+    DOCTEST_REQUIRE(test::fakes::g_release_time_calls.size() == 900);
+    for (int32_t ticks : test::fakes::g_release_time_calls) {
+        DOCTEST_CHECK(ticks == 1);
+    }
+}
+
+DOCTEST_TEST_CASE("timed wait allows keyboard or mouse dismissal before timeout") {
+    for (bool keyboard : {false, true}) {
+        Fields_Test_Reset reset;
+        fields::Assign_Auto_Function(Test_Auto_Function_Increment_, 1);
+        test::fakes::g_keyboard_status = keyboard ? 1 : 0;
+        test::fakes::g_mouse_buffer_flag = keyboard ? 0 : 1;
+
+        fields::Timed_Wait_For_Input(900);
+
+        DOCTEST_CHECK(g_test_auto_function_calls == 1);
+        DOCTEST_CHECK(test::fakes::g_mark_time_calls == 1);
     }
 }
 
@@ -125,6 +214,7 @@ DOCTEST_TEST_CASE("zero timed wait retains manual input dismissal") {
     fields::Timed_Wait_For_Input(0);
 
     DOCTEST_CHECK(g_test_auto_function_calls == 2);
+    DOCTEST_CHECK(test::fakes::g_mark_time_calls == 2);
 }
 
 DOCTEST_TEST_CASE("add button field initializes semantic payload and bounds") {
@@ -931,6 +1021,34 @@ DOCTEST_TEST_CASE("interpret keyboard input resolves lowercase hotkey without ch
 
     DOCTEST_CHECK(fields::Interpret_Keyboard_Input(&resolved_field) == 'k');
     DOCTEST_CHECK(resolved_field == field_idx);
+}
+
+DOCTEST_TEST_CASE("Home and End produce list navigation commands outside text input") {
+    Fields_Test_Reset reset;
+    const int16_t keys[] = {0x47E0, 0x4FE0};
+    const int16_t commands[] = {fields::INPUT_HOME, fields::INPUT_END};
+
+    for (int index = 0; index < 2; ++index) {
+        int16_t resolved_field = 0;
+        test::fakes::g_read_key_value = keys[index];
+        DOCTEST_CHECK(fields::Interpret_Keyboard_Input(&resolved_field) == keys[index]);
+        DOCTEST_CHECK(resolved_field == commands[index]);
+
+        test::fakes::g_keyboard_status = 1;
+        DOCTEST_CHECK(fields::Interpret_Mouse_Input() == commands[index]);
+
+        fields::active_input_field_number = 1;
+        resolved_field = 0;
+        DOCTEST_CHECK(fields::Interpret_Keyboard_Input(&resolved_field) == keys[index]);
+        DOCTEST_CHECK(resolved_field == 0);
+        fields::active_input_field_number = -1;
+
+        fields::input_field_active = 1;
+        resolved_field = 0;
+        DOCTEST_CHECK(fields::Interpret_Keyboard_Input(&resolved_field) == keys[index]);
+        DOCTEST_CHECK(resolved_field == 0);
+        fields::input_field_active = 0;
+    }
 }
 
 DOCTEST_TEST_CASE("interpret keyboard input suppresses hotkey search while continuous input is active") {
@@ -2592,6 +2710,293 @@ DOCTEST_TEST_CASE("normal exit without a message remains noninteractive") {
 
     DOCTEST_CHECK(platform::Exit_Status() == EXIT_SUCCESS);
     DOCTEST_CHECK((test::fakes::g_last_message_box_text.empty()));
+}
+
+DOCTEST_TEST_CASE("step scroll bar moves a tenth of the range with a one unit minimum and clamps") {
+    Fields_Test_Reset reset;
+    int16_t value = 50;
+
+    const int16_t field_idx = fields::Add_Scroll_Field(0, 0, 0, 100, 10, 90, 20, 60, &value, "s", 0);
+
+    fields::Step_Scroll_Bar(field_idx, 1);
+    DOCTEST_CHECK(value == 60);
+
+    fields::Step_Scroll_Bar(field_idx, -1);
+    DOCTEST_CHECK(value == 50);
+
+    fields::Step_Scroll_Bar(field_idx, 0);
+    DOCTEST_CHECK(value == 50);
+
+    value = 88;
+    fields::Step_Scroll_Bar(field_idx, 1);
+    DOCTEST_CHECK(value == 90);
+
+    value = 12;
+    fields::Step_Scroll_Bar(field_idx, -1);
+    DOCTEST_CHECK(value == 10);
+
+    int16_t small_value = 2;
+    const int16_t small_idx = fields::Add_Scroll_Field(0, 0, 0, 5, 0, 5, 20, 60, &small_value, "t", 0);
+    fields::Step_Scroll_Bar(small_idx, 1);
+    DOCTEST_CHECK(small_value == 3);
+
+    int16_t flat_value = 7;
+    const int16_t flat_idx = fields::Add_Scroll_Field(0, 0, 7, 7, 7, 7, 20, 60, &flat_value, "u", 0);
+    fields::Step_Scroll_Bar(flat_idx, 1);
+    DOCTEST_CHECK(flat_value == 7);
+}
+
+DOCTEST_TEST_CASE("mouse wheel scrolls the scrollbar under the cursor") {
+    Fields_Test_Reset reset;
+    int16_t value = 50;
+
+    const int16_t field_idx = fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 8, 60, &value, "s", 0);
+
+    mouse::User_Mouse_Wheel_Handler(104, 80, 0.0f, 1.0f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == field_idx);
+    DOCTEST_CHECK(value == 60);
+
+    mouse::User_Mouse_Wheel_Handler(104, 80, 0.0f, -1.0f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == field_idx);
+    DOCTEST_CHECK(value == 50);
+}
+
+DOCTEST_TEST_CASE("mouse wheel falls back to the lone scrollbar and ignores multiple scrollbars") {
+    Fields_Test_Reset reset;
+    int16_t value = 50;
+
+    const int16_t field_idx = fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 8, 60, &value, "s", 0);
+
+    test::fakes::g_mouse_pointer_x = 500;
+    test::fakes::g_mouse_pointer_y = 400;
+    mouse::User_Mouse_Wheel_Handler(500, 400, 0.0f, 1.0f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == field_idx);
+    DOCTEST_CHECK(value == 60);
+
+    int16_t other_value = 30;
+    fields::Add_Scroll_Field(200, 50, 0, 100, 0, 100, 8, 60, &other_value, "t", 0);
+
+    mouse::User_Mouse_Wheel_Handler(500, 400, 0.0f, 1.0f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == -1);
+    DOCTEST_CHECK(value == 60);
+    DOCTEST_CHECK(other_value == 30);
+}
+
+DOCTEST_TEST_CASE("mouse wheel over a horizontal scrollbar steps the vertical scrollbar") {
+    Fields_Test_Reset reset;
+    int16_t horizontal_value = 50;
+    int16_t vertical_value = 50;
+
+    fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 60, 8, &horizontal_value, "s", 0);
+    const int16_t vertical_idx = fields::Add_Scroll_Field(300, 50, 0, 100, 0, 100, 8, 60, &vertical_value, "t", 0);
+
+    mouse::User_Mouse_Wheel_Handler(104, 52, 0.0f, 1.0f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == vertical_idx);
+    DOCTEST_CHECK(horizontal_value == 50);
+    DOCTEST_CHECK(vertical_value == 60);
+}
+
+DOCTEST_TEST_CASE("mouse wheel with no pending delta returns zero") {
+    Fields_Test_Reset reset;
+    int16_t value = 50;
+
+    fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 8, 60, &value, "s", 0);
+
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == 0);
+    DOCTEST_CHECK(value == 50);
+}
+
+DOCTEST_TEST_CASE("fractional wheel movement survives field rebuilds and movement within its target") {
+    Fields_Test_Reset reset;
+    int16_t value = 50;
+
+    for (int16_t i = 0; i < 4; ++i) {
+        fields::Clear_Fields();
+        fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 8, 60, &value, "", 0);
+        mouse::User_Mouse_Wheel_Handler(104, 80 + i, 0.0f, 0.4f);
+        fields::Handle_Mouse_Wheel();
+    }
+    DOCTEST_CHECK(value == 60);
+
+    for (int16_t i = 0; i < 4; ++i) {
+        fields::Clear_Fields();
+        fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 8, 60, &value, "", 0);
+        mouse::User_Mouse_Wheel_Handler(104, 80 + i, 0.0f, -0.4f);
+        fields::Handle_Mouse_Wheel();
+    }
+    DOCTEST_CHECK(value == 50);
+}
+
+DOCTEST_TEST_CASE("fractional wheel movement does not transfer to another target") {
+    Fields_Test_Reset reset;
+    int16_t first_value = 50;
+    int16_t second_value = 50;
+    fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 8, 60, &first_value, "", 0);
+    fields::Add_Scroll_Field(200, 50, 0, 100, 0, 100, 8, 60, &second_value, "", 0);
+
+    mouse::User_Mouse_Wheel_Handler(104, 80, 0.0f, 0.75f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == -1);
+    mouse::User_Mouse_Wheel_Handler(204, 80, 0.0f, 0.5f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == -1);
+    DOCTEST_CHECK(first_value == 50);
+    DOCTEST_CHECK(second_value == 50);
+}
+
+DOCTEST_TEST_CASE("wheel events keep separate targets after the pointer moves") {
+    Fields_Test_Reset reset;
+    int16_t first_value = 50;
+    int16_t second_value = 50;
+    const int16_t first = fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 8, 60, &first_value, "", 0);
+    const int16_t second = fields::Add_Scroll_Field(200, 50, 0, 100, 0, 100, 8, 60, &second_value, "", 0);
+
+    mouse::User_Mouse_Wheel_Handler(104, 80, 0.0f, 1.0f);
+    mouse::User_Mouse_Wheel_Handler(204, 80, 0.0f, -2.0f);
+    test::fakes::g_mouse_pointer_x = 500;
+    test::fakes::g_mouse_pointer_y = 400;
+
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == first);
+    DOCTEST_CHECK(first_value == 60);
+    DOCTEST_CHECK(second_value == 50);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == second);
+    DOCTEST_CHECK(first_value == 60);
+    DOCTEST_CHECK(second_value == 30);
+    DOCTEST_CHECK(test::fakes::g_mouse_pointer_x == 500);
+    DOCTEST_CHECK(test::fakes::g_mouse_pointer_y == 400);
+}
+
+DOCTEST_TEST_CASE("clearing the mouse buffer discards queued wheel events and fractions") {
+    Fields_Test_Reset reset;
+    int16_t value = 50;
+    fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 8, 60, &value, "", 0);
+
+    mouse::User_Mouse_Wheel_Handler(104, 80, 0.0f, 0.75f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == -1);
+    mouse::User_Mouse_Wheel_Handler(104, 80, 0.0f, 2.0f);
+    fields::Clear_Mouse_Buffer();
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == 0);
+    mouse::User_Mouse_Wheel_Handler(104, 80, 0.0f, 0.5f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == -1);
+    DOCTEST_CHECK(value == 50);
+}
+
+DOCTEST_TEST_CASE("modal field boundaries reset fractional wheel movement") {
+    Fields_Test_Reset reset;
+    int16_t value = 50;
+    fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 8, 60, &value, "", 0);
+    mouse::User_Mouse_Wheel_Handler(104, 80, 0.0f, 0.75f);
+    fields::Handle_Mouse_Wheel();
+
+    fields::Mark_Fields();
+    fields::Add_Scroll_Field(100, 50, 0, 100, 0, 100, 8, 60, &value, "", 0);
+    mouse::User_Mouse_Wheel_Handler(104, 80, 0.0f, 0.5f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == -1);
+    fields::Release_Fields();
+    mouse::User_Mouse_Wheel_Handler(104, 80, 0.0f, 0.5f);
+    DOCTEST_CHECK(fields::Handle_Mouse_Wheel() == -1);
+    DOCTEST_CHECK(value == 50);
+}
+
+DOCTEST_TEST_CASE("mouse wheel moves the modal list selection and holds it against the hover") {
+    Fields_Test_Reset reset;
+
+    struct Row {
+        char text[8];
+    } rows[4] = {{"One"}, {"Two"}, {"Three"}, {""}};
+
+    int8_t selected_index = 0;
+    fields::list_field_scan_flag = 1;
+    test::fakes::g_mouse_pointer_x = 12;
+    test::fakes::g_mouse_pointer_y = 24;
+    g_test_auto_script_mode = 5;
+    fields::Assign_Auto_Function(Test_Auto_Function_List_Script_, 1);
+
+    const int16_t result = fields::Get_List_Field(10, 10, 40, "Help", reinterpret_cast<const char*>(rows), sizeof(Row), &selected_index, nullptr, 0, nullptr, 0, nullptr, 0, "");
+
+    DOCTEST_CHECK(result == -1);
+    DOCTEST_CHECK(selected_index == 1);
+    DOCTEST_CHECK(fields::list_field_on == 0);
+}
+
+DOCTEST_TEST_CASE("Enter accepts the wheel-held modal list selection") {
+    Fields_Test_Reset reset;
+    struct Row {
+        char text[8];
+    } rows[4] = {{"One"}, {"Two"}, {"Three"}, {""}};
+
+    int8_t selected_index = 0;
+    test::fakes::g_mouse_pointer_x = 12;
+    test::fakes::g_mouse_pointer_y = 24;
+    g_test_auto_script_mode = 6;
+    fields::Assign_Auto_Function(Test_Auto_Function_List_Script_, 1);
+
+    const int16_t result = fields::Get_List_Field(10, 10, 40, "Help", reinterpret_cast<const char*>(rows), sizeof(Row), &selected_index, nullptr, 0, nullptr, 0, nullptr, 0, "");
+
+    DOCTEST_CHECK(result == 1);
+    DOCTEST_CHECK(selected_index == 1);
+    DOCTEST_CHECK(fields::list_field_on == 0);
+}
+
+DOCTEST_TEST_CASE("Enter accepts a newly hovered row instead of a stale wheel-held selection") {
+    Fields_Test_Reset reset;
+    int8_t selected_index = 0;
+    fields::list_field_on = 1;
+    fields::Add_String_List_Field(10, 20, 40, "One", 1, &selected_index, 0, 0, nullptr, 0, nullptr, 0, "", "");
+    fields::Add_String_List_Field(10, 40, 40, "Two", 1, &selected_index, 1, 0, nullptr, 0, nullptr, 0, "", "");
+    const int16_t third = fields::Add_String_List_Field(10, 60, 40, "Three", 1, &selected_index, 2, 0, nullptr, 0, nullptr, 0, "", "");
+
+    mouse::User_Mouse_Wheel_Handler(12, 24, 0.0f, -1.0f);
+    fields::Handle_Mouse_Wheel();
+    DOCTEST_REQUIRE(selected_index == 1);
+    test::fakes::g_mouse_pointer_x = 12;
+    test::fakes::g_mouse_pointer_y = 64;
+    test::fakes::g_keyboard_status = 1;
+    test::fakes::g_read_key_value = 0xE00D;
+
+    DOCTEST_CHECK(fields::Interpret_Mouse_Input() == third);
+}
+
+DOCTEST_TEST_CASE("mouse wheel list hold releases once the mouse moves to another row") {
+    Fields_Test_Reset reset;
+
+    struct Row {
+        char text[8];
+    } rows[4] = {{"One"}, {"Two"}, {"Three"}, {""}};
+
+    int8_t selected_index = 0;
+    fields::list_field_scan_flag = 1;
+    test::fakes::g_mouse_pointer_x = 12;
+    test::fakes::g_mouse_pointer_y = 24;
+    g_test_auto_script_mode = 4;
+    fields::Assign_Auto_Function(Test_Auto_Function_List_Script_, 1);
+
+    const int16_t result = fields::Get_List_Field(10, 10, 40, "Help", reinterpret_cast<const char*>(rows), sizeof(Row), &selected_index, nullptr, 0, nullptr, 0, nullptr, 0, "");
+
+    DOCTEST_CHECK(result == -1);
+    DOCTEST_CHECK(selected_index == 2);
+    DOCTEST_CHECK(fields::list_field_on == 0);
+}
+
+DOCTEST_TEST_CASE("move list selection skips rows that are not selectable") {
+    Fields_Test_Reset reset;
+
+    int8_t selected_index = 0;
+    fields::list_field_on = 1;
+
+    uint8_t item_flags[3] = {1, 0, 1};
+    const int16_t first = fields::Add_String_List_Field(10, 20, 40, "One", item_flags[0], &selected_index, 0, 0, nullptr, 0, nullptr, 0, "", "");
+    fields::Add_String_List_Field(10, 30, 40, "Two", item_flags[1], &selected_index, 1, 0, nullptr, 0, nullptr, 0, "", "");
+    fields::Add_String_List_Field(10, 40, 40, "Three", item_flags[2], &selected_index, 2, 0, nullptr, 0, nullptr, 0, "", "");
+
+    test::fakes::g_mouse_pointer_x = 12;
+    test::fakes::g_mouse_pointer_y = 24;
+
+    DOCTEST_CHECK(fields::Move_List_Selection(first, -1) == 1);
+    DOCTEST_CHECK(selected_index == 2);
+
+    DOCTEST_CHECK(fields::Move_List_Selection(first, 1) == 1);
+    DOCTEST_CHECK(selected_index == 0);
+
+    fields::list_field_on = 0;
 }
 
 }

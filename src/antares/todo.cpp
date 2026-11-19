@@ -427,7 +427,7 @@ namespace antares::todo {
             std::vector<int16_t> before;
             for (const int16_t p : MOX::star[star].planet_index) {
                 if (p >= 0 && p < MOX::planet_count) {
-                    before.push_back(MOX::planet[p].colony_index);
+                    before.push_back(int16_t(MOX::planet[p].colony_index)); // a copy: the field is packed
                 }
             }
             const int8_t status = REPORT::Colonization_At_Star(MOX::PLAYER_NUM, (int16_t)star, 1, false);
