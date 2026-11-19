@@ -83,6 +83,10 @@ namespace antares::commands::internal {
                 p.research_breakthrough = breakthrough;
                 JIM::Play_Background_Music();
                 answer = 0;
+            } else if (popup == "film") {
+                // WP3.11b: a film in its box (the amoeba's: no rules run in it).
+                ERIC::Play_Amoeba_Flic();
+                answer = 0;
             } else if (popup == "gnn") {
                 // The GNN window: the intro and one story (`event`, default 0) about the player's
                 // home planet.

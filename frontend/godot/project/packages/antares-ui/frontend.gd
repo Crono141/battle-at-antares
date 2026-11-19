@@ -104,6 +104,8 @@ func _ready() -> void:
 	game.snapshot.connect(_on_snapshot)
 	if game.has_signal("turn_notice"):
 		game.turn_notice.connect(_on_turn_notice)
+	if game.has_signal("film"):
+		game.film.connect(_on_film)
 	galaxy.star_clicked.connect(_on_star_clicked)
 	galaxy.fleet_clicked.connect(_open_fleet)
 	galaxy.star_hovered.connect(_on_star_hovered)
@@ -247,9 +249,72 @@ func _process(delta: float) -> void:
 	if image != null and image.get_data() == _stale_frame and _legacy_waited < 3.0:
 		return
 	_legacy_after_frame = -1
-	if native_screen == Screens.LEGACY and not _question_over_galaxy and not _turn_over_galaxy:
+	if native_screen == Screens.LEGACY and not _question_over_galaxy and not _turn_over_galaxy and not _film_active:
 		galaxy.hide()
 		legacy.show()
+
+
+## WP3.11b (owner, 2026-11-19): the films that play in a box (the dimensional portal, planet
+## destruction, Orion taken, the Antarans' attack, the amoeba) in a window sized to the film over
+## the native galaxy. The game still plays them (picture and sound together); the legacy view
+## shows only the film's part of its frame, raised over the native layers, in the theme's frame.
+var _film_active := false
+var _film_frame: PanelContainer
+const FILM_LAYER := 4
+
+
+func _on_film(rect: Rect2i) -> void:
+	if rect.has_area():
+		if not native or galaxy.stars.is_empty():
+			return
+		_film_active = true
+		_layout_film(Rect2(rect))
+	elif _film_active:
+		_film_active = false
+		_end_film()
+
+
+func _layout_film(rect: Rect2) -> void:
+	var view := get_viewport().get_visible_rect().size
+	var k := minf(view.x * 0.6 / rect.size.x, view.y * 0.6 / rect.size.y)
+	var inner := (rect.size * k).round()
+	var at := ((view - inner) * 0.5).round()
+	if _film_frame == null:
+		_film_frame = PanelContainer.new()
+		_film_frame.theme_type_variation = &"Pane"
+		_film_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		native_layer.add_child(_film_frame)
+	var pad := 10.0
+	_film_frame.position = at - Vector2(pad, pad)
+	_film_frame.size = inner + Vector2(pad, pad) * 2.0
+	_film_frame.show()
+	_film_frame.move_to_front()
+	(legacy.get_parent() as CanvasLayer).layer = FILM_LAYER
+	legacy.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	legacy.position = at
+	legacy.size = inner
+	game.set_source_rect(rect)
+	legacy.show()
+	# The galaxy and its chrome stay round the window.
+	galaxy.show()
+	_frame_view.show()
+	for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
+		_view(chrome).show()
+
+
+func _end_film() -> void:
+	if _film_frame != null:
+		_film_frame.hide()
+	(legacy.get_parent() as CanvasLayer).layer = 1
+	game.set_source_rect(Rect2())
+	legacy.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if native_screen == Screens.MAIN:
+		legacy.hide()
+	elif native_screen == Screens.LEGACY and not _turn_over_galaxy:
+		# The galaxy stays a moment, as after a scene window: the game may come straight back.
+		legacy.hide()
+		_turn_over_galaxy = true
+		_turn_clearing = 0.0
 
 
 func _on_native_screen(screen: int) -> void:
@@ -286,6 +351,8 @@ func _on_native_screen(screen: int) -> void:
 		_frame_view.show()
 		for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
 			_view(chrome).show()
+	if _film_active:
+		_layout_film(game.get_source_rect()) # a film plays on: its window stays over the galaxy
 	var options := _view("options_menu")
 	options.keys_active = screen == Screens.MAIN
 	var game_menu := _view("game_menu")
@@ -3039,6 +3106,9 @@ func _smoke_native() -> void:
 		if arg.begins_with("--flash="):
 			await _smoke_flash(arg.substr(8))
 			return
+		if arg == "--film":
+			await _smoke_film(shots)
+			return
 		if arg.begins_with("--scene-flash="):
 			await _smoke_scene_flash(arg.substr(14))
 			return
@@ -4745,6 +4815,39 @@ func _query(what: String) -> Dictionary:
 		await get_tree().create_timer(0.05).timeout
 		waited += 0.05
 	return box.get("r", {})
+
+
+## WP3.11b: a film in its window (the amoeba's, from the popup preview): it opens over the galaxy
+## sized to the film, plays, and closes with the galaxy still up.
+func _smoke_film(shots: String) -> void:
+	var box := {}
+	_send({"verb": "preview_popup", "popup": "film"}, func(r: Dictionary): box["r"] = r)
+	var waited := 0.0
+	while not _film_active and waited < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if not _film_active:
+		await host.smoke_fail("no film window")
+		return
+	for i in 2:
+		await get_tree().create_timer(1.5).timeout
+		print("smoke: film %d: window %s, source %s, legacy %s at %s, layer %d, galaxy %s, bar %s" % [i, Rect2(_film_frame.position, _film_frame.size),
+			game.get_source_rect(), legacy.visible, Rect2(legacy.position, legacy.size), (legacy.get_parent() as CanvasLayer).layer, galaxy.visible, _view("galaxy_bar").visible])
+		if shots != "":
+			await host.shot(shots + "/native-film-%d.png" % i)
+	waited = 0.0
+	while _film_active and waited < 60.0:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	await get_tree().create_timer(1.5).timeout
+	print("smoke: film over %s after %.1f s: legacy %s (full screen %s, layer %d), galaxy %s, bar %s, answer %s" % [not _film_active, waited,
+		legacy.visible, legacy.size == get_viewport().get_visible_rect().size, (legacy.get_parent() as CanvasLayer).layer, galaxy.visible,
+		_view("galaxy_bar").visible, box.get("r", {})])
+	if _film_active or legacy.visible or not galaxy.visible:
+		await host.smoke_fail("the film window did not close back to the galaxy")
+		return
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
 
 
 ## The scene-close flicker (owner, 2026-11-19: "a full screen flicker" as the GNN window closes,

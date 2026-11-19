@@ -123,6 +123,9 @@ namespace godot {
         ADD_SIGNAL(MethodInfo("snapshot", PropertyInfo(Variant::STRING, "name"), PropertyInfo(Variant::DICTIONARY, "result")));
         ADD_SIGNAL(MethodInfo("resource_packs_changed"));
         ADD_SIGNAL(MethodInfo("turn_notice", PropertyInfo(Variant::STRING, "text")));
+        ADD_SIGNAL(MethodInfo("film", PropertyInfo(Variant::RECT2I, "rect")));
+        ClassDB::bind_method(D_METHOD("set_source_rect", "rect"), &AntaresGame::set_source_rect);
+        ClassDB::bind_method(D_METHOD("get_source_rect"), &AntaresGame::get_source_rect);
         ADD_SIGNAL(MethodInfo("sprite_ready", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::DICTIONARY, "sprite")));
     }
 
@@ -354,6 +357,10 @@ namespace godot {
         if (antares::native::Take_Turn_Notice(&notice)) {
             emit_signal("turn_notice", String::utf8(notice.c_str()));
         }
+        int32_t film[4];
+        if (antares::native::Take_Film(film)) {
+            emit_signal("film", Rect2i(film[0], film[1], film[2], film[3]));
+        }
         while (antares::native::Take_Snapshot(&json)) {
             const Variant parsed = JSON::parse_string(String::utf8(json.c_str()));
             const Dictionary snapshot = parsed.get_type() == Variant::DICTIONARY ? Dictionary(parsed) : Dictionary();
@@ -527,8 +534,43 @@ namespace godot {
         return true;
     }
 
+    void AntaresGame::set_source_rect(const Rect2& rect) {
+        source_rect_ = rect;
+        queue_redraw();
+    }
+
+    Rect2 AntaresGame::get_source_rect() const {
+        return source_rect_;
+    }
+
     void AntaresGame::_draw() {
         if (strip_current_.empty() || height_ <= 0) {
+            return;
+        }
+        if (source_rect_.has_area() && width_ > 0) {
+            // A part of the frame (a film's box, WP3.11b) filling this control, aspect kept.
+            const float kx = (float)width_ / 640.0f;
+            const float ky = (float)height_ / 480.0f;
+            const Rect2 src(source_rect_.position.x * kx, source_rect_.position.y * ky, source_rect_.size.x * kx, source_rect_.size.y * ky);
+            const Vector2 size = get_size();
+            const float scale = std::min(size.x / src.size.x, size.y / src.size.y);
+            const Vector2 offset = (size - src.size * scale) * 0.5f;
+            for (size_t i = 0; i < strip_current_.size(); ++i) {
+                const Ref<ImageTexture>& strip = strips_[strip_current_[i]][i];
+                if (strip.is_null()) {
+                    continue;
+                }
+                const float y0 = (float)((int32_t)i * k_strip_rows);
+                const float rows = (float)std::min(k_strip_rows, height_ - (int32_t)i * k_strip_rows);
+                const float top = std::max(y0, src.position.y);
+                const float bottom = std::min(y0 + rows, src.position.y + src.size.y);
+                if (bottom <= top) {
+                    continue;
+                }
+                const Rect2 region(src.position.x, top - y0, src.size.x, bottom - top);
+                const Rect2 dest(offset.x, offset.y + (top - src.position.y) * scale, src.size.x * scale, (bottom - top) * scale);
+                draw_texture_rect_region(strip, dest, region);
+            }
             return;
         }
         const Rect2 rect = Frame_Rect();

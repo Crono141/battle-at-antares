@@ -434,6 +434,35 @@ namespace antares::native {
         return s_stop_auto_turns.exchange(false);
     }
 
+    namespace {
+        int32_t s_film[4] = {0, 0, 0, 0}; // under s_mutex
+        bool s_film_changed = false;
+    } // namespace
+
+    void Set_Film(int32_t x, int32_t y, int32_t width, int32_t height) {
+        if (!Frontend()) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_film[0] = x;
+        s_film[1] = y;
+        s_film[2] = width;
+        s_film[3] = height;
+        s_film_changed = true;
+    }
+
+    bool Take_Film(int32_t rect[4]) {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_film_changed) {
+            return false;
+        }
+        s_film_changed = false;
+        for (int32_t i = 0; i < 4; ++i) {
+            rect[i] = s_film[i];
+        }
+        return true;
+    }
+
     void Set_Turn_Notice(const char* text) {
         if (!Frontend()) {
             return;

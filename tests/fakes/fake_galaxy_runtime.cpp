@@ -390,3 +390,7 @@ namespace MSG_ {
         }
     }
 } // namespace MSG_
+
+namespace ERIC {
+    void __cdecl Play_Amoeba_Flic() {} // popup_preview's "film" (WP3.11b)
+} // namespace ERIC

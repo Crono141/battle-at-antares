@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/native.h"
+
 namespace SMACK {
     s_mouse_list smack_mouse = {0, 0, 0, 0, 639, 479};
     MOX2::action_func_t smack_auto_function;
@@ -98,6 +100,9 @@ namespace SMACK {
         }
 
         total_frames = smckplay::Get_Smacker_Animation_Total_Frames();
+        if (use_fade == 0) {
+            antares::native::Set_Film(SMACK::smack_x, SMACK::smack_y, animation_width, animation_height); // Antares (WP3.11b)
+        }
 
         do {
             if (key::Keyboard_Status() == 1) {
@@ -134,6 +139,7 @@ namespace SMACK {
 
         smckplay::Close_Smacker_Animation();
         if (use_fade == 0) {
+            antares::native::Set_Film(0, 0, 0, 0); // Antares (WP3.11b): the film's window closes
             // Palette-only fades reuse the published pixels. Replace the movie
             // frame with its saved background now that the game palette is back.
             video::Copy_Back_To_Off();

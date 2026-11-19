@@ -89,6 +89,12 @@ namespace antares::native {
     // than the turn's (a combat, the turn summary).
     void Set_Turn_Notice(const char* text);
     bool Take_Turn_Notice(std::string* text);
+    // A film that plays in a box over the screen (SMACK::Play_Cinematic without its fade: the
+    // dimensional portal, planet destruction, Orion taken, the Antarans' attack, the amoeba; WP3.11b,
+    // owner 2026-11-19): its 1x rectangle while it plays, an empty one when it ends. The frontend
+    // shows that part of the game's frames in a window sized to the film, over the native galaxy.
+    void Set_Film(int32_t x, int32_t y, int32_t width, int32_t height);
+    bool Take_Film(int32_t rect[4]);
     // The frontend's click on those turns: they stop at the next turn's input check, as a click
     // or Esc on the legacy galaxy stops them (MAINSCR's auto mode). Taken once (game thread).
     void Stop_Auto_Turns();

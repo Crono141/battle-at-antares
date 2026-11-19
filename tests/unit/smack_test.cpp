@@ -202,3 +202,9 @@ DOCTEST_TEST_CASE("cinematic cleanup leaves published pixels compatible with the
         }
     }
 }
+
+// Antares (WP3.11b): no frontend in this test; the film window is not shown.
+namespace antares::native {
+    void Set_Film(int32_t, int32_t, int32_t, int32_t) {
+    }
+} // namespace antares::native
