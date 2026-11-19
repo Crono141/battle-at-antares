@@ -2872,7 +2872,11 @@ func _show_system_result(star_id: int, result: Dictionary, fly: bool) -> void:
 	# picked from the to-do list opened its system under the old colony's panes); the build
 	# list keeps its changes, as a click away does.
 	var colony_pane := _view("colony_pane")
-	if _panel_star != star_id and colony_pane.visible:
+	var colony_here := false # the open colony is in this system (a to-do build item opens it first)
+	for planet: Dictionary in result.get("planets", []):
+		if int(planet.get("colony", {}).get("id", -1)) == int(colony_pane.colony_id):
+			colony_here = true
+	if _panel_star != star_id and colony_pane.visible and not colony_here:
 		_panel_star = -1 # its closing doesn't re-frame the old system
 		colony_pane.close()
 	_panel_star = star_id
@@ -2885,6 +2889,8 @@ func _show_system_result(star_id: int, result: Dictionary, fly: bool) -> void:
 	_send({"verb": "watch", "what": "system", "star": star_id}) # its planets move each turn
 	pane.race_id = _race_id
 	pane.show_system(result, String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")"), star_id)
+	if int(colony_pane.colony_id) >= 0:
+		pane.mark_colony(int(colony_pane.colony_id))
 
 
 ## Flies to a system with its orbits filling a share of the area the left panes leave free (the
@@ -5076,6 +5082,13 @@ func _smoke_queue_drag(shots: String) -> void:
 		if not item.get("separator", false):
 			build._add(int(item.id))
 	await get_tree().create_timer(0.5).timeout
+	var system_pane := _view("system_pane")
+	var marked: int = system_pane.selected_planet
+	var colony_planet := int((await _query_args({"what": "colony", "colony": colony})).get("planet", -2))
+	print("smoke: colony opened from outside: system pane marks planet %d (the colony's %d)" % [marked, colony_planet])
+	if marked != colony_planet:
+		await host.smoke_fail("the open colony's planet is not marked in the system pane")
+		return
 	var before: Array = build._queue.map(func(q: Dictionary) -> int: return int(q.id))
 	var rows: Array = build.queue_box.get_children()
 	var factor := get_window().content_scale_factor

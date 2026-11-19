@@ -116,6 +116,7 @@ func _set_occupation(annihilate: bool) -> void:
 
 func _ready() -> void:
 	_make_occupation()
+	preload("../themes.gd").see_through(self)
 	$Scroll/Box/Header/Close.pressed.connect(close)
 	$Scroll/Box/Transport.pressed.connect(_open_original)
 	$Scroll/Box/View.pressed.connect(_open_landscape)

@@ -104,6 +104,21 @@ static func save_ui_scale(percent: float) -> void:
 	cfg.save(SETTINGS)
 
 
+## A pane the system shows through (owner, 2026-11-19: with the build list open the system behind
+## should still show): its own background and every framed part inside it, now and added later, at
+## `pane_alpha` and `frame_alpha`; text, pictures and buttons stay solid (self_modulate only).
+static func see_through(pane: Control, pane_alpha := 0.62, frame_alpha := 0.55) -> void:
+	pane.self_modulate.a = pane_alpha
+	var fade := func(node: Node) -> void:
+		if node is PanelContainer and node != pane:
+			(node as Control).self_modulate.a = frame_alpha
+	for node in pane.find_children("*", "PanelContainer", true, false):
+		fade.call(node)
+	pane.get_tree().node_added.connect(func(node: Node) -> void:
+		if is_instance_valid(pane) and pane.is_ancestor_of(node):
+			fade.call(node))
+
+
 ## A layout setting of the player's (a split, a width), or `default` when none is saved.
 static func saved_value(section: String, key: String, default: Variant) -> Variant:
 	var cfg := ConfigFile.new()

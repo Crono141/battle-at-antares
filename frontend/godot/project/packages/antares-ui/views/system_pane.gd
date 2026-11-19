@@ -291,7 +291,13 @@ func _glowing(row: Control, planet_id: int) -> Control:
 	var style := StyleBoxFlat.new()
 	style.draw_center = false
 	style.bg_color = Color(0, 0, 0, 0)
-	style.shadow_color = Color(get_theme_color("font_pressed_color", "Button"), 0.7)
+	# The themes' amber: a list item's pressed colour where a theme sets one (Glass and Chrome
+	# leave the button's pale, owner 2026-11-19: no highlight on Glass), else the button's.
+	var glow := get_theme_color("font_pressed_color", "ListItem") if has_theme_color("font_pressed_color", "ListItem") \
+		else get_theme_color("font_pressed_color", "Button")
+	style.shadow_color = Color(glow, 0.7)
+	style.border_color = Color(glow, 0.8) # and a thin ring, for themes whose rows are see-through
+	style.set_border_width_all(1)
 	style.shadow_size = 11
 	style.set_corner_radius_all(6) # (the list has a margin all round, so the glow isn't clipped)
 	wrapper.add_theme_stylebox_override("panel", style)
@@ -333,6 +339,20 @@ func planet_row_rect(planet_id: int) -> Rect2:
 
 
 ## The colony id of a planet that is one of the player's colonies (not an outpost), or -1.
+## The open colony's planet, selected and glowing without opening anything (owner, 2026-11-19: a
+## colony opened from the to-do list or a landing left its row unmarked).
+func mark_colony(colony_id: int) -> void:
+	for planet: Dictionary in system.get("planets", []):
+		var colony: Dictionary = planet.get("colony", {})
+		if colony.has("id") and int(colony.id) == colony_id:
+			if selected_planet != int(planet.planet):
+				selected_planet = int(planet.planet)
+				_expanded[selected_planet] = true
+				_ask_potential(selected_planet)
+				_show_planets()
+			return
+
+
 func _player_colony(planet_id: int) -> int:
 	for planet: Dictionary in system.get("planets", []):
 		if int(planet.planet) == planet_id:

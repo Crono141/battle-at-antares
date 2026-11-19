@@ -58,6 +58,7 @@ var _refitting := {} # ship -> true: refits added in this pane
 
 func _ready() -> void:
 	_add_splitter()
+	preload("../themes.gd").see_through(self)
 	$Box/Header/Close.pressed.connect(cancel)
 	$Box/Buttons/Cancel.pressed.connect(cancel)
 	$Box/Buttons/Ok.pressed.connect(_ok)
