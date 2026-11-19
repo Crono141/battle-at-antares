@@ -22,16 +22,16 @@ const PLANET_SIZE_COUNT := 5
 const GAS_GIANT_ICON := 0x3E
 const ASTEROIDS_ICON := 0x3F
 
-@onready var fleets_row: HBoxContainer = $Box/Fleets
+@onready var fleets_row: HFlowContainer = $Box/Scroll/Margin/Content/Fleets
 @onready var star_name: Label = $Box/Header/Names/Name
 @onready var star_title: Label = $Box/Header/Names/Title
-@onready var governor: PanelContainer = $Box/Governor
-@onready var portrait: TextureRect = $Box/Governor/Row/Frame/Portrait
-@onready var governor_name: Label = $Box/Governor/Row/Names/Name
-@onready var governor_title: Label = $Box/Governor/Row/Names/Title
-@onready var governor_skills: VBoxContainer = $Box/Governor/Row/Names/Skills
-@onready var planets_box: VBoxContainer = $Box/Scroll/Margin/Planets
-@onready var description: Label = $Box/Description
+@onready var governor: PanelContainer = $Box/Scroll/Margin/Content/Governor
+@onready var portrait: TextureRect = $Box/Scroll/Margin/Content/Governor/Row/Frame/Portrait
+@onready var governor_name: Label = $Box/Scroll/Margin/Content/Governor/Row/Names/Name
+@onready var governor_title: Label = $Box/Scroll/Margin/Content/Governor/Row/Names/Title
+@onready var governor_skills: VBoxContainer = $Box/Scroll/Margin/Content/Governor/Row/Names/Skills
+@onready var planets_box: VBoxContainer = $Box/Scroll/Margin/Content/Planets
+@onready var description: Label = $Box/Scroll/Margin/Content/Description
 
 var art: Node:
 	set(value):

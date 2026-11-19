@@ -3264,6 +3264,24 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--pane-heights":
+			# Every star's system pane: none may be taller than the screen (owner, 2026-11-19, Glass).
+			var pane := _view("system_pane")
+			var limit := get_viewport().get_visible_rect().size.y
+			var worst := 0.0
+			for star in galaxy.stars.size():
+				_open_system(star, false)
+				await get_tree().create_timer(0.35).timeout
+				var h: float = pane.get_combined_minimum_size().y
+				worst = maxf(worst, h)
+				if h > limit - 56.0 or pane.position.y < 0.0:
+					print("smoke: pane too tall at star %d (%s): min %.0f, at y %.0f, size %.0f, view %s, fleets %d" % [star,
+						galaxy.stars[star].get("label", ""), h, pane.position.y, pane.size.y, pane.system.get("view", "?"), pane.system.get("fleets", []).size()])
+					for child: Control in pane.get_node("Box").get_children():
+						print("smoke:   %s min %.0f visible %s" % [child.name, child.get_combined_minimum_size().y, child.visible])
+			print("smoke: pane heights: tallest %.0f of %.0f" % [worst, limit])
+			game.request_game_quit()
+			return
 		if arg == "--government-help":
 			var home := -1
 			for c in 64:
