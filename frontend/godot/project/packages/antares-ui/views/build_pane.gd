@@ -586,6 +586,10 @@ func _show_detail(item: Dictionary) -> void:
 ## An item's picture: a game sprite {lbx, entry}, or the interface's own {icon} (trade goods).
 func _picture(pic: Dictionary, min_size: Vector2) -> TextureRect:
 	var rect := _sprite(String(pic.get("lbx", "")), int(pic.get("entry", -1)), min_size)
+	# Ships at the game's scale in their frame: a Frigate small, a Titan large (owner, 2026-11-19:
+	# every hull was stretched to the box, as the design panel was before 2026-11-15).
+	if String(pic.get("lbx", "")).begins_with("SHIPS.LBX"):
+		rect.set("whole_frame", true)
 	if pic.has("icon"):
 		rect.texture = Themes.icon(String(pic.icon), int(min_size.y * 0.6))
 	return rect

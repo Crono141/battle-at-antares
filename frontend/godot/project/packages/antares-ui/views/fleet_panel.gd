@@ -247,7 +247,23 @@ func _refresh_icons() -> void:
 		if button:
 			# A monster's picture under its own palette ("SHIPS.LBX@<palette entry>").
 			var lbx := "SHIPS.LBX@%d" % int(ship.palette) if ship.has("palette") else "SHIPS.LBX"
-			button.icon = art.texture(lbx, int(ship.picture))
+			# The whole ship frame at one scale, so a Frigate is small and a Titan large (owner,
+			# 2026-11-19: the cropped picture as the icon stretched every hull to the button).
+			var picture = button.get_node_or_null("Picture")
+			if picture == null:
+				picture = preload("sprite_rect.gd").new()
+				picture.name = "Picture"
+				picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+				picture.offset_left = 4
+				picture.offset_top = 4
+				picture.offset_right = -4
+				picture.offset_bottom = -4
+				picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				picture.whole_frame = true
+				picture.bind(art)
+				button.add_child(picture)
+			if picture.lbx != lbx or picture.entry != int(ship.picture):
+				picture.show_sprite(lbx, int(ship.picture))
 
 
 func _owner_color() -> Color:
