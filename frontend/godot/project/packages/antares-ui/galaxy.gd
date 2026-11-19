@@ -402,8 +402,9 @@ func show_system(star_id: int, result: Dictionary) -> void:
 	if fresh:
 		selected_planet = -1
 		create_tween().tween_property(self, "others_alpha", OTHERS_IN_SYSTEM, maxf(flight_time, 0.3))
+		# The system's own fleets stay by its star, clickable as on the map (owner, 2026-11-19,
+		# reversing 2026-11-13's fade: more intuitive than the pane's list, which keeps them too).
 		system_fleets_alpha = 1.0
-		create_tween().tween_property(self, "system_fleets_alpha", 0.0, maxf(flight_time, 0.3))
 		$Orbits.modulate.a = 0.0
 		create_tween().tween_property($Orbits, "modulate:a", 1.0, maxf(flight_time, 0.3)).set_delay(flight_time * 0.5)
 	$Orbits.queue_redraw()

@@ -1371,7 +1371,9 @@ func _end_turn_notice() -> void:
 		_turn_over_galaxy = false
 		# Not under a question over the galaxy (owner, 2026-11-14: a GNN that came during the
 		# hand-back lost the bar and tabs until its first page was clicked); its answer hands back.
-		if native_screen == Screens.LEGACY and not _question_over_galaxy:
+		# Nor under a film's window (owner, 2026-11-19: the Antarans' attack film, from the turn's
+		# reports, took the bar, tabs and frame away when the hand-back ran out); its end hands back.
+		if native_screen == Screens.LEGACY and not _question_over_galaxy and not _film_active:
 			_frame_view.hide()
 			for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
 				_view(chrome).hide()
@@ -3200,6 +3202,24 @@ func _smoke_native() -> void:
 			return
 		if arg == "--film":
 			await _smoke_film(shots)
+			return
+		if arg == "--system-fleet":
+			var star_with_fleet := -1
+			for fleet: Dictionary in galaxy.fleets:
+				if int(fleet.get("star", -1)) >= 0 and bool(fleet.get("mine", false)):
+					star_with_fleet = int(fleet.star)
+					break
+			if star_with_fleet < 0:
+				for fleet: Dictionary in galaxy.fleets:
+					if int(fleet.get("star", -1)) >= 0:
+						star_with_fleet = int(fleet.star)
+						break
+			_open_system(star_with_fleet)
+			await get_tree().create_timer(3.0).timeout
+			print("smoke: system fleet: star %d, fleets drawn at alpha %.2f" % [star_with_fleet, galaxy.system_fleets_alpha])
+			if shots != "":
+				await host.shot(shots + "/native-system-fleet.png")
+			game.request_game_quit()
 			return
 		if arg == "--queue-drag":
 			await _smoke_queue_drag(shots)

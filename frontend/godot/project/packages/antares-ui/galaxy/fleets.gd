@@ -64,7 +64,7 @@ func _draw() -> void:
 		var fleet: Dictionary = galaxy.fleets[i]
 		var rect: Rect2 = placed[i]
 		var scale := rect.size.x / _art_width(fleet)
-		# In an open system its own fleets fade out: the system pane lists them (owner, 2026-11-13).
+		# (An open system's own fleets stay, owner 2026-11-19; fleet_alpha is 1 for them now.)
 		var alpha: float = galaxy.fleet_alpha(fleet)
 		if alpha <= 0.01:
 			continue
