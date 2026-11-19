@@ -2868,6 +2868,13 @@ func _show_system_result(star_id: int, result: Dictionary, fly: bool) -> void:
 	if fleet_panel.visible:
 		_fleet_from_system = -1
 		fleet_panel.close()
+	# Another system's colony and build list close first (owner, 2026-11-19: a scouts' arrival
+	# picked from the to-do list opened its system under the old colony's panes); the build
+	# list keeps its changes, as a click away does.
+	var colony_pane := _view("colony_pane")
+	if _panel_star != star_id and colony_pane.visible:
+		_panel_star = -1 # its closing doesn't re-frame the old system
+		colony_pane.close()
 	_panel_star = star_id
 	galaxy.selected = star_id
 	var pane := _view("system_pane")
@@ -3219,6 +3226,36 @@ func _smoke_native() -> void:
 			print("smoke: system fleet: star %d, fleets drawn at alpha %.2f" % [star_with_fleet, galaxy.system_fleets_alpha])
 			if shots != "":
 				await host.shot(shots + "/native-system-fleet.png")
+			game.request_game_quit()
+			return
+		if arg == "--todo-other-system":
+			# A to-do item about another system (a scouts' arrival) while a colony is open there.
+			var first := -1
+			var first_colony := -1
+			for c in 64:
+				var data: Dictionary = await _query_args({"what": "colony", "colony": c})
+				if data.get("ok", false) and not data.get("outpost", false):
+					first = int(data.star)
+					first_colony = c
+					break
+			_open_colony_at(first, first_colony, true)
+			await get_tree().create_timer(2.5).timeout
+			var other := -1
+			for fleet: Dictionary in galaxy.fleets:
+				if int(fleet.get("star", -1)) >= 0 and int(fleet.star) != first:
+					other = int(fleet.star)
+					break
+			_on_todo_item({"kind": "news", "star": other, "item": -1})
+			await get_tree().create_timer(2.5).timeout
+			var pane := _view("system_pane")
+			print("smoke: to-do to another system: %d -> %d; system pane %s on %d, map system %d, others %.2f, colony pane %s, build pane %s" % [
+				first, other, pane.visible, int(pane.star), galaxy.system_star, galaxy.others_alpha,
+				_view("colony_pane").visible, _view("build_pane").visible])
+			if shots != "":
+				await host.shot(shots + "/native-todo-other-system.png")
+			if not pane.visible or int(pane.star) != other or galaxy.system_star != other or _view("colony_pane").visible or _view("build_pane").visible:
+				await host.smoke_fail("the to-do item's system did not replace the open one")
+				return
 			game.request_game_quit()
 			return
 		if arg == "--government-help":
