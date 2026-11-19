@@ -104,6 +104,21 @@ static func save_ui_scale(percent: float) -> void:
 	cfg.save(SETTINGS)
 
 
+## A layout setting of the player's (a split, a width), or `default` when none is saved.
+static func saved_value(section: String, key: String, default: Variant) -> Variant:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS) != OK:
+		return default
+	return cfg.get_value(section, key, default)
+
+
+static func save_value(section: String, key: String, value: Variant) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS)
+	cfg.set_value(section, key, value)
+	cfg.save(SETTINGS)
+
+
 static func save_choice(id: String) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(SETTINGS)

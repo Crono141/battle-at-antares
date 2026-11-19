@@ -57,6 +57,7 @@ var _refitting := {} # ship -> true: refits added in this pane
 
 
 func _ready() -> void:
+	_add_splitter()
 	$Box/Header/Close.pressed.connect(cancel)
 	$Box/Buttons/Cancel.pressed.connect(cancel)
 	$Box/Buttons/Ok.pressed.connect(_ok)
@@ -294,6 +295,8 @@ func _show_items() -> void:
 	units_title.visible = not refit
 	units_scroll.visible = not refit
 	$Box/Columns/Right/Lists/UnitsFrame.visible = not refit # its own frame (owner, 2026-11-19)
+	if _splitter:
+		_splitter.visible = not refit
 	items_title.text = "REFIT" if refit else "BUILDINGS"
 	if refit:
 		_show_refit_ships()
@@ -712,6 +715,66 @@ func _finish_drag(at: Vector2) -> void:
 				_refit(ship, targets[0], gap)
 			else:
 				_open_refit_popup(ship, queue_box, gap)
+
+
+# ---- The partition between Units and Buildings (owner, 2026-11-19): drag it to share the column
+# as you like; kept in the interface settings. ----
+
+const SPLIT_MIN := 0.15
+var _splitter: Control
+var _splitting := false
+
+
+func _add_splitter() -> void:
+	var units_frame: Control = $Box/Columns/Right/Lists/UnitsFrame
+	lists.add_theme_constant_override("separation", 0)
+	_splitter = Control.new()
+	_splitter.name = "Splitter"
+	_splitter.custom_minimum_size.y = 12.0
+	_splitter.mouse_filter = Control.MOUSE_FILTER_STOP
+	_splitter.mouse_default_cursor_shape = Control.CURSOR_VSPLIT
+	_splitter.tooltip_text = "Drag to share the room between units and buildings"
+	_splitter.draw.connect(func():
+		# A short grip in the middle, brighter while hovered or dragged.
+		var hot := _splitting or _splitter.get_global_rect().has_point(_splitter.get_global_mouse_position())
+		var color := get_theme_color("font_color", "Label")
+		color.a = 0.75 if hot else 0.35
+		var mid := _splitter.size * 0.5
+		for dy in [-2.0, 2.0]:
+			_splitter.draw_line(Vector2(mid.x - 18.0, mid.y + dy), Vector2(mid.x + 18.0, mid.y + dy), color, 1.5, true))
+	_splitter.mouse_entered.connect(_splitter.queue_redraw)
+	_splitter.mouse_exited.connect(_splitter.queue_redraw)
+	_splitter.gui_input.connect(_on_splitter_input)
+	lists.add_child(_splitter)
+	lists.move_child(_splitter, units_frame.get_index() + 1)
+	_set_split(float(preload("../themes.gd").saved_value("build_pane", "units_share", 0.5)))
+
+
+func _set_split(share: float) -> void:
+	share = clampf(share, SPLIT_MIN, 1.0 - SPLIT_MIN)
+	($Box/Columns/Right/Lists/UnitsFrame as Control).size_flags_stretch_ratio = share
+	($Box/Columns/Right/Lists/ItemsFrame as Control).size_flags_stretch_ratio = 1.0 - share
+
+
+func _on_splitter_input(event: InputEvent) -> void:
+	var button := event as InputEventMouseButton
+	if button and button.button_index == MOUSE_BUTTON_LEFT:
+		_splitting = button.pressed
+		if not _splitting:
+			preload("../themes.gd").save_value("build_pane", "units_share",
+				($Box/Columns/Right/Lists/UnitsFrame as Control).size_flags_stretch_ratio)
+		_splitter.queue_redraw()
+		_splitter.accept_event()
+		return
+	var motion := event as InputEventMouseMotion
+	if motion and _splitting:
+		# The share of the column above the pointer (the grip's own height left out).
+		var room := lists.size.y - _splitter.size.y
+		if room > 0.0:
+			# The event's position is the grip's own; the grip sits in the column.
+			var y := _splitter.position.y + motion.position.y - _splitter.size.y * 0.5
+			_set_split(y / room)
+		_splitter.accept_event()
 
 
 ## The detail box: picture, name, cost here, build time, upkeep; a design's parts.

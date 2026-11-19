@@ -5087,6 +5087,37 @@ func _smoke_queue_drag(shots: String) -> void:
 	await get_tree().create_timer(0.4).timeout
 	var unchanged: bool = build._queue.map(func(q: Dictionary) -> int: return int(q.id)) == again
 	print("smoke: queue drag let go outside: unchanged %s, ghost gone %s" % [unchanged, build._ghost == null])
+	# The partition between Units and Buildings: dragged down, the units get more room.
+	var themes_script := preload("themes.gd")
+	var saved_share = themes_script.saved_value("build_pane", "units_share", null)
+	var units_frame: Control = build.get_node("Box/Columns/Right/Lists/UnitsFrame")
+	var units_before := units_frame.size.y
+	var grip: Vector2 = build._splitter.get_global_rect().get_center()
+	var below := grip + Vector2(0.0, 120.0)
+	_smoke_mouse(true, grip * factor)
+	await get_tree().process_frame
+	for step in 8:
+		var motion := InputEventMouseMotion.new()
+		motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+		motion.position = grip.lerp(below, (step + 1) / 8.0) * factor
+		Input.parse_input_event(motion)
+		await get_tree().process_frame
+	_smoke_mouse(false, below * factor)
+	await get_tree().create_timer(0.3).timeout
+	var units_after := units_frame.size.y
+	print("smoke: build lists partition: units %.0f -> %.0f px" % [units_before, units_after])
+	if shots != "":
+		await host.shot(shots + "/native-build-partition.png")
+	if saved_share == null:
+		var cfg := ConfigFile.new()
+		if cfg.load(themes_script.SETTINGS) == OK and cfg.has_section_key("build_pane", "units_share"):
+			cfg.erase_section_key("build_pane", "units_share")
+			cfg.save(themes_script.SETTINGS)
+	else:
+		themes_script.save_value("build_pane", "units_share", saved_share)
+	if units_after < units_before + 60.0:
+		await host.smoke_fail("the partition between units and buildings did not move")
+		return
 	if not ghost_on or gap != 0 or spacer_h < build.ROW_HEIGHT * 0.5 or not moved_ok or not unchanged or build._ghost != null:
 		await host.smoke_fail("the build list drag did not lift, open its gap, or land")
 		return
