@@ -1000,7 +1000,8 @@ const VIEW_HELP := {
 		"Row/Freighters": 291, "Row/Research": 292, "Row/Turn": 296},
 	"side_tabs": {"Colonies": 293, "Planets": 294, "Fleets": 295, "Leaders": 297, "Races": 298, "Info": 299,
 		"ShipDesign": 509}, # the build screen's Design button's help (owner)
-	"build_pane": {"Box/Header/Buildings": 501, "Box/Header/Units": 504, "Box/Header/Refit": 508,
+	"build_pane": {"Box/Columns/Right/Lists/UnitsTitle": 504, "Box/Columns/Right/Lists/UnitsScroll": 504,
+		"Box/Columns/Right/Lists/ItemsTitle": 501, "Box/Header/Refit": 508,
 		"Box/Columns/Left/Detail": 505, "Box/Columns/Left/Queue": 506, "Box/Columns/Left/Toggles/Auto": 507,
 		"Box/Columns/Left/Toggles/Repeat": 510, "Box/Buttons/Ok": 511, "Box/Buttons/Cancel": 537},
 }
@@ -1012,11 +1013,11 @@ func _attach_view_help(scene_name: String, view: Control) -> void:
 		if control:
 			attach_help(control, int(VIEW_HELP[scene_name][path]))
 	if scene_name == "build_pane":
-		# The list: buildings or units, as the tab shows.
-		var list := view.get_node_or_null("Box/Columns/Right") as Control
+		# The lower list: buildings, or the warships in orbit while REFIT is on.
+		var list := view.get_node_or_null("Box/Columns/Right/Lists/Scroll") as Control
 		if list:
 			attach_help(list, func() -> int:
-				return 508 if view.tabs_refit.button_pressed else (501 if view.tabs_buildings.button_pressed else 504))
+				return 508 if view.tabs_refit.button_pressed else 501)
 
 
 ## A right click on `control` shows help record `topic` (or what a Callable returns) beside it.
@@ -3722,7 +3723,6 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 			await get_tree().create_timer(0.1).timeout
 			waited += 0.1
 		await get_tree().create_timer(0.6).timeout
-		build.tabs_units.button_pressed = true
 		build._add(design)
 		build._ok()
 		waited = 0.0
