@@ -3166,7 +3166,7 @@ func _place_fleet_panel(fleet_panel: Control, world: Vector2) -> void:
 	# Beside the fleet (owner, 2026-11-19: it opened at the far edge of the screen): to its right,
 	# or to its left where there is no room, clear of the side tabs.
 	var right_edge := view.x - 60.0
-	var gap := 36.0
+	var gap := view.x * 0.2 # a fifth of the screen away (owner, 2026-11-19: right beside it was too close)
 	var x := at.x + gap
 	if x + fleet_panel.size.x > right_edge:
 		x = at.x - gap - fleet_panel.size.x
