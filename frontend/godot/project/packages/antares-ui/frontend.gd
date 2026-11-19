@@ -3017,8 +3017,10 @@ func _place_build_pane() -> void:
 			if (b as Control).is_visible_in_tree():
 				right = minf(right, (b as Control).get_global_rect().position.x - gap)
 	# Where the colony pane rests when open, not where it is now (owner, 2026-11-19: opened while
-	# the colony pane was still sliding in, as after a landing, the build list sat over it).
-	var colony_end := float(colony_pane._shown_left) + float(colony_pane.WIDTH)
+	# the colony pane was still sliding in, as after a landing, the build list sat over it), at
+	# its real width: it grows past WIDTH to fit its rows (the nominal width put the build list
+	# over it on the owner's screen). Sliding moves it, it doesn't resize it.
+	var colony_end := float(colony_pane._shown_left) + maxf(colony_pane.size.x, float(colony_pane.WIDTH))
 	pane.place_at(colony_end + gap, right)
 
 
@@ -3860,6 +3862,13 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 		build.options.units.size(), build.options.queue.map(func(q: Dictionary) -> String: return q.name), build.options.auto, pick])
 	if pick < 0 or build.options.units.is_empty():
 		await host.smoke_fail("the build pane offered nothing")
+		return false
+	# Beside the colony pane at its real width (owner, 2026-11-19: the build list sat over it).
+	var cp_right: float = _view("colony_pane").get_global_rect().end.x
+	var bp_left: float = build.get_global_rect().position.x
+	print("smoke: build pane starts at %.0f, colony pane ends at %.0f (width %.0f)" % [bp_left, cp_right, _view("colony_pane").size.x])
+	if bp_left < cp_right:
+		await host.smoke_fail("the build list overlaps the colony pane")
 		return false
 	build._add(pick)
 	build._show_detail(build._names.get(pick, {}))
