@@ -2875,9 +2875,6 @@ func _show_system_result(star_id: int, result: Dictionary, fly: bool) -> void:
 	galaxy.redraw()
 	_send({"verb": "watch", "what": "system", "star": star_id}) # its planets move each turn
 	pane.race_id = _race_id
-	pane.move_to_front()
-	_raise_chrome()
-	pane.show()
 	pane.show_system(result, String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")"), star_id)
 
 
@@ -4936,6 +4933,21 @@ func _smoke_settle(shots: String) -> void:
 			break
 	if target_star < 0:
 		await host.smoke_fail("no planet with COLONIZE in this save")
+		return
+	# A system pane closed and another opened comes back on screen (owner, 2026-11-19: after the
+	# first, uncolonised systems showed no pane).
+	var other: int = (target_star + 1) % galaxy.stars.size()
+	_open_system(other)
+	await get_tree().create_timer(1.5).timeout
+	_view("system_pane").close()
+	await get_tree().create_timer(1.0).timeout
+	_open_system(target_star)
+	await get_tree().create_timer(1.5).timeout
+	var sp_rect: Rect2 = _view("system_pane").get_global_rect()
+	var on_screen := sp_rect.intersects(get_viewport().get_visible_rect())
+	print("smoke: settle: the reopened system pane on screen %s at %s" % [on_screen, sp_rect])
+	if not on_screen:
+		await host.smoke_fail("the system pane reopened off screen")
 		return
 	_open_system(target_star)
 	await get_tree().create_timer(2.0).timeout
