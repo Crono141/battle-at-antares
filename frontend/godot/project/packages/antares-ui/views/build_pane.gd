@@ -200,6 +200,7 @@ func _add(id: int, gap := -1) -> void:
 	_edits.append({"add": id, "repeat": repeat})
 	_place_last(gap)
 	_show_queue()
+	_show_items() # a building queued leaves the list
 
 
 ## A refit (REFIT's popup chose a design): the game queues the ship, at the end.
@@ -238,9 +239,9 @@ func _delete(slot: int) -> void:
 		_queue.remove_at(slot)
 	if id <= -100 and _refitting.has(-100 - id):
 		_refitting.erase(-100 - id) # the commit puts the ship back as it was
-		_show_items()
 	_edits.append({"delete": slot})
 	_show_queue()
+	_show_items() # a building taken off the list can be chosen again
 
 
 ## Moves the item at `from` ahead of the item at `to`, its repeat with it (as the popup's
@@ -302,8 +303,17 @@ func _show_items() -> void:
 	_fill(items_box, options.buildings)
 
 
+func _queued(id: int) -> bool:
+	return _queue.any(func(q: Dictionary) -> bool: return int(q.id) == id)
+
+
 func _fill(box: VBoxContainer, list: Array) -> void:
 	for item: Dictionary in list:
+		# A building in the build list is built once: it leaves the list (owner, 2026-11-19: it
+		# could be queued again and again). Housing and trade goods can repeat.
+		if box == items_box and not item.get("separator", false) and int(item.id) != HOUSING and \
+				int(item.id) != TRADE_GOODS and _queued(int(item.id)):
+			continue
 		if item.get("separator", false):
 			var gap := Control.new()
 			gap.custom_minimum_size.y = 8

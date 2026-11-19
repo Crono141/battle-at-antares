@@ -3897,6 +3897,22 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 		waited += 0.1
 	await get_tree().create_timer(0.6).timeout
 	build._add(pick)
+	# A building queued leaves the BUILDINGS list; taken off the queue it comes back (owner,
+	# 2026-11-19: the same building could be queued again and again).
+	var listed := func() -> bool:
+		for b in build.items_box.get_children():
+			if b is Button and (b as Button).text == String(build._names.get(pick, {}).get("name", "")):
+				return true
+		return false
+	var hidden_after_add: bool = pick in [build.HOUSING, build.TRADE_GOODS] or not listed.call()
+	var queued_slot: int = build._queue.size() - 1
+	build._delete(queued_slot)
+	var back_after_delete: bool = listed.call()
+	print("smoke: build list: building %d hidden once queued %s, back once removed %s" % [pick, hidden_after_add, back_after_delete])
+	if not hidden_after_add or not back_after_delete:
+		await host.smoke_fail("a queued building stayed in the BUILDINGS list, or did not come back")
+		return false
+	build._add(pick)
 	build._ok()
 	waited = 0.0
 	while build.visible and waited < 5.0:
