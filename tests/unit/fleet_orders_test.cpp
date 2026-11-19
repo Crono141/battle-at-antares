@@ -20,6 +20,7 @@ namespace TEST_FLEET {
     extern std::vector<int16_t> tried;
     extern std::vector<int16_t> applied;
     extern int16_t applied_star;
+    extern bool found_colony;
     extern bool colonize_flag;
     extern bool outpost_flag;
     extern bool troops_flag;
@@ -145,6 +146,7 @@ namespace {
         TEST_FLEET::engage_flag = TEST_FLEET::antares_flag = false;
         TEST_FLEET::flag_stack = -1;
         TEST_FLEET::colonies.clear();
+        TEST_FLEET::found_colony = true;
         TEST_FLEET::outposts.clear();
         TEST_FLEET::pooled.clear();
         TEST_FLEET::deployed.clear();
@@ -233,6 +235,13 @@ DOCTEST_TEST_CASE("colonize uses the fleet's first colony ship and returns its o
     g_leaders_[7].type = LEADER_TYPE_SHIP;
     g_leaders_[7].location = 1;
     g_leaders_[7].status = 1;
+    // No colony slot this turn (a loaded save before its first turn): refused, the ship kept.
+    TEST_FLEET::found_colony = false;
+    DOCTEST_CHECK(Contains_(Run_(R"({"verb":"colonize","fleet":2,"planet":0})"), "refused"));
+    DOCTEST_CHECK(g_ships_[1].status != 5);
+    DOCTEST_CHECK(TEST_FLEET::pooled.empty());
+    TEST_FLEET::found_colony = true;
+    TEST_FLEET::colonies.clear();
     const std::string result = Run_(R"({"verb":"colonize","fleet":2,"planet":0})");
     DOCTEST_CHECK(Contains_(result, R"("done":true)"));
     DOCTEST_CHECK(Contains_(result, R"("ship":1)"));

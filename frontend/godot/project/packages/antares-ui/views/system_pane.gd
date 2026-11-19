@@ -510,9 +510,36 @@ func _planet_row(planet: Dictionary) -> Control:
 		var arrow := _label("▾" if _expanded.has(id) else "▸", 14)
 		arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		right.add_child(arrow)
+	if planet.has("colonize_fleet") or planet.has("outpost_fleet"):
+		# A colony or outpost ship of the player's in orbit can settle it (owner, 2026-11-19: no way
+		# to settle from the system view): COLONIZE asks the game's question, then the landing.
+		var settle := HBoxContainer.new()
+		settle.add_theme_constant_override("separation", 6)
+		for order: String in ["colonize", "outpost"]:
+			if not planet.has(order + "_fleet"):
+				continue
+			var b := Button.new()
+			b.text = order.to_upper()
+			b.focus_mode = Control.FOCUS_NONE
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var fleet := int(planet[order + "_fleet"])
+			b.pressed.connect(func(): _settle(order, fleet, id))
+			settle.add_child(b)
+		rows.add_child(settle)
 	if _expanded.has(id) and planet.type != "gas_giant":
 		rows.add_child(_details(planet, colony))
 	return panel
+
+
+func _settle(order: String, fleet: int, planet_id: int) -> void:
+	var cmd := {"verb": order, "fleet": fleet, "planet": planet_id, "_reply_to": "_settled"}
+	if order == "colonize":
+		cmd["confirm"] = 1
+	command.emit(cmd)
+
+
+func _settled(_result: Dictionary) -> void:
+	command.emit({"verb": "query", "what": "system", "star": star, "_reply_to": "refresh_system"})
 
 
 ## The expanded part: potential as icons and numbers, then the colony's morale and its button.

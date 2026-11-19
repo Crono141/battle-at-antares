@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "antares/fleet_orders.h"
 #include "yyjson.h"
 #include "game/string_overrides.h"
 
@@ -565,6 +566,13 @@ namespace antares::commands::internal {
                 item.Int("slot", slot);
                 item.Int("planet", planet_id);
                 item.Int("orbit", planet.orbit);
+                // A fleet of the player's here that can settle it (the planet's COLONIZE / OUTPOST).
+                if (const int16_t fleet = Settler_For(planet_id, false); fleet >= 0) {
+                    item.Int("colonize_fleet", fleet);
+                }
+                if (const int16_t fleet = Settler_For(planet_id, true); fleet >= 0) {
+                    item.Int("outpost_fleet", fleet);
+                }
                 item.Str("type", planet.planet_type == PLANET_TYPE_GAS_GIANT ? "gas_giant" : planet.planet_type == PLANET_TYPE_ASTEROID ? "asteroids"
                                                                                                                                         : "planet");
                 item.Int("size", planet.size);

@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "antares/commands.h"
 #include "antares/native.h"
 
 namespace COLLAND {
@@ -245,7 +246,20 @@ namespace COLLAND {
                 ",\"intro\":{\"lbx\":\"COLONY.LBX\",\"entry\":6,\"from\":0}"
                 ",\"actor\":{\"lbx\":\"COLONY.LBX\",\"entry\":6,\"frame\":" + std::to_string(last_frame) + "}"
                 ",\"title\":" + antares::native::Quote(title) +
-                ",\"text\":" + antares::native::Quote(Native_Landing_Text(COLONY::planet_handle).c_str()) + ",\"text_box\":[20,100,600,140],\"text_align\":\"left\"}";
+                ",\"text\":" + antares::native::Quote(Native_Landing_Text(COLONY::planet_handle).c_str()) + ",\"text_box\":[20,100,600,140],\"text_align\":\"left\"";
+            // What the panes behind the window show (queries don't run while the landing waits):
+            // the system, the new colony and its build list (owner, 2026-11-19).
+            const std::string colony_args = "{\"colony\":" + std::to_string(COLONY::colony_handle) + "}";
+            const std::string colony_data = antares::commands::Run_Query(SCREEN_MAIN, "colony", colony_args);
+            const std::string build_options = antares::commands::Run_Query(SCREEN_MAIN, "build_options", colony_args);
+            native_landing.state += ",\"system\":" + antares::native::System_Json(COLONY::star_handle);
+            if (!colony_data.empty()) {
+                native_landing.state += ",\"colony_data\":" + colony_data;
+            }
+            if (!build_options.empty()) {
+                native_landing.state += ",\"build_options\":" + build_options;
+            }
+            native_landing.state += "}";
             native_landing.start = SDL_GetTicks();
             antares::native::Set_Scene(Native_Landing_State, Native_Landing_Tick);
             if (COLONY::Colony_Needs_Occupation_Policy(COLONY::colony_handle)) {

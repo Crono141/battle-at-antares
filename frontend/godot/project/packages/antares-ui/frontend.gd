@@ -854,6 +854,8 @@ func _view(scene_name: String) -> Control:
 				galaxy.redraw())
 		if view.has_signal("selection_changed"):
 			view.selection_changed.connect(func(): _on_star_hovered(_hovered_star))
+		if view.has_signal("settle_requested"):
+			view.settle_requested.connect(func(star_id: int): _open_system(star_id))
 		native_layer.add_child(view)
 		_raise_chrome() # the bar, the pockets, the tabs and the frame stay over every view
 		_views[scene_name] = view
@@ -2439,7 +2441,7 @@ func _on_scene_request(id: int, request: Dictionary) -> void:
 	var state: Dictionary = request.get("scene_state", request)
 	_place_scene(state)
 	if String(state.get("scene", "")) == "landing" and not _scene_window.is_open():
-		_prepare_landed_colony(int(state.get("star", -1)), int(state.get("colony", -1)))
+		_prepare_landed_colony(int(state.get("star", -1)), int(state.get("colony", -1)), state)
 	_scene_window.show_page(id, request)
 
 
@@ -2471,20 +2473,52 @@ func _open_colony_at(star: int, colony: int, with_build: bool) -> void:
 	if not with_build:
 		return
 	await get_tree().create_timer(0.5).timeout
-	if native_screen == Screens.MAIN and not _view("build_pane").visible:
+	if native_screen != Screens.MAIN:
+		return
+	# The colony pane first (owner, 2026-11-19: after a landing the build list came up without it).
+	if not pane.visible or pane.colony_id != colony:
+		pane.move_to_front()
+		pane.open(colony)
+		await get_tree().create_timer(0.4).timeout
+	var build := _view("build_pane")
+	if not build.visible:
 		_open_build_pane(colony, false)
+	elif int(build.colony_id) == colony:
+		build.open(colony, false) # refresh what the landing showed
 
 
 ## The landing has begun: the camera flies to the new colony's system behind the window, framed
 ## for the colony pane (its data comes when the landing ends: queries wait for the game), so
 ## the panes slide in where the view already is (owner, 2026-11-19).
-func _prepare_landed_colony(star: int, colony: int) -> void:
+func _prepare_landed_colony(star: int, colony: int, state: Dictionary) -> void:
 	if star < 0 or colony < 0 or galaxy.stars.is_empty():
 		return
-	_view("colony_pane").colony_id = colony
-	galaxy.selected = star
-	_panel_star = star
-	_frame_system(star)
+	# The system, the colony and its build list open behind the window from the landing's own
+	# copy of their answers (owner, 2026-11-19: they should be open when the film ends).
+	var colony_pane := _view("colony_pane")
+	if colony != colony_pane.colony_id:
+		_view("build_pane").close_keeping()
+	colony_pane.colony_id = colony
+	var colony_data: Dictionary = state.get("colony_data", {})
+	if colony_data.get("ok", false):
+		colony_pane.move_to_front()
+		colony_pane.show_colony(colony_data)
+	var system: Dictionary = state.get("system", {})
+	if system.get("ok", false):
+		_show_system_result(star, system, true)
+	else:
+		galaxy.selected = star
+		_panel_star = star
+		_frame_system(star)
+	var options: Dictionary = state.get("build_options", {})
+	if options.get("ok", false):
+		var build := _view("build_pane")
+		_place_build_pane()
+		build.move_to_front()
+		_raise_chrome()
+		build.colony_id = colony
+		build.bought = false
+		build.show_options(options)
 
 
 ## The research area (owner, 2026-11-14): from under the bar to above the map controls, its right
@@ -2820,22 +2854,31 @@ func _open_system(star_id: int, fly := true) -> void:
 	_send({"verb": "query", "what": "system", "star": star_id}, func(result: Dictionary):
 		if not result.get("ok", false) or native_screen != Screens.MAIN:
 			return
-		# A system and a fleet don't share the screen (owner, 2026-11-13: a fleet's panel stayed
-		# over the system the to-do list flew into): the fleet panel closes, without coming back.
-		var fleet_panel := _view("fleet_panel")
-		if fleet_panel.visible:
-			_fleet_from_system = -1
-			fleet_panel.close()
-		_panel_star = star_id
-		galaxy.selected = star_id
-		var pane := _view("system_pane")
-		if fly or galaxy.system_star != star_id:
-			_frame_system(star_id)
-		galaxy.show_system(star_id, result)
-		galaxy.redraw()
-		_send({"verb": "watch", "what": "system", "star": star_id}) # its planets move each turn
-		pane.race_id = _race_id
-		pane.show_system(result, String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")"), star_id))
+		_show_system_result(star_id, result, fly))
+
+
+## A system's answer on the galaxy and in the system pane (the `system` query's, or the colony
+## landing's own copy while it plays).
+func _show_system_result(star_id: int, result: Dictionary, fly: bool) -> void:
+	# A system and a fleet don't share the screen (owner, 2026-11-13: a fleet's panel stayed
+	# over the system the to-do list flew into): the fleet panel closes, without coming back.
+	var fleet_panel := _view("fleet_panel")
+	if fleet_panel.visible:
+		_fleet_from_system = -1
+		fleet_panel.close()
+	_panel_star = star_id
+	galaxy.selected = star_id
+	var pane := _view("system_pane")
+	if fly or galaxy.system_star != star_id:
+		_frame_system(star_id)
+	galaxy.show_system(star_id, result)
+	galaxy.redraw()
+	_send({"verb": "watch", "what": "system", "star": star_id}) # its planets move each turn
+	pane.race_id = _race_id
+	pane.move_to_front()
+	_raise_chrome()
+	pane.show()
+	pane.show_system(result, String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")"), star_id)
 
 
 ## Flies to a system with its orbits filling a share of the area the left panes leave free (the
@@ -3155,6 +3198,9 @@ func _smoke_native() -> void:
 			return
 		if arg == "--film":
 			await _smoke_film(shots)
+			return
+		if arg == "--settle":
+			await _smoke_settle(shots)
 			return
 		if arg == "--council":
 			await _smoke_council(shots)
@@ -4871,6 +4917,78 @@ func _query(what: String) -> Dictionary:
 		await get_tree().create_timer(0.05).timeout
 		waited += 0.05
 	return box.get("r", {})
+
+
+## Settling from the system view (owner, 2026-11-19): a planet with a colony ship in orbit has
+## COLONIZE; it asks the game's question, the landing plays with the panes opening behind it, and
+## the system, the colony and its build list are up when it ends.
+func _smoke_settle(shots: String) -> void:
+	var target_star := -1
+	var target_planet := -1
+	for star_id in galaxy.stars.size():
+		var sys: Dictionary = await _query_args({"what": "system", "star": star_id})
+		for planet: Dictionary in sys.get("planets", []):
+			if planet.has("colonize_fleet"):
+				target_star = star_id
+				target_planet = int(planet.planet)
+				break
+		if target_star >= 0:
+			break
+	if target_star < 0:
+		await host.smoke_fail("no planet with COLONIZE in this save")
+		return
+	_open_system(target_star)
+	await get_tree().create_timer(2.0).timeout
+	var pane := _view("system_pane")
+	var button: Button = null
+	for b in pane.find_children("*", "Button", true, false):
+		if (b as Button).text == "COLONIZE" and (b as Button).is_visible_in_tree():
+			button = b
+			break
+	print("smoke: settle: star %d planet %d, COLONIZE button %s" % [target_star, target_planet, button != null])
+	if shots != "":
+		await host.shot(shots + "/native-settle-button.png")
+	if button == null:
+		await host.smoke_fail("the system pane has no COLONIZE button")
+		return
+	button.pressed.emit()
+	var waited := 0.0
+	var asked: Array = []
+	var landing_seen := false
+	while waited < 60.0:
+		await get_tree().create_timer(0.4).timeout
+		waited += 0.4
+		if _scene_window != null and _scene_window.visible:
+			if not landing_seen:
+				landing_seen = true
+				await get_tree().create_timer(4.0).timeout
+				print("smoke: settle landing: behind it system pane %s, colony pane %s (%d), build pane %s" % [_view("system_pane").visible,
+					_view("colony_pane").visible, _view("colony_pane").colony_id, _view("build_pane").visible])
+				if shots != "":
+					await host.shot(shots + "/native-settle-landing.png")
+			_scene_window._frame.gui_input.emit(_smoke_left_click())
+			continue
+		var dialog: Control = _views.get("dialog")
+		if overlay.visible and dialog != null and dialog.visible:
+			asked.append("%s/%s" % [dialog._kind, dialog.popup_name])
+			if dialog._kind == "text":
+				dialog._answer(0)
+			else:
+				dialog._answer(0) # YES
+			continue
+		if landing_seen and native_screen == Screens.MAIN:
+			break
+	await get_tree().create_timer(2.5).timeout
+	var colony_pane := _view("colony_pane")
+	print("smoke: settle done: asked %s, landing %s; system pane %s, colony pane %s on %d, build pane %s" % [asked, landing_seen,
+		_view("system_pane").visible, colony_pane.visible, colony_pane.colony_id, _view("build_pane").visible])
+	if shots != "":
+		await host.shot(shots + "/native-settled.png")
+	if not landing_seen or not colony_pane.visible or not _view("build_pane").visible or not _view("system_pane").visible:
+		await host.smoke_fail("settling did not end with the system, the colony and its build list open")
+		return
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
 
 
 ## WP3.11d: a council meeting in the scene window (popup preview, a scratch save): its pages

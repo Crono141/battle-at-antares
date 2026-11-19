@@ -14,6 +14,7 @@ namespace TEST_FLEET {
     std::vector<int16_t> tried;        // the last list Ships_Try_To_Move_To got (without the -1)
     std::vector<int16_t> applied;      // the last list Apply_Player_Movement_Order got
     int16_t applied_star = -1;
+    bool found_colony = true;          // Make_New_Colony/Outpost found it (false: no slot this turn)
     bool colonize_flag = false;        // the button flags
     bool outpost_flag = false;
     bool troops_flag = false;
@@ -137,10 +138,17 @@ namespace HAROLD {
 namespace COLONIZE {
     void __cdecl Make_New_Colony(int16_t planet, int16_t) {
         TEST_FLEET::colonies.push_back(planet);
+        if (TEST_FLEET::found_colony) {
+            MOX::planet[planet].colony_index = 0; // the fixture's one colony, the player's
+        }
     }
     void __cdecl Make_New_Outpost(int16_t planet, int16_t) {
         TEST_FLEET::outposts.push_back(planet);
+        if (TEST_FLEET::found_colony) {
+            MOX::planet[planet].colony_index = 0;
+        }
     }
+    void __cdecl Allocate_New_Colony_Slots() {} // Settle reserves a slot when the turn left none
 } // namespace COLONIZE
 
 namespace COLCALC {
@@ -219,3 +227,13 @@ namespace MAINSCR {
         strlcpy(out, "RP", 16);
     }
 } // namespace MAINSCR
+
+// Settle with "confirm": the game's question and the landing (not exercised by these tests).
+namespace MAINPUPS {
+    int8_t __cdecl New_Colony_Confirmation_Box(int16_t) {
+        return 1;
+    }
+} // namespace MAINPUPS
+namespace COLLAND {
+    void __cdecl Colony_Landing_Screen() {}
+} // namespace COLLAND

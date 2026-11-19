@@ -16,3 +16,10 @@ namespace antares::fleet {
     void Consume_Ship(int16_t ship_idx);
 
 } // namespace antares::fleet
+
+namespace antares::commands::internal {
+    // A fleet of the player's at the planet's star that can settle it (a colony or outpost ship,
+    // as the fleet box's Colonize / Outpost buttons decide): its head ship, or -1 (owner,
+    // 2026-11-19: settle from the system view).
+    int16_t Settler_For(int16_t planet, bool outpost);
+} // namespace antares::commands::internal

@@ -13,6 +13,8 @@ extends PanelContainer
 signal command(dict: Dictionary)
 signal closed
 signal selection_changed
+## Colonize / Outpost: the fleet's system opens, its planets with the buttons (owner, 2026-11-19).
+signal settle_requested(star_id: int)
 
 const WARNING_COLOR := Color(1.0, 0.45, 0.3)
 const STATUS_COLOR := Color(0.45, 0.95, 0.45)
@@ -36,8 +38,8 @@ var _drag_from := Vector2.INF
 
 func _ready() -> void:
 	all_button.pressed.connect(_on_all)
-	$Box/Orders/Colonize.pressed.connect(func(): _choose_planet("colonize"))
-	$Box/Orders/Outpost.pressed.connect(func(): _choose_planet("outpost"))
+	$Box/Orders/Colonize.pressed.connect(func(): _settle_in_system("colonize"))
+	$Box/Orders/Outpost.pressed.connect(func(): _settle_in_system("outpost"))
 	$Box/Orders/LandTroops.pressed.connect(_on_land_troops)
 	$Box/Orders/Engage.pressed.connect(func():
 		command.emit({"verb": "engage", "fleet": int(fleet.ship), "_reply_to": "order_done"}))
@@ -179,6 +181,13 @@ func _on_all() -> void:
 	for ship: Dictionary in _orderable():
 		_buttons[int(ship.id)].set_pressed_no_signal(not all_on)
 	_on_selection()
+
+
+func _settle_in_system(order: String) -> void:
+	if int(fleet.get("star", -1)) >= 0:
+		settle_requested.emit(int(fleet.star))
+	else:
+		_choose_planet(order)
 
 
 func _choose_planet(order: String) -> void:
