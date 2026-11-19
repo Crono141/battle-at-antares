@@ -53,6 +53,15 @@ namespace antares::sprites {
                     memset(video::glass_remap_colors[g], 0xF0 + g, 256);
                 }
             }
+            // A full-store animation's frames are whole pictures, each drawn alone on the restored
+            // background (the colony landing's pods). Draw_Picture_To_Bitmap replays every frame
+            // from the last keyframe, and with no keyframe interval that is all of them: the pods
+            // smeared down the screen (owner, 2026-11-19). Every frame its own keyframe here.
+            const bool whole_frames = (anim->flags & ANIMATION_FLAG_FULL_STORE) != 0 && count > 1;
+            const auto saved_interval = anim->keyframe_interval;
+            if (whole_frames) {
+                anim->keyframe_interval = 1;
+            }
             for (int32_t f = 0; f < count; ++f) {
                 animate::Set_Animation_Frame(anim, f);
                 bitmap::Draw_Picture_To_Bitmap(bitmap, anim);
@@ -81,6 +90,7 @@ namespace antares::sprites {
             if (glassed) {
                 memcpy(video::glass_remap_colors, saved_remap, sizeof(saved_remap));
             }
+            anim->keyframe_interval = saved_interval;
             anim->current_frame = saved_frame;
             // The scratch bitmap got a twin plane when it was created: drop it with the memory.
             render::Forget_Images(storage.data(), storage.data() + storage.size());
@@ -371,7 +381,9 @@ namespace antares::sprites {
         // Ships' markings follow their colour set's palette (the masks say which pixels).
         const bool shade_masks = lbx == "SHIPS.LBX";
         bool still_decoding = false;
-        if (render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms, shade_masks, &still_decoding)) {
+        // "LBX:1": the original pixels, not the pack's art (the colony landing's pods, whose HD
+        // frames have the smear baked in).
+        if (max_scale != 1 && render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms, shade_masks, &still_decoding)) {
             const int32_t shrink = max_scale > 0 && max_scale < render::SCALE ? render::SCALE / max_scale : 1;
             for (render::s_exported_frame& frame : art) {
                 s_frame copy;

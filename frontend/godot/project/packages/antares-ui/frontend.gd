@@ -65,7 +65,9 @@ var _revealed := false
 var _have_empire := false
 ## The game screens whose legacy frame is only the galaxy: a question from one shows over the
 ## native galaxy instead.
-const GALAXY_BEHIND_SCREENS := [Screens.MAIN, Screens.MAIN_NEXT_TURN, Screens.REPORTS, Screens.TURN_SUMMARY, 35] # 35: scrapping freighters
+# 35: scrapping freighters; 30, 31, 33, 34: colonising, outposts, the colony landing, unloading
+# transports from the galaxy (owner, 2026-11-19: the legacy galaxy showed behind the landing).
+const GALAXY_BEHIND_SCREENS := [Screens.MAIN, Screens.MAIN_NEXT_TURN, Screens.REPORTS, Screens.TURN_SUMMARY, 35, 30, 31, 33, 34]
 var _question_over_galaxy := false
 var _shot_popups := {} # the smoke's pictures of native popups, by name
 var _turn_over_galaxy := false # quiet turns passing by themselves, shown over the native galaxy
@@ -968,15 +970,7 @@ func _on_todo_item(item: Dictionary) -> void:
 	match String(item.get("kind", "")):
 		"build":
 			# The colony and its build list, as the game's jump to the colony screen did.
-			var colony := int(item.colony)
-			_open_system(star)
-			await get_tree().create_timer(0.5).timeout
-			if native_screen != Screens.MAIN:
-				return
-			_on_colony_chosen(colony)
-			await get_tree().create_timer(0.4).timeout
-			if native_screen == Screens.MAIN and not _view("build_pane").visible:
-				_open_build_pane(colony, false)
+			_open_colony_at(star, int(item.colony), true)
 		"colonize":
 			# The landing animation plays (owner, 2026-11-14) until a click, as in the original;
 			# back on the galaxy the new colony's pane opens (owner, 2026-11-13: it stayed on the
@@ -2436,7 +2430,10 @@ func _on_scene_request(id: int, request: Dictionary) -> void:
 		if String(ended.get("scene", "")) == "landing":
 			_open_landed_colony(int(ended.get("star", -1)), int(ended.get("colony", -1)))
 		return
-	_place_scene(request.get("scene_state", request))
+	var state: Dictionary = request.get("scene_state", request)
+	_place_scene(state)
+	if String(state.get("scene", "")) == "landing" and not _scene_window.is_open():
+		_prepare_landed_colony(int(state.get("star", -1)), int(state.get("colony", -1)))
 	_scene_window.show_page(id, request)
 
 
@@ -2451,14 +2448,37 @@ func _open_landed_colony(star: int, colony: int, with_build := true) -> void:
 		waited += 0.1
 	if native_screen != Screens.MAIN:
 		return
+	_open_colony_at(star, colony, with_build)
+
+
+## A colony with its system (and its build list): the colony pane first, so the system's one
+## flight already frames the system beside both panes (owner, 2026-11-19: the camera jerked as the
+## colony pane narrowed the free area mid-flight, then went on as the build list opened).
+func _open_colony_at(star: int, colony: int, with_build: bool) -> void:
+	var pane := _view("colony_pane")
+	if colony != pane.colony_id:
+		_view("build_pane").close_keeping()
+	pane.move_to_front()
+	_raise_chrome()
+	pane.open(colony)
 	_open_system(star)
-	await get_tree().create_timer(0.5).timeout
-	if native_screen != Screens.MAIN:
+	if not with_build:
 		return
-	_on_colony_chosen(colony)
-	await get_tree().create_timer(0.4).timeout
-	if with_build and native_screen == Screens.MAIN and not _view("build_pane").visible:
+	await get_tree().create_timer(0.5).timeout
+	if native_screen == Screens.MAIN and not _view("build_pane").visible:
 		_open_build_pane(colony, false)
+
+
+## The landing has begun: the camera flies to the new colony's system behind the window, framed
+## for the colony pane (its data comes when the landing ends: queries wait for the game), so
+## the panes slide in where the view already is (owner, 2026-11-19).
+func _prepare_landed_colony(star: int, colony: int) -> void:
+	if star < 0 or colony < 0 or galaxy.stars.is_empty():
+		return
+	_view("colony_pane").colony_id = colony
+	galaxy.selected = star
+	_panel_star = star
+	_frame_system(star)
 
 
 ## The research area (owner, 2026-11-14): from under the bar to above the map controls, its right

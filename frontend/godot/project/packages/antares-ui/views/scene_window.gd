@@ -412,8 +412,8 @@ func _show_art() -> void:
 	var intro: Dictionary = _state.get("intro", {})
 	_intro.visible = _intro_frame >= 0 and not intro.is_empty()
 	if _intro.visible:
-		var i := _sprite(intro)
-		_intro.texture = i.frames[clampi(_intro_frame, 0, i.frames.size() - 1)] if not i.is_empty() else null
+		# At its frames' origins (HD frames are cropped: the colony landing's pods), as the actor.
+		_place(_intro, _sprite(intro), _intro_frame, Vector2.ZERO, k)
 	var actor: Dictionary = _state.get("actor", {})
 	var actor_sprite := _sprite(actor) # asked for during the intro, so it is here when it ends
 	_actor.visible = _intro_frame < 0 and not actor.is_empty()
