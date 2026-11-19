@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/cosmetic_random.h"
+#include "antares/native.h"
 #include "string_overrides.h"
 
 namespace ANTAROOM {
@@ -26,7 +27,39 @@ namespace ANTAROOM {
         JIM::Play_Streaming_Music(0x78, -1, 1);
     }
 
+    namespace {
+        std::string native_room_state;
+
+        std::string Native_Room_State() {
+            return native_room_state;
+        }
+
+        void Native_Room_Music() {
+            JIM::Play_Streaming_Music(0x78, -1, 1);
+        }
+    } // namespace
+
     void __cdecl Main_Antaran_Room_Screen(int16_t message_set_index) {
+        if (antares::native::Galaxy_Will_Be_Native() && antares::native::Popups_Native()) {
+            // Antares (WP3.11c, owner 2026-11-19): the Antarans' message in the scene window over
+            // the native galaxy: the room (antaroom.LBX 1 under entry 0's palette) looping, the
+            // message where the legacy screen printed it; a click ends it.
+            char message[ANTARAN_ROOM_MESSAGE_CAPACITY];
+            char* const saved = antaran_room_message;
+            antaran_room_message = message;
+            Get_Antaran_Room_Message(1 - message_set_index);
+            antaran_room_message = saved;
+            native_room_state = std::string("{\"scene\":\"antarans\",\"backdrop\":{\"lbx\":\"antaroom.LBX@0\",\"entry\":1,\"loop_from\":0}") +
+                ",\"text\":" + antares::native::Quote(message) + "}";
+            Native_Room_Music();
+            antares::native::Set_Scene(Native_Room_State, Native_Room_Music);
+            antares::native::Popup("scene", "", "\"scene\":\"antarans\",\"page\":0", nullptr);
+            antares::native::Popup("scene_end", "", "\"scene\":\"antarans\"", nullptr);
+            antares::native::Clear_Scene();
+            MOX::auto_turn_exit = 1;
+            JIM::Play_Background_Music();
+            return;
+        }
         fields::Clear_Fields();
         fields::Deactivate_Help_List();
         fields::Enable_Draw_All_Fields();

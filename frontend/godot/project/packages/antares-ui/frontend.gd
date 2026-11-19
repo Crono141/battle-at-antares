@@ -3109,6 +3109,9 @@ func _smoke_native() -> void:
 		if arg == "--film":
 			await _smoke_film(shots)
 			return
+		if arg == "--antarans":
+			await _smoke_antarans(shots)
+			return
 		if arg.begins_with("--scene-flash="):
 			await _smoke_scene_flash(arg.substr(14))
 			return
@@ -4815,6 +4818,37 @@ func _query(what: String) -> Dictionary:
 		await get_tree().create_timer(0.05).timeout
 		waited += 0.05
 	return box.get("r", {})
+
+
+## WP3.11c: the Antarans' message in the scene window (popup preview): the room loops, the message
+## shows, a click closes it back to the galaxy.
+func _smoke_antarans(shots: String) -> void:
+	var box := {}
+	_send({"verb": "preview_popup", "popup": "antarans"}, func(r: Dictionary): box["r"] = r)
+	var waited := 0.0
+	while (_scene_window == null or not _scene_window.visible) and waited < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if _scene_window == null or not _scene_window.visible:
+		await host.smoke_fail("no Antaran window")
+		return
+	await get_tree().create_timer(3.0).timeout
+	print("smoke: antarans scene '%s', text '%s' shown %s, backdrop frame %d, galaxy %s, bar %s" % [_scene_window._state.get("scene", ""),
+		_scene_window._text.text.left(80), _scene_window._text.visible, _scene_window._backdrop_frame, galaxy.visible, _view("galaxy_bar").visible])
+	if shots != "":
+		await host.shot(shots + "/native-antarans.png")
+	_scene_window._frame.gui_input.emit(_smoke_left_click())
+	waited = 0.0
+	while not box.has("r") and waited < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: antarans closed %s, galaxy %s, legacy %s, answer %s" % [not _scene_window.visible, galaxy.visible, legacy.visible, box.get("r", {})])
+	if _scene_window.visible or not galaxy.visible or legacy.visible:
+		await host.smoke_fail("the Antaran window did not close back to the galaxy")
+		return
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
 
 
 ## WP3.11b: a film in its window (the amoeba's, from the popup preview): it opens over the galaxy

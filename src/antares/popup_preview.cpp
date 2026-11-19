@@ -83,6 +83,10 @@ namespace antares::commands::internal {
                 p.research_breakthrough = breakthrough;
                 JIM::Play_Background_Music();
                 answer = 0;
+            } else if (popup == "antarans") {
+                // WP3.11c: the Antarans' message (the attack's message set).
+                ANTAROOM::Main_Antaran_Room_Screen(0);
+                answer = 0;
             } else if (popup == "film") {
                 // WP3.11b: a film in its box (the amoeba's: no rules run in it).
                 ERIC::Play_Amoeba_Flic();

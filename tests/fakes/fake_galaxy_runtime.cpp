@@ -394,3 +394,7 @@ namespace MSG_ {
 namespace ERIC {
     void __cdecl Play_Amoeba_Flic() {} // popup_preview's "film" (WP3.11b)
 } // namespace ERIC
+
+namespace ANTAROOM {
+    void __cdecl Main_Antaran_Room_Screen(int16_t) {} // popup_preview's "antarans" (WP3.11c)
+} // namespace ANTAROOM
