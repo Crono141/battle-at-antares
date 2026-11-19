@@ -2507,10 +2507,13 @@ func _on_answered(id: int, value: int, text := "") -> void:
 	if _question_over_galaxy:
 		_question_over_galaxy = false
 		if native_screen == Screens.LEGACY and not _turn_over_galaxy:
-			for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
-				_view(chrome).hide()
-			_frame_view.hide()
-		if native_screen == Screens.LEGACY:
+			# The galaxy stays a moment, as after TURN (owner, 2026-11-19: closing the GNN or the
+			# research window flashed the whole screen: the bar and tabs went, the turn's legacy
+			# frame showed, and the galaxy came back as the reports ended). The hand-back to the
+			# legacy view comes only if the game stays on a legacy screen (_end_turn_notice).
+			_turn_over_galaxy = true
+			_turn_clearing = 0.0
+		elif native_screen == Screens.LEGACY:
 			# The legacy view still holds its last frame from before the native galaxy (the title
 			# screen after a load): it comes back with the game's next frame (owner, 2026-11-12:
 			# the title flashed before a combat).
@@ -3011,6 +3014,9 @@ func _smoke_native() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--flash="):
 			await _smoke_flash(arg.substr(8))
+			return
+		if arg.begins_with("--scene-flash="):
+			await _smoke_scene_flash(arg.substr(14))
 			return
 	if "--popups" in OS.get_cmdline_user_args():
 		await _smoke_popups(shots)
@@ -4697,6 +4703,78 @@ func _query(what: String) -> Dictionary:
 		await get_tree().create_timer(0.05).timeout
 		waited += 0.05
 	return box.get("r", {})
+
+
+## The scene-close flicker (owner, 2026-11-19: "a full screen flicker" as the GNN window closes,
+## "the UI being cleared and rebuilt"): `--scene-flash=<dir>` with a profile that forces an event
+## every turn ends the turn, clicks through the GNN window, and from the first click until 2.5 s
+## back on the galaxy saves every frame the window shows (`<dir>/NNN.png`, half size) and prints
+## what was visible in each.
+func _smoke_scene_flash(dir: String) -> void:
+	DirAccess.make_dir_recursive_absolute(dir)
+	# The cheapest research, so it is done this turn and the research window comes (a loaded save
+	# keeps its own rules, so a profile can't force an event).
+	var research: Dictionary = await _query("research")
+	var cheapest := {}
+	for area: Dictionary in research.get("areas", []):
+		if not area.get("apps", []).is_empty() and (cheapest.is_empty() or int(area.get("cost", 0)) < int(cheapest.get("cost", 0))):
+			cheapest = area
+	if not cheapest.is_empty():
+		_send({"verb": "choose_research", "field": int(cheapest.field), "app": int(cheapest.apps[0].app)})
+		await get_tree().create_timer(0.5).timeout
+		print("smoke: scene flash: research %s, cost %d, have %s" % [cheapest.get("name", "?"), int(cheapest.get("cost", 0)), research.get("progress", "?")])
+	await _smoke_clear_todo()
+	var turns := 0
+	var waited := 0.0
+	while (_scene_window == null or not _scene_window.visible) and turns < 4:
+		_send({"verb": "end_turn"})
+		turns += 1
+		waited = 0.0
+		while (_scene_window == null or not _scene_window.visible) and waited < 30.0:
+			_smoke_answer()
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
+			if waited > 3.0 and native_screen == Screens.MAIN:
+				await _smoke_clear_todo()
+				break
+		_smoke_answer()
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if _scene_window == null or not _scene_window.visible:
+		await host.smoke_fail("no scene window after the turn")
+		return
+	await get_tree().create_timer(3.0).timeout
+	var n := 0
+	var back_at := -1
+	var t0 := Time.get_ticks_msec()
+	var next_click := 0
+	while n < 400 and Time.get_ticks_msec() - t0 < 40000:
+		var now := Time.get_ticks_msec()
+		if _scene_window.visible and now >= next_click:
+			next_click = now + 1500
+			if _picker != null and _picker.visible and not _picker._flashing:
+				for b in _picker.find_children("*", "Button", true, false):
+					if b.theme_type_variation == &"ListItem" and b.is_visible_in_tree() and not (b as Button).disabled:
+						(b as Button).pressed.emit() # the first application on offer
+						break
+			else:
+				_scene_window._frame.gui_input.emit(_smoke_left_click())
+		var on_galaxy: bool = native_screen == Screens.MAIN and not _scene_window.visible
+		if on_galaxy and back_at < 0:
+			back_at = now
+		if back_at >= 0 and now - back_at > 2500:
+			break
+		var image := get_viewport().get_texture().get_image()
+		image.resize(image.get_width() / 2, image.get_height() / 2)
+		image.save_png("%s/%03d.png" % [dir, n])
+		print("smoke: frame %03d t=%d screen %d scene %s a=%.2f legacy %s galaxy %s bar %s tabs %s frame %s overlay %s" % [n, now - t0,
+			native_screen, _scene_window.visible, _scene_window._stage.modulate.a, legacy.visible, galaxy.visible,
+			_view("galaxy_bar").visible, _view("side_tabs").visible, _frame_view.visible, overlay.visible])
+		n += 1
+		await get_tree().process_frame
+	print("smoke: scene flash: %d frames, back on the galaxy %s" % [n, back_at >= 0])
+	game.request_game_quit()
+	print("smoke: asked the game to quit")
 
 
 ## The subscreen flash (owner, 2026-11-07): `-- --smoke --native --flash=<dir>` opens each of the
