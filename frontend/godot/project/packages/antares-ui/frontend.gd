@@ -3221,6 +3221,49 @@ func _smoke_native() -> void:
 				await host.shot(shots + "/native-system-fleet.png")
 			game.request_game_quit()
 			return
+		if arg == "--government-help":
+			var home := -1
+			for c in 64:
+				var data: Dictionary = await _query_args({"what": "colony", "colony": c})
+				if data.get("ok", false) and not data.get("outpost", false):
+					home = int(data.star)
+					break
+			_open_system(home)
+			await get_tree().create_timer(2.5).timeout
+			var pane := _view("system_pane")
+			for planet: Dictionary in pane.system.get("planets", []):
+				if planet.has("colony") or planet.get("owner_color", -1) != -1 or planet.get("colonized", false):
+					pane.select_planet(int(planet.planet))
+					break
+			if pane.selected_planet < 0 and not pane.system.get("planets", []).is_empty():
+				for planet: Dictionary in pane.system.planets:
+					pane._expanded[int(planet.planet)] = true
+				pane._show_planets()
+			await get_tree().create_timer(1.5).timeout
+			var found: Array = pane.find_children("*", "Control", true, false).filter(
+				func(n: Node) -> bool: return (n as Control).tooltip_text in ["Government", "Morale"] and (n as Control).is_visible_in_tree())
+			print("smoke: government help: system %d, %d icons" % [home, found.size()])
+			for icon: Control in found.slice(0, 1) + found.filter(func(n: Node) -> bool: return (n as Control).tooltip_text == "Morale").slice(0, 1):
+				var at := icon.get_global_rect().get_center() * get_window().content_scale_factor
+				var press := InputEventMouseButton.new()
+				press.button_index = MOUSE_BUTTON_RIGHT
+				press.pressed = true
+				press.position = at
+				Input.parse_input_event(press)
+				var release := press.duplicate()
+				release.pressed = false
+				Input.parse_input_event(release)
+				await get_tree().create_timer(0.8).timeout
+				var open: bool = preload("views/info_popup.gd").is_open()
+				print("smoke: right click on %s: help open %s" % [icon.tooltip_text, open])
+				if not open:
+					await host.smoke_fail("a right click on the system pane's %s showed no help" % icon.tooltip_text)
+					return
+				if shots != "":
+					await host.shot(shots + "/native-help-%s.png" % icon.tooltip_text.to_lower())
+				preload("views/info_popup.gd").close_current()
+			game.request_game_quit()
+			return
 		if arg == "--queue-drag":
 			await _smoke_queue_drag(shots)
 			return

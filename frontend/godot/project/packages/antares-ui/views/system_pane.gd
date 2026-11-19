@@ -385,6 +385,28 @@ func _show_help(title: String, text: String, at: Control) -> void:
 	preload("info_popup.gd").open(self, at, title, text)
 
 
+var _help_at: Control
+
+
+func _help_on_right_click(control: Control, topic: int) -> void:
+	control.mouse_filter = Control.MOUSE_FILTER_STOP
+	control.gui_input.connect(func(event: InputEvent):
+		var click := event as InputEventMouseButton
+		if click and click.pressed and click.button_index == MOUSE_BUTTON_RIGHT:
+			_help_at = control
+			command.emit({"verb": "query", "what": "help", "topic": topic, "_reply_to": "help_record"})
+			control.accept_event())
+
+
+## A help record's answer (the `help` query), beside what was right-clicked.
+func help_record(result: Dictionary) -> void:
+	if result.get("ok", false) and is_instance_valid(_help_at) and visible:
+		# The help file's markup: "Cost[n]:" (a race pick's cost) and "^" (a new line).
+		var text := RegEx.create_from_string("^Cost\\[-?\\d+\\]:\\s*").sub(String(result.text).strip_edges(), "")
+		text = text.replace("^", "\n").strip_edges()
+		_show_help(String(result.title).strip_edges(), text, _help_at)
+
+
 func _show_governor() -> void:
 	var leader: Dictionary = system.get("governor", {})
 	# Shown on the player's systems, with or without a governor: either way it opens the leaders.
@@ -576,7 +598,13 @@ func _details(planet: Dictionary, colony: Dictionary) -> Control:
 		var morale := HBoxContainer.new()
 		morale.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		morale.add_theme_constant_override("separation", 2)
-		morale.add_child(_icon("COLONY2.LBX", int(colony.government_sprite), Vector2(22, 22), "Government"))
+		# A right click on the government or the masks shows its help, as the colony screen and the
+		# race statistics do (owner, 2026-11-19); the row's own right click (the planet card) is
+		# for the rest of it. Help records: government / 2 + 474 (Race_Statistics_Specials_Help),
+		# morale 490 (colony_screen_help_list's morale box).
+		var government := _icon("COLONY2.LBX", int(colony.government_sprite), Vector2(22, 22), "Government")
+		_help_on_right_click(government, int(colony.government) / 2 + 474)
+		morale.add_child(government)
 		morale.add_child(_gap())
 		var masks := absi(int(colony.morale_icons))
 		# The masks overlap, as the colony screen stacks its icons (owner).
@@ -585,7 +613,9 @@ func _details(planet: Dictionary, colony: Dictionary) -> Control:
 		stack.add_theme_constant_override("separation", -6)
 		morale.add_child(stack)
 		for i in mini(masks, 10):
-			stack.add_child(_icon("COLONY2.LBX", int(colony.morale_sprite), Vector2(18, 18), "Morale"))
+			var mask := _icon("COLONY2.LBX", int(colony.morale_sprite), Vector2(18, 18), "Morale")
+			_help_on_right_click(mask, 490)
+			stack.add_child(mask)
 		box.add_child(morale)
 	return box
 
