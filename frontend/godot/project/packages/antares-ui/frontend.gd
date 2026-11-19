@@ -2361,10 +2361,34 @@ func _scene() -> Control:
 func _on_scene_request(id: int, request: Dictionary) -> void:
 	_scene()
 	if String(request.popup) == "scene_end":
+		var ended: Dictionary = _scene_window._state
 		_scene_window.close(func(): _on_answered(id, 0))
+		if String(ended.get("scene", "")) == "landing":
+			_open_landed_colony(int(ended.get("star", -1)), int(ended.get("colony", -1)))
 		return
 	_place_scene(request.get("scene_state", request))
 	_scene_window.show_page(id, request)
+
+
+## After the colony landing (WP3.11a, owner 2026-11-19): the new colony and its build list, so the
+## click that ends the landing arrives at the build decision.
+func _open_landed_colony(star: int, colony: int) -> void:
+	if star < 0 or colony < 0:
+		return
+	var waited := 0.0
+	while native_screen != Screens.MAIN and waited < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if native_screen != Screens.MAIN:
+		return
+	_open_system(star)
+	await get_tree().create_timer(0.5).timeout
+	if native_screen != Screens.MAIN:
+		return
+	_on_colony_chosen(colony)
+	await get_tree().create_timer(0.4).timeout
+	if native_screen == Screens.MAIN and not _view("build_pane").visible:
+		_open_build_pane(colony, false)
 
 
 ## The research area (owner, 2026-11-14): from under the bar to above the map controls, its right
@@ -4538,6 +4562,24 @@ func _smoke_todo(shots: String) -> bool:
 				if not overlay.visible:
 					if not asked.is_empty() and waited > 3.0:
 						break
+					continue
+				if _scene_window != null and _scene_window.visible:
+					# The landing in the scene window (WP3.11a): the pods land, the planet's data
+					# follows, a click ends it.
+					if not "scene/landing" in asked:
+						asked.append("scene/landing")
+						await get_tree().create_timer(5.0).timeout
+						print("smoke: landing scene '%s', title '%s', text '%s', intro frame %d, text shown %s" % [_scene_window._state.get("scene", ""),
+							_scene_window._title.text, _scene_window._text.text.replace("\n", " | "), _scene_window._intro_frame, _scene_window._text.visible])
+						print("smoke: landing ground %s: visible %s, texture %s, rect %s; actor texture %s rect %s" % [_scene_window._state.get("ground", {}),
+							_scene_window._ground.visible, _scene_window._ground.texture, Rect2(_scene_window._ground.position, _scene_window._ground.size),
+							_scene_window._actor.texture, Rect2(_scene_window._actor.position, _scene_window._actor.size)])
+						if shots != "":
+							await host.shot(shots + "/native-landing.png")
+							for part in [["ground", _scene_window._ground], ["actor", _scene_window._actor], ["backdrop", _scene_window._backdrop]]:
+								if part[1].texture != null:
+									part[1].texture.get_image().save_png(shots + "/landing-%s.png" % part[0])
+					_scene_window._frame.gui_input.emit(_smoke_left_click())
 					continue
 				var dialog: Control = _views["dialog"]
 				asked.append("%s/%s" % [dialog._kind, dialog.popup_name])

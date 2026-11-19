@@ -9,8 +9,12 @@ extends Control
 ##   intro:    {lbx, entry, from} played once over the backdrop (the ambassador appearing);
 ##   actor:    {lbx, entry, loop_from | frame} drawn at its frames' origins after the intro;
 ##   picture:  {lbx, entry, x, y} a still at a 1x position (the GNN story);
+##   ground:   {lbx, entry, frame} a still over the backdrop and under the intro (the colony
+##             landing's planet under the pods);
+##   frame_ms: the animations' frame time (default 110: two 55 ms ticks; the landing uses 55);
 ##   title, color: the heading at the top, in a player's colour;
-##   text, text_box [x, centre y, width]: the paragraph, where the legacy screen printed it;
+##   text, text_box [x, centre y, width, height?]: the paragraph, where the legacy screen printed
+##             it; text_align "left" for a block printed from its left edge (the planet's data);
 ##   list_at [x, y, width]: where the scene's lists sit (the dialog is placed there, frameless);
 ##   layers:   [{lbx, entry, loop_from, close}] more animations over the actor, each from frame 0
 ##             (the research room's light, hologram and monitor); `close` says what "closing" does
@@ -45,6 +49,7 @@ var _frame: Panel # the themed frame
 var _stage: Control # the scene's picture and text, clipped to the frame
 var _black: ColorRect # under the art: its see-through pixels were black on the legacy page
 var _backdrop: TextureRect
+var _ground: TextureRect
 var _intro: TextureRect
 var _actor: TextureRect
 var _picture: TextureRect
@@ -91,6 +96,8 @@ func _ready() -> void:
 	_stage.add_child(_black)
 	_backdrop = _texture_rect()
 	_stage.add_child(_backdrop)
+	_ground = _texture_rect()
+	_stage.add_child(_ground)
 	_intro = _texture_rect()
 	_stage.add_child(_intro)
 	_actor = _texture_rect()
@@ -233,7 +240,7 @@ func close(done: Callable) -> void:
 		_clear_layers()
 		_closing = false
 		_monitor_shown = ""
-		for texture_rect in [_backdrop, _intro, _actor, _picture]:
+		for texture_rect in [_backdrop, _ground, _intro, _actor, _picture]:
 			texture_rect.texture = null
 		# The scene's frames are large (tens of MB at 2x): let them go.
 		for key: String in _used:
@@ -320,7 +327,8 @@ func _layout() -> void:
 	var font := maxi(12, roundi(13.0 * k))
 	var box_info: Array = _state.get("text_box", [55, 445, 550])
 	_text.add_theme_font_size_override("font_size", font)
-	_text.size = Vector2(float(box_info[2]) * k, 90.0 * k)
+	_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if String(_state.get("text_align", "")) == "left" else HORIZONTAL_ALIGNMENT_CENTER
+	_text.size = Vector2(float(box_info[2]) * k, (float(box_info[3]) if box_info.size() > 3 else 90.0) * k)
 	_text.position = Vector2(float(box_info[0]) * k, float(box_info[1]) * k - _text.size.y * 0.5)
 	var monitor_box: Array = _state.get("monitor", {}).get("box", [221, 44, 175, 195])
 	_monitor_title.add_theme_font_size_override("font_size", roundi(font * 1.25))
@@ -359,7 +367,7 @@ func _process(delta: float) -> void:
 	# While opening, the stage stays centred on the frame's middle (sliding, it moves with it).
 	_stage.position.y = _margins().position.y if _slides() else _margins().position.y - (_frame.position.y - _frame_rect().position.y)
 	_clock += delta
-	if _clock < FRAME_TIME:
+	if _clock < float(_state.get("frame_ms", FRAME_TIME * 1000.0)) / 1000.0:
 		return
 	_clock = 0.0
 	var backdrop: Dictionary = _state.get("backdrop", {})
@@ -396,6 +404,10 @@ func _show_art() -> void:
 	var k := _stage.size.x / SCENE_SIZE.x
 	var b := _sprite(_state.get("backdrop", {}))
 	_backdrop.texture = b.frames[clampi(_backdrop_frame, 0, b.frames.size() - 1)] if not b.is_empty() else null
+	var ground: Dictionary = _state.get("ground", {})
+	_ground.visible = not ground.is_empty()
+	if _ground.visible:
+		_place(_ground, _sprite(ground), int(ground.get("frame", 0)), Vector2.ZERO, k)
 	var intro: Dictionary = _state.get("intro", {})
 	_intro.visible = _intro_frame >= 0 and not intro.is_empty()
 	if _intro.visible:

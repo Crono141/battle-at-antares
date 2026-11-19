@@ -41,6 +41,18 @@ namespace antares::sprites {
             auto* bitmap = reinterpret_cast<s_animation_header*>(storage.data());
             const int16_t saved_frame = anim->current_frame;
             const int32_t count = anim->frame_count > 0 ? anim->frame_count : 1;
+            // Glass (indices 0xF0-0xFF, remapped against what lies under them when drawn): while
+            // drawing here each level maps to itself, so its pixels stay recognisable and come out
+            // as the level's colour over transparency (owner, 2026-11-19: the colony landing's
+            // beams were solid magenta, the remap's colour over the bitmap's black).
+            const bool glassed = (anim->flags & ANIMATION_FLAG_GLASSED) != 0;
+            static uint8_t saved_remap[16][256];
+            if (glassed) {
+                memcpy(saved_remap, video::glass_remap_colors, sizeof(saved_remap));
+                for (int32_t g = 0; g < 16; ++g) {
+                    memset(video::glass_remap_colors[g], 0xF0 + g, 256);
+                }
+            }
             for (int32_t f = 0; f < count; ++f) {
                 animate::Set_Animation_Frame(anim, f);
                 bitmap::Draw_Picture_To_Bitmap(bitmap, anim);
@@ -50,6 +62,14 @@ namespace antares::sprites {
                 frame.height = height;
                 frame.rgba.resize((size_t)width * height * 4);
                 for (size_t i = 0; i < (size_t)width * height; ++i) {
+                    if (glassed && pixels[i] >= 0xF0) {
+                        const auto& glass = video::glass_colors[pixels[i] - 0xF0];
+                        frame.rgba[i * 4] = (uint8_t)(glass.r << 2);
+                        frame.rgba[i * 4 + 1] = (uint8_t)(glass.g << 2);
+                        frame.rgba[i * 4 + 2] = (uint8_t)(glass.b << 2);
+                        frame.rgba[i * 4 + 3] = (uint8_t)(glass.intensity >= 100 ? 255 : glass.intensity * 255 / 100);
+                        continue;
+                    }
                     const uint32_t rgb = palette_rgb[pixels[i]];
                     frame.rgba[i * 4] = (uint8_t)(rgb >> 16);
                     frame.rgba[i * 4 + 1] = (uint8_t)(rgb >> 8);
@@ -57,6 +77,9 @@ namespace antares::sprites {
                     frame.rgba[i * 4 + 3] = pixels[i] != 0 ? 255 : 0;
                 }
                 out->frames.push_back(std::move(frame));
+            }
+            if (glassed) {
+                memcpy(video::glass_remap_colors, saved_remap, sizeof(saved_remap));
             }
             anim->current_frame = saved_frame;
             // The scratch bitmap got a twin plane when it was created: drop it with the memory.
@@ -279,6 +302,14 @@ namespace antares::sprites {
                 if (Read_Entry("INFO.LBX", 1, &info_palette, &info_size)) {
                     Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(info_palette.data()), info_size, palette_rgb);
                 }
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx == "PLANETS.LBX" || lbx == "COLONY.LBX" || lbx == "COLONY2.LBX") {
+            // The colony screen's art (WP3.11a, the colony landing): its palette, FONTS.LBX palette
+            // 1 with the planet backdrop's colours (the pack's declaration, or the home palette),
+            // then the entry's own. Under the galaxy's palette the planet came out black.
+            if (!Declared_Palette_Rgb(lbx, entry, palette_rgb)) {
+                Game_Palette(1, palette_rgb);
             }
             Apply_Embedded_Palette(bytes, size, palette_rgb);
         } else if (lbx == "RACESEL.LBX") {

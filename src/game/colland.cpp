@@ -151,6 +151,112 @@ namespace COLLAND {
         }
     }
 
+    namespace {
+        // Antares (WP3.11a, owner 2026-11-19): the landing in the native scene window, the full
+        // pane the research room uses; the frontend opens the new colony and its build list behind
+        // it, so a click lands on the build decision. The legacy screen stays for the rare landing
+        // that asks the occupation policy first (its popup is legacy-drawn).
+        struct s_native_landing {
+            std::string state;
+            uint64_t start = 0;
+            int16_t step = 0;
+        };
+        s_native_landing native_landing;
+
+        std::string Native_Landing_Text(int16_t planet_idx) {
+            char buffer[500];
+            std::string text;
+            const s_planet_data* planet = &MOX::planet[planet_idx];
+            const s_colony* colony = &MOX::colony[planet->colony_index];
+            snprintf(buffer, sizeof(buffer), ESTRINGS::E_Strings(0x28 /* ESTR_S__S_COLONY */), HACCESS::Get_Planet_Name(planet_idx),
+                MOX::player[colony->owner].race_name);
+            text += buffer;
+            const char* size_climate_fmt = MOX::settings.language == 4 ? "%s, %s" : ESTRINGS::E_Strings(0x2d /* ESTR_S_S */);
+            snprintf(buffer, sizeof(buffer), size_climate_fmt, MOX::planet_size_string[planet->size],
+                MOX::planet_climate_string[(uint8_t)colony->climate]);
+            text += std::string("\n") + buffer;
+            snprintf(buffer, sizeof(buffer), ESTRINGS::E_Strings(0x1f),
+                (int)COLCALC::Planet_Max_Population_For_Player(const_cast<s_planet_data*>(planet), MOX::PLAYER_NUM));
+            text += std::string("\n") + buffer;
+            snprintf(buffer, sizeof(buffer), ESTRINGS::E_Strings(0x176), MOX::mineral_class_string[planet->mineral_class]);
+            text += std::string("\n") + buffer;
+            text += std::string("\n") + MOX::planet_gravity_string[planet->gravity_class];
+            if (planet->planet_special != SYSTEM_SPECIAL_NO_SPECIAL) {
+                snprintf(buffer, sizeof(buffer), ESTRINGS::E_Strings(0x46 /* ESTR_S1 */), MOX::planet_special_string[planet->planet_special]);
+                text += std::string("\n") + buffer;
+            }
+            return text;
+        }
+
+        std::string Native_Landing_State() {
+            return native_landing.state;
+        }
+
+        // The pods' sounds at the frames Draw_Colony_Landing_Screen plays them (55 ms a frame, after
+        // the window has opened, about half a second).
+        void Native_Landing_Tick() {
+            constexpr uint64_t k_open_ms = 500;
+            constexpr uint64_t k_frame_ms = 55;
+            const uint64_t elapsed = SDL_GetTicks() - native_landing.start;
+            const auto reached = [&](uint64_t frame) { return elapsed >= k_open_ms + frame * k_frame_ms; };
+            switch (native_landing.step) {
+                case 0:
+                    if (reached(1)) {
+                        pod1d_sfx = ERICNET::Mox_Play_Sound(0x3A);
+                        native_landing.step = 1;
+                    }
+                    break;
+                case 1:
+                    if (reached(2)) {
+                        pod2d_sfx = ERICNET::Mox_Play_Sound(0x3A);
+                        native_landing.step = 2;
+                    }
+                    break;
+                case 2:
+                    if (reached(0x39)) {
+                        sound::Fadeout_Sound(pod1d_sfx, 2);
+                        pod1l_sfx = ERICNET::Mox_Play_Sound(0x39);
+                        native_landing.step = 3;
+                    }
+                    break;
+                case 3:
+                    if (reached(0x3E)) {
+                        sound::Fadeout_Sound(pod2d_sfx, 2);
+                        pod2l_sfx = ERICNET::Mox_Play_Sound(0x39);
+                        native_landing.step = 4;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        void Native_Landing() {
+            char title[200];
+            snprintf(title, sizeof(title), ESTRINGS::E_Strings(0xE5 /* ESTR_COLONY_BUILT_ON_S */), HACCESS::Get_Planet_Name(COLONY::planet_handle));
+            const s_planet_data& planet = MOX::planet[COLONY::planet_handle];
+            const int16_t ground = (int16_t)((int8_t)planet.climate_bg_type + (uint8_t)MOX::colony[COLONY::colony_handle].climate * 3);
+            const int16_t last_frame = (int16_t)(animate::Get_Animation_Frame_Count(COLLAND::l_anims) - 1);
+            native_landing = s_native_landing();
+            native_landing.state = "{\"scene\":\"landing\",\"placement\":\"research\",\"open_style\":\"slide\",\"frame_ms\":55"
+                ",\"colony\":" + std::to_string(COLONY::colony_handle) + ",\"star\":" + std::to_string(COLONY::star_handle) +
+                ",\"backdrop\":{\"lbx\":\"COLONY2.LBX\",\"entry\":49,\"frame\":0}"
+                ",\"ground\":{\"lbx\":\"PLANETS.LBX\",\"entry\":" + std::to_string(ground) + ",\"frame\":0}"
+                ",\"intro\":{\"lbx\":\"COLONY.LBX\",\"entry\":6,\"from\":0}"
+                ",\"actor\":{\"lbx\":\"COLONY.LBX\",\"entry\":6,\"frame\":" + std::to_string(last_frame) + "}"
+                ",\"title\":" + antares::native::Quote(title) +
+                ",\"text\":" + antares::native::Quote(Native_Landing_Text(COLONY::planet_handle).c_str()) + ",\"text_box\":[20,100,600,140],\"text_align\":\"left\"}";
+            native_landing.start = SDL_GetTicks();
+            antares::native::Set_Scene(Native_Landing_State, Native_Landing_Tick);
+            antares::native::Popup("scene", "", "\"scene\":\"landing\",\"page\":0", nullptr); // until a click
+            COLONY::Reset_Field_Mode();
+            sound::Fadeout_Sound(pod1d_sfx, 10);
+            sound::Fadeout_Sound(pod2d_sfx, 10);
+            sound::Fadeout_Sound(pod1l_sfx, 10);
+            sound::Fadeout_Sound(pod2l_sfx, 10);
+        }
+    } // namespace
+
     void __cdecl Colony_Landing_Screen() {
         MOX2::action_func_t saved_auto_fn;
         int16_t input_result;
@@ -171,6 +277,23 @@ namespace COLLAND {
 
         Load_Anims();
         COLONY::Load_Planet_Screen();
+
+        if (antares::native::Galaxy_Will_Be_Native() && antares::native::Popups_Native() &&
+            !COLONY::Colony_Needs_Occupation_Policy(COLONY::colony_handle)) {
+            Native_Landing();
+            const int16_t star_idx = MOX::planet[MOX::colony[COLONY::colony_handle].planet].star_index;
+            if (COLCALC::N_Colonies_And_Outposts_At_Star(star_idx) == 1 && MOX::settings.animations_on) {
+                namestar::Change_Star_Name_Popup(namestar::Star_Name_Popup_Screen_Center_X(), namestar::Star_Name_Popup_Screen_Center_Y(), star_idx, 1);
+            }
+            antares::native::Popup("scene_end", "", "\"scene\":\"landing\"", nullptr);
+            antares::native::Clear_Scene();
+            COLONY::using_colony_screen_palette = 0;
+            if (MOX::colony[COLONY::colony_handle].just_produced == COLONY_PRODUCTION_JUST_COLONIZED) {
+                MOX::colony[COLONY::colony_handle].just_produced = COLONY_PRODUCTION_NONE;
+            }
+            MOX::current_screen = SCREEN_MAIN;
+            return;
+        }
 
         if (ERIC::Fast_Fade_Out_Needed_For_Colony_Palette()) {
             ERIC::Fast_Fade_Out();
