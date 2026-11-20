@@ -2288,7 +2288,7 @@ func _smoke_races_panel(shots: String) -> bool:
 	panel.command.connect(catch)
 	var picked_before: int = panel.picked
 	var results := {}
-	for action: String in ["AUDIENCE", "DECLARE WAR", "IGNORE", "REPORT"]:
+	for action: String in ["AUDIENCE", "DECLARE WAR", "IGNORE"]:
 		var b: Button = panel._buttons[action]
 		if b.disabled:
 			results[action] = "disabled"
@@ -2309,7 +2309,7 @@ func _smoke_races_panel(shots: String) -> bool:
 				break
 		results[action] = "%s for %s, others off %s, disarmed %s" % [sent.get("verb", "nothing"), sent.get("player", sent.get("screen", "?")),
 			others_off, panel.armed_action == ""]
-		var expected := {"AUDIENCE": "audience", "DECLARE WAR": "declare_war", "IGNORE": "toggle_ignore", "REPORT": "query"}
+		var expected := {"AUDIENCE": "audience", "DECLARE WAR": "declare_war", "IGNORE": "toggle_ignore"}
 		if String(sent.get("verb", "")) != expected[action] or panel.armed_action != "" or not others_off:
 			print("smoke: races action %s: %s" % [action, results[action]])
 			panel.command.disconnect(catch)
@@ -2329,9 +2329,28 @@ func _smoke_races_panel(shots: String) -> bool:
 		if r.contact and not r.eliminated:
 			report_target = int(r.player)
 			break
-	panel._act("REPORT", report_target)
+	# A met empire's REPORT tab (owner, 2026-11-20: down each card's side): one click opens it, its
+	# tab lit; all cards are one height, the portraits at it.
+	var heights := {}
+	var tabs: Array = []
+	for slot: Control in panel._slots.get_children():
+		heights[roundi(slot.size.y)] = true
+		for t: Node in slot.find_children("*", "Button", true, false):
+			if t.get_script() == preload("views/side_tab.gd"):
+				tabs.append(t)
+	print("smoke: races cards: heights %s, %d report tabs, panel width %.0f" % [heights.keys(), tabs.size(), panel.size.x])
+	if heights.size() != 1 or tabs.is_empty():
+		return false
+	(tabs[0] as Button).pressed.emit()
 	await get_tree().create_timer(1.5).timeout
 	var report: Control = panel._report
+	report_target = int(report.player) if report else -1
+	var tab_lit := false
+	for slot: Control in panel._slots.get_children():
+		for t: Node in slot.find_children("*", "Button", true, false):
+			if t.get_script() == preload("views/side_tab.gd") and (t as Button).button_pressed:
+				tab_lit = true
+	print("smoke: races report tab lit %s" % tab_lit)
 	var tech_rows: int = report._rows.get_child_count() if report else 0
 	var filters: int = report._filters.get_child_count() if report else 0
 	var report_rect: Rect2 = report.get_global_rect() if report else Rect2()

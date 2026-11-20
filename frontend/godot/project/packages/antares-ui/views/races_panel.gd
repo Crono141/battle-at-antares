@@ -17,7 +17,10 @@ signal command(dict: Dictionary)
 signal width_changed
 
 const Themes := preload("../themes.gd")
-const WIDTH := 430.0
+const WIDTH := 540.0 # wider (owner, 2026-11-20): each card's REPORT tab, its full-height portrait
+const TREATY_LINES := 4 # the most a card's treaty text has: treaty, research, trade, tribute
+const MISSION_HEIGHT := 24.0
+const REPORT_TAB_WIDTH := 30.0
 const MISSIONS := ["ESPIONAGE", "SABOTAGE", "HIDE"]
 const ELIMINATED_SIGN := 31 # races.lbx: the red Eliminated sign over a portrait
 const HOME := -1 # a spy strip's owner: the spies at home
@@ -29,7 +32,7 @@ var picked := -1
 ## The action armed (owner, 2026-11-20: every action in two clicks, the action then the empire,
 ## not the picked one): "AUDIENCE", "REPORT", "DECLARE WAR", "IGNORE", or "".
 var armed_action := ""
-const ACTION_LABELS := {"AUDIENCE": "AUDIENCE", "REPORT": "REPORT", "DECLARE WAR": "DECLARE WAR", "IGNORE": "IGNORE / LISTEN"}
+const ACTION_LABELS := {"AUDIENCE": "AUDIENCE", "DECLARE WAR": "DECLARE WAR", "IGNORE": "IGNORE / LISTEN"}
 
 var _slots: VBoxContainer
 var _bonuses: Label
@@ -84,11 +87,11 @@ func _ready() -> void:
 	_home_strip.grabbed.connect(_pick_up)
 	home.add_child(_home_strip)
 	var grid := GridContainer.new()
-	grid.columns = 2
+	grid.columns = 3 # AUDIENCE, DECLARE WAR, IGNORE / LISTEN in one row; REPORT is on each card
 	grid.add_theme_constant_override("h_separation", 6)
 	grid.add_theme_constant_override("v_separation", 6)
 	box.add_child(grid)
-	for pair in [["AUDIENCE", "Then click the empire to talk with"], ["REPORT", "Then click the empire for its report: its techs, ruler, spies and relations"],
+	for pair in [["AUDIENCE", "Then click the empire to talk with"],
 			["DECLARE WAR", "Then click the empire to declare war on (carried out next turn)"],
 			["IGNORE", "Then click the empire whose messages to ignore (one ignored already is listened to again)"]]:
 		var b := _button(pair[0], pair[1])
@@ -185,6 +188,31 @@ func _slot(r: Dictionary) -> Control:
 	row.add_theme_constant_override("separation", 8)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(row)
+	# Every card as tall as the fullest one can be (owner, 2026-11-20: portraits were sized by each
+	# card's own lines), the portrait and the bar at that height.
+	var card_height := _card_height()
+	# REPORT down the card's left side, as the screen's side tabs (owner, 2026-11-20): one click
+	# opens this empire's report beside the panel; again, or the report's X, closes it.
+	if met:
+		var tab: Button = preload("side_tab.gd").new()
+		tab.label = "REPORT"
+		tab.tooltip_text = "%s's report: its techs, ruler, spies and relations" % String(r.race)
+		tab.toggle_mode = true
+		tab.focus_mode = Control.FOCUS_NONE
+		tab.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		row.add_child(tab)
+		tab.custom_minimum_size = Vector2(REPORT_TAB_WIDTH, 0.0)
+		tab.set_pressed_no_signal(_report != null and _report.visible and int(_report.player) == p)
+		tab.pressed.connect(func():
+			if _report != null and _report.visible and int(_report.player) == p:
+				close_report()
+			else:
+				_act("REPORT", p))
+	else:
+		var spacer := Control.new()
+		spacer.custom_minimum_size = Vector2(REPORT_TAB_WIDTH, card_height)
+		spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(spacer)
 	# The ruler's portrait in the empire's colour.
 	var colors: Array = preload("../galaxy.gd").PLAYER_COLORS
 	var frame := PanelContainer.new()
@@ -196,7 +224,7 @@ func _slot(r: Dictionary) -> Control:
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(frame)
 	var portrait: TextureRect = preload("sprite_rect.gd").new()
-	portrait.custom_minimum_size = Vector2(84, 84)
+	portrait.custom_minimum_size = Vector2(card_height * 76.0 / 88.0, card_height) # RACES.LBX's 76x88
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -216,11 +244,12 @@ func _slot(r: Dictionary) -> Control:
 	var bar := _RelationBar.new()
 	bar.value = float(int(r.relations) + 100) / 200.0
 	bar.shown = met
-	bar.custom_minimum_size = Vector2(10, 84)
+	bar.custom_minimum_size = Vector2(10, card_height)
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(bar)
 	var info := VBoxContainer.new()
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.custom_minimum_size.y = card_height
 	info.add_theme_constant_override("separation", 2)
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(info)
@@ -249,6 +278,7 @@ func _slot(r: Dictionary) -> Control:
 		treaty.text += "   ·   War next turn"
 	treaty.add_theme_font_size_override("font_size", 13)
 	treaty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	treaty.size_flags_vertical = Control.SIZE_EXPAND_FILL # the room of four lines, the spies and missions at the bottom
 	info.add_child(treaty)
 	# Spies against this empire: their icons, the mission switch.
 	var spies := HBoxContainer.new()
@@ -270,7 +300,7 @@ func _slot(r: Dictionary) -> Control:
 		var b := _button(MISSIONS[m], "Their mission")
 		b.toggle_mode = true
 		b.add_theme_font_size_override("font_size", 11)
-		b.custom_minimum_size.y = 24
+		b.custom_minimum_size.y = MISSION_HEIGHT
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.set_pressed_no_signal(int(r.mission) == m)
 		Themes.glow(b)
@@ -321,8 +351,8 @@ func _act(key: String, player: int) -> void:
 			command.emit({"verb": "audience", "player": player, "_reply_to": "_after_command"})
 		"REPORT":
 			picked = player
-			show_races(result)
 			_open_report(player)
+			show_races(result) # the card's tab lit
 		"DECLARE WAR":
 			command.emit({"verb": "declare_war", "player": player, "_reply_to": "_after_command"})
 		"IGNORE":
@@ -345,6 +375,9 @@ func _open_report(player: int) -> void:
 				dict["_reply_to"] = "_report_" + String(dict["_reply_to"]).trim_prefix("_")
 			command.emit(dict))
 		add_child(_report)
+		_report.closed.connect(func():
+			if is_inside_tree() and not result.is_empty():
+				show_races(result)) # the card's tab unlit
 	_report.open_for(player, get_global_rect())
 
 
@@ -512,6 +545,16 @@ func close() -> void:
 	_arm("")
 	close_report()
 	super.close()
+
+
+## A card's height: its name, four treaty lines, the spy strip and the mission buttons, in the
+## theme's fonts (the same for every card, whatever it shows).
+func _card_height() -> float:
+	var name_font := get_theme_font("font", "Name")
+	var name_size := get_theme_font_size("font_size", "Name")
+	var text_font := get_theme_font("font", "Label")
+	var line := text_font.get_height(13) + float(get_theme_constant("line_spacing", "Label"))
+	return name_font.get_height(name_size) + line * TREATY_LINES + (_SpyStrip.ICON + 4.0) + MISSION_HEIGHT + 2.0 * 3.0
 
 
 func _button(text: String, tip: String) -> Button:
