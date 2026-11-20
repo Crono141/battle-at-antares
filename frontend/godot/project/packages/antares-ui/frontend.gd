@@ -995,11 +995,17 @@ func _auto_todo_step() -> void:
 	if not _todo_may_open():
 		return
 	var now := Time.get_ticks_msec() / 1000.0
+	if _landing_followup_since >= 0.0:
+		if now - _landing_followup_since < 15.0:
+			return
+		_landing_followup_since = -1.0 # never came: don't hold the to-dos for ever
 	if not _todo_auto_last.is_empty():
 		if now - float(_todo_auto_last.at) < TODO_AUTO_SETTLE:
 			return
 		var panes_free := not _view("system_pane").visible and not _view("colony_pane").visible and not _view("build_pane").visible
-		var build_done: bool = String(_todo_auto_last.item.get("kind", "")) == "build" and not _view("build_pane").visible \
+		# A build item, or a colony base whose landing opened the new colony's build list: on at once
+		# when that list is closed with the queue filled.
+		var build_done: bool = String(_todo_auto_last.item.get("kind", "")) in ["build", "colonize"] and not _view("build_pane").visible \
 			and int(_todo.get("open", 0)) < int(_todo_auto_last.open)
 		if not panes_free and not build_done:
 			return
@@ -2744,6 +2750,7 @@ func _on_scene_request(id: int, request: Dictionary) -> void:
 	var state: Dictionary = request.get("scene_state", request)
 	_place_scene(state)
 	if String(state.get("scene", "")) == "landing" and not _scene_window.is_open():
+		_landing_followup_since = Time.get_ticks_msec() / 1000.0 # until the new colony's panes are up
 		_prepare_landed_colony(int(state.get("star", -1)), int(state.get("colony", -1)), state)
 	_scene_window.show_page(id, request)
 
@@ -2752,14 +2759,23 @@ func _on_scene_request(id: int, request: Dictionary) -> void:
 ## click that ends the landing arrives at the build decision.
 func _open_landed_colony(star: int, colony: int, with_build := true) -> void:
 	if star < 0 or colony < 0:
+		_landing_followup_since = -1.0
 		return
 	var waited := 0.0
 	while native_screen != Screens.MAIN and waited < 10.0:
 		await get_tree().create_timer(0.1).timeout
 		waited += 0.1
 	if native_screen != Screens.MAIN:
+		_landing_followup_since = -1.0
 		return
-	_open_colony_at(star, colony, with_build)
+	await _open_colony_at(star, colony, with_build)
+	_landing_followup_since = -1.0
+
+
+## A landing's new colony and its build list on their way (since this time; -1 none): the next
+## auto to-do waits for them (owner, 2026-11-20: a second colony base's question came up beside the
+## first one's build list, which then stayed stuck behind it).
+var _landing_followup_since := -1.0
 
 
 ## A colony with its system (and its build list): the colony pane first, so the system's one
@@ -3814,6 +3830,7 @@ func _smoke_native() -> void:
 				return
 			var open_items: Array = (_todo.get("items", []) as Array).filter(func(i: Dictionary) -> bool: return not i.get("done", false))
 			var seen: Array = []
+			var held := false
 			var waited := 0.0
 			while waited < 40.0 and not _todo_auto_listed:
 				await get_tree().create_timer(0.3).timeout
@@ -3835,6 +3852,15 @@ func _smoke_native() -> void:
 						await get_tree().create_timer(0.5).timeout
 					if _view("system_pane").visible:
 						_view("system_pane").close()
+					# A landing's new colony still opening holds the next item (owner, 2026-11-20:
+					# a second colony base's question came up beside the first one's build list).
+					if seen.size() == 1:
+						var held_count: int = _todo_auto_opened.size()
+						_landing_followup_since = Time.get_ticks_msec() / 1000.0
+						await get_tree().create_timer(1.5).timeout
+						waited += 1.5
+						held = _todo_auto_opened.size() == held_count
+						_landing_followup_since = -1.0
 					# A window the item opened (a discovery): answered.
 					for i in 10:
 						await get_tree().create_timer(0.3).timeout
@@ -3845,10 +3871,10 @@ func _smoke_native() -> void:
 			var unique := {}
 			for t: String in seen:
 				unique[t] = true
-			print("smoke: to-do auto: %d open after the turns, opened in turn %s; list at the end %s (%d left)" % [open_items.size(), seen,
-				listed, int(_todo.get("open", 0))])
+			print("smoke: to-do auto: %d open after the turns, opened in turn %s; list at the end %s (%d left); held during a landing's follow-up %s" % [
+				open_items.size(), seen, listed, int(_todo.get("open", 0)), held])
 			todo_auto = auto_before
-			if seen.size() != open_items.size() or unique.size() != seen.size() or (int(_todo.get("open", 0)) > 0 and not listed):
+			if not held or seen.size() != open_items.size() or unique.size() != seen.size() or (int(_todo.get("open", 0)) > 0 and not listed):
 				await host.smoke_fail("the to-dos were not addressed one after another")
 				return
 			game.request_game_quit()
