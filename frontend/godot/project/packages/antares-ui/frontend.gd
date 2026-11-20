@@ -2227,6 +2227,20 @@ func _smoke_design_panel(shots: String) -> bool:
 	_on_view_command({"verb": "open", "screen": Screens.DESIGN, "slot": slot}, designs)
 	await get_tree().create_timer(1.2).timeout
 	var panel := _view("design_panel")
+	# Titans and Doom Stars only with their tech (owner, 2026-11-20): the size menu offers only the
+	# available hulls, and the list shows no design on a hull that isn't.
+	var available: Array = (panel.design.get("sizes", []) as Array).filter(func(z: Dictionary) -> bool: return z.get("available", true)).map(
+		func(z: Dictionary) -> int: return int(z.size))
+	var listed_hulls: Array = (before.get("designs", []) as Array).filter(func(d: Dictionary) -> bool: return d.get("buildable", true)).map(
+		func(d: Dictionary) -> int: return int(d.hull))
+	var menu_sizes: Array = []
+	for i in panel._size.item_count:
+		menu_sizes.append(panel._size.get_item_id(i))
+	print("smoke: design: hulls available %s, size menu %s, listed designs' hulls %s" % [available, menu_sizes, listed_hulls])
+	for hull: int in listed_hulls + menu_sizes:
+		if not hull in available and hull != int(panel.design.get("size", -1)):
+			print("smoke: design: hull %d shown without its tech" % hull)
+			return false
 	print("smoke: design: panel %s, '%s' %s, space %d/%d, cost %d, %d weapons, %d specials, list %s" % [panel.visible,
 		panel.design.get("name", ""), panel.design.get("size", -1), int(panel.design.get("space_used", 0)), int(panel.design.get("hull_space", 0)),
 		int(panel.design.get("cost", 0)), (panel.design.get("weapons", []) as Array).size(), (panel.design.get("specials", []) as Array).size(),

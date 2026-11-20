@@ -285,9 +285,11 @@ func show_design(result: Dictionary) -> void:
 	if not _name.has_focus():
 		_name.text = String(result.name)
 	_size.clear()
+	# Titans and Doom Stars once their construction is researched (owner, 2026-11-20).
 	for s: Dictionary in result.sizes:
-		_size.add_item("%s · %d space" % [String(s.name), int(s.space)], int(s.size))
-	_size.select(int(result.size))
+		if s.get("available", true) or int(s.size) == int(result.size):
+			_size.add_item("%s · %d space" % [String(s.name), int(s.space)], int(s.size))
+	_size.select(_size.get_item_index(int(result.size)))
 	_combat.text = "BEAM ATT +%d · BEAM DEF %+d · MISSILE EVASION %d%%" % [int(result.beam_attack), int(result.beam_defense), int(result.missile_evasion)]
 	_picture.bind(art)
 	_picture.show_sprite("SHIPS.LBX", int(result.picture))

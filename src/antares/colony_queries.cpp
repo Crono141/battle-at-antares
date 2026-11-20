@@ -1009,6 +1009,13 @@ namespace antares::commands::internal {
                     units.Append_Object().Bool("separator", true);
                     continue;
                 }
+                // A Titan or Doom Star design without its tech isn't offered (the original listed
+                // it and refused it).
+                if (COLBLDG::Colony_Production_Is_Ship_Design(id) &&
+                    !Hull_Researched(MOX::colony[c].owner,
+                        MOX::player[MOX::colony[c].owner].ship_designs[COLBLDG::Colony_Production_Ship_Design_Index(id)].size)) {
+                    continue;
+                }
                 Build_Item(c, id, units.Append_Object());
             }
             Refit_Options(c, out.Add_Object("refit"));

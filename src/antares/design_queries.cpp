@@ -210,6 +210,7 @@ namespace antares::commands::internal {
                 size.Int("size", i);
                 size.Str("name", Utf8(TECHDATA::hull_data[i].name, 40));
                 size.Int("space", DESIGN::Total_Design_Space());
+                size.Bool("available", Hull_Researched(MOX::PLAYER_NUM, i));
             }
             d.ship_size = size_now;
             s_out drive = out.Add_Object("drive");
@@ -349,6 +350,10 @@ namespace antares::commands::internal {
             if (args.Int("size", &size)) {
                 if (size < 0 || size >= SHIP_SIZE_COUNT) {
                     out.Fail("bad_args", "size: 0-5");
+                    return;
+                }
+                if (!Hull_Researched(MOX::PLAYER_NUM, (int16_t)size)) {
+                    out.Fail("refused", "that hull's construction isn't researched");
                     return;
                 }
                 if (s_work.ship_size != size) {
