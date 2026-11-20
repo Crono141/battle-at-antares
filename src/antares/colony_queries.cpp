@@ -765,6 +765,117 @@ namespace antares::commands::internal {
             }
         }
 
+        // colony_landscape {colony} (owner, 2026-11-20: VIEW COLONY natively, beside the colony
+        // pane): what the colony screen's landscape view draws (Draw_Landscape_View), back to front
+        // as it draws it, for the frontend to compose: the backdrop (COLONY2.LBX 49), the planet
+        // picture, the roads, each cell's vegetation and building, the satellites. The layout is
+        // the screen's own (Make_Bldg_Array_For_Colony: the colony index as its seed, the game's
+        // seed restored), worked out in the screen's tables, which are put back afterwards.
+        // Positions are in the 640x480 screen; "bottom" layers are placed by their bottom centre.
+        // Their art goes under the colony palette ("@<planet picture>", sprites.cpp).
+        void Query_Colony_Landscape(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            if (!args.Int("colony", &colony_id)) {
+                out.Fail("bad_args", "colony: one of the player's colonies");
+                return;
+            }
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            const int16_t c = (int16_t)colony_id;
+            const s_colony& colony = MOX::colony[c];
+            if (colony.outpost_flag != 0) {
+                out.Fail("refused", "an outpost has no landscape");
+                return;
+            }
+            // The screen's tables and the globals its layout reads, kept to be put back.
+            s_colony_bldg saved_bldgs[6];
+            int16_t saved_satellites[10];
+            s_coldraw_road saved_roads[7][7];
+            s_coldraw_veggie_cell saved_veggies[6][6];
+            memcpy(saved_bldgs, COLONY::colony_bldgs, sizeof(saved_bldgs));
+            memcpy(saved_satellites, COLONY::colony_satellites, sizeof(saved_satellites));
+            memcpy(saved_roads, COLDRAW::road_list, sizeof(saved_roads));
+            memcpy(saved_veggies, COLDRAW::veggie_list, sizeof(saved_veggies));
+            const int16_t saved_screen_data = MOX::screen_data;
+            const int16_t saved_orbit = COLONY::orbit_temp;
+            const int16_t saved_handle = COLONY::colony_handle;
+            const uint32_t saved_seed = game_random::Get_Random_Seed();
+
+            const s_planet_data& planet = MOX::planet[colony.planet];
+            MOX::screen_data = planet.star_index;
+            COLONY::orbit_temp = (int16_t)planet.orbit;
+            COLONY::colony_handle = c;
+            COLDRAW::Load_Road_List_Anims();
+            COLONY::Make_Bldg_Array_For_Colony(c, 0);
+
+            const int32_t backdrop = (int8_t)planet.climate_bg_type + (uint8_t)colony.climate * 3; // C_Anims(0)
+            const std::string palette = "@" + std::to_string(backdrop);
+            out.Int("colony", c);
+            out.Int("width", 640);
+            out.Int("height", 480);
+            s_out layers = out.Add_List("layers");
+            auto layer = [&](const std::string& lbx, int32_t entry, int32_t x, int32_t y, const char* anchor) {
+                s_out item = layers.Append_Object();
+                item.Str("lbx", lbx);
+                item.Int("entry", entry);
+                item.Int("x", x);
+                item.Int("y", y);
+                item.Str("anchor", anchor);
+            };
+            layer("COLONY2.LBX", 0x31, 0, 0, "top_left");
+            layer("PLANETS.LBX", backdrop, 0, 0, "top_left");
+            static const uint8_t k_road_order[4] = {3, 2, 0, 1}; // Draw_Road_List
+            for (int16_t i = 0; i < 49; ++i) {
+                int16_t y = 0;
+                int16_t x = 0;
+                COLDRAW::Road_Back_To_Front(i, &y, &x);
+                for (const uint8_t dir : k_road_order) {
+                    if (COLDRAW::road_list[y][x].connections[dir] != 0) {
+                        layer("COLROADS.LBX" + palette, COLDRAW::road_list[y][x].anims[dir], 0, 0, "top_left");
+                    }
+                }
+            }
+            for (int16_t i = 0; i < 36; ++i) { // Draw_Colony_Bldgs: each cell's vegetation, then its building
+                int16_t a = 0;
+                int16_t b = 0;
+                COLONY::Bldg_Back_To_Front(i, &a, &b);
+                const s_coldraw_veggie_cell& veggie = COLDRAW::veggie_list[a][b];
+                for (int k = 0; k < 2; ++k) {
+                    if (veggie.sprites[k].draw_flag != 0) {
+                        layer("COLVEGGI.LBX" + palette, veggie.anim_entries[k], veggie.sprites[k].screen_x, veggie.sprites[k].screen_y, "bottom");
+                    }
+                }
+                const int32_t building = COLONY::colony_bldgs[a].buildings[b];
+                if (building != 0) {
+                    // COLBCACH::Cache_Load_Bldg: bldg<n>.lbx, the cell's frame of the building's ten.
+                    const int32_t type = building - BUILDING_ALIEN_CONTROL_CENTER;
+                    const int32_t entry = COLONY::Bldg_Coords_To_Effective_Frame(a, b) + (type % 10) * 36;
+                    layer("BLDG" + std::to_string(type / 10) + ".LBX" + palette, entry, 0, 0, "top_left");
+                }
+            }
+            for (int16_t i = 0; i < 10; ++i) { // Draw_Colony_Satellites
+                const int16_t satellite = COLONY::colony_satellites[i];
+                const int16_t picture = satellite >= 0 ? COLONY::Satellite_Anim_Pic(satellite) : (int16_t)-1;
+                if (picture < 0) {
+                    continue;
+                }
+                layer("COLONY.LBX", picture + 9, (i % 2 == 0 ? 1 : -1) * i * 50 + 295, 162, "top_left");
+            }
+
+            memcpy(COLONY::colony_bldgs, saved_bldgs, sizeof(saved_bldgs));
+            memcpy(COLONY::colony_satellites, saved_satellites, sizeof(saved_satellites));
+            memcpy(COLDRAW::road_list, saved_roads, sizeof(saved_roads));
+            memcpy(COLDRAW::veggie_list, saved_veggies, sizeof(saved_veggies));
+            MOX::screen_data = saved_screen_data;
+            COLONY::orbit_temp = saved_orbit;
+            COLONY::colony_handle = saved_handle;
+            game_random::Set_Random_Seed(saved_seed);
+        }
+
         // A building scrapped from the colony pane (COLONY::Scrap_Building, as clicking it on the
         // landscape does): the game's question with the refund, its once-a-turn rule and message.
         void Sell_Building(int16_t, const s_args& args, s_out& out) {
@@ -1246,6 +1357,7 @@ namespace antares::commands::internal {
         table->push_back({"move_colonist", e_kind::command, galaxy, 0, "colony, pop or pops (a cluster), job (0-2)", Move_Colonist});
         table->push_back({"send_colonists", e_kind::command, galaxy, 0, "from, pop, to, job (-1: any)", Send_Colonists});
         table->push_back({"transport_targets", e_kind::query, ANY_SCREEN, 1, "colony, pop", Query_Transport_Targets});
+        table->push_back({"colony_landscape", e_kind::query, galaxy, 1, "colony", Query_Colony_Landscape});
         table->push_back({"sell_building", e_kind::command, galaxy, 0, "colony, building", Sell_Building});
         table->push_back({"buy", e_kind::command, galaxy, 0, "colony", Buy});
         table->push_back({"set_occupation", e_kind::command, galaxy, 0, "colony, annihilate", Set_Occupation});

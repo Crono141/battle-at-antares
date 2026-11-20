@@ -167,6 +167,23 @@ DOCTEST_TEST_CASE("the occupation policy: shown for captured people, set by set_
     TEST_COLONY::captured_people = false;
 }
 
+// VIEW COLONY natively (2026-11-20): the landscape's layers back to front, the screen's tables put
+// back afterwards.
+DOCTEST_TEST_CASE("colony_landscape lists the landscape view's layers and restores the screen's tables") {
+    Set_Up_();
+    c_planets_[0].climate_bg_type = 1;
+    c_colonies_[0].climate = 2; // the backdrop: PLANETS.LBX 1 + 2 * 3 = 7
+    memset(COLONY::colony_bldgs, 0, sizeof(COLONY::colony_bldgs));
+    const std::string land = Run_("{\"verb\":\"query\",\"what\":\"colony_landscape\",\"colony\":0}");
+    DOCTEST_CHECK(Has_(land, "\"layers\":[{\"lbx\":\"COLONY2.LBX\",\"entry\":49,\"x\":0,\"y\":0,\"anchor\":\"top_left\"},{\"lbx\":\"PLANETS.LBX\",\"entry\":7"));
+    DOCTEST_CHECK(Has_(land, "{\"lbx\":\"COLROADS.LBX@7\",\"entry\":7,\"x\":0,\"y\":0,\"anchor\":\"top_left\"}"));
+    DOCTEST_CHECK(Has_(land, "{\"lbx\":\"COLVEGGI.LBX@7\",\"entry\":3,\"x\":100,\"y\":200,\"anchor\":\"bottom\"}"));
+    // The Automated Factory (id 7): bldg0.lbx, cell (0, 0), its ten's seventh: 0 + 6 * 36.
+    DOCTEST_CHECK(Has_(land, "{\"lbx\":\"BLDG0.LBX@7\",\"entry\":216,"));
+    DOCTEST_CHECK(COLONY::colony_bldgs[0].buildings[0] == 0); // put back
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"colony_landscape\",\"colony\":1}"), "bad_args")); // not the player's
+}
+
 DOCTEST_TEST_CASE("the help query reads a help record by topic (the right click's help)") {
     Set_Up_();
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"help\"}"), "bad_args"));

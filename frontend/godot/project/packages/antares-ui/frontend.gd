@@ -440,6 +440,9 @@ func _on_native_screen(screen: int) -> void:
 		_end_relocating()
 		_set_measuring(false)
 		_end_relocation_pick(false)
+		var landscape_view: Control = _views.get("colony_landscape")
+		if landscape_view != null and landscape_view.visible:
+			landscape_view.close()
 		if screen == Screens.SHOW_COMMAND_POINTS:
 			# Opened as the game's screen (from elsewhere): the same drop-down, closing it closes
 			# the screen.
@@ -812,6 +815,9 @@ func _reflow_open_panes() -> void:
 		await get_tree().process_frame
 		if _views.build_pane.visible:
 			_place_build_pane()
+	if _views.has("colony_landscape") and _views.colony_landscape.visible:
+		await get_tree().process_frame
+		_place_landscape()
 
 
 ## Puts a theme on every native view (the Options flyout's selector calls this).
@@ -879,6 +885,10 @@ func _view(scene_name: String) -> Control:
 			view.scale_auto_changed.connect(set_ui_scale_automatic)
 		if view.has_signal("change_build"):
 			view.change_build.connect(_open_build_pane)
+		if view.has_signal("landscape_toggled"):
+			view.landscape_toggled.connect(_toggle_landscape)
+		if view.has_signal("colony_shown"):
+			view.colony_shown.connect(_on_colony_shown)
 		if view.has_signal("committed"):
 			view.committed.connect(func(): _view("colony_pane").refresh())
 		if view.has_signal("colony_chosen"):
@@ -917,6 +927,8 @@ func _view(scene_name: String) -> Control:
 			view.show_todo_auto(todo_auto)
 			view.show_themes(_themes, theme_id)
 			view.show_scale(ui_scale, max_ui_scale(), MIN_UI_SCALE, is_ui_scale_automatic())
+		if scene_name == "build_pane": # the colony's landscape moves aside for it, and back
+			view.visibility_changed.connect(func(): _place_landscape.call_deferred())
 		if scene_name in ["galaxy_bar", "map_controls"]: # the frame's joints follow their pockets
 			view.item_rect_changed.connect(_frame_view.queue_redraw)
 			view.visibility_changed.connect(_frame_view.queue_redraw)
@@ -1331,8 +1343,14 @@ func _on_view_closed(scene_name: String) -> void:
 		galaxy.redraw()
 	elif scene_name == "colony_pane":
 		_view("build_pane").close_keeping()
+		var landscape_view: Control = _views.get("colony_landscape")
+		if landscape_view != null and landscape_view.visible:
+			landscape_view.close()
+		_landscape_hidden_for = -1
 		if _panel_star >= 0 and _view("system_pane").visible:
 			_frame_system(_panel_star) # the free area widened again
+	elif scene_name == "colony_landscape":
+		_landscape_hidden_for = int(_views.colony_landscape.colony_id) # hidden by hand: not opened again for it
 	elif scene_name == "design_list" or scene_name == "design_panel":
 		_view("side_tabs").show_open("designs", false)
 	elif scene_name in SIDE_PANELS.values():
@@ -3399,6 +3417,98 @@ func _clear_map_controls() -> void:
 ## Beside the colony pane, clear of the side tabs (Glass keeps them on the screen's right edge,
 ## beside the panes); again when the window changes size (owner, 2026-11-14: windowed, it stayed
 ## under the side tabs).
+## The colony's landscape (owner, 2026-11-20): a 4:3 frame as tall as the colony pane, after it,
+## or after the build pane when that is out (pushed right); against the side tabs the build pane
+## overlaps it by the difference. On screens with room for it beside the colony pane it opens with
+## the pane; VIEW COLONY shows or hides it; hidden by hand it stays hidden for that colony.
+var _landscape_hidden_for := -1
+
+
+func _toggle_landscape(colony_id: int) -> void:
+	var land := _view("colony_landscape")
+	if land.visible and int(land.colony_id) == colony_id:
+		land.close()
+		return
+	_landscape_hidden_for = -1
+	_show_landscape(colony_id)
+
+
+func _on_colony_shown(colony_id: int) -> void:
+	var land: Control = _views.get("colony_landscape")
+	if land != null and land.visible:
+		if int(land.colony_id) != colony_id:
+			land.open(colony_id)
+		_place_landscape.call_deferred()
+	elif colony_id != _landscape_hidden_for and _landscape_fits_beside():
+		_show_landscape(colony_id)
+
+
+func _show_landscape(colony_id: int) -> void:
+	var land := _view("colony_landscape")
+	land.open(colony_id)
+	_place_landscape.call_deferred()
+
+
+## The colony pane's resting rect (not where it is mid-slide).
+func _colony_pane_rest() -> Rect2:
+	var pane := _view("colony_pane")
+	return Rect2(Vector2(float(pane._shown_left), pane.get_global_rect().position.y), Vector2(maxf(pane.size.x, float(pane.WIDTH)), pane.size.y))
+
+
+## Where the landscape may reach: the side tabs' left edge, less the gap.
+func _landscape_right_limit() -> float:
+	var land := _view("colony_landscape")
+	var gap := maxf(get_theme_constant_from(land, "pane_gap"), 6.0)
+	var right := get_viewport().get_visible_rect().size.x - gap
+	var tabs: Control = _views.get("side_tabs")
+	if tabs != null and tabs.visible:
+		for b in tabs.find_children("*", "Button", true, false):
+			if (b as Control).is_visible_in_tree():
+				right = minf(right, (b as Control).get_global_rect().position.x - gap)
+	return right
+
+
+## The whole landscape fits between the colony pane and the side tabs (it then opens by itself).
+func _landscape_fits_beside() -> bool:
+	var land := _view("colony_landscape")
+	var pane := _colony_pane_rest()
+	if pane.size.y <= 0.0:
+		return false
+	var gap := maxf(get_theme_constant_from(land, "pane_gap"), 6.0)
+	return pane.end.x + gap + land.frame_size_for(pane.size.y).x <= _landscape_right_limit()
+
+
+func _place_landscape() -> void:
+	var land: Control = _views.get("colony_landscape")
+	if land == null or not land.visible:
+		return
+	var pane := _colony_pane_rest()
+	var gap := maxf(get_theme_constant_from(land, "pane_gap"), 6.0)
+	var right := _landscape_right_limit()
+	var frame: Vector2 = land.frame_size_for(pane.size.y)
+	var room := right - (pane.end.x + gap)
+	if frame.x > room:
+		# Narrower screens: as wide as there is room for beside the colony pane (4:3 kept), at
+		# least 480; less than that, over the colony pane's right side.
+		frame = land.frame_size_for_width(maxf(room, 480.0))
+	var left := pane.end.x + gap
+	var build := _view("build_pane")
+	if build.visible:
+		left = float(build._shown_left) + build.size.x + gap
+	var x := clampf(minf(left, right - frame.x), 8.0, right - frame.x)
+	land.size = frame
+	land.position.y = pane.position.y
+	if land.position.x == 0.0 or not land.is_visible_in_tree():
+		land.position.x = x
+	else:
+		var tween := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tween.tween_property(land, "position:x", x, 0.25)
+	land.move_to_front()
+	if build.visible:
+		build.move_to_front() # over it where it overlaps
+	_raise_chrome()
+
+
 func _place_build_pane() -> void:
 	var pane := _view("build_pane")
 	var colony_pane: Control = _view("colony_pane")
@@ -3415,6 +3525,7 @@ func _place_build_pane() -> void:
 	# over it on the owner's screen). Sliding moves it, it doesn't resize it.
 	var colony_end := float(colony_pane._shown_left) + maxf(colony_pane.size.x, float(colony_pane.WIDTH))
 	pane.place_at(colony_end + gap, right)
+	_place_landscape.call_deferred() # pushed right by the build pane
 
 
 func _on_pane_planet(planet_id: int) -> void:
@@ -3771,6 +3882,64 @@ func _smoke_native() -> void:
 			print("smoke: pane after a tall frame mid-slide: %s (settled %s)" % [pane.get_rect(), settled])
 			if pane.size.y > limit or pane.position.y < 0.0:
 				await host.smoke_fail("the system pane stayed stretched after a tall frame")
+				return
+			game.request_game_quit()
+			return
+		if arg == "--landscape":
+			# VIEW COLONY natively (owner, 2026-11-20): on a screen with room, the landscape opens
+			# with the colony pane, after it; CHANGE's build pane pushes it right; VIEW COLONY
+			# hides and shows it.
+			var window_before := get_window().size
+			get_window().size = Vector2i(1920, 700)
+			await get_tree().create_timer(0.6).timeout
+			var source := {}
+			var best := -1
+			for c in 64:
+				var data: Dictionary = await _query_args({"what": "colony", "colony": c})
+				if data.get("ok", false) and not data.get("outpost", false) and (data.get("buildings", []) as Array).size() > best:
+					best = (data.get("buildings", []) as Array).size()
+					source = data
+			_open_colony_at(int(source.star), int(source.colony), false)
+			await get_tree().create_timer(2.5).timeout
+			var land: Control = _views.get("colony_landscape")
+			var pane := _view("colony_pane")
+			var shown_by_itself: bool = land != null and land.visible
+			var layers: int = (land.landscape.get("layers", []) as Array).size() if land else 0
+			var beside: bool = land != null and land.get_global_rect().position.x >= pane.get_global_rect().end.x - 1.0
+			var rect_alone: Rect2 = land.get_global_rect() if land else Rect2()
+			print("smoke: landscape for colony %d (%d buildings): shown by itself %s, %d layers, at %s beside the pane %s (pane ends %.0f), fits %s" % [
+				int(source.colony), best, shown_by_itself, layers, rect_alone, beside, pane.get_global_rect().end.x, _landscape_fits_beside()])
+			if shots != "":
+				await host.shot(shots + "/native-landscape.png")
+			_open_build_pane(int(source.colony), false)
+			await get_tree().create_timer(1.5).timeout
+			var build := _view("build_pane")
+			var rect_build: Rect2 = land.get_global_rect()
+			var pushed: bool = rect_build.position.x > rect_alone.position.x + 1.0
+			var over_tabs: bool = rect_build.end.x > _landscape_right_limit() + 1.0
+			print("smoke: landscape with the build pane: at %s (pushed %s), build pane %s, landscape over the side tabs %s" % [rect_build, pushed,
+				build.get_global_rect(), rect_build.end.x > _landscape_right_limit() + 1.0])
+			if shots != "":
+				await host.shot(shots + "/native-landscape-build.png")
+			build.cancel()
+			await get_tree().create_timer(1.0).timeout
+			var back: bool = absf(land.get_global_rect().position.x - rect_alone.position.x) < 2.0
+			pane.landscape_toggled.emit(int(source.colony)) # VIEW COLONY: hidden
+			await get_tree().create_timer(0.3).timeout
+			var hidden_now: bool = not land.visible
+			pane.refresh() # shown again: stays hidden for it
+			await get_tree().create_timer(1.0).timeout
+			var stays_hidden: bool = not land.visible
+			pane.landscape_toggled.emit(int(source.colony)) # VIEW COLONY: shown
+			await get_tree().create_timer(1.0).timeout
+			var shown_again: bool = land.visible
+			print("smoke: landscape back after the build pane %s; VIEW COLONY hid it %s, stayed hidden %s, showed it again %s" % [back, hidden_now,
+				stays_hidden, shown_again])
+			get_window().size = window_before
+			await get_tree().create_timer(0.5).timeout
+			if not shown_by_itself or layers < 3 or not beside or not pushed or not back or not hidden_now or not stays_hidden or not shown_again \
+					or over_tabs:
+				await host.smoke_fail("the colony landscape did not open, move or toggle as it should")
 				return
 			game.request_game_quit()
 			return

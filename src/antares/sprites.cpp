@@ -322,6 +322,23 @@ namespace antares::sprites {
                 Game_Palette(1, palette_rgb);
             }
             Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx.rfind("BLDG", 0) == 0 || lbx == "COLROADS.LBX" || lbx == "COLVEGGI.LBX") {
+            // The colony's landscape (owner, 2026-11-20: VIEW COLONY natively): the colony screen's
+            // palette as Update_Colony_Palette sets it, FONTS.LBX palette 1 under the planet
+            // picture's colours ("@N": PLANETS.LBX entry N, the colony's backdrop), then the
+            // entry's own.
+            if (!Declared_Palette_Rgb(lbx, entry, palette_rgb)) {
+                Game_Palette(1, palette_rgb);
+            }
+            if (palette_entry >= 0) {
+                std::vector<uint64_t> planet_palette;
+                size_t planet_size = 0;
+                if (Read_Entry("PLANETS.LBX", palette_entry, &planet_palette, &planet_size)) {
+                    Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(planet_palette.data()), planet_size, palette_rgb);
+                }
+                palette_entry = -1; // not an entry of this file
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
         } else if (lbx == "RACESEL.LBX") {
             // The race select screen's pictures (the Info panel's portrait): the declared palette,
             // then the entry's own colours over it, as animate::Draw applies them (without them the

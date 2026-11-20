@@ -407,3 +407,39 @@ namespace COLCALC {
         return 0;
     }
 } // namespace COLCALC
+
+// The colony's landscape (colony_landscape, 2026-11-20): the screen's tables, and a layout with
+// one building, one road and one plant.
+namespace COLONY {
+    s_colony_bldg colony_bldgs[6] = {};
+    int16_t colony_satellites[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    void __cdecl Make_Bldg_Array_For_Colony(int16_t, uint8_t) {
+        memset(colony_bldgs, 0, sizeof(colony_bldgs));
+        colony_bldgs[0].buildings[0] = BUILDING_AUTOMATED_FACTORY;
+        COLDRAW::road_list[0][0].connections[0] = 1;
+        COLDRAW::road_list[0][0].anims[0] = 7;
+        COLDRAW::veggie_list[1][1].sprites[0].draw_flag = 1;
+        COLDRAW::veggie_list[1][1].anim_entries[0] = 3;
+        COLDRAW::veggie_list[1][1].sprites[0].screen_x = 100;
+        COLDRAW::veggie_list[1][1].sprites[0].screen_y = 200;
+    }
+    void __cdecl Bldg_Back_To_Front(int16_t i, int16_t* a, int16_t* b) {
+        *a = (int16_t)(i / 6);
+        *b = (int16_t)(i % 6);
+    }
+    int16_t __cdecl Bldg_Coords_To_Effective_Frame(int16_t x, int32_t y) {
+        return (int16_t)(y * 6 + x);
+    }
+} // namespace COLONY
+
+namespace COLDRAW {
+    s_coldraw_road road_list[7][7] = {};
+    s_coldraw_veggie_cell veggie_list[6][6] = {};
+    void __cdecl Load_Road_List_Anims() {
+        memset(road_list, 0, sizeof(road_list));
+    }
+    void __cdecl Road_Back_To_Front(int16_t index, int16_t* row, int16_t* col) {
+        *row = (int16_t)(index / 7);
+        *col = (int16_t)(index % 7);
+    }
+} // namespace COLDRAW

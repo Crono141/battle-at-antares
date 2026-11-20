@@ -14,7 +14,8 @@ extends PanelContainer
 ## (the game asks first; a second BUY un-buys). CHANGE slides out the build pane (WP3.4b);
 ## TRANSPORT COLONISTS with colonists on the pointer lists the colonies they can go to
 ## (`transport_targets`: population, planet, ETA and why not) and a click sends them there
-## (`send_colonists`, the game's questions); VIEW COLONY opens the colony's landscape alone
+## (`send_colonists`, the game's questions); VIEW COLONY shows or hides the colony's landscape
+## beside the pane (colony_landscape.gd); before, it opened the original screen's landscape alone
 ## (`open_colony` with `landscape`). A building is sold with a click (`sell_building`, the game's
 ## question) and explained with a right click (the original's help text).
 
@@ -24,6 +25,10 @@ signal closed
 signal transported(count: int)
 ## CHANGE: the build pane opens on this colony (`bought`: its front item is bought).
 signal change_build(colony_id: int, bought: bool)
+## VIEW COLONY (owner, 2026-11-20): the frontend shows or hides the colony's landscape beside it.
+signal landscape_toggled(colony_id: int)
+## A colony shown (opened, or another one): the landscape follows, or opens by itself on wide screens.
+signal colony_shown(colony_id: int)
 
 const Themes := preload("../themes.gd")
 const SLIDE_TIME := 0.25
@@ -130,7 +135,7 @@ func _ready() -> void:
 		_info_popup = preload("info_popup.gd").open(self, $Scroll/Box/Transport, "Transport colonists",
 			"Click the colonists to move first, then TRANSPORT COLONISTS: the colonies they can go to are listed."))
 	$Scroll/Box/Transport.tooltip_text = "Click colonists first, then this: the colonies they can go to, with their ETA"
-	$Scroll/Box/View.pressed.connect(_open_landscape)
+	$Scroll/Box/View.pressed.connect(func(): landscape_toggled.emit(colony_id))
 	# The right click's help on the colony screen's parts (ERICHELP::colony_screen_help_list).
 	name_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	population.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -222,11 +227,8 @@ func show_colony(result: Dictionary) -> void:
 	_fill($Scroll/Box/Buildings, _buildings_list())
 	if not visible:
 		_slide(true)
-
-
-## VIEW COLONY: the colony's landscape alone, with the original RETURN button.
-func _open_landscape() -> void:
-	command.emit({"verb": "open_colony", "planet": int(colony.get("planet", -1)), "landscape": true})
+	if not bool(result.get("outpost", false)):
+		colony_shown.emit(colony_id)
 
 
 # ---- Rows ----
