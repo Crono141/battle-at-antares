@@ -119,15 +119,23 @@ static func see_through(pane: Control, pane_alpha := 0.62, frame_alpha := 0.55) 
 			fade.call(node))
 
 
-## A layout setting of the player's (a split, a width), or `default` when none is saved.
 ## Moves a pane sideways by its left and right offsets only. Setting `position` rewrites all four
 ## offsets from the pane's current rect, so a pane that was briefly taller than the screen (its
 ## content grew for a frame) stayed that tall for good (owner, 2026-11-19: the system pane
 ## stretched off the screen after some system/planet/fleet clicking).
+## The two edges move one after the other, so the pane is resized in between; panes that keep
+## their right edge in place on a resize call this again from there, hence the guard.
 static func move_x(pane: Control, x: float) -> void:
+	if pane.has_meta("_moving_x"):
+		return
+	pane.set_meta("_moving_x", true)
 	var dx := x - pane.position.x
 	pane.offset_left += dx
 	pane.offset_right += dx
+	pane.remove_meta("_moving_x")
+
+
+## A layout setting of the player's (a split, a width), or `default` when none is saved.
 
 
 static func saved_value(section: String, key: String, default: Variant) -> Variant:
