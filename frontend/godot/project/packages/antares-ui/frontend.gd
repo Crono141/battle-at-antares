@@ -2309,7 +2309,7 @@ func _smoke_races_panel(shots: String) -> bool:
 				break
 		results[action] = "%s for %s, others off %s, disarmed %s" % [sent.get("verb", "nothing"), sent.get("player", sent.get("screen", "?")),
 			others_off, panel.armed_action == ""]
-		var expected := {"AUDIENCE": "audience", "DECLARE WAR": "declare_war", "IGNORE": "toggle_ignore", "REPORT": "open"}
+		var expected := {"AUDIENCE": "audience", "DECLARE WAR": "declare_war", "IGNORE": "toggle_ignore", "REPORT": "query"}
 		if String(sent.get("verb", "")) != expected[action] or panel.armed_action != "" or not others_off:
 			print("smoke: races action %s: %s" % [action, results[action]])
 			panel.command.disconnect(catch)
@@ -2322,6 +2322,32 @@ func _smoke_races_panel(shots: String) -> bool:
 	print("smoke: races actions: armed '%s', Esc disarmed %s; %s" % [armed_text, esc_disarmed, results])
 	if armed_text != "PICK AN EMPIRE…" or not esc_disarmed:
 		return false
+	# The report flyout (owner, 2026-11-20): beside the panel, the empire's techs under the four
+	# filters, the ruler, its spies and its relations.
+	var report_target := -1
+	for r: Dictionary in panel.races:
+		if r.contact and not r.eliminated:
+			report_target = int(r.player)
+			break
+	panel._act("REPORT", report_target)
+	await get_tree().create_timer(1.5).timeout
+	var report: Control = panel._report
+	var tech_rows: int = report._rows.get_child_count() if report else 0
+	var filters: int = report._filters.get_child_count() if report else 0
+	var report_rect: Rect2 = report.get_global_rect() if report else Rect2()
+	var beside: bool = report != null and report_rect.end.x <= panel.get_global_rect().position.x + 1.0 and report_rect.position.x >= 0.0
+	print("smoke: races report on %d: shown %s, title '%s', %d filters, %d rows, side %d items, beside the panel %s (%s), app '%s'" % [report_target,
+		report != null and report.visible, report._title.text if report else "", filters, tech_rows,
+		report._side.get_child_count() if report else 0, beside, report_rect, report._app_title.text if report else ""])
+	if shots != "":
+		await host.shot(shots + "/native-race-report.png")
+	if report == null or not report.visible or filters != 4 or tech_rows == 0 or not beside or report._side.get_child_count() < 4:
+		return false
+	(report._filters.get_child(2) as Button).pressed.emit() # WEAPONS
+	await get_tree().create_timer(0.5).timeout
+	if shots != "":
+		await host.shot(shots + "/native-race-report-weapons.png")
+	report.close()
 	panel.picked = picked_before
 	panel.show_races(panel.result)
 	if not await _smoke_side_resize(panel, shots, "races"):

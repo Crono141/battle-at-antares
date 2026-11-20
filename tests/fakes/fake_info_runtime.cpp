@@ -59,3 +59,9 @@ namespace MOX {
     char* special_ability_names[32] = {};
     int16_t bill_savegame[6] = {0, 0, 1, 1, 1, 1};
 } // namespace MOX
+
+// The Races report (race_report, 2026-11-20).
+namespace MOX {
+    char* personality_labels[7] = {};
+    char* objective_labels[6] = {};
+} // namespace MOX

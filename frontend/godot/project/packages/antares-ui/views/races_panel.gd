@@ -9,8 +9,9 @@ extends "side_panel.gd"
 ## spies at home puts them down (Esc or a right click puts them back). Eliminated empires keep their slot:
 ## the portrait under the red Eliminated sign (races.lbx 31), No contact. A click on a slot picks the
 ## empire; the fixed bottom has BONUSES (spy and agent), the spies at home, and the actions, each
-## armed and then done on the empire clicked: AUDIENCE (the native diplomacy window), REPORT (the original Races screen for now), DECLARE WAR (carried out
-## next turn, the game's question) and IGNORE.
+## armed and then done on the empire clicked: AUDIENCE (the native diplomacy window), REPORT
+## (its report beside the panel), DECLARE WAR (carried out next turn, the game's question) and
+## IGNORE / LISTEN.
 
 signal command(dict: Dictionary)
 signal width_changed
@@ -87,7 +88,7 @@ func _ready() -> void:
 	grid.add_theme_constant_override("h_separation", 6)
 	grid.add_theme_constant_override("v_separation", 6)
 	box.add_child(grid)
-	for pair in [["AUDIENCE", "Then click the empire to talk with"], ["REPORT", "Then click the empire for its report (the original Races screen for now)"],
+	for pair in [["AUDIENCE", "Then click the empire to talk with"], ["REPORT", "Then click the empire for its report: its techs, ruler, spies and relations"],
 			["DECLARE WAR", "Then click the empire to declare war on (carried out next turn)"],
 			["IGNORE", "Then click the empire whose messages to ignore (one ignored already is listened to again)"]]:
 		var b := _button(pair[0], pair[1])
@@ -101,6 +102,8 @@ func _ready() -> void:
 		grid.add_child(b)
 		_buttons[key] = b
 	resized.connect(func():
+		if _report != null and _report.visible:
+			(func(): _report.place(get_global_rect())).call_deferred() # the report keeps beside the panel
 		if visible and not _closing and _rect.size.x > 0.0:
 			if _tween == null or not _tween.is_running():
 				preload("../themes.gd").move_x(self, _rect.end.x - size.x)
@@ -319,11 +322,47 @@ func _act(key: String, player: int) -> void:
 		"REPORT":
 			picked = player
 			show_races(result)
-			command.emit({"verb": "open", "screen": 6}) # the original Races screen (its REPORT)
+			_open_report(player)
 		"DECLARE WAR":
 			command.emit({"verb": "declare_war", "player": player, "_reply_to": "_after_command"})
 		"IGNORE":
 			command.emit({"verb": "toggle_ignore", "player": player, "_reply_to": "_after_command"})
+
+
+# ---- The report flyout (owner, 2026-11-20: REPORT fell back to the legacy screen) ----
+
+var _report: PanelContainer
+
+
+func _open_report(player: int) -> void:
+	if _report == null:
+		_report = preload("race_report.gd").new()
+		_report.art = art
+		_report.name = "RaceReport"
+		# Its queries' answers come back to this panel (the view that sent them), relayed.
+		_report.command.connect(func(dict: Dictionary):
+			if dict.has("_reply_to"):
+				dict["_reply_to"] = "_report_" + String(dict["_reply_to"]).trim_prefix("_")
+			command.emit(dict))
+		add_child(_report)
+	_report.open_for(player, get_global_rect())
+
+
+func close_report() -> void:
+	if _report:
+		_report.close()
+
+
+func _report_show_report(answer: Dictionary) -> void:
+	_report.show_report(answer)
+
+
+func _report_show_review(answer: Dictionary) -> void:
+	_report.show_review(answer)
+
+
+func _report_show_help(answer: Dictionary) -> void:
+	_report._show_help(answer)
 
 
 func _after_command(_answer: Dictionary) -> void:
@@ -471,6 +510,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 func close() -> void:
 	_drop_carry()
 	_arm("")
+	close_report()
 	super.close()
 
 
