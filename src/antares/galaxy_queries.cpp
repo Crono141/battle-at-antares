@@ -446,6 +446,22 @@ namespace antares::commands::internal {
             out.Int("star", star);
             out.Str("name", Star_Name(star));
             out.Int("class", data.spectral_class);
+            // Where the player's new ships built here go (owner, 2026-11-20: the system pane's
+            // menu sets it), and whether they may be relocated from here (FLT1::Okay_To_Set_Relocate_Star:
+            // a colony of the player's, no monster).
+            {
+                int16_t guard = 0;
+                const bool can = data.spectral_class != STAR_CLASS_BLACK_HOLE &&
+                    HACCESS::Player_Has_Colony_In_System(MOX::PLAYER_NUM, star) &&
+                    !HAROLD::Star_Guarded_By_Monster(star, &guard);
+                s_out relocation = out.Add_Object("relocation");
+                relocation.Bool("can", can);
+                const int16_t to = HACCESS::Star_Has_Relocation(star, MOX::PLAYER_NUM) ? HACCESS::Relocation(star, MOX::PLAYER_NUM) : -1;
+                relocation.Int("to", to);
+                if (to >= 0) {
+                    relocation.Str("name", Star_Name(to));
+                }
+            }
             out.Int("box_sprite", k_box_background);
             out.Int("sun_sprite", k_sun_pictures + data.spectral_class);
 

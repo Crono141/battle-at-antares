@@ -6,6 +6,7 @@ extends Node2D
 
 const Links := preload("links.gd")
 const LINE := Color(0.35, 1.0, 0.35, 1.0)
+const REFUSED := Color(1.0, 0.35, 0.3, 1.0)
 const RING := Color(0.35, 1.0, 0.35, 0.9)
 ## Text height in legacy pixels (a little larger than the star names).
 const FONT_LEGACY_PIXELS := 8.0
@@ -16,7 +17,7 @@ var _time := 0.0
 
 
 func _process(delta: float) -> void:
-	if galaxy.measuring:
+	if galaxy.measuring or not galaxy.relocation_pick.is_empty():
 		_time += delta
 		queue_redraw()
 	elif _time != 0.0:
@@ -25,10 +26,11 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	if not galaxy.measuring or galaxy.measure_from < 0:
+	var pick: Dictionary = galaxy.relocation_pick
+	if pick.is_empty() and (not galaxy.measuring or galaxy.measure_from < 0):
 		return
 	var px: float = galaxy.pixel()
-	var from: int = galaxy.measure_from
+	var from: int = galaxy.measure_from if pick.is_empty() else int(pick.from)
 	var at: Vector2 = galaxy.star_position(from)
 	var radius: float = maxf(galaxy.star_size(galaxy.stars[from]) * 0.6, 10.0 * px)
 	draw_arc(at, radius, 0.0, TAU, 48, RING, 1.5 * px, true)
@@ -36,9 +38,19 @@ func _draw() -> void:
 	if to < 0 or to == from:
 		return
 	var end: Vector2 = galaxy.star_position(to)
-	Links.dashed_line(self, at, end, LINE, px, _time)
 	var parsecs: int = galaxy.parsecs_between(from, to)
 	var text := "%d parsec%s" % [parsecs, "" if parsecs == 1 else "s"]
+	var color := LINE
+	if not pick.is_empty():
+		# Relocating (the system pane's menu): the ships' ETA too, or why not, in red.
+		var target: Dictionary = pick.stars.get(to, {})
+		if target.get("allowed", false):
+			var eta := int(target.get("eta", 0))
+			text += " · %d turn%s" % [eta, "" if eta == 1 else "s"]
+		else:
+			color = REFUSED
+			text = String(target.get("reason", "Not a relocation target"))
+	Links.dashed_line(self, at, end, color, px, _time)
 	var font := ThemeDB.fallback_font
 	var font_size := int(round(FONT_LEGACY_PIXELS * galaxy.legacy_pixel()))
 	# Right of the hovered star, as the legacy screen prints it (left where it would leave the view).
@@ -50,5 +62,5 @@ func _draw() -> void:
 		where.x = end.x - offset - width
 	draw_set_transform(where, 0.0, Vector2(px, px))
 	draw_string_outline(font, Vector2.ZERO, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 5, Color(0, 0, 0, 0.85))
-	draw_string(font, Vector2.ZERO, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, LINE)
+	draw_string(font, Vector2.ZERO, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
 	draw_set_transform(Vector2.ZERO)

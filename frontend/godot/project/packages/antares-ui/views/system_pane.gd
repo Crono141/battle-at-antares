@@ -14,6 +14,8 @@ signal fleet_chosen(ship_id: int)
 signal planet_selected(planet_id: int)
 ## One of the player's colonies was picked (WP3.4: the colony pane opens beside), or -1.
 signal colony_chosen(colony_id: int)
+## The menu's RELOCATE NEW SHIPS: the frontend picks the target on the whole map.
+signal relocate_requested(star_id: int)
 
 const SLIDE_TIME := 0.3
 ## COLSYSDI.LBX: the colony screen's planet pictures (COLSYSDI::Planet_Anims).
@@ -49,8 +51,31 @@ var _tween: Tween
 var _shown_left := 0.0
 
 
+var _menu_button: Button
+var _menu: PanelContainer
+var _relocation_line: Label
+
+
 func _ready() -> void:
 	preload("../themes.gd").scroll_gap($Box/Scroll)
+	# The system's menu (owner, 2026-11-20): system-level actions beside the X; relocation first.
+	_menu_button = Button.new()
+	_menu_button.text = "≡"
+	_menu_button.custom_minimum_size = Vector2(34, 30)
+	_menu_button.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	_menu_button.focus_mode = Control.FOCUS_NONE
+	_menu_button.tooltip_text = "System actions"
+	_menu_button.visible = false
+	_menu_button.pressed.connect(_toggle_menu)
+	$Box/Header.add_child(_menu_button)
+	$Box/Header.move_child(_menu_button, $Box/Header/Close.get_index())
+	_relocation_line = Label.new()
+	_relocation_line.theme_type_variation = &"Dim"
+	_relocation_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_relocation_line.visible = false
+	var content: Control = $Box/Scroll/Margin/Content
+	content.add_child(_relocation_line)
+	content.move_child(_relocation_line, $Box/Scroll/Margin/Content/Fleets.get_index() + 1)
 	$Box/Header/Close.pressed.connect(close)
 	_restyle()
 	$Box/Back.pressed.connect(close)
@@ -100,6 +125,7 @@ func show_system(result: Dictionary, name_text: String, star_id: int) -> void:
 	description.visible = result.get("view", "full") != "full" and result.has("description")
 	description.text = result.get("description", "")
 	_show_fleets()
+	_show_relocation()
 	_show_governor()
 	_show_planets()
 	if not visible:
@@ -255,6 +281,7 @@ func refresh_system(result: Dictionary) -> void:
 
 func close() -> void:
 	close_leaders()
+	_close_menu()
 	if not visible:
 		return
 	_slide(false)
@@ -265,6 +292,7 @@ func close() -> void:
 
 ## Hides the pane without telling the game (opening a fleet closed the system box itself).
 func dismiss() -> void:
+	_close_menu()
 	if visible:
 		_slide(false)
 		system = {}
@@ -361,6 +389,81 @@ func _player_colony(planet_id: int) -> int:
 			if colony.get("mine", false) and not colony.get("outpost", false):
 				return int(colony.id)
 	return -1
+
+
+# ---- The system's menu and its relocation (owner, 2026-11-20) ----
+
+func _show_relocation() -> void:
+	var relocation: Dictionary = system.get("relocation", {})
+	var to := int(relocation.get("to", -1))
+	_menu_button.visible = relocation.get("can", false) or to >= 0
+	_relocation_line.visible = to >= 0
+	_relocation_line.text = "New ships go to %s" % String(relocation.get("name", "")) if to >= 0 else ""
+	if _menu and _menu.visible:
+		_open_menu() # its items follow
+
+
+func _toggle_menu() -> void:
+	if _menu and _menu.visible:
+		_close_menu()
+	else:
+		_open_menu()
+
+
+func _open_menu() -> void:
+	if _menu == null:
+		_menu = PanelContainer.new()
+		_menu.theme_type_variation = &"Pane"
+		_menu.name = "SystemMenu"
+		_menu.top_level = true
+		add_child(_menu)
+	for child in _menu.get_children():
+		_menu.remove_child(child)
+		child.queue_free()
+	var items := VBoxContainer.new()
+	items.add_theme_constant_override("separation", 4)
+	_menu.add_child(items)
+	var relocation: Dictionary = system.get("relocation", {})
+	var to := int(relocation.get("to", -1))
+	if relocation.get("can", false):
+		var relocate := _menu_item("RELOCATE NEW SHIPS…" if to < 0 else "CHANGE RELOCATION…",
+			"Pick on the map where the ships built in this system go")
+		relocate.pressed.connect(func():
+			_close_menu()
+			relocate_requested.emit(star))
+		items.add_child(relocate)
+	if to >= 0:
+		var stop := _menu_item("STOP RELOCATING TO %s" % String(relocation.get("name", "")).to_upper(),
+			"Ships built in this system stay here")
+		stop.pressed.connect(func():
+			_close_menu()
+			command.emit({"verb": "relocation_clear", "from": star, "_reply_to": "_after_relocation"}))
+		items.add_child(stop)
+	_menu.reset_size()
+	var under := _menu_button.get_global_rect()
+	_menu.global_position = Vector2(under.end.x - _menu.size.x, under.end.y + 4.0)
+	_menu.show()
+	_menu.move_to_front()
+
+
+func _menu_item(text: String, tip: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.tooltip_text = tip
+	b.focus_mode = Control.FOCUS_NONE
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.custom_minimum_size = Vector2(240, 32)
+	return b
+
+
+func _close_menu() -> void:
+	if _menu:
+		_menu.hide()
+
+
+## After a relocation changed: the system again.
+func _after_relocation(_result: Dictionary) -> void:
+	command.emit({"verb": "query", "what": "system", "star": star, "_reply_to": "refresh_system"})
 
 
 func _show_fleets() -> void:
@@ -771,8 +874,21 @@ func _slide(opening: bool) -> void:
 		_tween.tween_callback(hide)
 
 
+## The menu closes on a click anywhere but on it or its button (the click still goes through).
+func _input(event: InputEvent) -> void:
+	var click := event as InputEventMouseButton
+	if click and click.pressed and _menu != null and _menu.visible and \
+			not _menu.get_global_rect().has_point(click.global_position) and \
+			not _menu_button.get_global_rect().has_point(click.global_position):
+		_close_menu()
+
+
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
+	if _menu != null and _menu.visible and key and key.pressed and key.keycode == KEY_ESCAPE:
+		_close_menu() # the menu first
+		get_viewport().set_input_as_handled()
+		return
 	var colony_pane := get_parent().get_node_or_null("ColonyPane")
 	if colony_pane != null and colony_pane.visible:
 		return # Esc closes the colony pane first

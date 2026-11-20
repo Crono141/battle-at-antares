@@ -63,6 +63,9 @@ var measuring := false:
 		measuring = value
 		measure_from = -1
 var measure_from := -1
+## Picking where a system's new ships go (the system pane's menu): the `relocation_targets`
+## answer with its stars by id; galaxy/measure.gd draws the line, star clicks only.
+var relocation_pick := {}
 ## The open system on the map (WP3.3f): its `system` query, star, scale and selected planet;
 ## the Orbits layer draws it.
 var system := {}
@@ -320,7 +323,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
 			# A right click cancels F4's or F9's mode, or in a system shows a planet's potential.
 			if button.pressed:
-				if relocating or measuring:
+				if relocating or measuring or not relocation_pick.is_empty():
 					right_clicked.emit()
 				elif not system.is_empty(): # no right-click panning (owner, 2026-11-13: dropped)
 					var planet: int = $Orbits.pick(_screen_to_world(button.position))
@@ -343,7 +346,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					var star := pick(button.position)
 					# A planet of the open system (owner, 2026-11-13: a colony's planet opens its
 					# colony pane, as its row in the system pane does).
-					var stars_only := relocating or measuring # F4 and F9 take star clicks only
+					var stars_only := relocating or measuring or not relocation_pick.is_empty() # star clicks only
 					var planet: int = -1 if stars_only else $Orbits.pick(_screen_to_world(button.position))
 					if planet >= 0:
 						planet_clicked.emit(planet)

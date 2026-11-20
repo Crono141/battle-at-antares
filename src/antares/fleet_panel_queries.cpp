@@ -83,6 +83,101 @@ namespace antares::commands::internal {
                     HACCESS::Relocation(from_before, MOX::PLAYER_NUM) : -1);
         }
 
+        // ---- Relocation from the system pane (owner, 2026-11-20): one system's new ships sent
+        // to a star picked on the whole map, set and cleared directly. The Fleets panel's two
+        // clicks (relocate_star) stay as the original's way. ----
+
+        // The game's rules for a target (FLT1::Okay_To_Set_Relocate_To_Star), without its
+        // messages: visited, not a black hole, not cut off from `from` by one. A monster there
+        // is allowed after the game's question.
+        bool Relocation_Target_Allowed(int16_t from, int16_t to, const char** reason) {
+            const s_star_data& star = MOX::star[to];
+            if (star.spectral_class == STAR_CLASS_BLACK_HOLE) {
+                *reason = "A black hole";
+                return false;
+            }
+            if (!HAROLD::Player_Has_Visited(MOX::PLAYER_NUM, to)) {
+                *reason = "Not explored";
+                return false;
+            }
+            if (struct_::Test_Bit_Field(MOX::star[from].black_hole_blocks, to) != 0) {
+                *reason = "A black hole is in the way";
+                return false;
+            }
+            *reason = nullptr;
+            return true;
+        }
+
+        // relocation_targets {from}: where `from`'s new ships go now, the player's ship speed, and
+        // for every star whether it can be the target, its distance and the ships' ETA there.
+        void Query_Relocation_Targets(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t from = -1;
+            if (!args.Int("from", &from) || from < 0 || from >= MOX::NUM_STARS) {
+                out.Fail("bad_args", "from: a star id");
+                return;
+            }
+            const int16_t source = (int16_t)from;
+            const int32_t speed = std::max<int32_t>((uint8_t)MOX::player[MOX::PLAYER_NUM].ship_speed, 1);
+            out.Int("from", source);
+            out.Int("to", HACCESS::Star_Has_Relocation(source, MOX::PLAYER_NUM) ? HACCESS::Relocation(source, MOX::PLAYER_NUM) : -1);
+            out.Int("speed", speed);
+            s_out list = out.Add_List("stars");
+            for (int16_t i = 0; i < MOX::NUM_STARS; ++i) {
+                const char* reason = nullptr;
+                const bool allowed = i != source && Relocation_Target_Allowed(source, i, &reason);
+                int16_t guard = 0;
+                const int32_t parsecs = GEO::Parsecs_Between_Stars(source, i);
+                s_out item = list.Append_Object();
+                item.Int("star", i);
+                item.Bool("allowed", allowed);
+                if (reason != nullptr) {
+                    item.Str("reason", reason);
+                }
+                item.Bool("guarded", allowed && HAROLD::Star_Guarded_By_Monster(i, &guard));
+                item.Int("parsecs", parsecs);
+                item.Int("eta", (parsecs + speed - 1) / speed);
+            }
+        }
+
+        // relocation_set {from, to}: the game's checks with their messages and question
+        // (FLT1::Okay_To_Set_Relocate_Star / _To_Star), then the relocation (HACCESS::Set_Relocation).
+        void Relocation_Set(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t from = -1;
+            int64_t to = -1;
+            if (!args.Int("from", &from) || !args.Int("to", &to) || from < 0 || from >= MOX::NUM_STARS || to < 0 ||
+                to >= MOX::NUM_STARS || from == to) {
+                out.Fail("bad_args", "from, to: two different star ids");
+                return;
+            }
+            const bool ok = FLT1::Okay_To_Set_Relocate_Star((int16_t)from, 0) &&
+                FLT1::Okay_To_Set_Relocate_To_Star((int16_t)from, (int16_t)to) != 0;
+            mouse::Set_Mouse_List(&MOX::mouse_list_arrow, 1);
+            if (ok) {
+                HACCESS::Set_Relocation((int16_t)from, MOX::PLAYER_NUM, (int16_t)to);
+            }
+            out.Bool("set", ok);
+        }
+
+        // relocation_clear {from}: `from`'s new ships stay where they are built.
+        void Relocation_Clear(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t from = -1;
+            if (!args.Int("from", &from) || from < 0 || from >= MOX::NUM_STARS) {
+                out.Fail("bad_args", "from: a star id");
+                return;
+            }
+            HACCESS::Clear_Star_Relocation((int16_t)from, MOX::PLAYER_NUM);
+            out.Bool("cleared", true);
+        }
+
         // RELOCATE off, or a right click: a half-made relocation is dropped.
         void Relocate_Reset(int16_t, const s_args&, s_out& out) {
             s_relocate_from = -1;
@@ -97,6 +192,9 @@ namespace antares::commands::internal {
         table->push_back({"ship_detail", e_kind::query, ANY_SCREEN, 1, "ship: one of the player's ships", Query_Ship_Detail});
         table->push_back({"relocate_star", e_kind::command, galaxy, 0, "star: the from star, then the to star", Relocate_Star});
         table->push_back({"relocate_reset", e_kind::command, galaxy, 0, "", Relocate_Reset});
+        table->push_back({"relocation_targets", e_kind::query, ANY_SCREEN, 1, "from: a star", Query_Relocation_Targets});
+        table->push_back({"relocation_set", e_kind::command, galaxy, 0, "from, to: stars", Relocation_Set});
+        table->push_back({"relocation_clear", e_kind::command, galaxy, 0, "from: a star", Relocation_Clear});
     }
 
 } // namespace antares::commands::internal

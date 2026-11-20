@@ -144,6 +144,33 @@ static func scroll_gap(scroll: ScrollContainer, gap := 10.0) -> void:
 	bar.theme_changed.connect(apply)
 
 
+## A question with OK and Cancel in the theme's pane style (a popup window doesn't inherit the
+## theme, and the themes draw no window frame): `on_ok` runs on OK, `on_cancel` on Cancel or
+## closing. Freed when answered.
+static func confirm(owner: Control, text: String, ok_text: String, on_ok: Callable, on_cancel := Callable()) -> ConfirmationDialog:
+	var dialog := ConfirmationDialog.new()
+	dialog.borderless = true
+	dialog.dialog_text = text
+	dialog.ok_button_text = ok_text
+	var node: Node = owner
+	while node != null and not (node is Control and (node as Control).theme != null):
+		node = node.get_parent()
+	dialog.theme = (node as Control).theme if node != null else null
+	dialog.add_theme_stylebox_override("panel", owner.get_theme_stylebox("panel", "Pane"))
+	owner.add_child(dialog)
+	var answered := [false]
+	dialog.confirmed.connect(func():
+		answered[0] = true
+		on_ok.call())
+	dialog.visibility_changed.connect(func():
+		if not dialog.visible:
+			if not answered[0] and on_cancel.is_valid():
+				on_cancel.call()
+			dialog.queue_free())
+	dialog.popup_centered()
+	return dialog
+
+
 ## Moves a pane sideways by its left and right offsets only. Setting `position` rewrites all four
 ## offsets from the pane's current rect, so a pane that was briefly taller than the screen (its
 ## content grew for a frame) stayed that tall for good (owner, 2026-11-19: the system pane

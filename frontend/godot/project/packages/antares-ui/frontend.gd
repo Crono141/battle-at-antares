@@ -115,6 +115,7 @@ func _ready() -> void:
 	galaxy.star_hovered.connect(_on_star_hovered)
 	galaxy.right_clicked.connect(_end_relocating)
 	galaxy.right_clicked.connect(func(): _set_measuring(false))
+	galaxy.right_clicked.connect(func(): _end_relocation_pick())
 	galaxy.planet_clicked.connect(_on_planet_clicked)
 	galaxy.planet_hovered.connect(_on_planet_hovered)
 	galaxy.empty_clicked.connect(_on_empty_clicked)
@@ -180,6 +181,13 @@ func packs_changed() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	# Picking a relocation target: Esc goes back to the system.
+	if not galaxy.relocation_pick.is_empty():
+		var pick_key := event as InputEventKey
+		if pick_key and pick_key.pressed and pick_key.keycode == KEY_ESCAPE:
+			_end_relocation_pick()
+			get_viewport().set_input_as_handled()
+			return
 	# Measuring (F9): Esc stops it.
 	if galaxy.measuring:
 		var measure_key := event as InputEventKey
@@ -427,6 +435,7 @@ func _on_native_screen(screen: int) -> void:
 			points.dismiss()
 		_end_relocating()
 		_set_measuring(false)
+		_end_relocation_pick(false)
 		if screen == Screens.SHOW_COMMAND_POINTS:
 			# Opened as the game's screen (from elsewhere): the same drop-down, closing it closes
 			# the screen.
@@ -883,6 +892,8 @@ func _view(scene_name: String) -> Control:
 			view.selection_changed.connect(func(): _on_star_hovered(_hovered_star))
 		if view.has_signal("settle_requested"):
 			view.settle_requested.connect(func(star_id: int): _open_system(star_id))
+		if view.has_signal("relocate_requested"):
+			view.relocate_requested.connect(_start_relocation_pick)
 		native_layer.add_child(view)
 		_raise_chrome() # the bar, the pockets, the tabs and the frame stay over every view
 		_views[scene_name] = view
@@ -2893,6 +2904,9 @@ func _on_star_clicked(star_id: int) -> void:
 	if galaxy.measuring:
 		galaxy.measure_from = star_id # measured from here; another click starts again there
 		return
+	if not galaxy.relocation_pick.is_empty():
+		_relocation_pick_star(star_id)
+		return
 	for panel_name: String in SIDE_PANELS.values():
 		var side_view: Control = _views.get(panel_name)
 		if side_view != null and side_view.visible:
@@ -3249,21 +3263,90 @@ func _set_measuring(on: bool) -> void:
 		_end_relocating()
 	galaxy.measuring = on
 	Input.set_default_cursor_shape(Input.CURSOR_CROSS if on else Input.CURSOR_ARROW)
+	if on:
+		_show_hint("MEASURE DISTANCE: click a star, then point at another. Right click or Esc to stop.")
+	elif _measure_hint:
+		_measure_hint.hide()
+
+
+## A mode's line under the bar (measuring, picking a relocation).
+func _show_hint(text: String) -> void:
 	if _measure_hint == null:
 		_measure_hint = Label.new()
-		_measure_hint.text = "MEASURE DISTANCE: click a star, then point at another. Right click or Esc to stop."
 		_measure_hint.theme_type_variation = &"Heading"
 		_measure_hint.add_theme_font_size_override("font_size", 16)
 		_measure_hint.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 		_measure_hint.add_theme_constant_override("outline_size", 6)
 		_measure_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		native_layer.add_child(_measure_hint)
-	_measure_hint.visible = on
-	if on:
-		_measure_hint.reset_size()
-		var bar: Control = _view("galaxy_bar")
-		var top: float = bar.get_global_rect().end.y + 10.0 if bar.visible else 60.0
-		_measure_hint.position = Vector2(floorf((get_viewport().get_visible_rect().size.x - _measure_hint.size.x) * 0.5), top)
+	_measure_hint.text = text
+	_measure_hint.show()
+	_measure_hint.reset_size()
+	var bar: Control = _view("galaxy_bar")
+	var top: float = bar.get_global_rect().end.y + 10.0 if bar.visible else 60.0
+	_measure_hint.position = Vector2(floorf((get_viewport().get_visible_rect().size.x - _measure_hint.size.x) * 0.5), top)
+
+
+## The system pane's RELOCATE NEW SHIPS (owner, 2026-11-20): the system closes, the map shows
+## whole, and the hovered star gets the line with its distance and the ships' ETA (or why not);
+## a click asks to confirm, OK sets it (`relocation_set`, the game's own checks) and the system
+## comes back. A right click or Esc goes back to the system unchanged.
+func _start_relocation_pick(from: int) -> void:
+	_set_measuring(false)
+	_end_relocating()
+	_send({"verb": "query", "what": "relocation_targets", "from": from}, func(result: Dictionary):
+		if not result.get("ok", false):
+			return
+		var by_star := {}
+		for item: Dictionary in result.get("stars", []):
+			by_star[int(item.star)] = item
+		galaxy.relocation_pick = {"from": from, "stars": by_star, "to": int(result.get("to", -1))}
+		var pane := _view("system_pane")
+		if pane.visible:
+			pane.close()
+		await get_tree().create_timer(0.05).timeout
+		galaxy._fly(Vector2(float(galaxy.data.width), float(galaxy.data.height)) * 0.5, galaxy.furthest_zoom())
+		Input.set_default_cursor_shape(Input.CURSOR_CROSS)
+		_show_hint("RELOCATE NEW SHIPS FROM %s: click the star they go to. Right click or Esc goes back." % _star_name(from).to_upper()))
+
+
+func _star_name(star_id: int) -> String:
+	if star_id < 0 or star_id >= galaxy.stars.size():
+		return ""
+	return String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")")
+
+
+var _relocation_question: ConfirmationDialog
+
+
+func _relocation_pick_star(star_id: int) -> void:
+	var pick: Dictionary = galaxy.relocation_pick
+	var target: Dictionary = pick.stars.get(star_id, {})
+	if star_id == int(pick.from) or not target.get("allowed", false) or is_instance_valid(_relocation_question):
+		return # the line says why
+	var eta := int(target.get("eta", 0))
+	var parsecs := int(target.get("parsecs", 0))
+	var text := "New ships built at %s will go to %s:\n%d parsec%s, about %d turn%s." % [_star_name(int(pick.from)), _star_name(star_id),
+		parsecs, "" if parsecs == 1 else "s", eta, "" if eta == 1 else "s"]
+	_relocation_question = Themes.confirm(native_layer, text, "Relocate", func():
+		_send({"verb": "relocation_set", "from": int(pick.from), "to": star_id}, func(result: Dictionary):
+			if result.get("set", false):
+				_end_relocation_pick()))
+
+
+## Out of the pick: back to the system (`back`), or not (a legacy screen took over).
+func _end_relocation_pick(back := true) -> void:
+	if galaxy.relocation_pick.is_empty():
+		return
+	var from := int(galaxy.relocation_pick.from)
+	galaxy.relocation_pick = {}
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+	if _measure_hint:
+		_measure_hint.hide()
+	if is_instance_valid(_relocation_question):
+		_relocation_question.queue_free()
+	if back and native_screen == Screens.MAIN:
+		_open_system(from)
 
 
 func _end_relocating() -> void:
@@ -3397,6 +3480,88 @@ func _smoke_native() -> void:
 			print("smoke: pane after a tall frame mid-slide: %s (settled %s)" % [pane.get_rect(), settled])
 			if pane.size.y > limit or pane.position.y < 0.0:
 				await host.smoke_fail("the system pane stayed stretched after a tall frame")
+				return
+			game.request_game_quit()
+			return
+		if arg == "--relocate":
+			# Owner, 2026-11-20: relocation from the system pane's menu.
+			var from := -1
+			for star: Dictionary in galaxy.stars:
+				var sys: Dictionary = await _query_args({"what": "system", "star": int(star.id)})
+				if sys.get("relocation", {}).get("can", false):
+					from = int(star.id)
+					break
+			if from < 0:
+				await host.smoke_fail("no system to relocate from")
+				return
+			_open_system(from)
+			await get_tree().create_timer(2.5).timeout
+			var pane := _view("system_pane")
+			var menu_shown: bool = pane._menu_button.visible
+			pane._menu_button.pressed.emit()
+			await get_tree().process_frame
+			var items: Array = pane._menu.find_children("*", "Button", true, false)
+			var item_texts: Array = items.map(func(b: Button) -> String: return b.text)
+			if shots != "":
+				await host.shot(shots + "/native-relocate-menu.png")
+			(items[0] as Button).pressed.emit()
+			await get_tree().create_timer(1.5).timeout
+			var pick: Dictionary = galaxy.relocation_pick
+			var target := -1
+			for star: Dictionary in galaxy.stars:
+				var t: Dictionary = pick.get("stars", {}).get(int(star.id), {})
+				if t.get("allowed", false) and not t.get("guarded", false) and int(star.id) != from and galaxy.view_rect().has_point(galaxy.star_position(int(star.id))):
+					if target < 0 or int(t.parsecs) > int(pick.stars[target].parsecs):
+						target = int(star.id)
+			var motion := InputEventMouseMotion.new()
+			motion.position = (galaxy.get_global_transform_with_canvas() * galaxy.star_position(target)) * get_window().content_scale_factor
+			Input.parse_input_event(motion)
+			await get_tree().create_timer(0.4).timeout
+			print("smoke: relocate: menu %s %s; picking %s from %d, pane hidden %s, hint %s, zoom %.3f of furthest %.3f; target %d (%d parsecs, %d turns)" % [
+				menu_shown, item_texts, not pick.is_empty(), from, not pane.visible, _measure_hint.visible, galaxy.camera.zoom.x,
+				galaxy.furthest_zoom(), target, int(pick.stars[target].parsecs), int(pick.stars[target].eta)])
+			if shots != "":
+				await host.shot(shots + "/native-relocate-pick.png")
+			_on_star_clicked(target)
+			await get_tree().create_timer(0.3).timeout
+			var asked: bool = is_instance_valid(_relocation_question) and _relocation_question.visible
+			if shots != "":
+				await host.shot(shots + "/native-relocate-confirm.png")
+			if asked:
+				_relocation_question.get_ok_button().pressed.emit()
+			for i in 20:
+				await get_tree().create_timer(0.25).timeout
+				_smoke_answer()
+				if pane.visible and int(pane.system.get("relocation", {}).get("to", -1)) == target:
+					break
+			await get_tree().create_timer(1.0).timeout
+			var set_to := int(pane.system.get("relocation", {}).get("to", -1))
+			print("smoke: relocate: asked %s; back in the system %s, relocation to %d, line '%s'" % [asked, pane.visible, set_to, pane._relocation_line.text])
+			if shots != "":
+				await host.shot(shots + "/native-relocate-set.png")
+			pane._menu_button.pressed.emit()
+			await get_tree().process_frame
+			var stop: Array = pane._menu.find_children("*", "Button", true, false).filter(func(b: Button) -> bool: return b.text.begins_with("STOP"))
+			if not stop.is_empty():
+				(stop[0] as Button).pressed.emit()
+			await get_tree().create_timer(1.0).timeout
+			var cleared: bool = int(pane.system.get("relocation", {}).get("to", -1)) == -1 and not pane._relocation_line.visible
+			# A right click while picking goes back to the system unchanged.
+			_start_relocation_pick(from)
+			await get_tree().create_timer(1.0).timeout
+			var right := InputEventMouseButton.new()
+			right.button_index = MOUSE_BUTTON_RIGHT
+			right.pressed = true
+			right.position = motion.position
+			Input.parse_input_event(right)
+			var right_up := right.duplicate()
+			right_up.pressed = false
+			Input.parse_input_event(right_up)
+			await get_tree().create_timer(2.0).timeout
+			var backed: bool = galaxy.relocation_pick.is_empty() and pane.visible and int(pane.star) == from
+			print("smoke: relocate: cleared %s; right click back to the system %s" % [cleared, backed])
+			if not menu_shown or target < 0 or not asked or set_to != target or not cleared or not backed:
+				await host.smoke_fail("relocation from the system pane did not work")
 				return
 			game.request_game_quit()
 			return
