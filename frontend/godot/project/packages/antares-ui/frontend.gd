@@ -2259,16 +2259,17 @@ func _smoke_races_panel(shots: String) -> bool:
 		_send({"verb": "set_spies", "player": panel.picked, "mission": (mission + 1) % 3})
 		await get_tree().create_timer(0.2).timeout
 		_send({"verb": "set_spies", "player": panel.picked, "mission": mission})
-		panel._act("IGNORE")
+		panel._act("IGNORE", panel.picked)
 		await get_tree().create_timer(0.3).timeout
 		var ignoring: bool = panel._race(panel.picked).get("ignoring", false)
-		panel._act("IGNORE")
+		panel._act("IGNORE", panel.picked)
 		await get_tree().create_timer(0.3).timeout
 		print("smoke: races: ignore toggled to %s and back to %s" % [ignoring, panel._race(panel.picked).get("ignoring", false)])
 		if ignoring == panel._race(panel.picked).get("ignoring", false):
 			return false
-	# AUDIENCE in two clicks (owner, 2026-11-20): armed, Esc cancels; armed again, a click on a met
-	# empire asks for its audience (the command caught here: the diplomacy smoke opens the window).
+	# Every action in two clicks (owner, 2026-11-20): armed, Esc cancels; armed again, a click on an
+	# empire that can take it sends the action for that empire (caught here: the diplomacy smoke
+	# opens the audience, the IGNORE check above toggles), and all are disarmed after.
 	var audience: Button = panel._buttons["AUDIENCE"]
 	audience.button_pressed = true
 	await get_tree().process_frame
@@ -2278,31 +2279,51 @@ func _smoke_races_panel(shots: String) -> bool:
 	esc.pressed = true
 	Input.parse_input_event(esc)
 	await get_tree().create_timer(0.2).timeout
-	var esc_disarmed: bool = not panel.audience_armed
-	audience.button_pressed = true
-	await get_tree().process_frame
-	var sent := {}
+	var esc_disarmed: bool = panel.armed_action == ""
 	var connections: Array = panel.command.get_connections()
 	for c: Dictionary in connections:
 		panel.command.disconnect(c.callable)
-	var catch := func(dict: Dictionary): sent.merge(dict)
+	var sent := {}
+	var catch := func(dict: Dictionary): sent.merge(dict, true)
 	panel.command.connect(catch)
 	var picked_before: int = panel.picked
-	for slot: PanelContainer in panel._slots.get_children():
-		# The slots run in the panel's order; the target's is the one whose click picks it.
-		var probe := InputEventMouseButton.new()
-		probe.button_index = MOUSE_BUTTON_LEFT
-		probe.pressed = true
-		slot.gui_input.emit(probe)
-		if sent.has("verb"):
-			break
+	var results := {}
+	for action: String in ["AUDIENCE", "DECLARE WAR", "IGNORE", "REPORT"]:
+		var b: Button = panel._buttons[action]
+		if b.disabled:
+			results[action] = "disabled"
+			continue
+		sent.clear()
+		b.button_pressed = true
+		await get_tree().process_frame
+		var others_off := true
+		for k: String in panel._buttons:
+			if k != action and (panel._buttons[k] as Button).button_pressed:
+				others_off = false
+		for slot: PanelContainer in panel._slots.get_children():
+			var probe := InputEventMouseButton.new()
+			probe.button_index = MOUSE_BUTTON_LEFT
+			probe.pressed = true
+			slot.gui_input.emit(probe)
+			if sent.has("verb"):
+				break
+		results[action] = "%s for %s, others off %s, disarmed %s" % [sent.get("verb", "nothing"), sent.get("player", sent.get("screen", "?")),
+			others_off, panel.armed_action == ""]
+		var expected := {"AUDIENCE": "audience", "DECLARE WAR": "declare_war", "IGNORE": "toggle_ignore", "REPORT": "open"}
+		if String(sent.get("verb", "")) != expected[action] or panel.armed_action != "" or not others_off:
+			print("smoke: races action %s: %s" % [action, results[action]])
+			panel.command.disconnect(catch)
+			for c: Dictionary in connections:
+				panel.command.connect(c.callable)
+			return false
 	panel.command.disconnect(catch)
 	for c: Dictionary in connections:
 		panel.command.connect(c.callable)
-	print("smoke: races audience: armed '%s', Esc disarmed %s; a slot click sent %s; disarmed after %s, picked unchanged %s" % [armed_text, esc_disarmed,
-		sent, not panel.audience_armed, panel.picked == picked_before])
-	if armed_text == "AUDIENCE" or not esc_disarmed or String(sent.get("verb", "")) != "audience" or panel.audience_armed or panel.picked != picked_before:
+	print("smoke: races actions: armed '%s', Esc disarmed %s; %s" % [armed_text, esc_disarmed, results])
+	if armed_text != "PICK AN EMPIRE…" or not esc_disarmed:
 		return false
+	panel.picked = picked_before
+	panel.show_races(panel.result)
 	if not await _smoke_side_resize(panel, shots, "races"):
 		return false
 	panel.close()

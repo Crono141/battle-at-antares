@@ -8,8 +8,8 @@ extends "side_panel.gd"
 ## picks it and the ones right of it up onto the pointer, a click on another empire's icons or the
 ## spies at home puts them down (Esc or a right click puts them back). Eliminated empires keep their slot:
 ## the portrait under the red Eliminated sign (races.lbx 31), No contact. A click on a slot picks the
-## empire; the fixed bottom has BONUSES (spy and agent), the spies at home, and AUDIENCE (armed,
-## then a click on an empire opens the native diplomacy window with it), REPORT (the original Races screen for now), DECLARE WAR (carried out
+## empire; the fixed bottom has BONUSES (spy and agent), the spies at home, and the actions, each
+## armed and then done on the empire clicked: AUDIENCE (the native diplomacy window), REPORT (the original Races screen for now), DECLARE WAR (carried out
 ## next turn, the game's question) and IGNORE.
 
 signal command(dict: Dictionary)
@@ -25,8 +25,10 @@ var art: Node
 var races: Array = []
 var result := {}
 var picked := -1
-## AUDIENCE armed (owner, 2026-11-20: two clicks, AUDIENCE then the empire, not the picked one).
-var audience_armed := false
+## The action armed (owner, 2026-11-20: every action in two clicks, the action then the empire,
+## not the picked one): "AUDIENCE", "REPORT", "DECLARE WAR", "IGNORE", or "".
+var armed_action := ""
+const ACTION_LABELS := {"AUDIENCE": "AUDIENCE", "REPORT": "REPORT", "DECLARE WAR": "DECLARE WAR", "IGNORE": "IGNORE / LISTEN"}
 
 var _slots: VBoxContainer
 var _bonuses: Label
@@ -85,18 +87,17 @@ func _ready() -> void:
 	grid.add_theme_constant_override("h_separation", 6)
 	grid.add_theme_constant_override("v_separation", 6)
 	box.add_child(grid)
-	for pair in [["AUDIENCE", "Talk with the picked empire's ambassador"], ["REPORT", "The picked empire's report (the original Races screen for now)"],
-			["DECLARE WAR", "Declare war on the picked empire (carried out next turn)"], ["IGNORE", "Ignore the picked empire's messages (again: listen)"]]:
+	for pair in [["AUDIENCE", "Then click the empire to talk with"], ["REPORT", "Then click the empire for its report (the original Races screen for now)"],
+			["DECLARE WAR", "Then click the empire to declare war on (carried out next turn)"],
+			["IGNORE", "Then click the empire whose messages to ignore (one ignored already is listened to again)"]]:
 		var b := _button(pair[0], pair[1])
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var key := String(pair[0])
-		if key == "AUDIENCE":
-			b.toggle_mode = true
-			b.tooltip_text = "Then click the empire to talk with (Esc or a right click: not now)"
-			Themes.glowing(b)
-			b.toggled.connect(func(on: bool): _arm_audience(on))
-		else:
-			b.pressed.connect(func(): _act(key))
+		b.text = ACTION_LABELS[key]
+		b.toggle_mode = true
+		b.tooltip_text += " (Esc or a right click: not now)"
+		Themes.glowing(b)
+		b.toggled.connect(func(on: bool): _arm(key if on else ""))
 		grid.add_child(b)
 		_buttons[key] = b
 	resized.connect(func():
@@ -169,9 +170,11 @@ func _slot(r: Dictionary) -> Control:
 	panel.gui_input.connect(func(event: InputEvent):
 		var mb := event as InputEventMouseButton
 		if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and met:
-			if audience_armed:
-				_arm_audience(false)
-				command.emit({"verb": "audience", "player": p, "_reply_to": "_after_command"})
+			if armed_action != "":
+				if _can_act(armed_action, r):
+					var action := armed_action
+					_arm("")
+					_act(action, p)
 				return
 			picked = p
 			show_races(result))
@@ -281,41 +284,46 @@ func _race(p: int) -> Dictionary:
 	return {}
 
 
+## Each action is enabled while some empire can take it (it picks its empire itself).
 func _update_buttons() -> void:
-	var r := _race(picked)
-	var met: bool = not r.is_empty() and r.contact and not r.eliminated
 	for key: String in _buttons:
-		(_buttons[key] as Button).disabled = not met
-	# AUDIENCE picks its empire itself: any empire met will do.
-	var any_met := races.any(func(x: Dictionary) -> bool: return x.contact and not x.eliminated)
-	(_buttons["AUDIENCE"] as Button).disabled = not any_met
-	if not any_met:
-		_arm_audience(false)
-	if met:
-		(_buttons["DECLARE WAR"] as Button).disabled = r.get("at_war", false) or r.get("war_declared", false)
-		(_buttons["IGNORE"] as Button).text = "LISTEN" if r.get("ignoring", false) else "IGNORE"
+		var any := races.any(func(x: Dictionary) -> bool: return _can_act(key, x))
+		(_buttons[key] as Button).disabled = not any
+		if not any and armed_action == key:
+			_arm("")
 
 
-## AUDIENCE armed or not: armed, the next click on an empire opens its audience.
-func _arm_audience(on: bool) -> void:
-	audience_armed = on
-	var b: Button = _buttons.get("AUDIENCE")
-	if b:
-		b.set_pressed_no_signal(on)
-		b.text = "PICK AN EMPIRE…" if on else "AUDIENCE"
+## Whether `race` can take `action`: an empire met; war on one not at war nor declared on already.
+func _can_act(action: String, race: Dictionary) -> bool:
+	if race.is_empty() or not race.contact or race.eliminated:
+		return false
+	if action == "DECLARE WAR":
+		return not race.get("at_war", false) and not race.get("war_declared", false)
+	return true
+
+
+## An action armed (or "" for none): the next click on an empire that can take it does it.
+func _arm(action: String) -> void:
+	armed_action = action
+	for key: String in _buttons:
+		var b: Button = _buttons[key]
+		b.set_pressed_no_signal(key == action)
+		b.text = "PICK AN EMPIRE…" if key == action else ACTION_LABELS[key]
 		Themes.glow(b)
 
 
-func _act(key: String) -> void:
-	if picked < 0:
-		return
+func _act(key: String, player: int) -> void:
 	match key:
+		"AUDIENCE":
+			command.emit({"verb": "audience", "player": player, "_reply_to": "_after_command"})
 		"REPORT":
+			picked = player
+			show_races(result)
 			command.emit({"verb": "open", "screen": 6}) # the original Races screen (its REPORT)
 		"DECLARE WAR":
-			command.emit({"verb": "declare_war", "player": picked, "_reply_to": "_after_command"})
+			command.emit({"verb": "declare_war", "player": player, "_reply_to": "_after_command"})
 		"IGNORE":
-			command.emit({"verb": "toggle_ignore", "player": picked, "_reply_to": "_after_command"})
+			command.emit({"verb": "toggle_ignore", "player": player, "_reply_to": "_after_command"})
 
 
 func _after_command(_answer: Dictionary) -> void:
@@ -400,12 +408,12 @@ func _drop_carry() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if audience_armed and _carry.is_empty():
+	if armed_action != "" and _carry.is_empty():
 		var cancel_key := event as InputEventKey
 		var cancel_click := event as InputEventMouseButton
 		if (cancel_key and cancel_key.pressed and cancel_key.keycode == KEY_ESCAPE) or \
 				(cancel_click and cancel_click.pressed and cancel_click.button_index == MOUSE_BUTTON_RIGHT):
-			_arm_audience(false)
+			_arm("")
 			get_viewport().set_input_as_handled()
 		return
 	if _carry.is_empty():
@@ -462,7 +470,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func close() -> void:
 	_drop_carry()
-	_arm_audience(false)
+	_arm("")
 	super.close()
 
 
