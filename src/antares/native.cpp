@@ -239,6 +239,12 @@ namespace antares::native {
         std::function<std::string()> s_scene; // Set_Scene (game thread)
 
         int32_t Ask(const char* kind, const char* text, const std::string& fields) {
+            // The map as it is now behind the question (owner, 2026-11-20: a blockade's "select
+            // combat" came with the fleets still where they were last turn, as during the turn
+            // they are only refreshed with its notice).
+            if (!s_watches.empty()) {
+                Refresh_Snapshots(SCREEN_MAIN);
+            }
             uint64_t id = 0;
             const std::string scene = s_scene ? s_scene() : std::string();
             {

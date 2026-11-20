@@ -5501,6 +5501,16 @@ func _smoke_answer() -> bool:
 		return false
 	print("smoke: answering request '%s' (native galaxy behind: %s, size %s)" % [_views["dialog"].get_node("Fit/Box/Text").text,
 		galaxy.visible and not legacy.visible, _views["dialog"].size])
+	# A combat's question: the map's fleets at that star are this turn's (owner, 2026-11-20: a
+	# blockade's question came with the arriving fleet still on its way).
+	var asked_text: String = _views["dialog"].get_node("Fit/Box/Text").text
+	if asked_text.contains("select combat at "):
+		var star_name := asked_text.get_slice("select combat at ", 1).strip_edges()
+		for star: Dictionary in galaxy.stars:
+			if String(star.label).trim_prefix("(").trim_suffix(")") == star_name:
+				var there: Array = galaxy.fleets.filter(func(f: Dictionary) -> bool: return int(f.get("star", -1)) == int(star.id))
+				var coming: Array = galaxy.fleets.filter(func(f: Dictionary) -> bool: return int(f.get("destination", -1)) == int(star.id))
+				print("smoke: combat question at %s: the map shows %d fleets there, %d still on their way" % [star_name, there.size(), coming.size()])
 	# A game window shown natively (a "popup"): its picture once, answered on the next call.
 	var popup_name := String(_views["dialog"].popup_name)
 	if popup_name != "" and not _shot_popups.has(popup_name):
