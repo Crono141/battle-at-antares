@@ -51,7 +51,10 @@ func _ready() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and is_node_ready():
+		for b: Control in [money, command_label, food_label, freighters_label, research]:
+			b.custom_minimum_size.x = 0.0 # the held widths, measured again in the new theme's fonts
 		_restyle()
+		_hold_widths()
 
 
 ## The theme's layout: the bar's height, its gaps, its place under the screen frame, the icons.
@@ -102,6 +105,15 @@ func show_empire(empire: Dictionary) -> void:
 	freighters_label.text = "%s (%d)" % [_signed(int(empire.surplus_freighters)), int(empire.freighters)]
 	_warn(freighters_label, int(empire.surplus_freighters) < 0)
 	research.text = _research_text(empire.research)
+	_hold_widths()
+
+
+## The readouts keep the widest they have been (owner, 2026-11-20: research going to "none" after
+## a discovery narrowed the centred bar, and everything on it, and the research window under its
+## right end, shifted left). Taken afresh on a theme change.
+func _hold_widths() -> void:
+	for b: Control in [money, command_label, food_label, freighters_label, research]:
+		b.custom_minimum_size.x = maxf(b.custom_minimum_size.x, b.get_minimum_size().x)
 
 
 ## As the side bar's research box: a breakthrough, nothing researched, or the research points with

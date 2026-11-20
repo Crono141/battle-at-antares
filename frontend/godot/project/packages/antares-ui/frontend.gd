@@ -1573,6 +1573,8 @@ func _smoke_research(shots: String) -> bool:
 	var aligned := false
 	var page_rect := Rect2() # the window on the first page; the picker must not move it (owner, 2026-11-20, Glass)
 	var picker_window := Rect2()
+	var bar_on_page := Rect2() # the bar, which must not narrow as the readout says "none" (owner)
+	var bar_with_picker := Rect2()
 	while not box.has("r") and waited < 60.0:
 		await get_tree().create_timer(0.25).timeout
 		waited += 0.25
@@ -1582,6 +1584,7 @@ func _smoke_research(shots: String) -> bool:
 			await get_tree().create_timer(1.0).timeout # slid down
 			var scene_rect: Rect2 = _scene_window._frame.get_global_rect()
 			picker_window = scene_rect
+			bar_with_picker = _view("galaxy_bar").get_global_rect()
 			var picker_rect: Rect2 = _picker.get_global_rect()
 			aligned = absf(scene_rect.end.x - picker_rect.end.x) < 1.5 and absf(scene_rect.end.y - picker_rect.end.y) < 1.5 and \
 				absf(scene_rect.position.y - picker_rect.position.y) < 1.5
@@ -1607,6 +1610,7 @@ func _smoke_research(shots: String) -> bool:
 				print("smoke: research page 0: monitor '%s' shown %s, text '%s'" % [_scene_window._monitor_title.text,
 					_scene_window._monitor.visible, _scene_window._text.text.left(60)])
 				page_rect = _scene_window._frame.get_global_rect()
+				bar_on_page = _view("galaxy_bar").get_global_rect()
 				if shots != "":
 					await host.shot(shots + "/native-research-page-0.png")
 			pages += 1
@@ -1616,7 +1620,9 @@ func _smoke_research(shots: String) -> bool:
 	await get_tree().create_timer(0.3).timeout
 	set_ui_scale(scale_before, false)
 	await get_tree().create_timer(0.3).timeout
-	var stayed := page_rect.position.distance_to(picker_window.position) < 1.5 and page_rect.size.distance_to(picker_window.size) < 1.5
+	var stayed := page_rect.position.distance_to(picker_window.position) < 1.5 and page_rect.size.distance_to(picker_window.size) < 1.5 and \
+		bar_on_page.end.x <= bar_with_picker.end.x + 0.5
+	print("smoke: research bar on the page %s, with the picker %s" % [bar_on_page, bar_with_picker])
 	print("smoke: research pages %d, aligned %s, result %s, window %s; window on the page %s, with the picker %s (stayed %s)" % [pages, aligned,
 		box.get("r", {}), _scene_window.visible if _scene_window else false, page_rect, picker_window, stayed])
 	return stayed and box.has("r") and bool(box.r.get("ok", false)) and pages == 2 and aligned and _scene_window != null and not _scene_window.visible
