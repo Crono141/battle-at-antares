@@ -589,7 +589,9 @@ namespace antares::native {
 
     void Answer_Request_Text(uint64_t id, int32_t value, const std::string& text) {
         std::lock_guard<std::mutex> lock(s_mutex);
-        if (id == s_waiting_request) {
+        // The first answer counts: a live window's timed step must not overwrite a button
+        // pressed just before it (the bombing's STOP).
+        if (id == s_waiting_request && !s_answered) {
             s_answered = true;
             s_answer = value;
             s_answer_text = text;

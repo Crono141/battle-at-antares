@@ -2770,6 +2770,11 @@ var _occupation_open: Array = [] # [star, colony] to open once the occupation qu
 
 
 func _on_answered(id: int, value: int, text := "") -> void:
+	# A live window's step (the bombing's next bomb, or its STOP / CONTINUE): the window stays, the
+	# game sends it again at once.
+	if _views.has("dialog") and _views.dialog.stepping:
+		game.answer_request(id, value)
+		return
 	if not _occupation_open.is_empty():
 		var open: Array = _occupation_open
 		_occupation_open = []
@@ -3515,6 +3520,70 @@ func _smoke_native() -> void:
 			print("smoke: pane after a tall frame mid-slide: %s (settled %s)" % [pane.get_rect(), settled])
 			if pane.size.y > limit or pane.position.y < 0.0:
 				await host.smoke_fail("the system pane stayed stretched after a tall frame")
+				return
+			game.request_game_quit()
+			return
+		if arg == "--bombing":
+			# Owner, 2026-11-20: the bombs fall one at a time and STOP holds the rest.
+			var enemy_colony := -1
+			var enemy_star := -1
+			for star: Dictionary in galaxy.stars:
+				var sys: Dictionary = await _query_args({"what": "system", "star": int(star.id)})
+				for planet: Dictionary in sys.get("planets", []):
+					var colony: Dictionary = planet.get("colony", {})
+					if not colony.is_empty() and not colony.get("mine", false) and enemy_colony < 0 and int(planet.get("population", colony.get("population", 1))) > 0:
+						enemy_colony = int(colony.id)
+						enemy_star = int(star.id)
+				if enemy_colony >= 0:
+					break
+			var box := {}
+			_send({"verb": "preview_popup", "popup": "colony_bombing", "colony": enemy_colony, "hits": 60}, func(r: Dictionary): box["r"] = r)
+			var dialog: Control
+			var left := func() -> int: # the window's "N bomb strikes" row
+				for label: Label in _views["dialog"].find_children("*", "Label", true, false):
+					if label.text.contains("bomb strike"):
+						return int(label.text.get_slice(" ", 0))
+				return 0
+			var labels := func() -> Array:
+				return _views["dialog"]._popup_buttons.get_children().map(func(b: Button) -> String: return b.text)
+			for i in 30:
+				await get_tree().create_timer(0.1).timeout
+				if _views.has("dialog") and _views.dialog.visible and String(_views.dialog.popup_name) == "colony_bombing":
+					break
+			dialog = _views["dialog"]
+			var at_start: int = left.call()
+			await get_tree().create_timer(1.0).timeout
+			var after_second: int = left.call()
+			if shots != "":
+				await host.shot(shots + "/native-bombing.png")
+			var running_buttons: Array = labels.call()
+			(dialog._popup_buttons.get_child(0) as Button).pressed.emit() # STOP
+			await get_tree().create_timer(0.3).timeout
+			var at_stop: int = left.call()
+			await get_tree().create_timer(1.0).timeout
+			var still: int = left.call()
+			var stopped_buttons: Array = labels.call()
+			(dialog._popup_buttons.get_child(0) as Button).pressed.emit() # CONTINUE
+			await get_tree().create_timer(0.7).timeout
+			var after_continue: int = left.call()
+			if dialog._popup_buttons.get_child_count() > 1:
+				(dialog._popup_buttons.get_child(1) as Button).pressed.emit() # ALL AT ONCE
+			await get_tree().create_timer(0.5).timeout
+			var done_buttons: Array = labels.call()
+			var visible_while: bool = dialog.visible and overlay.visible
+			if shots != "":
+				await host.shot(shots + "/native-bombing-done.png")
+			(dialog._popup_buttons.get_child(dialog._popup_buttons.get_child_count() - 1) as Button).pressed.emit() # CLOSE
+			for i in 30:
+				await get_tree().create_timer(0.1).timeout
+				if box.has("r"):
+					break
+			print("smoke: bombing colony %d: bombs left %d, after 1 s %d %s; STOP at %d, 1 s later %d %s; CONTINUE 0.7 s %d; ALL AT ONCE %s; window up %s; result %s" % [
+				enemy_colony, at_start, after_second, running_buttons, at_stop, still, stopped_buttons, after_continue, done_buttons, visible_while, box.get("r", "none")])
+			# One step every 5 frames of 55 ms; a step may take several hits, as in the original.
+			var paced: bool = after_second < at_start and after_second > 0
+			if enemy_colony < 0 or not paced or still != at_stop or after_continue >= still or done_buttons != ["CLOSE"] or not box.has("r") or overlay.visible:
+				await host.smoke_fail("bombing was not paced, stoppable and closable")
 				return
 			game.request_game_quit()
 			return

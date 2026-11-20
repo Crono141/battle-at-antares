@@ -51,8 +51,20 @@ func _ready() -> void:
 	$Fit/Box/Entry.text_submitted.connect(func(_t: String): _answer(1))
 
 
+## A live window (the bombing, owner 2026-11-20: "live"): its buttons, all but the last, and its
+## timed step ("step_ms", answering "step_answer") answer without closing it; the game sends the
+## window again at once.
+var stepping := false
+
+
 func ask(id: int, kind: String, request: Dictionary) -> void:
 	request_id = id
+	var live: bool = request.get("live", false)
+	if request.has("step_ms"):
+		var step_value := int(request.get("step_answer", 0))
+		get_tree().create_timer(float(request.step_ms) / 1000.0).timeout.connect(func():
+			if request_id == id and visible:
+				_step(step_value))
 	_apply_bare()
 	$Fit/Box/Text.text = request.get("text", "")
 	var title: String = request.get("title", "")
@@ -143,7 +155,10 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 				value = -1 if i == 1 else -2 # OK answers the slider's value
 			elif choose:
 				value = -1
-			b.pressed.connect(func(): _answer(_slider_value if value == -2 else value))
+			if live and i < buttons.size() - 1:
+				b.pressed.connect(func(): _step(value))
+			else:
+				b.pressed.connect(func(): _answer(_slider_value if value == -2 else value))
 			_popup_buttons.add_child(b)
 	$Fit/Box/Text.visible = $Fit/Box/Text.text != "" or kind != "popup"
 	show()
@@ -152,6 +167,20 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 		entry.select_all()
 	reset_size() # as tall as its text: OK as far from the bottom as the text from the top (owner)
 	_centre.call_deferred()
+
+
+## An answer that keeps the window up (a live window's step or button); once per request, so a
+## step timer can't follow a button pressed first.
+var _stepped_id := -1
+
+
+func _step(value: int) -> void:
+	if _stepped_id == request_id:
+		return
+	_stepped_id = request_id
+	stepping = true
+	answered.emit(request_id, value, "")
+	stepping = false
 
 
 func _answer(value: int) -> void:
