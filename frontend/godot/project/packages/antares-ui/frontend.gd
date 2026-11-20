@@ -335,11 +335,12 @@ func _end_film() -> void:
 	(legacy.get_parent() as CanvasLayer).layer = 1
 	game.set_source_rect(Rect2())
 	legacy.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	if native_screen == Screens.MAIN:
-		legacy.hide()
-	elif native_screen == Screens.LEGACY and not _turn_over_galaxy:
+	# The legacy view goes with the film's window in every case (owner, 2026-11-20: clicking
+	# through the Antarans' arrival during the turn showed the legacy galaxy full screen for a
+	# moment: the turn's galaxy left it up until its next notice).
+	legacy.hide()
+	if native_screen == Screens.LEGACY and not _turn_over_galaxy:
 		# The galaxy stays a moment, as after a scene window: the game may come straight back.
-		legacy.hide()
 		_turn_over_galaxy = true
 		_turn_clearing = 0.0
 		_turn_clearing_polls = int(game.get_stats().get("input_polls", 0))
@@ -6064,12 +6065,16 @@ func _smoke_film(shots: String) -> void:
 	release.pressed = false
 	Input.parse_input_event(release)
 	var skip_wait := 0.0
+	var legacy_frames := 0 # frames the legacy view showed after the click (owner: a flash of it)
 	while _film_active and skip_wait < 2.0:
-		await get_tree().create_timer(0.1).timeout
-		skip_wait += 0.1
-	print("smoke: film clicked: skipped %s after %.1f s (control under the click: %s)" % [not _film_active, skip_wait,
-		get_viewport().gui_get_hovered_control()])
-	if _film_active:
+		await get_tree().process_frame
+		skip_wait += get_process_delta_time()
+	for i in 60:
+		await get_tree().process_frame
+		if legacy.visible:
+			legacy_frames += 1
+	print("smoke: film clicked: skipped %s after %.1f s; legacy view shown in %d of 60 frames after" % [not _film_active, skip_wait, legacy_frames])
+	if _film_active or legacy_frames > 0:
 		await host.smoke_fail("a click didn't skip the film")
 		return
 	waited = 0.0
