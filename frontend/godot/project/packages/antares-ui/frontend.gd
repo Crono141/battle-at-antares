@@ -4992,22 +4992,21 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 			colony_pane._close_info()
 		print("smoke: building '%s' sellable %s refund %s, description %d chars" % [c.buildings[0].name, c.buildings[0].get("sellable"),
 			c.buildings[0].get("refund"), String(c.buildings[0].get("description", "")).length()])
-	colony_pane._open_landscape()
-	var t_land := Time.get_ticks_msec()
-	while native_screen != Screens.LEGACY and Time.get_ticks_msec() - t_land < 10000:
-		await get_tree().process_frame
+	# VIEW COLONY natively (owner, 2026-11-20): the landscape beside the pane, shown and hidden.
+	var land_was: bool = _views.has("colony_landscape") and _views.colony_landscape.visible
+	if not land_was:
+		colony_pane.landscape_toggled.emit(int(c.colony))
 	await get_tree().create_timer(1.5).timeout
+	var land: Control = _view("colony_landscape")
+	var land_layers: int = (land.landscape.get("layers", []) as Array).size()
 	if shots != "":
-		game.get_frame_image().save_png(shots + "/legacy-landscape.png")
-	var leaving := 0.0
-	while native_screen != Screens.MAIN and leaving < 10.0:
-		game.send_key(KEY_ESCAPE, false, false, false)
-		await get_tree().create_timer(1.0).timeout
-		leaving += 1.0
-	await get_tree().create_timer(1.0).timeout
-	print("smoke: landscape view shown and left: back on the galaxy %s, colony pane %s" % [native_screen == Screens.MAIN, colony_pane.visible])
-	if native_screen != Screens.MAIN:
-		await host.smoke_fail("the landscape view did not close back to the galaxy")
+		await host.shot(shots + "/native-landscape-view.png")
+	colony_pane.landscape_toggled.emit(int(c.colony))
+	await get_tree().create_timer(0.4).timeout
+	print("smoke: landscape view: shown with %d layers, hidden again %s, still on the galaxy %s" % [land_layers, not land.visible,
+		native_screen == Screens.MAIN])
+	if land_layers < 3 or land.visible or native_screen != Screens.MAIN:
+		await host.smoke_fail("the landscape view did not show and hide")
 		return false
 	# BUY (Yes), then BUY again: un-bought, the BC back.
 	if int(c.build.get("buy_cost", 0)) > 0:
