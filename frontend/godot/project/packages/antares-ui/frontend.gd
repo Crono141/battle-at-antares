@@ -1780,8 +1780,7 @@ func _smoke_planets(shots: String) -> bool:
 			await get_tree().process_frame
 			if shots != "":
 				await host.shot(shots + "/native-planets-armed.png")
-			var row: Control = panel._rows[int(target.planet)]
-			row.gui_input.emit(_smoke_click_at(row.get_global_rect().get_center()))
+			# The planet is selected already: the button sends there itself (owner, 2026-11-20).
 			for i in 40:
 				await get_tree().create_timer(0.25).timeout
 				_smoke_answer()
@@ -1789,7 +1788,9 @@ func _smoke_planets(shots: String) -> bool:
 			for p: Dictionary in panel._all:
 				if int(p.planet) == int(target.planet):
 					after = p
-			print("smoke: sent a colony ship to %s: on its way %s" % [target.name, after.get("colony_eta", -1)])
+			print("smoke: sent a colony ship to %s: on its way %s, still armed %s" % [target.name, after.get("colony_eta", -1), panel.send_kind])
+			if panel.send_kind != "colony" and not panel.colony_button.disabled:
+				return false
 			if shots != "":
 				await host.shot(shots + "/native-planets-sent.png")
 			if int(after.get("colony_eta", -1)) < 0:

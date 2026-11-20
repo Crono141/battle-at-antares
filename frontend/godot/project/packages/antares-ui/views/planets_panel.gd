@@ -71,8 +71,8 @@ func _ready() -> void:
 	for f: Dictionary in FILTERS:
 		_filters_on[f.flag] = f.on
 	_show_filters()
-	colony_button.toggled.connect(func(on: bool): _arm("colony" if on else ""))
-	outpost_button.toggled.connect(func(on: bool): _arm("outpost" if on else ""))
+	colony_button.toggled.connect(func(on: bool): _on_send_button("colony", on))
+	outpost_button.toggled.connect(func(on: bool): _on_send_button("outpost", on))
 	Themes.glowing(colony_button)
 	Themes.glowing(outpost_button)
 	resized.connect(func():
@@ -421,6 +421,19 @@ func _show_send_buttons() -> void:
 		b.tooltip_text = ("Ship movement is not possible during the hyperspace flux" if flux else
 			("No free %s ship" % pair[1]) if not available else
 			"Arm, then click a planet: the nearest free %s ship goes there" % pair[1])
+
+
+## A send button pressed: it arms; with a planet already selected the ship goes there at once
+## (owner, 2026-11-20: select, then send, as well as arm, then click), and the button stays armed
+## for the next planet, as after a click.
+func _on_send_button(kind: String, on: bool) -> void:
+	_arm(kind if on else "")
+	if not on or selected < 0:
+		return
+	for p: Dictionary in planets:
+		if int(p.planet) == selected:
+			_send(p)
+			return
 
 
 ## A send button armed ("colony" / "outpost") or disarmed (""); the other goes off.
