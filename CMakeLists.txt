@@ -153,6 +153,11 @@ if(ORION2RE_USE_SYSTEM_PACKAGES)
     set(ORION2RE_USE_SYSTEM_IMGUI ON CACHE BOOL "" FORCE)
     set(ORION2RE_USE_SYSTEM_LUA ON CACHE BOOL "" FORCE)
 endif()
+# Battle at Antares: the libraries only Antares uses.
+if(ORION2RE_USE_SYSTEM_PACKAGES)
+    set(ORION2RE_USE_SYSTEM_LIBWEBP ON CACHE BOOL "" FORCE)
+    set(ORION2RE_USE_SYSTEM_STB ON CACHE BOOL "" FORCE)
+endif()
 
 set(ORION2RE_ENABLE_ASAN_DEFAULT OFF)
 if(APPLE AND ORION2RE_BUILD_TESTS)
@@ -224,6 +229,12 @@ option(ORION2RE_USE_SYSTEM_IMGUI
        OFF)
 option(ORION2RE_USE_SYSTEM_LUA
        "Use the system Lua library instead of the vendored submodule"
+       OFF)
+option(ORION2RE_USE_SYSTEM_LIBWEBP
+       "Use the system libwebp decoder library instead of the vendored submodule"
+       OFF)
+option(ORION2RE_USE_SYSTEM_STB
+       "Use the system stb_vorbis and stb_image_write instead of the vendored submodule"
        OFF)
 
 if(ORION2RE_ENABLE_ASAN)
@@ -630,16 +641,25 @@ endif()
 
 # libwebp (decoder only): full-colour HD art frames are stored as WebP.
 set(ORION2RE_VENDORED_LIBWEBP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendors/libwebp")
-if(NOT EXISTS "${ORION2RE_VENDORED_LIBWEBP_DIR}/src/webp/decode.h")
-    message(FATAL_ERROR
-        "HD art decoding requires the libwebp submodule at vendors/libwebp. "
-        "Run 'git submodule update --init vendors/libwebp'.")
+if(ORION2RE_USE_SYSTEM_LIBWEBP)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(libwebpdecoder REQUIRED IMPORTED_TARGET libwebpdecoder)
+    set(ORION2RE_LIBWEBP_TARGET PkgConfig::libwebpdecoder)
+    set(ORION2RE_LIBWEBP_INCLUDE_DIRS "")
+else()
+    if(NOT EXISTS "${ORION2RE_VENDORED_LIBWEBP_DIR}/src/webp/decode.h")
+        message(FATAL_ERROR
+            "HD art decoding requires the libwebp submodule at vendors/libwebp. "
+            "Run 'git submodule update --init vendors/libwebp'.")
+    endif()
+    foreach(option WEBP_BUILD_ANIM_UTILS WEBP_BUILD_CWEBP WEBP_BUILD_DWEBP WEBP_BUILD_GIF2WEBP WEBP_BUILD_IMG2WEBP
+            WEBP_BUILD_VWEBP WEBP_BUILD_WEBPINFO WEBP_BUILD_LIBWEBPMUX WEBP_BUILD_WEBPMUX WEBP_BUILD_EXTRAS)
+        set(${option} OFF CACHE BOOL "" FORCE)
+    endforeach()
+    add_subdirectory("${ORION2RE_VENDORED_LIBWEBP_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/vendors/libwebp" EXCLUDE_FROM_ALL)
+    set(ORION2RE_LIBWEBP_TARGET webpdecoder)
+    set(ORION2RE_LIBWEBP_INCLUDE_DIRS "${ORION2RE_VENDORED_LIBWEBP_DIR}/src")
 endif()
-foreach(option WEBP_BUILD_ANIM_UTILS WEBP_BUILD_CWEBP WEBP_BUILD_DWEBP WEBP_BUILD_GIF2WEBP WEBP_BUILD_IMG2WEBP
-        WEBP_BUILD_VWEBP WEBP_BUILD_WEBPINFO WEBP_BUILD_LIBWEBPMUX WEBP_BUILD_WEBPMUX WEBP_BUILD_EXTRAS)
-    set(${option} OFF CACHE BOOL "" FORCE)
-endforeach()
-add_subdirectory("${ORION2RE_VENDORED_LIBWEBP_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/vendors/libwebp" EXCLUDE_FROM_ALL)
 
 if(ORION2RE_USE_SYSTEM_LZ4)
     # lz4 installs a CMake package only when built with CMake; distributions
@@ -663,20 +683,30 @@ else()
 endif()
 
 if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL)
-    if(NOT EXISTS "${ORION2RE_VENDORED_STB_DIR}/stb_vorbis.c")
-        message(FATAL_ERROR
-            "Ogg Vorbis music requires the stb submodule at vendors/stb. "
-            "Run 'git submodule update --init vendors/stb' and ensure it is pinned to ${ORION2RE_VENDORED_STB_COMMIT}."
-        )
+    if(ORION2RE_USE_SYSTEM_STB)
+        # Distributions install the stb files under <include>/stb.
+        find_path(ORION2RE_STB_VORBIS_DIR NAMES stb_vorbis.c PATH_SUFFIXES stb REQUIRED)
+        find_path(ORION2RE_STB_IMAGE_WRITE_DIR NAMES stb_image_write.h PATH_SUFFIXES stb REQUIRED)
+        set(ORION2RE_STB_INCLUDE_DIRS "${ORION2RE_STB_VORBIS_DIR}" "${ORION2RE_STB_IMAGE_WRITE_DIR}")
+        list(REMOVE_DUPLICATES ORION2RE_STB_INCLUDE_DIRS)
+    else()
+        if(NOT EXISTS "${ORION2RE_VENDORED_STB_DIR}/stb_vorbis.c")
+            message(FATAL_ERROR
+                "Ogg Vorbis music requires the stb submodule at vendors/stb. "
+                "Run 'git submodule update --init vendors/stb' and ensure it is pinned to ${ORION2RE_VENDORED_STB_COMMIT}."
+            )
+        endif()
+        set(ORION2RE_STB_VORBIS_DIR "${ORION2RE_VENDORED_STB_DIR}")
+        set(ORION2RE_STB_INCLUDE_DIRS "${ORION2RE_VENDORED_STB_DIR}")
     endif()
 
     # Only the memory decoding API is used; music entries are read through the
     # VFS before decoding.
     add_library(orion2re_stb_vorbis STATIC
-        "${ORION2RE_VENDORED_STB_DIR}/stb_vorbis.c"
+        "${ORION2RE_STB_VORBIS_DIR}/stb_vorbis.c"
     )
     target_include_directories(orion2re_stb_vorbis PUBLIC
-        "${ORION2RE_VENDORED_STB_DIR}"
+        ${ORION2RE_STB_INCLUDE_DIRS}
     )
     target_compile_definitions(orion2re_stb_vorbis PUBLIC
         STB_VORBIS_NO_STDIO
@@ -804,7 +834,7 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         ${ORION2RE_LIBSMACKER_INCLUDE_DIRS}
         ${ORION2RE_YYJSON_INCLUDE_DIRS}
-        "${ORION2RE_VENDORED_LIBWEBP_DIR}/src"
+        ${ORION2RE_LIBWEBP_INCLUDE_DIRS}
     )
     target_precompile_headers(orion2re_game_objects PRIVATE
         "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h>"
@@ -813,7 +843,7 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
         SDL3::Headers
         ${ORION2RE_LIBUV_TARGET}
         ${ORION2RE_LZ4_TARGET}
-        webpdecoder
+        ${ORION2RE_LIBWEBP_TARGET}
         orion2re_stb_vorbis
         orion2re_lua
         ${ORION2RE_MINIZ_TARGET}
@@ -972,7 +1002,7 @@ if(ORION2RE_BUILD_GAME)
         ${ORION2RE_SDL3_TARGET}
         ${ORION2RE_LIBUV_TARGET}
         ${ORION2RE_LZ4_TARGET}
-        webpdecoder
+        ${ORION2RE_LIBWEBP_TARGET}
         orion2re_stb_vorbis
         orion2re_lua
         orion2re_scalers
@@ -1046,7 +1076,7 @@ if(ORION2RE_BUILD_GAME)
         ${ORION2RE_SDL3_TARGET}
         ${ORION2RE_LIBUV_TARGET}
         ${ORION2RE_LZ4_TARGET}
-        webpdecoder
+        ${ORION2RE_LIBWEBP_TARGET}
         orion2re_stb_vorbis
         orion2re_lua
         orion2re_scalers
@@ -1081,7 +1111,7 @@ if(ORION2RE_BUILD_GAME)
         ${ORION2RE_LIBSMACKER_INCLUDE_DIRS}
         ${ORION2RE_YYJSON_INCLUDE_DIRS})
     target_link_libraries(config-load-benchmark PRIVATE ${ORION2RE_SDL3_TARGET} ${ORION2RE_LIBUV_TARGET}
-        ${ORION2RE_LZ4_TARGET} webpdecoder orion2re_stb_vorbis orion2re_lua orion2re_scalers ${ORION2RE_MINIZ_TARGET} orion2re_imgui)
+        ${ORION2RE_LZ4_TARGET} ${ORION2RE_LIBWEBP_TARGET} orion2re_stb_vorbis orion2re_lua orion2re_scalers ${ORION2RE_MINIZ_TARGET} orion2re_imgui)
     if(ORION2RE_USE_SYSTEM_YYJSON)
         target_link_libraries(config-load-benchmark PRIVATE PkgConfig::yyjson)
     endif()
@@ -1187,7 +1217,7 @@ if(ORION2RE_BUILD_CONFIG_TOOL)
         ${ORION2RE_SDL3_TARGET}
         ${ORION2RE_LIBUV_TARGET}
         ${ORION2RE_LZ4_TARGET}
-        webpdecoder
+        ${ORION2RE_LIBWEBP_TARGET}
         orion2re_stb_vorbis
         orion2re_lua
         orion2re_scalers
@@ -1371,7 +1401,7 @@ target_include_directories(orion2re-router PRIVATE
 target_link_libraries(orion2re-router PRIVATE
     ${ORION2RE_LIBUV_TARGET}
     ${ORION2RE_LZ4_TARGET}
-    webpdecoder
+    ${ORION2RE_LIBWEBP_TARGET}
 )
 
 if(ORION2RE_LITTLE_ENDIAN_COMPILE_FLAG)

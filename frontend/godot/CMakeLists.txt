@@ -15,7 +15,7 @@ add_library(antares_godot SHARED
     "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c"
     "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_bitstream.c"
     "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
-    "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"
+    ${ORION2RE_YYJSON_SOURCES}
 )
 # The game's main() becomes a function the extension calls on its game-host thread.
 set_source_files_properties("${CMAKE_SOURCE_DIR}/src/main.cpp" PROPERTIES
@@ -24,19 +24,22 @@ target_compile_features(antares_godot PRIVATE cxx_std_20)
 target_include_directories(antares_godot PRIVATE
     "${CMAKE_SOURCE_DIR}/src"
     "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
-    "${ORION2RE_VENDORED_YYJSON_DIR}/src"
+    ${ORION2RE_YYJSON_INCLUDE_DIRS}
 )
 target_link_libraries(antares_godot PRIVATE
     godot::cpp
     SDL3::SDL3-static
     uv_a
-    orion2re_lz4 webpdecoder
+    orion2re_lz4 ${ORION2RE_LIBWEBP_TARGET}
     orion2re_stb_vorbis
     orion2re_lua
     orion2re_scalers
     miniz
     orion2re_imgui
 )
+if(ORION2RE_USE_SYSTEM_YYJSON)
+    target_link_libraries(antares_godot PRIVATE PkgConfig::yyjson)
+endif()
 set(ANTARES_GODOT_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/project/bin" CACHE PATH
     "Where libantares.so goes (the trial project's bin/ by default)")
 set_target_properties(antares_godot PROPERTIES
