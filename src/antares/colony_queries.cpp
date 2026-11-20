@@ -1002,7 +1002,21 @@ namespace antares::commands::internal {
             for (int i = 0; i < COLBLDG::n_building_indexes; ++i) {
                 Build_Item(c, COLBLDG::building_indexes[i], buildings.Append_Object());
             }
+            // Colony Bases (owner, 2026-11-20): one per planet the system has free
+            // (Star_N_Uncolonized_Worlds), less those already queued. The list is edited here
+            // before OK, so the pane counts its own queue against `colony_base_room`; the item is
+            // offered whenever the colony can build one at all (Calculate_Military_Array leaves it
+            // out once the saved queue has used the room, and the pane may take one off).
+            const int16_t colony_base_room = COLBLDG::Star_N_Uncolonized_Worlds(MOX::planet[MOX::colony[c].planet].star_index);
+            out.Int("colony_base_room", colony_base_room);
             s_out units = out.Add_List("units");
+            bool colony_base_listed = false;
+            for (int i = 0; i < COLBLDG::n_military_indexes; ++i) {
+                colony_base_listed = colony_base_listed || COLBLDG::military_indexes[i] == BUILDING_COLONY_BASE;
+            }
+            if (!colony_base_listed && colony_base_room > 0 && COLCALC::Colony_Can_Build_Product(&MOX::colony[c], BUILDING_COLONY_BASE)) {
+                Build_Item(c, BUILDING_COLONY_BASE, units.Append_Object());
+            }
             for (int i = 0; i < COLBLDG::n_military_indexes; ++i) {
                 const int16_t id = COLBLDG::military_indexes[i];
                 if (id == COLONY_PRODUCTION_SEPARATOR) {

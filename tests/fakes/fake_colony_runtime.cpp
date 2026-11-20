@@ -395,3 +395,15 @@ namespace SETTLER {
         return source_star > dest_star ? source_star - dest_star : dest_star - source_star;
     }
 } // namespace SETTLER
+
+// The build list's Colony Base room (build_options, 2026-11-20): none free in the fake.
+namespace COLBLDG {
+    int16_t __cdecl Star_N_Uncolonized_Worlds(int16_t) {
+        return 0;
+    }
+} // namespace COLBLDG
+namespace COLCALC {
+    uint8_t __cdecl Colony_Can_Build_Product(s_colony*, int16_t) {
+        return 0;
+    }
+} // namespace COLCALC

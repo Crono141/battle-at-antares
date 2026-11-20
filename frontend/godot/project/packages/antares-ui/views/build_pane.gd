@@ -22,6 +22,7 @@ const WIDTH := 660.0
 const REPEAT := -10
 const HOUSING := -3
 const TRADE_GOODS := -2
+const COLONY_BASE := 11 # BUILDING_COLONY_BASE, a product id too
 const SLOTS := 7
 const ROW_HEIGHT := 30.0
 
@@ -310,12 +311,21 @@ func _queued(id: int) -> bool:
 	return _queue.any(func(q: Dictionary) -> bool: return int(q.id) == id)
 
 
+## Colony Bases this queue may still take (owner, 2026-11-20): the system's free planets less those
+## already queued here, as the build screen counts them (Calculate_Military_Array).
+func _colony_base_room() -> int:
+	var queued := _queue.filter(func(q: Dictionary) -> bool: return int(q.id) == COLONY_BASE).size()
+	return int(options.get("colony_base_room", 0)) - queued
+
+
 func _fill(box: VBoxContainer, list: Array) -> void:
 	for item: Dictionary in list:
 		# A building in the build list is built once: it leaves the list (owner, 2026-11-19: it
 		# could be queued again and again). Housing and trade goods can repeat.
 		if box == items_box and not item.get("separator", false) and int(item.id) != HOUSING and \
 				int(item.id) != TRADE_GOODS and _queued(int(item.id)):
+			continue
+		if not item.get("separator", false) and int(item.id) == COLONY_BASE and _colony_base_room() <= 0:
 			continue
 		if item.get("separator", false):
 			var gap := Control.new()

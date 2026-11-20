@@ -3713,6 +3713,52 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--colony-base":
+			# Owner, 2026-11-20: Colony Base is offered while the system's free planets outnumber
+			# the Colony Bases in the queue being edited.
+			var found := {}
+			for c in 64:
+				var data: Dictionary = await _query_args({"what": "colony", "colony": c})
+				if not data.get("ok", false) or data.get("outpost", false):
+					continue
+				var o: Dictionary = await _query_args({"what": "build_options", "colony": c})
+				if int(o.get("colony_base_room", 0)) > 0 and (o.get("units", []) as Array).any(func(u: Dictionary) -> bool: return int(u.get("id", -1)) == 11):
+					found = {"colony": c, "star": int(data.star), "room": int(o.colony_base_room)}
+					break
+			if found.is_empty():
+				print("smoke: colony base: no colony with a free planet in its system (skipped)")
+				game.request_game_quit()
+				return
+			_open_colony_at(int(found.star), int(found.colony), true)
+			await get_tree().create_timer(2.5).timeout
+			var build := _view("build_pane")
+			var offered := func() -> bool:
+				return build.units_box.get_children().any(func(n: Node) -> bool: return n is Button and (n as Button).text == String(build._names.get(11, {}).get("name", "")))
+			var added := 0
+			while bool(offered.call()) and added < 7:
+				build._add(11)
+				added += 1
+				await get_tree().process_frame
+			var gone_after: int = added
+			var still_offered: bool = offered.call()
+			# One taken off again: offered again.
+			var slot := -1
+			for i in build._queue.size():
+				if int(build._queue[i].id) == 11:
+					slot = i
+			if slot >= 0:
+				build._delete(slot)
+			await get_tree().process_frame
+			var back: bool = offered.call()
+			print("smoke: colony base at colony %d: room %d; offered until %d queued (still offered %s); one taken off: offered %s" % [found.colony,
+				found.room, gone_after, still_offered, back])
+			build.cancel()
+			await get_tree().create_timer(0.5).timeout
+			if gone_after != int(found.room) or still_offered or not back:
+				await host.smoke_fail("Colony Base not limited to the system's free planets")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--todo-auto":
 			# AUTO ADDRESS TO-DOS (owner, 2026-11-20): after the turns each item opens in turn; the
 			# player here looks and closes (a build list cancelled, the system closed), and the next
