@@ -1558,11 +1558,21 @@ func _smoke_diplomacy(shots: String) -> bool:
 ## pages answer to a click, the monitor closes, the picker comes down over the room with its frame
 ## on the window's (same top, right and bottom), a pick answers and both close.
 func _smoke_research(shots: String) -> bool:
+	# At the owner's interface scale (130%), where the window's place follows the bar's right end.
+	var scale_before := ui_scale
+	var window_before := get_window().size
+	get_window().size = Vector2i(1920, 1080)
+	await get_tree().create_timer(0.5).timeout
+	set_ui_scale(130.0, false)
+	await get_tree().create_timer(0.5).timeout
+	print("smoke: research at scale %.0f%%, window %s, view %s" % [ui_scale, get_window().size, get_viewport().get_visible_rect().size])
 	var box := {}
 	_send({"verb": "preview_popup", "popup": "research"}, func(r: Dictionary): box["r"] = r)
 	var waited := 0.0
 	var pages := 0
 	var aligned := false
+	var page_rect := Rect2() # the window on the first page; the picker must not move it (owner, 2026-11-20, Glass)
+	var picker_window := Rect2()
 	while not box.has("r") and waited < 60.0:
 		await get_tree().create_timer(0.25).timeout
 		waited += 0.25
@@ -1571,6 +1581,7 @@ func _smoke_research(shots: String) -> bool:
 		if _picker != null and _picker.visible and not _picker._flashing:
 			await get_tree().create_timer(1.0).timeout # slid down
 			var scene_rect: Rect2 = _scene_window._frame.get_global_rect()
+			picker_window = scene_rect
 			var picker_rect: Rect2 = _picker.get_global_rect()
 			aligned = absf(scene_rect.end.x - picker_rect.end.x) < 1.5 and absf(scene_rect.end.y - picker_rect.end.y) < 1.5 and \
 				absf(scene_rect.position.y - picker_rect.position.y) < 1.5
@@ -1595,13 +1606,20 @@ func _smoke_research(shots: String) -> bool:
 				await get_tree().create_timer(2.5).timeout # slides down, the monitor opens, the art arrives
 				print("smoke: research page 0: monitor '%s' shown %s, text '%s'" % [_scene_window._monitor_title.text,
 					_scene_window._monitor.visible, _scene_window._text.text.left(60)])
+				page_rect = _scene_window._frame.get_global_rect()
 				if shots != "":
 					await host.shot(shots + "/native-research-page-0.png")
 			pages += 1
 			_scene_window._frame.gui_input.emit(_smoke_left_click())
 			await get_tree().create_timer(0.5).timeout
-	print("smoke: research pages %d, aligned %s, result %s, window %s" % [pages, aligned, box.get("r", {}), _scene_window.visible if _scene_window else false])
-	return box.has("r") and bool(box.r.get("ok", false)) and pages == 2 and aligned and _scene_window != null and not _scene_window.visible
+	get_window().size = window_before
+	await get_tree().create_timer(0.3).timeout
+	set_ui_scale(scale_before, false)
+	await get_tree().create_timer(0.3).timeout
+	var stayed := page_rect.position.distance_to(picker_window.position) < 1.5 and page_rect.size.distance_to(picker_window.size) < 1.5
+	print("smoke: research pages %d, aligned %s, result %s, window %s; window on the page %s, with the picker %s (stayed %s)" % [pages, aligned,
+		box.get("r", {}), _scene_window.visible if _scene_window else false, page_rect, picker_window, stayed])
+	return stayed and box.has("r") and bool(box.r.get("ok", false)) and pages == 2 and aligned and _scene_window != null and not _scene_window.visible
 
 
 ## WP3.5a (`-- --smoke --native --colonies`): the Colonies panel opens beside the fitted galaxy,
@@ -2704,6 +2722,11 @@ func _research_scene_rect() -> Rect2:
 
 func _place_scene(state: Dictionary) -> void:
 	if String(state.get("placement", "")) == "research":
+		# Placed once per scene (owner, 2026-11-20, Glass: the window shifted left as the picker
+		# came): the bar's research readout changes when the research is done ("none"), the bar
+		# narrows, and its right end, which the window follows, moved.
+		if _scene_window != null and _scene_window.is_open() and _scene_window.custom_rect.has_area():
+			return
 		_scene().custom_rect = _research_scene_rect()
 
 
