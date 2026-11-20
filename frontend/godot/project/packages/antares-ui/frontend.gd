@@ -2908,10 +2908,12 @@ var _popup_map_ending := -1 # the zoomed system, while its fly-back waits for a 
 ## The fly-back from an answered system-zoom popup, unless a question on it came first (it keeps
 ## the system) or its landing began (that scene frames the colony itself).
 func _popup_map_end_after(star: int) -> void:
-	# At least a moment, and while the game is still busy (loading the landing over a slow disk),
-	# up to a limit.
+	# At least a moment, and while the game is still busy, up to a limit: on a legacy screen, or
+	# still working on a command sent from here (owner, 2026-11-20: the to-do's colonize runs as a
+	# command from the galaxy, and over the share its landing took longer than the moment to
+	# load, so the camera flew out and the landing flew it back in).
 	var waited := 0.0
-	while waited < POPUP_FOLLOW_UP_WAIT or (native_screen != Screens.MAIN and waited < 10.0):
+	while waited < POPUP_FOLLOW_UP_WAIT or (_game_busy() and waited < 10.0):
 		await get_tree().create_timer(0.1).timeout
 		waited += 0.1
 		if _popup_map_ending != star:
@@ -2927,6 +2929,13 @@ func _popup_map_end_after(star: int) -> void:
 		galaxy.selected = _panel_star
 		galaxy.hide_system()
 		galaxy.fly_back()
+
+
+## The game is still at work on something the player started: on a legacy screen, handing over to
+## one (the bridge holds the switch, input off, until the new screen has drawn: a landing loading
+## over the share), or answering a command sent from here.
+func _game_busy() -> bool:
+	return native_screen != Screens.MAIN or get_viewport().is_input_disabled() or not _pending.is_empty()
 
 
 ## A map click while a map popup waits: a planet of the zoomed system, or the star picked.
@@ -5680,6 +5689,26 @@ func _smoke_todo(shots: String) -> bool:
 						await get_tree().create_timer(1.5).timeout # the flight into the system
 						await host.shot(shots + "/native-todo-colony-confirm.png")
 					dialog._answer(0) # YES
+					# Until the landing comes, the map stays on the system (owner: it flew out and
+					# back in when the landing took a while to load).
+					var left_system := 0
+					var pending_frames := 0
+					var gap_frames := 0
+					for f in 600:
+						if _scene_window != null and _scene_window.visible:
+							break
+						gap_frames += 1
+						if _game_busy():
+							pending_frames += 1
+						if galaxy.system_star != int(item.get("star", -1)):
+							left_system += 1
+						await get_tree().process_frame
+					print("smoke: to-do colonize after YES: the map left the system in %d frames before the landing; busy in %d of %d frames" % [
+						left_system, pending_frames, gap_frames])
+					# And busy throughout, so a slower landing (over the share) waits too.
+					if left_system > 0 or pending_frames < gap_frames:
+						await host.smoke_fail("the camera left the system between the confirmation and the landing")
+						return false
 				elif dialog._kind == "text":
 					dialog._answer(0) # keep the star's name
 				else:
