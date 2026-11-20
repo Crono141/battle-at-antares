@@ -57,6 +57,12 @@ var influence_mode := 0 # as the legacy V key: 0 off, 1 filled, 2 borders only
 var selected_fleet := -1 # the first ship of the fleet whose panel is open
 var preview := {} # the route preview: {"star": id, "line": "ok" or "blocked"}
 var relocating := false # F4: the next star click merges relocations there
+## F9, measure distance (galaxy/measure.gd): a star click picks the star measured from.
+var measuring := false:
+	set(value):
+		measuring = value
+		measure_from = -1
+var measure_from := -1
 ## The open system on the map (WP3.3f): its `system` query, star, scale and selected planet;
 ## the Orbits layer draws it.
 var system := {}
@@ -111,6 +117,9 @@ var _press_pos := Vector2.ZERO
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	var measure: Node2D = preload("galaxy/measure.gd").new()
+	measure.name = "Measure"
+	add_child(measure) # over the labels
 
 
 ## Placed at the saved view with every star's picture: the frontend fades the view in then
@@ -213,6 +222,28 @@ func pixel() -> float:
 	return 1.0 / camera.zoom.x
 
 
+## The star under the pointer, or -1.
+func hovered_star() -> int:
+	return _hovered_star
+
+
+## Parsecs between two stars, as GEO::Parsecs_Between_Points counts them: the ceiling of the
+## distance over 30 map units, in whole numbers.
+func parsecs_between(a: int, b: int) -> int:
+	var dx := int(stars[a].x) - int(stars[b].x)
+	var dy := int(stars[a].y) - int(stars[b].y)
+	var dist_sq := dx * dx + dy * dy
+	var parsecs := int(sqrt(float(dist_sq / 900)))
+	while parsecs * parsecs * 900 < dist_sq:
+		parsecs += 1
+	return parsecs
+
+
+## The part of the map in view, in map units.
+func view_rect() -> Rect2:
+	return get_canvas_transform().affine_inverse() * Rect2(Vector2.ZERO, get_viewport_rect().size)
+
+
 func star_position(star_id: int) -> Vector2:
 	if star_id < 0 or star_id >= stars.size():
 		return Vector2.ZERO
@@ -312,14 +343,15 @@ func _unhandled_input(event: InputEvent) -> void:
 					var star := pick(button.position)
 					# A planet of the open system (owner, 2026-11-13: a colony's planet opens its
 					# colony pane, as its row in the system pane does).
-					var planet: int = -1 if relocating else $Orbits.pick(_screen_to_world(button.position))
+					var stars_only := relocating or measuring # F4 and F9 take star clicks only
+					var planet: int = -1 if stars_only else $Orbits.pick(_screen_to_world(button.position))
 					if planet >= 0:
 						planet_clicked.emit(planet)
-					elif fleet >= 0 and not relocating:
+					elif fleet >= 0 and not stars_only:
 						fleet_clicked.emit(fleet)
 					elif star >= 0:
 						star_clicked.emit(star)
-					elif not relocating:
+					elif not stars_only:
 						empty_clicked.emit()
 			get_viewport().set_input_as_handled()
 		return

@@ -114,6 +114,7 @@ func _ready() -> void:
 	galaxy.fleet_clicked.connect(_open_fleet)
 	galaxy.star_hovered.connect(_on_star_hovered)
 	galaxy.right_clicked.connect(_end_relocating)
+	galaxy.right_clicked.connect(func(): _set_measuring(false))
 	galaxy.planet_clicked.connect(_on_planet_clicked)
 	galaxy.planet_hovered.connect(_on_planet_hovered)
 	galaxy.empty_clicked.connect(_on_empty_clicked)
@@ -179,6 +180,13 @@ func packs_changed() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	# Measuring (F9): Esc stops it.
+	if galaxy.measuring:
+		var measure_key := event as InputEventKey
+		if measure_key and measure_key.pressed and measure_key.keycode == KEY_ESCAPE:
+			_set_measuring(false)
+			get_viewport().set_input_as_handled()
+			return
 	# Turns passing by themselves: a click or Esc stops them (the legacy galaxy's exit field).
 	if _turn_over_galaxy and overlay.visible == false:
 		var stop_click := event as InputEventMouseButton
@@ -418,6 +426,7 @@ func _on_native_screen(screen: int) -> void:
 		if screen != Screens.SHOW_COMMAND_POINTS:
 			points.dismiss()
 		_end_relocating()
+		_set_measuring(false)
 		if screen == Screens.SHOW_COMMAND_POINTS:
 			# Opened as the game's screen (from elsewhere): the same drop-down, closing it closes
 			# the screen.
@@ -1151,7 +1160,7 @@ func _on_view_action(action_name: String) -> void:
 			_view("options_menu").show_influence(galaxy.influence_mode)
 		"distance":
 			_view("options_menu").close()
-			_send({"verb": "open", "screen": Screens.DISTANCE_BETWEEN_STARS})
+			_set_measuring(not galaxy.measuring)
 		"fleet_next", "fleet_previous":
 			_cycle_fleet(0 if action_name == "fleet_next" else 1)
 		"turn":
@@ -1224,6 +1233,7 @@ func _on_view_action(action_name: String) -> void:
 			if galaxy.relocating:
 				_end_relocating()
 			else:
+				_set_measuring(false)
 				_send({"verb": "merge_relocations"}, func(result: Dictionary):
 					galaxy.relocating = result.get("ready", false)
 					if galaxy.relocating:
@@ -2880,6 +2890,9 @@ func _colonies_build(colony_id: int, star_id: int, planet_id: int, bought: bool,
 func _on_star_clicked(star_id: int) -> void:
 	if _popup_map_click(-1, star_id):
 		return
+	if galaxy.measuring:
+		galaxy.measure_from = star_id # measured from here; another click starts again there
+		return
 	for panel_name: String in SIDE_PANELS.values():
 		var side_view: Control = _views.get(panel_name)
 		if side_view != null and side_view.visible:
@@ -3223,6 +3236,36 @@ func _on_star_hovered(star_id: int) -> void:
 		fleet_panel.show_preview(result))
 
 
+## Measure distance (F9, Options > Distance; owner, 2026-11-20: over the native galaxy, not the
+## legacy screen): a star click picks where it measures from, the hovered star shows the line and
+## the parsecs (galaxy/measure.gd). A right click, Esc or the key again stops it.
+var _measure_hint: Label
+
+
+func _set_measuring(on: bool) -> void:
+	if on == galaxy.measuring:
+		return
+	if on:
+		_end_relocating()
+	galaxy.measuring = on
+	Input.set_default_cursor_shape(Input.CURSOR_CROSS if on else Input.CURSOR_ARROW)
+	if _measure_hint == null:
+		_measure_hint = Label.new()
+		_measure_hint.text = "MEASURE DISTANCE: click a star, then point at another. Right click or Esc to stop."
+		_measure_hint.theme_type_variation = &"Heading"
+		_measure_hint.add_theme_font_size_override("font_size", 16)
+		_measure_hint.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		_measure_hint.add_theme_constant_override("outline_size", 6)
+		_measure_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		native_layer.add_child(_measure_hint)
+	_measure_hint.visible = on
+	if on:
+		_measure_hint.reset_size()
+		var bar: Control = _view("galaxy_bar")
+		var top: float = bar.get_global_rect().end.y + 10.0 if bar.visible else 60.0
+		_measure_hint.position = Vector2(floorf((get_viewport().get_visible_rect().size.x - _measure_hint.size.x) * 0.5), top)
+
+
 func _end_relocating() -> void:
 	var fleets_view: Control = _views.get("fleets_panel")
 	if fleets_view != null and fleets_view.relocating:
@@ -3354,6 +3397,50 @@ func _smoke_native() -> void:
 			print("smoke: pane after a tall frame mid-slide: %s (settled %s)" % [pane.get_rect(), settled])
 			if pane.size.y > limit or pane.position.y < 0.0:
 				await host.smoke_fail("the system pane stayed stretched after a tall frame")
+				return
+			game.request_game_quit()
+			return
+		if arg == "--measure":
+			# Owner, 2026-11-20: measure distance over the native galaxy (F9).
+			_on_view_action("distance")
+			await get_tree().create_timer(0.3).timeout
+			var hint_on: bool = galaxy.measuring and _measure_hint != null and _measure_hint.visible
+			var home := -1
+			for star: Dictionary in galaxy.stars:
+				if int(star.get("label_owner", -1)) == int(galaxy.data.get("player", -2)) or (home < 0 and String(star.label) != ""):
+					home = int(star.id)
+					if int(star.get("label_owner", -1)) == int(galaxy.data.get("player", -2)):
+						break
+			var far := -1
+			var view: Rect2 = galaxy.view_rect()
+			for star: Dictionary in galaxy.stars:
+				var at := Vector2(float(star.x), float(star.y))
+				if int(star.id) != home and view.grow(-40.0 / galaxy.camera.zoom.x).has_point(at) and \
+						(far < 0 or at.distance_to(galaxy.star_position(home)) > galaxy.star_position(far).distance_to(galaxy.star_position(home))):
+					far = int(star.id)
+			_on_star_clicked(home)
+			var screen: Vector2 = galaxy.get_global_transform_with_canvas() * galaxy.star_position(far)
+			var motion := InputEventMouseMotion.new()
+			motion.position = screen * get_window().content_scale_factor
+			Input.parse_input_event(motion)
+			await get_tree().create_timer(0.4).timeout
+			var mismatches := 0
+			for star: Dictionary in galaxy.stars:
+				var d2 := Vector2(float(star.x), float(star.y)).distance_squared_to(galaxy.star_position(home))
+				if galaxy.parsecs_between(home, int(star.id)) != int(ceil(sqrt(d2 / 900.0))):
+					mismatches += 1
+			print("smoke: measure: mode %s with hint %s; from %d to %d (hovered %d): %d parsecs; formula mismatches %d of %d" % [galaxy.measuring,
+				hint_on, home, far, galaxy.hovered_star(), galaxy.parsecs_between(home, far), mismatches, galaxy.stars.size()])
+			if shots != "":
+				await host.shot(shots + "/native-measure.png")
+			var esc := InputEventKey.new()
+			esc.keycode = KEY_ESCAPE
+			esc.pressed = true
+			Input.parse_input_event(esc)
+			await get_tree().create_timer(0.3).timeout
+			print("smoke: measure after Esc: mode %s, hint %s" % [galaxy.measuring, _measure_hint.visible])
+			if not hint_on or galaxy.measure_from != -1 or galaxy.measuring or _measure_hint.visible or mismatches > 0 or far < 0:
+				await host.smoke_fail("measure distance did not work")
 				return
 			game.request_game_quit()
 			return
