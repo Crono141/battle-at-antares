@@ -104,13 +104,18 @@ namespace SMACK {
             antares::native::Set_Film(SMACK::smack_x, SMACK::smack_y, animation_width, animation_height); // Antares (WP3.11b)
         }
 
+        // Antares (owner, 2026-11-20: the Antarans' attack couldn't be clicked through): a click
+        // since the last frame skips the film too, not only a button still held when the frame
+        // checks; a quick click (or a slow frame) fell between the checks. Clicks from before the
+        // film don't count.
+        fields::Clear_Mouse_Buffer();
         do {
             if (key::Keyboard_Status() == 1) {
                 exit_requested = 1;
                 key::Read_Key();
             }
 
-            if (mouse::Mouse_Button() != 0) {
+            if (mouse::Mouse_Button() != 0 || mouse::Mouse_Buffer() != 0) {
                 exit_requested = 1;
             }
 

@@ -195,8 +195,9 @@ func _input(event: InputEvent) -> void:
 			_set_measuring(false)
 			get_viewport().set_input_as_handled()
 			return
-	# Turns passing by themselves: a click or Esc stops them (the legacy galaxy's exit field).
-	if _turn_over_galaxy and overlay.visible == false:
+	# Turns passing by themselves: a click or Esc stops them (the legacy galaxy's exit field). Not
+	# while a film plays in its window: the click is the film's, to skip it (owner, 2026-11-20).
+	if _turn_over_galaxy and overlay.visible == false and not _film_active:
 		var stop_click := event as InputEventMouseButton
 		var stop_key := event as InputEventKey
 		if (stop_click and stop_click.pressed) or (stop_key and stop_key.pressed and stop_key.keycode == KEY_ESCAPE):
@@ -5990,6 +5991,27 @@ func _smoke_film(shots: String) -> void:
 			game.get_source_rect(), legacy.visible, Rect2(legacy.position, legacy.size), (legacy.get_parent() as CanvasLayer).layer, galaxy.visible, _view("galaxy_bar").visible])
 		if shots != "":
 			await host.shot(shots + "/native-film-%d.png" % i)
+	# A click on the film skips it (owner, 2026-11-20: the Antarans' attack couldn't be clicked
+	# through): a real press, held as a person holds it, then released.
+	var film_at: Vector2 = _film_frame.get_global_rect().get_center() * get_window().content_scale_factor
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = film_at
+	Input.parse_input_event(press)
+	await get_tree().create_timer(0.15).timeout
+	var release := press.duplicate()
+	release.pressed = false
+	Input.parse_input_event(release)
+	var skip_wait := 0.0
+	while _film_active and skip_wait < 2.0:
+		await get_tree().create_timer(0.1).timeout
+		skip_wait += 0.1
+	print("smoke: film clicked: skipped %s after %.1f s (control under the click: %s)" % [not _film_active, skip_wait,
+		get_viewport().gui_get_hovered_control()])
+	if _film_active:
+		await host.smoke_fail("a click didn't skip the film")
+		return
 	waited = 0.0
 	while _film_active and waited < 60.0:
 		await get_tree().create_timer(0.25).timeout
