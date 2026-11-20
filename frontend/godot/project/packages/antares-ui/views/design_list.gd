@@ -27,7 +27,7 @@ func _notification(what: int) -> void:
 		_restyle()
 	elif what == NOTIFICATION_RESIZED and visible and not (_tween and _tween.is_running()):
 		# Rows laid out after the slide (or a refresh) widened it: keep the right edge by the tabs.
-		position.x = get_parent_area_size().x + _shown_right - size.x
+		preload("../themes.gd").move_x(self, get_parent_area_size().x + _shown_right - size.x)
 
 
 ## Beside the tabs, from under the top bar to the bottom (WP3.3g).
@@ -138,11 +138,11 @@ func _slide(opening: bool) -> void:
 	var hidden_x := parent_width
 	if opening:
 		show()
-		position.x = hidden_x
+		preload("../themes.gd").move_x(self, hidden_x)
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	if opening:
-		_tween.finished.connect(func(): position.x = get_parent_area_size().x + _shown_right - size.x)
-	_tween.tween_property(self, "position:x", shown_x if opening else hidden_x, SLIDE_TIME)
+		_tween.finished.connect(func(): preload("../themes.gd").move_x(self, get_parent_area_size().x + _shown_right - size.x))
+	_tween.tween_method(func(x: float): preload("../themes.gd").move_x(self, x), position.x, shown_x if opening else hidden_x, SLIDE_TIME)
 	if not opening:
 		_tween.tween_callback(hide)
 

@@ -763,9 +763,9 @@ func _slide(opening: bool) -> void:
 	var hidden_x := -size.x - 8.0
 	if opening:
 		show()
-		position.x = hidden_x
+		preload("../themes.gd").move_x(self, hidden_x)
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_property(self, "position:x", _shown_left if opening else hidden_x, SLIDE_TIME)
+	_tween.tween_method(func(x: float): preload("../themes.gd").move_x(self, x), position.x, _shown_left if opening else hidden_x, SLIDE_TIME)
 	if not opening:
 		_tween.tween_callback(hide)
 

@@ -120,6 +120,16 @@ static func see_through(pane: Control, pane_alpha := 0.62, frame_alpha := 0.55) 
 
 
 ## A layout setting of the player's (a split, a width), or `default` when none is saved.
+## Moves a pane sideways by its left and right offsets only. Setting `position` rewrites all four
+## offsets from the pane's current rect, so a pane that was briefly taller than the screen (its
+## content grew for a frame) stayed that tall for good (owner, 2026-11-19: the system pane
+## stretched off the screen after some system/planet/fleet clicking).
+static func move_x(pane: Control, x: float) -> void:
+	var dx := x - pane.position.x
+	pane.offset_left += dx
+	pane.offset_right += dx
+
+
 static func saved_value(section: String, key: String, default: Variant) -> Variant:
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS) != OK:

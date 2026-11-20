@@ -3280,6 +3280,21 @@ func _smoke_native() -> void:
 					for child: Control in pane.get_node("Box").get_children():
 						print("smoke:   %s min %.0f visible %s" % [child.name, child.get_combined_minimum_size().y, child.visible])
 			print("smoke: pane heights: tallest %.0f of %.0f" % [worst, limit])
+			# The owner's stuck stretch: content briefly taller than the screen while the pane
+			# slides in. Once the content shrinks back, the pane must too.
+			var settled: Rect2 = pane.get_rect()
+			pane.dismiss()
+			await get_tree().create_timer(0.35).timeout
+			var box: Control = pane.get_node("Box")
+			box.custom_minimum_size.y = limit * 3.0
+			_open_system(0, false)
+			await get_tree().create_timer(0.1).timeout
+			box.custom_minimum_size.y = 0.0
+			await get_tree().create_timer(0.4).timeout
+			print("smoke: pane after a tall frame mid-slide: %s (settled %s)" % [pane.get_rect(), settled])
+			if pane.size.y > limit or pane.position.y < 0.0:
+				await host.smoke_fail("the system pane stayed stretched after a tall frame")
+				return
 			game.request_game_quit()
 			return
 		if arg == "--government-help":

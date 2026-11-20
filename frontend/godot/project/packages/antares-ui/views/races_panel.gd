@@ -94,7 +94,7 @@ func _ready() -> void:
 	resized.connect(func():
 		if visible and not _closing and _rect.size.x > 0.0:
 			if _tween == null or not _tween.is_running():
-				position.x = _rect.end.x - size.x
+				preload("../themes.gd").move_x(self, _rect.end.x - size.x)
 			width_changed.emit())
 
 

@@ -861,9 +861,9 @@ func _slide(opening: bool) -> void:
 	if opening:
 		show()
 		modulate.a = 0.0
-		position.x = hidden_x
+		preload("../themes.gd").move_x(self, hidden_x)
 	_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_property(self, "position:x", _shown_left if opening else hidden_x, SLIDE_TIME)
+	_tween.tween_method(func(x: float): preload("../themes.gd").move_x(self, x), position.x, _shown_left if opening else hidden_x, SLIDE_TIME)
 	_tween.tween_property(self, "modulate:a", 1.0 if opening else 0.0, SLIDE_TIME)
 	if not opening:
 		_tween.chain().tween_callback(hide)
