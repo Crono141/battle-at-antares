@@ -2187,6 +2187,42 @@ func _smoke_races_panel(shots: String) -> bool:
 		print("smoke: races: ignore toggled to %s and back to %s" % [ignoring, panel._race(panel.picked).get("ignoring", false)])
 		if ignoring == panel._race(panel.picked).get("ignoring", false):
 			return false
+	# AUDIENCE in two clicks (owner, 2026-11-20): armed, Esc cancels; armed again, a click on a met
+	# empire asks for its audience (the command caught here: the diplomacy smoke opens the window).
+	var audience: Button = panel._buttons["AUDIENCE"]
+	audience.button_pressed = true
+	await get_tree().process_frame
+	var armed_text: String = audience.text
+	var esc := InputEventKey.new()
+	esc.keycode = KEY_ESCAPE
+	esc.pressed = true
+	Input.parse_input_event(esc)
+	await get_tree().create_timer(0.2).timeout
+	var esc_disarmed: bool = not panel.audience_armed
+	audience.button_pressed = true
+	await get_tree().process_frame
+	var sent := {}
+	var connections: Array = panel.command.get_connections()
+	for c: Dictionary in connections:
+		panel.command.disconnect(c.callable)
+	var catch := func(dict: Dictionary): sent.merge(dict)
+	panel.command.connect(catch)
+	var picked_before: int = panel.picked
+	for slot: PanelContainer in panel._slots.get_children():
+		# The slots run in the panel's order; the target's is the one whose click picks it.
+		var probe := InputEventMouseButton.new()
+		probe.button_index = MOUSE_BUTTON_LEFT
+		probe.pressed = true
+		slot.gui_input.emit(probe)
+		if sent.has("verb"):
+			break
+	panel.command.disconnect(catch)
+	for c: Dictionary in connections:
+		panel.command.connect(c.callable)
+	print("smoke: races audience: armed '%s', Esc disarmed %s; a slot click sent %s; disarmed after %s, picked unchanged %s" % [armed_text, esc_disarmed,
+		sent, not panel.audience_armed, panel.picked == picked_before])
+	if armed_text == "AUDIENCE" or not esc_disarmed or String(sent.get("verb", "")) != "audience" or panel.audience_armed or panel.picked != picked_before:
+		return false
 	if not await _smoke_side_resize(panel, shots, "races"):
 		return false
 	panel.close()

@@ -8,8 +8,8 @@ extends "side_panel.gd"
 ## picks it and the ones right of it up onto the pointer, a click on another empire's icons or the
 ## spies at home puts them down (Esc or a right click puts them back). Eliminated empires keep their slot:
 ## the portrait under the red Eliminated sign (races.lbx 31), No contact. A click on a slot picks the
-## empire; the fixed bottom has BONUSES (spy and agent), the spies at home, and AUDIENCE (the
-## native diplomacy window), REPORT (the original Races screen for now), DECLARE WAR (carried out
+## empire; the fixed bottom has BONUSES (spy and agent), the spies at home, and AUDIENCE (armed,
+## then a click on an empire opens the native diplomacy window with it), REPORT (the original Races screen for now), DECLARE WAR (carried out
 ## next turn, the game's question) and IGNORE.
 
 signal command(dict: Dictionary)
@@ -25,6 +25,8 @@ var art: Node
 var races: Array = []
 var result := {}
 var picked := -1
+## AUDIENCE armed (owner, 2026-11-20: two clicks, AUDIENCE then the empire, not the picked one).
+var audience_armed := false
 
 var _slots: VBoxContainer
 var _bonuses: Label
@@ -88,7 +90,13 @@ func _ready() -> void:
 		var b := _button(pair[0], pair[1])
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var key := String(pair[0])
-		b.pressed.connect(func(): _act(key))
+		if key == "AUDIENCE":
+			b.toggle_mode = true
+			b.tooltip_text = "Then click the empire to talk with (Esc or a right click: not now)"
+			Themes.glowing(b)
+			b.toggled.connect(func(on: bool): _arm_audience(on))
+		else:
+			b.pressed.connect(func(): _act(key))
 		grid.add_child(b)
 		_buttons[key] = b
 	resized.connect(func():
@@ -161,6 +169,10 @@ func _slot(r: Dictionary) -> Control:
 	panel.gui_input.connect(func(event: InputEvent):
 		var mb := event as InputEventMouseButton
 		if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and met:
+			if audience_armed:
+				_arm_audience(false)
+				command.emit({"verb": "audience", "player": p, "_reply_to": "_after_command"})
+				return
 			picked = p
 			show_races(result))
 	var row := HBoxContainer.new()
@@ -274,17 +286,30 @@ func _update_buttons() -> void:
 	var met: bool = not r.is_empty() and r.contact and not r.eliminated
 	for key: String in _buttons:
 		(_buttons[key] as Button).disabled = not met
+	# AUDIENCE picks its empire itself: any empire met will do.
+	var any_met := races.any(func(x: Dictionary) -> bool: return x.contact and not x.eliminated)
+	(_buttons["AUDIENCE"] as Button).disabled = not any_met
+	if not any_met:
+		_arm_audience(false)
 	if met:
 		(_buttons["DECLARE WAR"] as Button).disabled = r.get("at_war", false) or r.get("war_declared", false)
 		(_buttons["IGNORE"] as Button).text = "LISTEN" if r.get("ignoring", false) else "IGNORE"
+
+
+## AUDIENCE armed or not: armed, the next click on an empire opens its audience.
+func _arm_audience(on: bool) -> void:
+	audience_armed = on
+	var b: Button = _buttons.get("AUDIENCE")
+	if b:
+		b.set_pressed_no_signal(on)
+		b.text = "PICK AN EMPIRE…" if on else "AUDIENCE"
+		Themes.glow(b)
 
 
 func _act(key: String) -> void:
 	if picked < 0:
 		return
 	match key:
-		"AUDIENCE":
-			command.emit({"verb": "audience", "player": picked, "_reply_to": "_after_command"})
 		"REPORT":
 			command.emit({"verb": "open", "screen": 6}) # the original Races screen (its REPORT)
 		"DECLARE WAR":
@@ -375,6 +400,14 @@ func _drop_carry() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if audience_armed and _carry.is_empty():
+		var cancel_key := event as InputEventKey
+		var cancel_click := event as InputEventMouseButton
+		if (cancel_key and cancel_key.pressed and cancel_key.keycode == KEY_ESCAPE) or \
+				(cancel_click and cancel_click.pressed and cancel_click.button_index == MOUSE_BUTTON_RIGHT):
+			_arm_audience(false)
+			get_viewport().set_input_as_handled()
+		return
 	if _carry.is_empty():
 		return
 	if event is InputEventMouseMotion:
@@ -429,6 +462,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func close() -> void:
 	_drop_carry()
+	_arm_audience(false)
 	super.close()
 
 
