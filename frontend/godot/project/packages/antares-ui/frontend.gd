@@ -3426,7 +3426,7 @@ var _landscape_hidden_for := -1
 
 func _toggle_landscape(colony_id: int) -> void:
 	var land := _view("colony_landscape")
-	if land.visible and int(land.colony_id) == colony_id:
+	if land.shown() and int(land.colony_id) == colony_id:
 		land.close()
 		return
 	_landscape_hidden_for = -1
@@ -3435,7 +3435,7 @@ func _toggle_landscape(colony_id: int) -> void:
 
 func _on_colony_shown(colony_id: int) -> void:
 	var land: Control = _views.get("colony_landscape")
-	if land != null and land.visible:
+	if land != null and land.shown():
 		if int(land.colony_id) != colony_id:
 			land.open(colony_id)
 		_place_landscape.call_deferred()
@@ -3480,7 +3480,7 @@ func _landscape_fits_beside() -> bool:
 
 func _place_landscape() -> void:
 	var land: Control = _views.get("colony_landscape")
-	if land == null or not land.visible:
+	if land == null or not land.shown():
 		return
 	var pane := _colony_pane_rest()
 	var gap := maxf(get_theme_constant_from(land, "pane_gap"), 6.0)
@@ -3498,11 +3498,7 @@ func _place_landscape() -> void:
 	var x := clampf(minf(left, right - frame.x), 8.0, right - frame.x)
 	land.size = frame
 	land.position.y = pane.position.y
-	if land.position.x == 0.0 or not land.is_visible_in_tree():
-		land.position.x = x
-	else:
-		var tween := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		tween.tween_property(land, "position:x", x, 0.25)
+	land.move_to(x) # slides in when just opened, as the other panes
 	land.move_to_front()
 	if build.visible:
 		build.move_to_front() # over it where it overlaps
@@ -3890,7 +3886,10 @@ func _smoke_native() -> void:
 			# with the colony pane, after it; CHANGE's build pane pushes it right; VIEW COLONY
 			# hides and shows it.
 			var window_before := get_window().size
-			get_window().size = Vector2i(1920, 700)
+			var wide := OS.get_environment("SMOKE_WINDOW").split("x")
+			get_window().size = Vector2i(int(wide[0]), int(wide[1])) if wide.size() == 2 else Vector2i(1920, 700)
+			if OS.get_environment("SMOKE_SCALE") != "":
+				get_window().content_scale_factor = float(OS.get_environment("SMOKE_SCALE"))
 			await get_tree().create_timer(0.6).timeout
 			var source := {}
 			var best := -1
@@ -3904,8 +3903,14 @@ func _smoke_native() -> void:
 			var land: Control = _views.get("colony_landscape")
 			var pane := _view("colony_pane")
 			var shown_by_itself: bool = land != null and land.visible
+			var narrow := not shown_by_itself and not _landscape_fits_beside() # a screen without room: VIEW COLONY opens it
+			if narrow:
+				pane.landscape_toggled.emit(int(source.colony))
+				await get_tree().create_timer(1.5).timeout
+				land = _views.get("colony_landscape")
+				shown_by_itself = land != null and land.visible
 			var layers: int = (land.landscape.get("layers", []) as Array).size() if land else 0
-			var beside: bool = land != null and land.get_global_rect().position.x >= pane.get_global_rect().end.x - 1.0
+			var beside: bool = land != null and (narrow or land.get_global_rect().position.x >= pane.get_global_rect().end.x - 1.0)
 			var rect_alone: Rect2 = land.get_global_rect() if land else Rect2()
 			print("smoke: landscape for colony %d (%d buildings): shown by itself %s, %d layers, at %s beside the pane %s (pane ends %.0f), fits %s" % [
 				int(source.colony), best, shown_by_itself, layers, rect_alone, beside, pane.get_global_rect().end.x, _landscape_fits_beside()])
@@ -3917,8 +3922,8 @@ func _smoke_native() -> void:
 			var rect_build: Rect2 = land.get_global_rect()
 			var pushed: bool = rect_build.position.x > rect_alone.position.x + 1.0
 			var over_tabs: bool = rect_build.end.x > _landscape_right_limit() + 1.0
-			print("smoke: landscape with the build pane: at %s (pushed %s), build pane %s, landscape over the side tabs %s" % [rect_build, pushed,
-				build.get_global_rect(), rect_build.end.x > _landscape_right_limit() + 1.0])
+			print("smoke: landscape with the build pane: at %s (pushed %s), build pane %s, colony pane %s, system pane %s, landscape over the side tabs %s" % [rect_build, pushed,
+				build.get_global_rect(), pane.get_global_rect(), _view("system_pane").get_global_rect(), rect_build.end.x > _landscape_right_limit() + 1.0])
 			if shots != "":
 				await host.shot(shots + "/native-landscape-build.png")
 			build.cancel()
@@ -3926,7 +3931,7 @@ func _smoke_native() -> void:
 			var back: bool = absf(land.get_global_rect().position.x - rect_alone.position.x) < 2.0
 			pane.landscape_toggled.emit(int(source.colony)) # VIEW COLONY: hidden
 			await get_tree().create_timer(0.3).timeout
-			var hidden_now: bool = not land.visible
+			var hidden_now: bool = not land.shown()
 			pane.refresh() # shown again: stays hidden for it
 			await get_tree().create_timer(1.0).timeout
 			var stays_hidden: bool = not land.visible
@@ -3937,7 +3942,7 @@ func _smoke_native() -> void:
 				stays_hidden, shown_again])
 			get_window().size = window_before
 			await get_tree().create_timer(0.5).timeout
-			if not shown_by_itself or layers < 3 or not beside or not pushed or not back or not hidden_now or not stays_hidden or not shown_again \
+			if not shown_by_itself or layers < 3 or not beside or (not pushed and not narrow) or not back or not hidden_now or not stays_hidden or not shown_again \
 					or over_tabs:
 				await host.smoke_fail("the colony landscape did not open, move or toggle as it should")
 				return

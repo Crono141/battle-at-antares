@@ -11,6 +11,8 @@ signal closed
 
 const SCREEN := Vector2(640, 480)
 const FPS := 15.0 # the colony screen's animation pace, about a frame a tick
+const SLIDE_TIME := 0.25 # as the colony and build panes
+const SLIDE_FROM := 60.0
 
 var art: Node
 var colony_id := -1
@@ -18,6 +20,8 @@ var landscape := {}
 var _stage: Control
 var _time := 0.0
 var _animated := false
+var _opening := false # shown, not yet slid in (the frontend places it, then slide_in)
+var _tween: Tween
 
 
 func _ready() -> void:
@@ -44,7 +48,12 @@ func open(colony: int) -> void:
 		_stage.queue_redraw()
 	colony_id = colony
 	command.emit({"verb": "query", "what": "colony_landscape", "colony": colony, "_reply_to": "show_landscape"})
-	show()
+	if not visible or (_tween != null and _tween.is_running() and modulate.a < 1.0 and not _opening):
+		_opening = true
+		if _tween:
+			_tween.kill()
+		modulate.a = 0.0
+		show()
 
 
 func show_landscape(result: Dictionary) -> void:
@@ -60,9 +69,42 @@ func show_landscape(result: Dictionary) -> void:
 
 
 func close() -> void:
-	if visible:
-		hide()
+	if visible and not _closing():
+		_opening = false
+		if _tween:
+			_tween.kill()
+		_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		_tween.tween_property(self, "position:x", position.x - SLIDE_FROM, SLIDE_TIME)
+		_tween.tween_property(self, "modulate:a", 0.0, SLIDE_TIME)
+		_tween.chain().tween_callback(hide)
+		set_meta("_closing", true)
+		_tween.finished.connect(func(): remove_meta("_closing"))
 		closed.emit()
+
+
+func _closing() -> bool:
+	return has_meta("_closing")
+
+
+## Up, and not on its way out.
+func shown() -> bool:
+	return visible and not _closing()
+
+
+## Moves to `x`: slides in from behind (fading in) when just opened, else glides there.
+func move_to(x: float) -> void:
+	if _tween:
+		_tween.kill()
+	if has_meta("_closing"):
+		remove_meta("_closing")
+	_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if _opening:
+		_opening = false
+		position.x = x - SLIDE_FROM
+		_tween.tween_property(self, "modulate:a", 1.0, SLIDE_TIME)
+	elif modulate.a < 1.0:
+		_tween.tween_property(self, "modulate:a", 1.0, SLIDE_TIME)
+	_tween.tween_property(self, "position:x", x, SLIDE_TIME)
 
 
 ## The frame's size for a picture `height` tall inside it (4:3, the theme's margins round it).
