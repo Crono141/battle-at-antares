@@ -74,8 +74,10 @@ var _turn_over_galaxy := false # quiet turns passing by themselves, shown over t
 var _turn_notice: PanelContainer
 var _turn_stopping := false # a click asked the turns to stop: Esc again until they do
 var _turn_clearing := -1.0 # seconds since the notice cleared, while the hand-back waits (-1: none)
+var _turn_clearing_polls := 0 # the input polls when _turn_clearing started
 var _end_turn_at := -100000 # when TURN was last sent (ms): its first legacy frame may be a quiet turn's
 const TURN_HANDBACK_DELAY := 1.0
+const TURN_HANDBACK_LIMIT := 10.0 # seconds: handed back even if the legacy screen never polls
 var _turn_stop_wait := 0.0
 var _legacy_after_frame := -1 # the frame count the legacy view waits past to come back, or -1
 var _stale_frame: PackedByteArray # the legacy frame held while the question was up
@@ -229,7 +231,13 @@ func _process(delta: float) -> void:
 		game.release_sounds()
 	if _turn_clearing >= 0.0:
 		_turn_clearing += delta
-		if native_screen == Screens.MAIN or _turn_clearing >= TURN_HANDBACK_DELAY or overlay.visible:
+		# Handed back only once the legacy screen waits for the player (it polls for input), or
+		# after a long while: between two windows (the GNN, then a race's diplomacy) the game loads
+		# the next one without polling, and the hand-back showed the legacy screen for seconds
+		# (owner, 2026-11-20, over the share).
+		var waiting := int(game.get_stats().get("input_polls", 0)) >= _turn_clearing_polls + 2
+		if native_screen == Screens.MAIN or overlay.visible \
+				or (_turn_clearing >= TURN_HANDBACK_DELAY and waiting) or _turn_clearing >= TURN_HANDBACK_LIMIT:
 			_end_turn_notice()
 	if _turn_stopping:
 		if not _turn_over_galaxy or native_screen == Screens.MAIN or overlay.visible:
@@ -317,6 +325,7 @@ func _end_film() -> void:
 		legacy.hide()
 		_turn_over_galaxy = true
 		_turn_clearing = 0.0
+		_turn_clearing_polls = int(game.get_stats().get("input_polls", 0))
 
 
 func _on_native_screen(screen: int) -> void:
@@ -348,6 +357,7 @@ func _on_native_screen(screen: int) -> void:
 	if held:
 		_turn_over_galaxy = true
 		_turn_clearing = 0.0 # handed back after the delay unless a notice comes
+		_turn_clearing_polls = int(game.get_stats().get("input_polls", 0))
 		legacy.hide()
 		galaxy.show()
 		_frame_view.show()
@@ -1367,6 +1377,7 @@ func _on_turn_notice(text: String) -> void:
 		# Not at once: between two quiet turns the notice can clear for a moment, and the legacy
 		# frame flashed up (owner, 2026-11-13). The hand-back waits a little (_process).
 		_turn_clearing = 0.0
+		_turn_clearing_polls = int(game.get_stats().get("input_polls", 0))
 		return
 	_end_turn_notice()
 
@@ -2686,6 +2697,7 @@ func _on_answered(id: int, value: int, text := "") -> void:
 			# legacy view comes only if the game stays on a legacy screen (_end_turn_notice).
 			_turn_over_galaxy = true
 			_turn_clearing = 0.0
+			_turn_clearing_polls = int(game.get_stats().get("input_polls", 0))
 		elif native_screen == Screens.LEGACY:
 			# The legacy view still holds its last frame from before the native galaxy (the title
 			# screen after a load): it comes back with the game's next frame (owner, 2026-11-12:

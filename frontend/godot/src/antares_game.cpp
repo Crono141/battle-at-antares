@@ -780,6 +780,8 @@ namespace godot {
         d["cursor_size"] = cursor_size_;
         d["width"] = width_;
         d["height"] = height_;
+        // How often a legacy screen has polled for input: one that polls waits for the player.
+        d["input_polls"] = (int64_t)antares::native::Polls();
         return d;
     }
 
