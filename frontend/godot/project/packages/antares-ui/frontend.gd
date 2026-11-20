@@ -241,7 +241,9 @@ var _sounds_held := false
 
 
 func _process(delta: float) -> void:
-	if _todo_pending and _todo_may_open():
+	if todo_auto:
+		_auto_todo_step()
+	elif _todo_pending and _todo_may_open():
 		_open_todo()
 	if _sounds_held and (legacy.visible or overlay.visible or native_screen != Screens.LEGACY):
 		_sounds_held = false
@@ -863,6 +865,14 @@ func _view(scene_name: String) -> Control:
 			view.flight_changed.connect(func(seconds: float):
 				galaxy.flight_time = seconds
 				Themes.save_flight_time(seconds))
+		if view.has_signal("todo_auto_changed"):
+			view.todo_auto_changed.connect(func(on: bool):
+				todo_auto = on
+				Themes.save_value("todo", "auto", on)
+				_todo_auto_last = {}
+				if on:
+					_view("options_menu").close() # the next to-do comes as soon as the galaxy is free
+				)
 		if view.has_signal("help_requested"):
 			view.help_requested.connect(show_help)
 		if view.has_signal("scale_auto_changed"):
@@ -904,6 +914,7 @@ func _view(scene_name: String) -> Control:
 			_apply_saved_scale.call_deferred()
 		if scene_name == "options_menu":
 			view.show_flight(galaxy.flight_time)
+			view.show_todo_auto(todo_auto)
 			view.show_themes(_themes, theme_id)
 			view.show_scale(ui_scale, max_ui_scale(), MIN_UI_SCALE, is_ui_scale_automatic())
 		if scene_name in ["galaxy_bar", "map_controls"]: # the frame's joints follow their pockets
@@ -966,6 +977,47 @@ func _open_todo() -> void:
 	todo.show_todo(_todo)
 	var bar := _view("galaxy_bar")
 	todo.open_at(bar.get_node("Row/Turn").get_global_rect().get_center().x)
+
+
+## AUTO ADDRESS TO-DOS (owner, 2026-11-20): the stock game's way. Each item not yet opened this
+## turn opens in turn, the next once the last is dealt with: its panes closed and the galaxy free,
+## or for a colony's build, its build list closed with the queue filled (on to the next colony at
+## once, as the original goes from one build screen to the next). An item left as it was isn't
+## opened again this turn; with all of them opened and some still open, the list comes up.
+var todo_auto: bool = Themes.saved_value("todo", "auto", false)
+var _todo_auto_opened := {} # this turn's items opened, by key
+var _todo_auto_last := {} # the item opened last, and when: {item, at, open}
+var _todo_auto_listed := false # this turn's leftovers shown in the list
+const TODO_AUTO_SETTLE := 0.8 # seconds after an item opens before the next may
+
+
+func _auto_todo_step() -> void:
+	if not _todo_may_open():
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if not _todo_auto_last.is_empty():
+		if now - float(_todo_auto_last.at) < TODO_AUTO_SETTLE:
+			return
+		var panes_free := not _view("system_pane").visible and not _view("colony_pane").visible and not _view("build_pane").visible
+		var build_done: bool = String(_todo_auto_last.item.get("kind", "")) == "build" and not _view("build_pane").visible \
+			and int(_todo.get("open", 0)) < int(_todo_auto_last.open)
+		if not panes_free and not build_done:
+			return
+	for item: Dictionary in _todo.get("items", []):
+		var key := "%s:%s:%s:%s" % [item.get("kind", ""), item.get("item", -1), item.get("colony", -1), item.get("star", -1)]
+		if item.get("done", false) or _todo_auto_opened.has(key):
+			continue
+		_todo_auto_opened[key] = true
+		_todo_auto_last = {"item": item, "at": now, "open": int(_todo.get("open", 0))}
+		_todo_seen = int(_todo.get("open", 0))
+		_todo_pending = false
+		_on_todo_item(item)
+		return
+	# All opened this turn; what is still open waits in the list, shown once.
+	_todo_auto_last = {}
+	if not _todo_auto_listed:
+		_todo_auto_listed = true
+		_open_todo()
 
 
 func _todo_may_open() -> bool:
@@ -1343,6 +1395,9 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 		"todo":
 			if int(result.get("stardate", -1)) != int(_todo.get("stardate", -1)):
 				_todo_seen = -1 # a new turn's list
+				_todo_auto_opened = {}
+				_todo_auto_last = {}
+				_todo_auto_listed = false
 				_refresh_summary() # and its summary
 			_todo = result
 			var open := int(result.get("open", 0))
@@ -3625,6 +3680,55 @@ func _smoke_native() -> void:
 			print("smoke: pane after a tall frame mid-slide: %s (settled %s)" % [pane.get_rect(), settled])
 			if pane.size.y > limit or pane.position.y < 0.0:
 				await host.smoke_fail("the system pane stayed stretched after a tall frame")
+				return
+			game.request_game_quit()
+			return
+		if arg == "--todo-auto":
+			# AUTO ADDRESS TO-DOS (owner, 2026-11-20): after the turns each item opens in turn; the
+			# player here looks and closes (a build list cancelled, the system closed), and the next
+			# opens; none twice; the list comes up once with what is left.
+			var auto_before := todo_auto
+			todo_auto = true
+			if not await _smoke_turns():
+				return
+			var open_items: Array = (_todo.get("items", []) as Array).filter(func(i: Dictionary) -> bool: return not i.get("done", false))
+			var seen: Array = []
+			var waited := 0.0
+			while waited < 40.0 and not _todo_auto_listed:
+				await get_tree().create_timer(0.3).timeout
+				waited += 0.3
+				if _todo_auto_last.is_empty():
+					continue
+				var item: Dictionary = _todo_auto_last.item
+				var tag := "%s %s" % [item.get("kind", ""), item.get("text", "")]
+				if seen.is_empty() or seen.back() != tag:
+					seen.append(tag)
+					await get_tree().create_timer(1.5).timeout # it opens
+					waited += 1.5
+					print("smoke: to-do auto opened '%s': system pane %s, colony pane %s, build %s" % [tag, _view("system_pane").visible,
+						_view("colony_pane").visible, _view("build_pane").visible])
+					if shots != "" and seen.size() == 1:
+						await host.shot(shots + "/native-todo-auto.png")
+					if _view("build_pane").visible:
+						_view("build_pane").cancel()
+						await get_tree().create_timer(0.5).timeout
+					if _view("system_pane").visible:
+						_view("system_pane").close()
+					# A window the item opened (a discovery): answered.
+					for i in 10:
+						await get_tree().create_timer(0.3).timeout
+						if not _smoke_answer():
+							break
+			await get_tree().create_timer(1.0).timeout
+			var listed: bool = _view("todo_panel").visible
+			var unique := {}
+			for t: String in seen:
+				unique[t] = true
+			print("smoke: to-do auto: %d open after the turns, opened in turn %s; list at the end %s (%d left)" % [open_items.size(), seen,
+				listed, int(_todo.get("open", 0))])
+			todo_auto = auto_before
+			if seen.size() != open_items.size() or unique.size() != seen.size() or (int(_todo.get("open", 0)) > 0 and not listed):
+				await host.smoke_fail("the to-dos were not addressed one after another")
 				return
 			game.request_game_quit()
 			return

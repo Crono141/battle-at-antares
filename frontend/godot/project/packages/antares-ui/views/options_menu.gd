@@ -15,6 +15,8 @@ signal scale_changed(percent: float, final: bool)
 signal scale_auto_changed(on: bool)
 ## The system flight's length chosen (seconds; 0 instant).
 signal flight_changed(seconds: float)
+## AUTO ADDRESS TO-DOS switched (owner, 2026-11-20).
+signal todo_auto_changed(on: bool)
 ## A right click's help on a row (a HELP.LBX record; the frontend shows it).
 signal help_requested(topic: int, at: Control)
 
@@ -75,6 +77,7 @@ func _ready() -> void:
 		_quietly(scale_slider, v)
 		scale_changed.emit(v, true))
 	_add_flight_row()
+	_add_todo_row()
 	theme_button.item_selected.connect(func(index: int):
 		if index >= 0 and index < _theme_ids.size():
 			theme_chosen.emit(_theme_ids[index]))
@@ -361,6 +364,43 @@ func _add_flight_row() -> void:
 		Themes.glowing(b)
 		row.add_child(b)
 		_flight_buttons.append(b)
+
+
+## AUTO ADDRESS TO-DOS (owner, 2026-11-20): the stock game's way with the turn's to-dos, each
+## opened in turn as the last is dealt with, instead of the list.
+var todo_auto_button: Button
+
+
+func _add_todo_row() -> void:
+	var box: VBoxContainer = $Fit/Box
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var label := Label.new()
+	label.text = "AUTO ADDRESS TO-DOS"
+	label.theme_type_variation = &"Section"
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.tooltip_text = "Each turn's to-do items open one after another, as the original game does,\ninstead of the TO DO list"
+	label.mouse_filter = Control.MOUSE_FILTER_PASS
+	row.add_child(label)
+	todo_auto_button = Button.new()
+	todo_auto_button.toggle_mode = true
+	todo_auto_button.text = "OFF"
+	todo_auto_button.focus_mode = Control.FOCUS_NONE
+	todo_auto_button.custom_minimum_size.x = 64
+	todo_auto_button.add_theme_font_size_override("font_size", 12)
+	Themes.glowing(todo_auto_button)
+	todo_auto_button.toggled.connect(func(on: bool):
+		todo_auto_button.text = "ON" if on else "OFF"
+		todo_auto_changed.emit(on))
+	row.add_child(todo_auto_button)
+	box.add_child(row)
+	box.move_child(row, $Fit/Box/ThemeTitle.get_index())
+
+
+func show_todo_auto(on: bool) -> void:
+	todo_auto_button.set_pressed_no_signal(on)
+	todo_auto_button.text = "ON" if on else "OFF"
+	Themes.glow(todo_auto_button)
 
 
 ## The flight length in use, shown armed.
