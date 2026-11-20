@@ -592,11 +592,19 @@ func _input(event: InputEvent) -> void:
 		return
 	var key := event as InputEventKey
 	if key and key.pressed and key.keycode == KEY_ESCAPE:
-		_drop_carry()
+		close_transport() # also puts the colonists back
 		get_viewport().set_input_as_handled()
 		return
 	var mb := event as InputEventMouseButton
 	if mb == null or not mb.pressed:
+		return
+	# The transport list open: its rows take the click (the colonists ride along until one is
+	# picked, owner 2026-11-20); anywhere else puts them back and closes it.
+	if _transport_flyout != null and _transport_flyout.visible:
+		if mb.button_index == MOUSE_BUTTON_LEFT and _transport_flyout.get_global_rect().has_point(mb.global_position):
+			return
+		close_transport()
+		get_viewport().set_input_as_handled()
 		return
 	get_viewport().set_input_as_handled() # the click is the drop, nothing else
 	if mb.button_index != MOUSE_BUTTON_LEFT:
@@ -604,9 +612,7 @@ func _input(event: InputEvent) -> void:
 		return
 	var transport: Control = $Scroll/Box/Transport
 	if transport.is_visible_in_tree() and transport.get_global_rect().has_point(mb.global_position):
-		var pops: Array = _carry.pops
-		_drop_carry() # they stay where they are until a colony is picked
-		ask_transport(pops)
+		ask_transport(_carry.pops) # they stay on the pointer until a colony is picked
 		return
 	var target := -1
 	for job: int in _job_panels:
@@ -710,6 +716,7 @@ func close_transport() -> void:
 	if _transport_flyout:
 		_transport_flyout.hide()
 	_transport_pops = []
+	_drop_carry() # colonists still on the pointer go back
 
 
 func _warning(text: String) -> Label:

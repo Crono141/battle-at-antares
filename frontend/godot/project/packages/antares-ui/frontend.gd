@@ -3659,7 +3659,7 @@ func _smoke_native() -> void:
 				pop_before, flyout != null and flyout.visible, rows.size(), sendable.size(), inside, not pane._carry.is_empty()])
 			if shots != "":
 				await host.shot(shots + "/native-transport.png")
-			if flyout == null or not flyout.visible or rows.is_empty() or not inside or not pane._carry.is_empty():
+			if flyout == null or not flyout.visible or rows.is_empty() or not inside or pane._carry.is_empty():
 				await host.smoke_fail("the transport list did not open")
 				return
 			if sendable.is_empty():
@@ -3668,18 +3668,27 @@ func _smoke_native() -> void:
 				return
 			var sent := {}
 			pane.transported.connect(func(n: int): sent["n"] = n, CONNECT_ONE_SHOT)
-			(sendable[0] as Control).gui_input.emit(_smoke_click_at((sendable[0] as Control).get_global_rect().get_center()))
+			# A real click: the list must get it past the colonists on the pointer.
+			var row_at := (sendable[0] as Control).get_global_rect().get_center() * get_window().content_scale_factor
+			var row_press := InputEventMouseButton.new()
+			row_press.button_index = MOUSE_BUTTON_LEFT
+			row_press.pressed = true
+			row_press.position = row_at
+			Input.parse_input_event(row_press)
+			var row_release := row_press.duplicate()
+			row_release.pressed = false
+			Input.parse_input_event(row_release)
 			for i in 40:
 				await get_tree().create_timer(0.25).timeout
 				_smoke_answer()
 				if sent.has("n"):
 					break
 			await get_tree().create_timer(0.6).timeout
-			print("smoke: transport sent %s; list closed %s; population %d -> %d" % [sent.get("n", "no answer"), not flyout.visible,
-				pop_before, int(pane.colony.get("population", 0))])
+			print("smoke: transport sent %s; list closed %s, pointer clear %s; population %d -> %d" % [sent.get("n", "no answer"), not flyout.visible,
+				pane._carry.is_empty(), pop_before, int(pane.colony.get("population", 0))])
 			if shots != "":
 				await host.shot(shots + "/native-transport-sent.png")
-			if int(sent.get("n", 0)) < 1 or flyout.visible:
+			if int(sent.get("n", 0)) < 1 or flyout.visible or not pane._carry.is_empty():
 				await host.smoke_fail("the colonists were not sent")
 				return
 			game.request_game_quit()
