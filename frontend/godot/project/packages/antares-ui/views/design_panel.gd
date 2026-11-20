@@ -304,8 +304,9 @@ func show_design(result: Dictionary) -> void:
 	Themes.glow(_build)
 	command.emit({"verb": "query", "what": "design_weapons", "_reply_to": "_on_weapons"})
 	command.emit({"verb": "query", "what": "design_specials", "_reply_to": "_on_specials"})
-	if _systems.is_empty():
-		command.emit({"verb": "query", "what": "design_systems", "_reply_to": "_on_systems"})
+	# Asked each time, like the weapons and specials: what is researched changes between openings
+	# (and with a loaded save or a new game), and the costs and spaces follow the hull size.
+	command.emit({"verb": "query", "what": "design_systems", "_reply_to": "_on_systems"})
 	_show_body()
 
 
