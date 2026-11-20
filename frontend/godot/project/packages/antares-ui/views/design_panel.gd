@@ -194,7 +194,11 @@ func _ready() -> void:
 	_build = _button("BUILD", "Save the design in its slot")
 	_build.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_build.size_flags_stretch_ratio = 2.0
-	_build.pressed.connect(func(): command.emit({"verb": "design_build", "_reply_to": "_after_build"}))
+	# A name typed without Enter is sent first (owner, 2026-11-20: BUILD kept the old name; the
+	# buttons don't take the focus, so the field never lost it).
+	_build.pressed.connect(func():
+		_send_name()
+		command.emit({"verb": "design_build", "_reply_to": "_after_build"}))
 	footer.add_child(_build)
 	resized.connect(func():
 		if visible and not _closing and _rect.size.x > 0.0:
@@ -240,6 +244,8 @@ func close() -> void:
 
 
 func _send(cmd: Dictionary) -> void:
+	if not cmd.has("name"):
+		_send_name() # a name typed without Enter goes first (the buttons don't take the focus)
 	cmd["_reply_to"] = "show_design"
 	command.emit(cmd)
 

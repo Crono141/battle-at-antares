@@ -2363,14 +2363,22 @@ func _smoke_design_panel(shots: String) -> bool:
 	panel._send({"verb": "design_weapon", "slot": -1, "weapon": int(beam.weapon), "arc": 0, "rack": 1, "mods": []})
 	await get_tree().create_timer(0.5).timeout
 	var cost_built := int(panel.design.cost)
+	# A name typed and not confirmed with Enter (owner, 2026-11-20): BUILD keeps it.
+	panel._name.grab_focus()
+	panel._name.text = "Typed Name"
 	panel._build.pressed.emit()
 	await get_tree().create_timer(1.2).timeout
 	var after_build: Dictionary = await _query_args({"what": "designs"})
 	var built_cost := -1
+	var built_name := ""
 	for d: Dictionary in after_build.designs:
 		if int(d.slot) == slot:
 			built_cost = int(d.cost)
-	print("smoke: design: built: panel %s, list %s, slot cost %d (editor showed %d)" % [panel.visible, _view("design_list").visible, built_cost, cost_built])
+			built_name = String(d.name)
+	print("smoke: design: built: panel %s, list %s, slot cost %d (editor showed %d), name '%s'" % [panel.visible, _view("design_list").visible,
+		built_cost, cost_built, built_name])
+	if built_name != "Typed Name":
+		return false
 	if shots != "":
 		await host.shot(shots + "/native-design-built.png")
 	if panel.visible or not _view("design_list").visible or built_cost != cost_built:
