@@ -50,6 +50,7 @@ var _shown_left := 0.0
 
 
 func _ready() -> void:
+	preload("../themes.gd").scroll_gap($Box/Scroll)
 	$Box/Header/Close.pressed.connect(close)
 	_restyle()
 	$Box/Back.pressed.connect(close)

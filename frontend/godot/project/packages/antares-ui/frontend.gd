@@ -726,24 +726,7 @@ func _on_window_resized() -> void:
 	# Everything floating follows the window (owner, 2026-11-14: "Windows should ALWAYS resize or
 	# shift with the window"); dialogs and drop-downs keep themselves on the screen.
 	_replace_floating.call_deferred()
-	# The side panels stay against the side tabs (owner, 2026-11-14: a wider window left a gap,
-	# a narrower one slid them under the tabs), and the galaxy fits beside them again.
-	if SIDE_PANELS.values().any(func(n: String) -> bool: return _views.has(n) and (_views[n] as Control).visible):
-		await get_tree().process_frame # the tabs laid out at the new size first
-		await get_tree().process_frame
-		for panel_name: String in SIDE_PANELS.values():
-			var side_view: Control = _views.get(panel_name)
-			if side_view != null and side_view.visible:
-				side_view.reflow(_side_panel_area())
-				_fit_beside_panel(side_view)
-	if _views.has("design_panel") and _views.design_panel.visible:
-		await get_tree().process_frame
-		_views.design_panel.reflow(_side_panel_area())
-	if _views.has("build_pane") and _views.build_pane.visible:
-		await get_tree().process_frame # the panes and tabs laid out at the new size first
-		await get_tree().process_frame
-		if _views.build_pane.visible:
-			_place_build_pane()
+	_reflow_open_panes()
 
 
 ## After a window resize: the research drop-down and picker at the research area's right edge, the
@@ -775,6 +758,30 @@ func set_ui_scale(percent: float, remember := true) -> void:
 		_views.options_menu.show_scale(percent, largest, MIN_UI_SCALE, is_ui_scale_automatic())
 
 
+## The open panes laid out again after the window or the theme changed. The side panels stay
+## against the side tabs (owner, 2026-11-14: a wider window left a gap, a narrower one slid them
+## under the tabs), and the galaxy fits beside them again; the build pane beside the colony
+## pane's real width (owner, 2026-11-20: a theme change put it back at the nominal one, over the
+## colony pane, as its own restyle does).
+func _reflow_open_panes() -> void:
+	if SIDE_PANELS.values().any(func(n: String) -> bool: return _views.has(n) and (_views[n] as Control).visible):
+		await get_tree().process_frame # the tabs laid out at the new size first
+		await get_tree().process_frame
+		for panel_name: String in SIDE_PANELS.values():
+			var side_view: Control = _views.get(panel_name)
+			if side_view != null and side_view.visible:
+				side_view.reflow(_side_panel_area())
+				_fit_beside_panel(side_view)
+	if _views.has("design_panel") and _views.design_panel.visible:
+		await get_tree().process_frame
+		_views.design_panel.reflow(_side_panel_area())
+	if _views.has("build_pane") and _views.build_pane.visible:
+		await get_tree().process_frame # the panes and tabs laid out at the new size first
+		await get_tree().process_frame
+		if _views.build_pane.visible:
+			_place_build_pane()
+
+
 ## Puts a theme on every native view (the Options flyout's selector calls this).
 func apply_theme(id: String, remember := true) -> void:
 	var built := {}
@@ -795,6 +802,7 @@ func apply_theme(id: String, remember := true) -> void:
 	if _views.has("options_menu"):
 		_views.options_menu.show_themes(_themes, theme_id)
 	print("frontend: theme %s" % (built.get("name", "?")))
+	_reflow_open_panes()
 
 
 func _views_dir() -> String:
@@ -5203,6 +5211,25 @@ func _smoke_queue_drag(shots: String) -> void:
 		return
 	if not ghost_on or gap != 0 or spacer_h < build.ROW_HEIGHT * 0.5 or not moved_ok or not unchanged or build._ghost != null:
 		await host.smoke_fail("the build list drag did not lift, open its gap, or land")
+		return
+	# A theme change with the build pane open (owner, 2026-11-20): it stays clear of the colony
+	# pane, at that pane's real width, in every other theme and back.
+	var colony_view: Control = _view("colony_pane")
+	var first_theme := theme_id
+	var overlaps := []
+	for entry: Dictionary in _themes + [{"id": first_theme}]:
+		if entry.id == theme_id:
+			continue
+		apply_theme(entry.id, false)
+		await get_tree().create_timer(0.4).timeout
+		var colony_right := colony_view.get_global_rect().end.x
+		var build_left := build.get_global_rect().position.x
+		print("smoke: theme %s with the build pane open: colony right %.0f, build left %.0f" % [entry.id, colony_right, build_left])
+		if colony_view.visible and build_left < colony_right - 1.0:
+			overlaps.append(entry.id)
+	print("smoke: theme back to %s (started on %s)" % [theme_id, first_theme])
+	if not overlaps.is_empty():
+		await host.smoke_fail("the build pane overlapped the colony pane after a theme change: %s" % [overlaps])
 		return
 	game.request_game_quit()
 	print("smoke: asked the game to quit")

@@ -119,6 +119,31 @@ static func see_through(pane: Control, pane_alpha := 0.62, frame_alpha := 0.55) 
 			fade.call(node))
 
 
+## A clear strip between a scroll area's content and its vertical bar (owner, 2026-11-20: on
+## Glass the colony pane's rows ran right up to the bar). ScrollContainer has no such spacing, so
+## the bar is made `gap` wider with its styles drawn only in its right part; the content gives up
+## that room only while the bar shows. Taken again from the theme whenever it changes.
+static func scroll_gap(scroll: ScrollContainer, gap := 10.0) -> void:
+	var bar := scroll.get_v_scroll_bar()
+	var apply := func() -> void:
+		if bar.has_meta("_gapping"):
+			return
+		bar.set_meta("_gapping", true)
+		for style_name in ["scroll", "scroll_focus", "grabber", "grabber_highlight", "grabber_pressed"]:
+			bar.remove_theme_stylebox_override(style_name)
+			var style := bar.get_theme_stylebox(style_name)
+			if style == null:
+				continue
+			style = style.duplicate()
+			style.content_margin_left = maxf(style.content_margin_left, 0.0) + gap
+			if style is StyleBoxFlat or style is StyleBoxTexture:
+				style.set("expand_margin_left", float(style.get("expand_margin_left")) - gap)
+			bar.add_theme_stylebox_override(style_name, style)
+		bar.remove_meta("_gapping")
+	apply.call()
+	bar.theme_changed.connect(apply)
+
+
 ## Moves a pane sideways by its left and right offsets only. Setting `position` rewrites all four
 ## offsets from the pane's current rect, so a pane that was briefly taller than the screen (its
 ## content grew for a frame) stayed that tall for good (owner, 2026-11-19: the system pane
