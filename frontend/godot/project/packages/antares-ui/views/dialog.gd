@@ -65,6 +65,12 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 		get_tree().create_timer(float(request.step_ms) / 1000.0).timeout.connect(func():
 			if request_id == id and visible:
 				_step(step_value))
+	# The bombing's next step (owner, 2026-11-20: rebuilt each bomb, the text and the buttons
+	# swapped places and the buttons moved): the same window, its numbers and buttons updated.
+	if live and kind == "popup" and String(request.get("popup", "")) == "colony_bombing" and visible and \
+			popup_name == "colony_bombing" and is_instance_valid(_bombing):
+		_update_bombing(request)
+		return
 	_apply_bare()
 	$Fit/Box/Text.text = request.get("text", "")
 	var title: String = request.get("title", "")
@@ -132,7 +138,11 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 			request = request.merged({"buttons": []}, true) # Esc or a right click cancels
 		elif choose:
 			request = request.merged({"buttons": ["CANCEL"]}, true)
-		if request.has("rows"):
+		if request.has("rows") and popup_name == "colony_bombing":
+			_extra.add_child(_bombing_body(request))
+			$Fit/Box/Text.text = ""
+			request = request.merged({"buttons": []}, true) # its own, stacked on the right
+		elif request.has("rows"):
 			# The orbit's invade/bomb window (owner, 2026-11-13: pictures like the window's): only
 			# the bombing's result stays as text under them.
 			_extra.add_child(_combat_rows(request))
@@ -321,6 +331,105 @@ func _combat_rows(request: Dictionary) -> Control:
 			line.add_child(label)
 		columns[("right" if right else "left")].add_child(line)
 	return body
+
+
+## The bombing (owner, 2026-11-20): laid out as the original window, the planet with its defences
+## and buildings on the left, the bomb strikes and the buttons stacked on the right, the result
+## under the planet. Each step updates it in place (_update_bombing): nothing moves.
+var _bombing: Control
+var _bombing_rows: VBoxContainer
+var _bombing_strikes: Label
+var _bombing_summary: Label
+var _bombing_buttons: VBoxContainer
+
+
+func _bombing_body(request: Dictionary) -> Control:
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 20)
+	_bombing = body
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 8)
+	left.custom_minimum_size.x = 300
+	body.add_child(left)
+	var picture: Dictionary = request.get("picture", {})
+	var planet: TextureRect = preload("sprite_rect.gd").new()
+	planet.custom_minimum_size = Vector2(150, 150)
+	planet.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	planet.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	if art:
+		planet.bind(art)
+		planet.show_sprite(String(picture.get("lbx", "")), int(picture.get("entry", -1)))
+	left.add_child(planet)
+	_bombing_rows = VBoxContainer.new()
+	_bombing_rows.add_theme_constant_override("separation", 6)
+	left.add_child(_bombing_rows)
+	_bombing_summary = Label.new()
+	_bombing_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_bombing_summary.custom_minimum_size = Vector2(300, 44)
+	_bombing_summary.add_theme_font_size_override("font_size", 14)
+	left.add_child(_bombing_summary)
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 10)
+	right.custom_minimum_size.x = 180
+	right.alignment = BoxContainer.ALIGNMENT_CENTER
+	body.add_child(right)
+	_bombing_strikes = Label.new()
+	_bombing_strikes.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_bombing_strikes.theme_type_variation = &"Name"
+	right.add_child(_bombing_strikes)
+	_bombing_buttons = VBoxContainer.new()
+	_bombing_buttons.add_theme_constant_override("separation", 8)
+	right.add_child(_bombing_buttons)
+	_update_bombing(request)
+	return body
+
+
+func _update_bombing(request: Dictionary) -> void:
+	# The defenders' rows (left), the bomb strikes (right).
+	var rows: Array = (request.get("rows", []) as Array).filter(func(r: Dictionary) -> bool: return String(r.get("side", "left")) == "left")
+	var strikes: Array = (request.get("rows", []) as Array).filter(func(r: Dictionary) -> bool: return String(r.get("side", "")) == "right")
+	if _bombing_rows.get_child_count() != rows.size():
+		for child in _bombing_rows.get_children():
+			_bombing_rows.remove_child(child)
+			child.queue_free()
+		for r: Dictionary in rows:
+			var line := HBoxContainer.new()
+			line.add_theme_constant_override("separation", 8)
+			var icon: TextureRect = preload("sprite_rect.gd").new()
+			icon.custom_minimum_size = Vector2(30, 30)
+			icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			if art:
+				icon.bind(art)
+				icon.show_sprite(String(r.lbx), int(r.entry))
+			line.add_child(icon)
+			var label := Label.new()
+			label.name = "Text"
+			label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			line.add_child(label)
+			_bombing_rows.add_child(line)
+	for i in rows.size():
+		(_bombing_rows.get_child(i).get_node("Text") as Label).text = String(rows[i].text).strip_edges()
+	_bombing_strikes.text = String(strikes[0].text).strip_edges() if not strikes.is_empty() else ""
+	_bombing_summary.text = String(request.get("summary", ""))
+	# The buttons, stacked: the same while their labels are; all but the last keep the window up.
+	var labels: Array = request.get("buttons", [])
+	var current: Array = _bombing_buttons.get_children().map(func(b: Node) -> String: return (b as Button).text)
+	if current != labels:
+		for child in _bombing_buttons.get_children():
+			_bombing_buttons.remove_child(child)
+			child.queue_free()
+		for i in labels.size():
+			var b := Button.new()
+			b.text = String(labels[i])
+			b.focus_mode = Control.FOCUS_NONE
+			b.custom_minimum_size = Vector2(180, 36)
+			var value := i
+			if i < labels.size() - 1:
+				b.pressed.connect(func(): _step(value))
+			else:
+				b.pressed.connect(func(): _answer(value))
+			_bombing_buttons.add_child(b)
 
 
 ## Shows a planet's card in the popup (a hovered row or map planet); -1 keeps the current one.

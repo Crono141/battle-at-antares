@@ -1727,7 +1727,9 @@ namespace MAINPUPS {
             // every `bombardment_hit_frames` frames of 55 ms), and STOP keeps the rest: hits not
             // applied when the window closes never are, as in the original. Same seed, same
             // Apply_Next_Bomb_Hit, so the hits match it at any pace.
-            const int32_t step_ms = (bombardment_hit_frames > 0 ? bombardment_hit_frames : 1) * 55;
+            // At most a step every 0.6 s (owner, 2026-11-20: the original's 5 frames of 55 ms went
+            // by too fast to follow, or to stop in time); a slower configured pace is kept.
+            const int32_t step_ms = std::max<int32_t>(600, (bombardment_hit_frames > 0 ? bombardment_hit_frames : 1) * 55);
             while (true) {
                 compose();
                 const bool falling = state == 0;

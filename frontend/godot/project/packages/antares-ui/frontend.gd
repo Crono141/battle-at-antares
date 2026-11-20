@@ -4070,43 +4070,49 @@ func _smoke_native() -> void:
 						return int(label.text.get_slice(" ", 0))
 				return 0
 			var labels := func() -> Array:
-				return _views["dialog"]._popup_buttons.get_children().map(func(b: Button) -> String: return b.text)
+				return _views["dialog"]._bombing_buttons.get_children().map(func(b: Button) -> String: return b.text)
 			for i in 30:
 				await get_tree().create_timer(0.1).timeout
 				if _views.has("dialog") and _views.dialog.visible and String(_views.dialog.popup_name) == "colony_bombing":
 					break
 			dialog = _views["dialog"]
 			var at_start: int = left.call()
-			await get_tree().create_timer(1.0).timeout
+			# Nothing moves from step to step (owner, 2026-11-20: the buttons jumped about).
+			var window_at: Vector2 = dialog.get_global_rect().position
+			var stop_at: Vector2 = (dialog._bombing_buttons.get_child(0) as Control).get_global_rect().position
+			await get_tree().create_timer(1.5).timeout
 			var after_second: int = left.call()
+			var steady: bool = dialog.get_global_rect().position.distance_to(window_at) < 1.0 and \
+				(dialog._bombing_buttons.get_child(0) as Control).get_global_rect().position.distance_to(stop_at) < 1.0
 			if shots != "":
 				await host.shot(shots + "/native-bombing.png")
 			var running_buttons: Array = labels.call()
-			(dialog._popup_buttons.get_child(0) as Button).pressed.emit() # STOP
+			(dialog._bombing_buttons.get_child(0) as Button).pressed.emit() # STOP
 			await get_tree().create_timer(0.3).timeout
 			var at_stop: int = left.call()
 			await get_tree().create_timer(1.0).timeout
 			var still: int = left.call()
 			var stopped_buttons: Array = labels.call()
-			(dialog._popup_buttons.get_child(0) as Button).pressed.emit() # CONTINUE
+			(dialog._bombing_buttons.get_child(0) as Button).pressed.emit() # CONTINUE
 			await get_tree().create_timer(0.7).timeout
 			var after_continue: int = left.call()
-			if dialog._popup_buttons.get_child_count() > 1:
-				(dialog._popup_buttons.get_child(1) as Button).pressed.emit() # ALL AT ONCE
+			if dialog._bombing_buttons.get_child_count() > 1:
+				(dialog._bombing_buttons.get_child(1) as Button).pressed.emit() # ALL AT ONCE
 			await get_tree().create_timer(0.5).timeout
 			var done_buttons: Array = labels.call()
 			var visible_while: bool = dialog.visible and overlay.visible
 			if shots != "":
 				await host.shot(shots + "/native-bombing-done.png")
-			(dialog._popup_buttons.get_child(dialog._popup_buttons.get_child_count() - 1) as Button).pressed.emit() # CLOSE
+			(dialog._bombing_buttons.get_child(dialog._bombing_buttons.get_child_count() - 1) as Button).pressed.emit() # CLOSE
 			for i in 30:
 				await get_tree().create_timer(0.1).timeout
 				if box.has("r"):
 					break
-			print("smoke: bombing colony %d: bombs left %d, after 1 s %d %s; STOP at %d, 1 s later %d %s; CONTINUE 0.7 s %d; ALL AT ONCE %s; window up %s; result %s" % [
+			print("smoke: bombing steady %s" % steady)
+			print("smoke: bombing colony %d: bombs left %d, after 1.5 s %d %s; STOP at %d, 1 s later %d %s; CONTINUE 0.7 s %d; ALL AT ONCE %s; window up %s; result %s" % [
 				enemy_colony, at_start, after_second, running_buttons, at_stop, still, stopped_buttons, after_continue, done_buttons, visible_while, box.get("r", "none")])
 			# One step every 5 frames of 55 ms; a step may take several hits, as in the original.
-			var paced: bool = after_second < at_start and after_second > 0
+			var paced: bool = after_second < at_start and after_second > 0 and steady
 			if enemy_colony < 0 or not paced or still != at_stop or after_continue >= still or done_buttons != ["CLOSE"] or not box.has("r") or overlay.visible:
 				await host.smoke_fail("bombing was not paced, stoppable and closable")
 				return
