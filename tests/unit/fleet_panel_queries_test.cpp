@@ -11,6 +11,9 @@ namespace TEST_FLEET_PANEL {
     extern int relocations;
     extern int16_t last_from;
     extern int16_t last_to;
+    extern int16_t relocation_from;
+    extern int16_t relocation_to;
+    extern bool refuse_relocation;
 } // namespace TEST_FLEET_PANEL
 
 namespace {
@@ -71,4 +74,45 @@ DOCTEST_TEST_CASE("the Fleets panel's ship detail and relocation (WP3.5c)") {
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"relocate_star\",\"star\":2}"), "\"from\":2"));
     Run_("{\"verb\":\"relocate_reset\"}");
     DOCTEST_CHECK(TEST_FLEET_PANEL::relocations == 1);
+}
+
+// The system pane's relocation (2026-11-20): the targets with their distance, ETA and reasons,
+// set through the game's checks, cleared directly.
+DOCTEST_TEST_CASE("relocation from the system pane: targets, set and clear") {
+    for (auto& p : f_players_) {
+        p = s_player{};
+    }
+    f_players_[0].ship_speed = 2;
+    MOX::player = f_players_;
+    MOX::NUM_PLAYERS = 2;
+    MOX::PLAYER_NUM = 0;
+    MOX::current_screen = SCREEN_MAIN;
+    for (auto& s : f_stars_) {
+        s = s_star_data{};
+    }
+    f_stars_[1].spectral_class = STAR_CLASS_BLACK_HOLE;
+    MOX::star = f_stars_;
+    MOX::NUM_STARS = 3;
+    // Star 2 is two parsecs from star 0 in the fake: one turn at speed 2. Unvisited stars are
+    // refused with a reason, the black hole too.
+    const std::string targets = Run_("{\"verb\":\"query\",\"what\":\"relocation_targets\",\"from\":0}");
+    DOCTEST_CHECK(Has_(targets, "\"speed\":2"));
+    DOCTEST_CHECK(Has_(targets, "\"reason\":\"A black hole\""));
+    DOCTEST_CHECK(Has_(targets, "\"star\":2,\"allowed\":false,\"reason\":\"Not explored\""));
+    DOCTEST_CHECK(Has_(targets, "\"parsecs\":2,\"eta\":1"));
+    // Set: the game's checks pass, the relocation is made; the same star twice is refused.
+    TEST_FLEET_PANEL::refuse_relocation = false;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"relocation_set\",\"from\":0,\"to\":2}"), "\"set\":true"));
+    DOCTEST_CHECK(TEST_FLEET_PANEL::relocation_from == 0);
+    DOCTEST_CHECK(TEST_FLEET_PANEL::relocation_to == 2);
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"relocation_set\",\"from\":0,\"to\":0}"), "bad_args"));
+    // The game refuses (its own message): nothing changes.
+    TEST_FLEET_PANEL::refuse_relocation = true;
+    TEST_FLEET_PANEL::relocation_to = 5;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"relocation_set\",\"from\":0,\"to\":2}"), "\"set\":false"));
+    DOCTEST_CHECK(TEST_FLEET_PANEL::relocation_to == 5);
+    TEST_FLEET_PANEL::refuse_relocation = false;
+    // Clear.
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"relocation_clear\",\"from\":0}"), "\"cleared\":true"));
+    DOCTEST_CHECK(TEST_FLEET_PANEL::relocation_to == -1);
 }

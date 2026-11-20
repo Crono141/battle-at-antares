@@ -231,3 +231,23 @@ namespace JIM {
     // The native loop's music hold (native.cpp Tick): no sound in the tests.
     void __cdecl Play_Streaming_Music(int16_t, int16_t, int16_t) {}
 } // namespace JIM
+
+// Auto Design (auto_design / design_auto, 2026-11-20): counted, the design given one weapon.
+namespace TEST_DESIGN {
+    int auto_designs = 0;
+} // namespace TEST_DESIGN
+
+namespace INITSHIP {
+    void __cdecl Init_Ship_Designs(int16_t) {
+        ++TEST_DESIGN::auto_designs;
+    }
+} // namespace INITSHIP
+
+namespace aidesign {
+    void Auto_Design_Ship(const game::s_view*, game::id_player, s_ship_design* design, int16_t hull_idx) {
+        ++TEST_DESIGN::auto_designs;
+        design->size = (int8_t)hull_idx;
+        design->ship_weapon[0].type = 1;
+        design->ship_weapon[0].count = 1;
+    }
+} // namespace aidesign

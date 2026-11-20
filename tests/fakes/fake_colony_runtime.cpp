@@ -382,3 +382,16 @@ namespace COLMOVE {
         cluster_colony_n = -1;
     }
 } // namespace COLMOVE
+
+// The colony pane's transport list (transport_targets, 2026-11-20): every destination can take
+// them, one turn per star index apart.
+namespace SETTLER {
+    void __cdecl Pop_Tries_To_Settle(s_colony*, int16_t, s_colony*, s_settler_settle_result* result) {
+        *result = {};
+        result->can_settle = 1;
+        result->eta_turns = 1;
+    }
+    int32_t __cdecl Settler_ETA(s_player*, int16_t source_star, int16_t dest_star) {
+        return source_star > dest_star ? source_star - dest_star : dest_star - source_star;
+    }
+} // namespace SETTLER
