@@ -2,6 +2,7 @@
 
 #include "antares/commands_internal.h"
 #include "antares/native.h"
+#include "game/legacy_ids.h"
 
 #include <algorithm>
 #include <cstring>
@@ -641,6 +642,39 @@ namespace antares::commands::internal {
             out.Bool("designed", true);
         }
 
+        // design_auto: the open design redone by the automatic designer for its hull (owner,
+        // 2026-11-20: Auto Design per ship, to tweak, build or cancel). The game's designer writes
+        // a saved design, so it designs into a copy, which the slot holds just long enough for
+        // Build_Initial_Design_Template to load it as the working copy; nothing is saved until
+        // BUILD. The picture stays, and the name if the player gave it one.
+        void Design_Auto(int16_t, const s_args&, s_out& out) {
+            if (!Have_Session(out)) {
+                return;
+            }
+            s_scope scope;
+            s_ship_design& slot_design = MOX::player[MOX::PLAYER_NUM].ship_designs[s_slot];
+            const s_ship_design saved = slot_design;
+            char name[sizeof(s_work.name)];
+            std::memcpy(name, s_work.name, sizeof(name));
+            const int16_t picture = s_work.picture_type;
+            const int16_t size = s_work.ship_size;
+            s_ship_design made = saved;
+            made.size = (uint8_t)size;
+            aidesign::Auto_Design_Ship(&game::current, legacy_world::Player_Id(MOX::PLAYER_NUM), &made, size);
+            slot_design = made;
+            DESIGN::Build_Initial_Design_Template(MOX::PLAYER_NUM, s_slot);
+            slot_design = saved;
+            s_work.ship_size = size;
+            s_work.picture_type = picture;
+            if (s_name_changed) {
+                std::memcpy(s_work.name, name, sizeof(name));
+            } else {
+                Rename_From_Picture();
+            }
+            Recalculate();
+            Design_Out(out);
+        }
+
         // design_cancel: CANCEL (the working copy dropped).
         void Design_Cancel(int16_t, const s_args&, s_out& out) {
             s_open = false;
@@ -865,6 +899,7 @@ namespace antares::commands::internal {
         table->push_back({"design_clear", e_kind::command, galaxy, 0, "", Design_Clear});
         table->push_back({"design_build", e_kind::command, galaxy, 0, "", Design_Build});
         table->push_back({"design_cancel", e_kind::command, galaxy, 0, "", Design_Cancel});
+        table->push_back({"design_auto", e_kind::command, galaxy, 0, "", Design_Auto});
         table->push_back({"auto_design", e_kind::command, galaxy, 0, "", Auto_Design});
         table->push_back({"design_weapons", e_kind::query, ANY_SCREEN, 1, "", Query_Design_Weapons});
         table->push_back({"design_weapon_preview", e_kind::query, ANY_SCREEN, 1, "weapon, arc, rack, mods", Query_Design_Weapon_Preview});

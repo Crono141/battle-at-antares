@@ -176,6 +176,13 @@ func _ready() -> void:
 	var footer := HBoxContainer.new()
 	footer.add_theme_constant_override("separation", 8)
 	box.add_child(footer)
+	# AUTO: this design only, redone by the game's automatic designer for its hull (owner,
+	# 2026-11-20); tweak it, BUILD or CANCEL as after any change. The design list's AUTO DESIGN
+	# does every slot at once (Alt+A, D).
+	var auto := _button("AUTO", "Design this ship automatically with your best technology: change it further, BUILD to keep it or CANCEL")
+	auto.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	auto.pressed.connect(func(): _send({"verb": "design_auto"}))
+	footer.add_child(auto)
 	var clear := _button("CLEAR", "No weapons or specials; the best drive, armour and computer")
 	clear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clear.pressed.connect(func(): _send({"verb": "design_clear"}))
@@ -192,7 +199,7 @@ func _ready() -> void:
 	resized.connect(func():
 		if visible and not _closing and _rect.size.x > 0.0:
 			if _tween == null or not _tween.is_running():
-				position.x = _rect.end.x - size.x
+				preload("../themes.gd").move_x(self, _rect.end.x - size.x)
 			width_changed.emit())
 
 

@@ -2335,6 +2335,19 @@ func _smoke_design_panel(shots: String) -> bool:
 		int(panel.design.hull_space)])
 	if shots != "":
 		await host.shot(shots + "/native-design-edited.png")
+	# AUTO (owner, 2026-11-20): this design redone for its hull, in the editor only; CANCEL
+	# below must still leave the slot as it was.
+	var hull_before := int(panel.design.size)
+	panel._send({"verb": "design_auto"})
+	await get_tree().create_timer(0.6).timeout
+	print("smoke: design: auto: '%s' hull %d (was %d), space %d/%d, cost %d, %d weapons, %d specials" % [panel.design.get("name", ""),
+		int(panel.design.size), hull_before, int(panel.design.space_used), int(panel.design.hull_space), int(panel.design.cost),
+		(panel.design.get("weapons", []) as Array).size(), (panel.design.get("specials", []) as Array).size()])
+	if shots != "":
+		await host.shot(shots + "/native-design-auto.png")
+	if int(panel.design.size) != hull_before or (panel.design.get("weapons", []) as Array).is_empty() \
+			or int(panel.design.space_used) > int(panel.design.hull_space):
+		return false
 	# CANCEL: the slot as it was.
 	panel.close()
 	await get_tree().create_timer(0.6).timeout
