@@ -3357,6 +3357,68 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--transport":
+			# Owner, 2026-11-20: pick up colonists, TRANSPORT COLONISTS lists where they can go
+			# (population, planet, ETA), a click sends them with the game's questions answered.
+			var source := {}
+			for c in 64:
+				var data: Dictionary = await _query_args({"what": "colony", "colony": c})
+				if data.get("ok", false) and not data.get("outpost", false) and int(data.get("population", 0)) >= 3:
+					source = data
+					break
+			if source.is_empty():
+				await host.smoke_fail("no colony with colonists to transport")
+				return
+			var pane := _view("colony_pane")
+			_open_colony_at(int(source.star), int(source.colony), false)
+			await get_tree().create_timer(2.0).timeout
+			var person := {}
+			var person_job := -1
+			for job_info: Dictionary in pane.colony.jobs:
+				for c: Dictionary in job_info.colonists:
+					if String(c.get("state", "")) != "native" and person.is_empty():
+						person = c
+						person_job = int(job_info.get("job", pane.colony.jobs.find(job_info)))
+			var pop_before := int(pane.colony.get("population", 0))
+			pane._pick_up([int(person.pop)], person_job)
+			await get_tree().process_frame
+			var transport: Control = pane.get_node("Scroll/Box/Transport")
+			pane._input(_smoke_click_at(transport.get_global_rect().get_center()))
+			await get_tree().create_timer(1.0).timeout
+			var flyout: Control = pane._transport_flyout
+			var rows: Array = [] if flyout == null else flyout.find_children("*", "PanelContainer", true, false).filter(
+				func(n: Node) -> bool: return (n as Control).theme_type_variation == &"Row")
+			var sendable: Array = rows.filter(func(r: Control) -> bool: return r.mouse_filter == Control.MOUSE_FILTER_STOP)
+			var inside := flyout != null and get_viewport().get_visible_rect().encloses(flyout.get_global_rect())
+			print("smoke: transport from %s (pop %d): list %s, %d colonies, %d can take them, on screen %s, carry left %s" % [source.name,
+				pop_before, flyout != null and flyout.visible, rows.size(), sendable.size(), inside, not pane._carry.is_empty()])
+			if shots != "":
+				await host.shot(shots + "/native-transport.png")
+			if flyout == null or not flyout.visible or rows.is_empty() or not inside or not pane._carry.is_empty():
+				await host.smoke_fail("the transport list did not open")
+				return
+			if sendable.is_empty():
+				print("smoke: no colony can take them (send skipped)")
+				game.request_game_quit()
+				return
+			var sent := {}
+			pane.transported.connect(func(n: int): sent["n"] = n, CONNECT_ONE_SHOT)
+			(sendable[0] as Control).gui_input.emit(_smoke_click_at((sendable[0] as Control).get_global_rect().get_center()))
+			for i in 40:
+				await get_tree().create_timer(0.25).timeout
+				_smoke_answer()
+				if sent.has("n"):
+					break
+			await get_tree().create_timer(0.6).timeout
+			print("smoke: transport sent %s; list closed %s; population %d -> %d" % [sent.get("n", "no answer"), not flyout.visible,
+				pop_before, int(pane.colony.get("population", 0))])
+			if shots != "":
+				await host.shot(shots + "/native-transport-sent.png")
+			if int(sent.get("n", 0)) < 1 or flyout.visible:
+				await host.smoke_fail("the colonists were not sent")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--government-help":
 			var home := -1
 			for c in 64:

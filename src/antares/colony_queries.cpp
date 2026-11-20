@@ -682,6 +682,89 @@ namespace antares::commands::internal {
             out.Int("moved", before - (uint8_t)source.n_pops);
         }
 
+        // transport_targets {colony, pop}: where that colonist (and its cluster) can be sent, as
+        // the original's transport list offers (COLXPORT::Xport_Popup), with what the game's own
+        // check says of each (SETTLER::Pop_Tries_To_Settle, which changes nothing): every other
+        // colony of the player's (not outposts) with its system, population, planet and ETA, and
+        // why it can't take them. A reason that holds for any destination (freighters, a
+        // blockade at home, the last colonist) comes once, as `blocked`.
+        void Query_Transport_Targets(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            int64_t pop = -1;
+            if (!args.Int("colony", &colony_id) || !args.Int("pop", &pop)) {
+                out.Fail("bad_args", "colony, pop (a colonist of that colony)");
+                return;
+            }
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            s_colony& source = MOX::colony[colony_id];
+            if (source.outpost_flag != 0 || pop < 0 || pop >= (uint8_t)source.n_pops) {
+                out.Fail("bad_args", "pop: a colonist of a colony (not an outpost)");
+                return;
+            }
+            const int16_t me = source.owner;
+            const s_player& player = MOX::player[me];
+            out.Int("freighters", player.n_freighters);
+            out.Int("settlers_freighted", player.settlers_freighted);
+            std::string blocked;
+            s_out list = out.Add_List("targets");
+            for (int16_t c = 0; c < MOX::NUM_COLONIES; ++c) {
+                s_colony& colony = MOX::colony[c];
+                if (c == colony_id || colony.owner != me || colony.outpost_flag != 0 || colony.planet < 0) {
+                    continue;
+                }
+                s_settler_settle_result result{};
+                SETTLER::Pop_Tries_To_Settle(&source, (int16_t)pop, &colony, &result);
+                const char* global = result.source_blockaded ? "This system is blockaded"
+                    : result.source_space_anomaly ? "A space anomaly holds the colonists here"
+                    : result.source_plague ? "The plague keeps the colonists here"
+                    : result.only_one_pop_left ? "The last colonist can't leave"
+                    : result.selected_pop_flag_0x400 ? "Conquered colonists can't be moved"
+                    : nullptr;
+                if (global != nullptr && blocked.empty()) {
+                    blocked = global;
+                }
+                const s_planet_data& planet = MOX::planet[colony.planet];
+                const int16_t star = planet.star_index;
+                s_out row = list.Append_Object();
+                row.Int("colony", c);
+                row.Int("planet", colony.planet);
+                row.Int("star", star);
+                row.Str("name", Utf8(HACCESS::Get_Planet_Name_No_Prime(colony.planet), 80));
+                row.Str("system", Utf8(MOX::star[star].name, sizeof(MOX::star[0].name)));
+                row.Int("population", (uint8_t)colony.n_pops);
+                row.Int("max_population", COLCALC::Planet_Max_Population_For_Player(&MOX::planet[colony.planet], me));
+                row.Str("size_name", Utf8(MOX::planet_size_string[planet.size], 40));
+                row.Str("climate_name", Utf8(MOX::planet_climate_string[(uint8_t)colony.climate], 40));
+                row.Str("minerals_name", Utf8(MOX::mineral_class_string[planet.mineral_class], 40));
+                if (planet.planet_special > SYSTEM_SPECIAL_NO_SPECIAL && planet.planet_special < SYSTEM_SPECIAL_COUNT &&
+                    planet.planet_special != SYSTEM_SPECIAL_MAROONED_HERO && planet.planet_special != SYSTEM_SPECIAL_ORION_STAR) {
+                    row.Str("special_name", Utf8(MOX::planet_special_string[planet.planet_special], 80));
+                }
+                row.Int("eta", result.can_settle ? (int)result.eta_turns
+                                                 : (int)SETTLER::Settler_ETA(&MOX::player[me], MOX::planet[source.planet].star_index, star));
+                const char* reason = global != nullptr ? nullptr
+                    : result.insufficient_freighters ? "Not enough freighters"
+                    : result.max_settlers_in_transit ? "Too many colonists already in transit"
+                    : result.no_room_at_destination ? "No room for them there"
+                    : result.dest_blockaded ? "That system is blockaded"
+                    : result.dest_space_anomaly ? "A space anomaly there"
+                    : nullptr;
+                // The game still takes them where there is no room or a blockade (it asks first).
+                row.Bool("can_send", global == nullptr && result.can_settle != 0);
+                if (reason != nullptr) {
+                    row.Str("reason", reason);
+                }
+            }
+            if (!blocked.empty()) {
+                out.Str("blocked", blocked);
+            }
+        }
+
         // A building scrapped from the colony pane (COLONY::Scrap_Building, as clicking it on the
         // landscape does): the game's question with the refund, its once-a-turn rule and message.
         void Sell_Building(int16_t, const s_args& args, s_out& out) {
@@ -1141,6 +1224,7 @@ namespace antares::commands::internal {
         table->push_back({"help", e_kind::query, ANY_SCREEN, 1, "topic: a help record (HELP.LBX)", Query_Help});
         table->push_back({"move_colonist", e_kind::command, galaxy, 0, "colony, pop or pops (a cluster), job (0-2)", Move_Colonist});
         table->push_back({"send_colonists", e_kind::command, galaxy, 0, "from, pop, to, job (-1: any)", Send_Colonists});
+        table->push_back({"transport_targets", e_kind::query, ANY_SCREEN, 1, "colony, pop", Query_Transport_Targets});
         table->push_back({"sell_building", e_kind::command, galaxy, 0, "colony, building", Sell_Building});
         table->push_back({"buy", e_kind::command, galaxy, 0, "colony", Buy});
         table->push_back({"set_occupation", e_kind::command, galaxy, 0, "colony, annihilate", Set_Occupation});

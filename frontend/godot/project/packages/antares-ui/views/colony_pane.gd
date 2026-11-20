@@ -12,12 +12,16 @@ extends PanelContainer
 ## another job's row drops them there (`move_colonist` with `pops`: the game's own rules and
 ## messages), anywhere else puts them back, as do a right click, Esc and closing. BUY sends `buy`
 ## (the game asks first; a second BUY un-buys). CHANGE slides out the build pane (WP3.4b);
-## TRANSPORT COLONISTS opens the original colony screen, VIEW COLONY its landscape alone
+## TRANSPORT COLONISTS with colonists on the pointer lists the colonies they can go to
+## (`transport_targets`: population, planet, ETA and why not) and a click sends them there
+## (`send_colonists`, the game's questions); VIEW COLONY opens the colony's landscape alone
 ## (`open_colony` with `landscape`). A building is sold with a click (`sell_building`, the game's
 ## question) and explained with a right click (the original's help text).
 
 signal command(dict: Dictionary)
 signal closed
+## Colonists sent to another colony (`count` left, 0 if the game kept them).
+signal transported(count: int)
 ## CHANGE: the build pane opens on this colony (`bought`: its front item is bought).
 signal change_build(colony_id: int, bought: bool)
 
@@ -119,7 +123,13 @@ func _ready() -> void:
 	preload("../themes.gd").see_through(self)
 	preload("../themes.gd").scroll_gap($Scroll)
 	$Scroll/Box/Header/Close.pressed.connect(close)
-	$Scroll/Box/Transport.pressed.connect(_open_original)
+	# Owner, 2026-11-20: pick up colonists, then TRANSPORT COLONISTS (the original screen's
+	# list, rebuilt). Pressed with none on the pointer it says how.
+	$Scroll/Box/Transport.pressed.connect(func():
+		_close_info()
+		_info_popup = preload("info_popup.gd").open(self, $Scroll/Box/Transport, "Transport colonists",
+			"Click the colonists to move first, then TRANSPORT COLONISTS: the colonies they can go to are listed."))
+	$Scroll/Box/Transport.tooltip_text = "Click colonists first, then this: the colonies they can go to, with their ETA"
 	$Scroll/Box/View.pressed.connect(_open_landscape)
 	# The right click's help on the colony screen's parts (ERICHELP::colony_screen_help_list).
 	name_label.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -158,6 +168,8 @@ func set_bottom_clear(room: float) -> void:
 
 ## Opens (or refreshes) on a colony: asks the game for it.
 func open(id: int) -> void:
+	if id != colony_id:
+		close_transport()
 	colony_id = id
 	refresh()
 
@@ -170,6 +182,7 @@ func refresh() -> void:
 func close() -> void:
 	_drop_carry()
 	_close_info()
+	close_transport()
 	if colony_id < 0 and not visible:
 		return
 	colony_id = -1
@@ -182,6 +195,7 @@ func close() -> void:
 func dismiss() -> void:
 	_drop_carry()
 	_close_info()
+	close_transport()
 	hide()
 
 
@@ -208,10 +222,6 @@ func show_colony(result: Dictionary) -> void:
 	_fill($Scroll/Box/Buildings, _buildings_list())
 	if not visible:
 		_slide(true)
-
-
-func _open_original() -> void:
-	command.emit({"verb": "open_colony", "planet": int(colony.get("planet", -1))})
 
 
 ## VIEW COLONY: the colony's landscape alone, with the original RETURN button.
@@ -592,6 +602,12 @@ func _input(event: InputEvent) -> void:
 	if mb.button_index != MOUSE_BUTTON_LEFT:
 		_drop_carry()
 		return
+	var transport: Control = $Scroll/Box/Transport
+	if transport.is_visible_in_tree() and transport.get_global_rect().has_point(mb.global_position):
+		var pops: Array = _carry.pops
+		_drop_carry() # they stay where they are until a colony is picked
+		ask_transport(pops)
+		return
 	var target := -1
 	for job: int in _job_panels:
 		var panel: Control = _job_panels[job]
@@ -609,6 +625,163 @@ func _drop_on(job: int) -> void:
 	_drop_carry()
 	if job >= 0 and job != from:
 		command.emit({"verb": "move_colonist", "colony": colony_id, "pops": pops, "job": job, "_reply_to": "_after_command"})
+
+
+# ---- Transport (owner, 2026-11-20: the original's transport list, rebuilt) ----
+
+var _transport_flyout: PanelContainer
+var _transport_pops: Array = []
+
+
+## The colonies the colonists `pops` (a cluster) can go to.
+func ask_transport(pops: Array) -> void:
+	if pops.is_empty():
+		return
+	_transport_pops = pops
+	command.emit({"verb": "query", "what": "transport_targets", "colony": colony_id, "pop": int(pops[0]),
+		"_reply_to": "show_transport"})
+
+
+## The `transport_targets` answer: a list beside the pane, level with TRANSPORT COLONISTS.
+func show_transport(result: Dictionary) -> void:
+	if not result.get("ok", false) or not visible:
+		return
+	if _transport_flyout == null:
+		_transport_flyout = PanelContainer.new()
+		_transport_flyout.theme_type_variation = &"Pane"
+		_transport_flyout.name = "TransportFlyout"
+		_transport_flyout.top_level = true # placed by hand, beside the pane
+		add_child(_transport_flyout)
+	for child in _transport_flyout.get_children():
+		_transport_flyout.remove_child(child)
+		child.queue_free()
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 6)
+	var header := HBoxContainer.new()
+	var count := _transport_pops.size()
+	var title := Label.new()
+	title.text = "Transport %d colonist%s" % [count, "" if count == 1 else "s"]
+	title.theme_type_variation = &"Name"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
+	var x := Button.new()
+	x.text = "X"
+	x.focus_mode = Control.FOCUS_NONE
+	x.tooltip_text = "Close (Esc): the colonists stay"
+	x.pressed.connect(close_transport)
+	header.add_child(x)
+	outer.add_child(header)
+	var note := Label.new()
+	note.theme_type_variation = &"Dim"
+	note.add_theme_font_size_override("font_size", 13)
+	note.text = "Freighters %d, carrying %d colonists" % [int(result.get("freighters", 0)), int(result.get("settlers_freighted", 0))]
+	outer.add_child(note)
+	if result.has("blocked"):
+		outer.add_child(_warning(String(result.blocked)))
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	preload("../themes.gd").scroll_gap(scroll)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 4)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list)
+	var targets: Array = result.get("targets", [])
+	# Those that can take them without a question first, then by ETA (full ones last).
+	var rank := func(t: Dictionary) -> int: return 0 if t.get("can_send", false) and not t.has("reason") else (1 if t.get("can_send", false) else 2)
+	targets.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return [rank.call(a), int(a.eta), String(a.name)] < [rank.call(b), int(b.eta), String(b.name)])
+	if targets.is_empty():
+		list.add_child(_warning("No other colony to go to."))
+	for target: Dictionary in targets:
+		list.add_child(_transport_row(target))
+	outer.add_child(scroll)
+	_transport_flyout.add_child(outer)
+	_transport_flyout.custom_minimum_size = Vector2(380, 0)
+	# Beside the pane, its top level with the pane's, at most the pane's height.
+	var head := 64.0 + (30.0 if result.has("blocked") else 0.0)
+	scroll.custom_minimum_size.y = minf(size.y - head - 24.0, 12.0 + 74.0 * maxi(targets.size(), 1))
+	_transport_flyout.reset_size()
+	_transport_flyout.global_position = Vector2(global_position.x + size.x + 6.0, global_position.y)
+	_transport_flyout.show()
+	_transport_flyout.move_to_front()
+
+
+func close_transport() -> void:
+	if _transport_flyout:
+		_transport_flyout.hide()
+	_transport_pops = []
+
+
+func _warning(text: String) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_color_override("font_color", Color(1.0, 0.55, 0.4))
+	return label
+
+
+## One destination: name and system, ETA; population and the planet; why not, if so. A click
+## sends the colonists (the game still asks where there is no room or a blockade).
+func _transport_row(target: Dictionary) -> Control:
+	var row := PanelContainer.new()
+	row.theme_type_variation = &"Row"
+	var can_send: bool = target.get("can_send", false)
+	row.mouse_filter = Control.MOUSE_FILTER_STOP if can_send else Control.MOUSE_FILTER_IGNORE
+	row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if can_send else Control.CURSOR_ARROW
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 0)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(box)
+	var top := HBoxContainer.new()
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var name_label := Label.new()
+	name_label.text = String(target.name)
+	name_label.theme_type_variation = &"Name"
+	top.add_child(name_label)
+	var system := Label.new()
+	system.text = String(target.get("system", ""))
+	system.theme_type_variation = &"Dim"
+	system.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(system)
+	var eta := int(target.get("eta", 0))
+	var eta_label := Label.new()
+	eta_label.text = "Arrives now" if eta <= 0 else "%d turn%s" % [eta, "" if eta == 1 else "s"]
+	top.add_child(eta_label)
+	box.add_child(top)
+	var words: Array = ["Pop %d / %d" % [int(target.population), int(target.max_population)],
+		target.get("size_name", ""), target.get("climate_name", ""), target.get("minerals_name", "")]
+	if target.has("special_name"):
+		words.append(target.special_name)
+	var line := Label.new()
+	line.text = " · ".join(words.filter(func(w: Variant) -> bool: return String(w) != ""))
+	line.theme_type_variation = &"Dim"
+	line.add_theme_font_size_override("font_size", 13)
+	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(line)
+	if target.has("reason"):
+		box.add_child(_warning(String(target.reason)))
+	if not can_send:
+		row.modulate.a = 0.55
+	row.gui_input.connect(func(event: InputEvent):
+		var click := event as InputEventMouseButton
+		if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT and can_send:
+			send_transport(int(target.colony)))
+	return row
+
+
+## The colonists to colony `to`, as the original's list sends them (Send_Cluster).
+func send_transport(to: int) -> void:
+	if _transport_pops.is_empty():
+		return
+	command.emit({"verb": "send_colonists", "from": colony_id, "pop": int(_transport_pops[0]), "to": to, "job": -1,
+		"_reply_to": "_after_transport"})
+	close_transport()
+
+
+func _after_transport(result: Dictionary) -> void:
+	transported.emit(int(result.get("moved", 0)))
+	refresh()
 
 
 ## After a move or a purchase: the colony again (the game recalculated it).
@@ -651,6 +824,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	var build_pane := get_parent().get_node_or_null("BuildPane")
 	if build_pane != null and build_pane.visible:
 		return # Esc cancels the build pane first
+	if key and key.pressed and key.keycode == KEY_ESCAPE and _transport_flyout != null and _transport_flyout.visible:
+		close_transport() # the transport list first; the colonists stay
+		get_viewport().set_input_as_handled()
+		return
 	if visible and key and key.pressed and key.keycode == KEY_ESCAPE and _carry.is_empty():
 		close()
 		get_viewport().set_input_as_handled()
