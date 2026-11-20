@@ -55,6 +55,7 @@ var sort_key := "climate" # the screen's default sort
 var sort_descending := true
 var selected := -1 # the selected planet
 var send_kind := "" # "colony" or "outpost" while a send button is armed
+var _disarm_after_send := false # sent by the button to the selected planet: off once it's done
 var _filters_on := {}
 var _rows := {} # planet -> its row panel
 
@@ -424,14 +425,15 @@ func _show_send_buttons() -> void:
 
 
 ## A send button pressed: it arms; with a planet already selected the ship goes there at once
-## (owner, 2026-11-20: select, then send, as well as arm, then click), and the button stays armed
-## for the next planet, as after a click.
+## (owner, 2026-11-20: select, then send, as well as arm, then click) and the button goes off
+## once that's done; armed first, it stays armed for the next planet.
 func _on_send_button(kind: String, on: bool) -> void:
 	_arm(kind if on else "")
 	if not on or selected < 0:
 		return
 	for p: Dictionary in planets:
 		if int(p.planet) == selected:
+			_disarm_after_send = true # this way round the button is a one-off (owner, 2026-11-20)
 			_send(p)
 			return
 
@@ -453,6 +455,9 @@ func _send(p: Dictionary) -> void:
 
 
 func _after_command(_result_unused: Dictionary) -> void:
+	if _disarm_after_send:
+		_disarm_after_send = false
+		_arm("")
 	refresh()
 
 

@@ -318,9 +318,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				zoom_by(1.2 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.2, at)
 			get_viewport().set_input_as_handled()
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
-			# A right click cancels F4's mode, or in a system shows a planet's potential (no panning).
+			# A right click cancels F4's or F9's mode, or in a system shows a planet's potential.
 			if button.pressed:
-				if relocating:
+				if relocating or measuring:
 					right_clicked.emit()
 				elif not system.is_empty(): # no right-click panning (owner, 2026-11-13: dropped)
 					var planet: int = $Orbits.pick(_screen_to_world(button.position))

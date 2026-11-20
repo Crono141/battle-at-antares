@@ -1798,8 +1798,8 @@ func _smoke_planets(shots: String) -> bool:
 			for p: Dictionary in panel._all:
 				if int(p.planet) == int(target.planet):
 					after = p
-			print("smoke: sent a colony ship to %s: on its way %s, still armed %s" % [target.name, after.get("colony_eta", -1), panel.send_kind])
-			if panel.send_kind != "colony" and not panel.colony_button.disabled:
+			print("smoke: sent a colony ship to %s: on its way %s, disarmed %s" % [target.name, after.get("colony_eta", -1), panel.send_kind == ""])
+			if panel.send_kind != "":
 				return false
 			if shots != "":
 				await host.shot(shots + "/native-planets-sent.png")
@@ -3433,13 +3433,26 @@ func _smoke_native() -> void:
 				hint_on, home, far, galaxy.hovered_star(), galaxy.parsecs_between(home, far), mismatches, galaxy.stars.size()])
 			if shots != "":
 				await host.shot(shots + "/native-measure.png")
+			# A right click on the map stops it (owner, 2026-11-20: it didn't), and Esc.
+			var right := InputEventMouseButton.new()
+			right.button_index = MOUSE_BUTTON_RIGHT
+			right.pressed = true
+			right.position = motion.position
+			Input.parse_input_event(right)
+			var right_up := right.duplicate()
+			right_up.pressed = false
+			Input.parse_input_event(right_up)
+			await get_tree().create_timer(0.3).timeout
+			var right_stopped: bool = not galaxy.measuring
+			_on_view_action("distance")
+			await get_tree().create_timer(0.2).timeout
 			var esc := InputEventKey.new()
 			esc.keycode = KEY_ESCAPE
 			esc.pressed = true
 			Input.parse_input_event(esc)
 			await get_tree().create_timer(0.3).timeout
-			print("smoke: measure after Esc: mode %s, hint %s" % [galaxy.measuring, _measure_hint.visible])
-			if not hint_on or galaxy.measure_from != -1 or galaxy.measuring or _measure_hint.visible or mismatches > 0 or far < 0:
+			print("smoke: measure: a right click stopped it %s; after Esc: mode %s, hint %s" % [right_stopped, galaxy.measuring, _measure_hint.visible])
+			if not right_stopped or not hint_on or galaxy.measure_from != -1 or galaxy.measuring or _measure_hint.visible or mismatches > 0 or far < 0:
 				await host.smoke_fail("measure distance did not work")
 				return
 			game.request_game_quit()
