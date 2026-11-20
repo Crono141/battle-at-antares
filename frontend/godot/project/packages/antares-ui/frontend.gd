@@ -2183,6 +2183,24 @@ func _smoke_design_panel(shots: String) -> bool:
 	if (before.get("designs", []) as Array).is_empty():
 		print("smoke: design: no designs to edit")
 		return false
+	# AUTO DESIGN (owner, 2026-11-20): asks first; confirmed, every slot is redesigned and the
+	# list shows the new designs.
+	designs.auto_button.pressed.emit()
+	await get_tree().process_frame
+	var asked: bool = designs._auto_confirm.visible
+	if shots != "":
+		await host.shot(shots + "/native-design-auto-confirm.png")
+	designs._auto_confirm.hide()
+	designs._auto_confirm.confirmed.emit()
+	await get_tree().create_timer(1.0).timeout
+	var auto: Dictionary = await _query_args({"what": "designs"})
+	var describe := func(list: Dictionary) -> Array:
+		return (list.get("designs", []) as Array).map(func(d: Dictionary) -> String: return "%s %s %d" % [d.name, d.hull_name, int(d.cost)])
+	print("smoke: design: auto design button %s, asked %s; before %s; after %s; list rows %d" % [designs.auto_button.visible, asked,
+		describe.call(before), describe.call(auto), designs.rows.get_child_count()])
+	if not designs.auto_button.visible or not asked or not auto.get("ok", false) or not designs.visible:
+		return false
+	before = auto
 	var slot := int(before.designs[0].slot)
 	var cost_before := int(before.designs[0].cost)
 	_on_view_command({"verb": "open", "screen": Screens.DESIGN, "slot": slot}, designs)

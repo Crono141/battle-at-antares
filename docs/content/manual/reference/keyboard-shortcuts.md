@@ -104,7 +104,7 @@ Queue presets are configuration entries. Orion2 Redone does not load the old `BU
 | `,` / `.` | Go to the previous / next colony. |
 | Space | Accept the queue. |
 | Esc | Return without saving queue changes. |
-| Alt+A, Alt+D | Run Auto Design and update all ship designs. |
+| Alt+A, Alt+D | Run Auto Design and update all ship designs (also the AUTO DESIGN button on the Ship Design list). |
 
 ## Design Dock Lists
 

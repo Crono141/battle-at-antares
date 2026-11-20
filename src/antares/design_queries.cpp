@@ -618,6 +618,29 @@ namespace antares::commands::internal {
             native::Hold_Music(-1);
         }
 
+        // auto_design: the build screen's Alt+A, D (colbldg.cpp, automatic_design_command) as a
+        // command (owner, 2026-11-20: a button on the ship design screen): every design slot gets
+        // the automatic design for the player's technology, custom designs included. With Doom
+        // Star Construction researched the slots take the advanced level's hulls, as there.
+        void Auto_Design(int16_t, const s_args&, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            if (s_open) {
+                out.Fail("busy", "a design is open in the design panel");
+                return;
+            }
+            const int16_t player_idx = MOX::PLAYER_NUM;
+            const uint8_t saved_civilization_level = MOX::settings.starting_civilization_level;
+            if (MOX::player[player_idx].tech_applications[TECH_APP_DOOM_STAR_CONSTRUCTION] ==
+                TECH_RESEARCH_STATUS_RESEARCHED) {
+                MOX::settings.starting_civilization_level = 2;
+            }
+            INITSHIP::Init_Ship_Designs(player_idx);
+            MOX::settings.starting_civilization_level = saved_civilization_level;
+            out.Bool("designed", true);
+        }
+
         // design_cancel: CANCEL (the working copy dropped).
         void Design_Cancel(int16_t, const s_args&, s_out& out) {
             s_open = false;
@@ -842,6 +865,7 @@ namespace antares::commands::internal {
         table->push_back({"design_clear", e_kind::command, galaxy, 0, "", Design_Clear});
         table->push_back({"design_build", e_kind::command, galaxy, 0, "", Design_Build});
         table->push_back({"design_cancel", e_kind::command, galaxy, 0, "", Design_Cancel});
+        table->push_back({"auto_design", e_kind::command, galaxy, 0, "", Auto_Design});
         table->push_back({"design_weapons", e_kind::query, ANY_SCREEN, 1, "", Query_Design_Weapons});
         table->push_back({"design_weapon_preview", e_kind::query, ANY_SCREEN, 1, "weapon, arc, rack, mods", Query_Design_Weapon_Preview});
         table->push_back({"design_specials", e_kind::query, ANY_SCREEN, 1, "", Query_Design_Specials});
