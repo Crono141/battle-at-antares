@@ -2672,10 +2672,18 @@ func _on_research_pick(id: int, request: Dictionary) -> void:
 ## clicks through; the view comes back when it is answered.
 var _popup_zoom := -1
 var _popup_pick_star := false
+## How long an answered system-zoom popup's system stays for a follow-up question or its landing.
+const POPUP_FOLLOW_UP_WAIT := 0.6
 
 
 func _start_popup_map(dialog: Control, request: Dictionary) -> void:
 	_popup_zoom = int(request.get("zoom", -1))
+	# The question after a system-zoom answer (the colony ship's "are you sure?" after its planet
+	# pick; owner, 2026-11-20: it flew back out, then the landing flew in again) stays on that
+	# system, its window beside it.
+	if _popup_zoom < 0 and _popup_map_ending >= 0 and not request.get("pick_star", false):
+		_popup_zoom = _popup_map_ending
+	_popup_map_ending = -1
 	if _scene_window != null and _scene_window.is_open():
 		_popup_zoom = -1 # over a scene (the landing's occupation question): the map stays
 	_popup_pick_star = bool(request.get("pick_star", false))
@@ -2706,11 +2714,38 @@ func _end_popup_map() -> void:
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	overlay.color.a = 0.45
 	if _popup_zoom >= 0 and _panel_star != _popup_zoom:
+		# Not at once: another question on the same system (or its landing) may follow.
+		_popup_map_ending = _popup_zoom
+		_popup_map_end_after(_popup_zoom)
+	_popup_zoom = -1
+	_popup_pick_star = false
+
+
+var _popup_map_ending := -1 # the zoomed system, while its fly-back waits for a follow-up
+
+
+## The fly-back from an answered system-zoom popup, unless a question on it came first (it keeps
+## the system) or its landing began (that scene frames the colony itself).
+func _popup_map_end_after(star: int) -> void:
+	# At least a moment, and while the game is still busy (loading the landing over a slow disk),
+	# up to a limit.
+	var waited := 0.0
+	while waited < POPUP_FOLLOW_UP_WAIT or (native_screen != Screens.MAIN and waited < 10.0):
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+		if _popup_map_ending != star:
+			return # a follow-up took it over
+		if _scene_window != null and _scene_window.is_open():
+			break
+	if _popup_map_ending != star:
+		return
+	_popup_map_ending = -1
+	if _scene_window != null and _scene_window.is_open() and String(_scene_window._state.get("scene", "")) == "landing":
+		return
+	if _popup_zoom < 0 and _panel_star != star:
 		galaxy.selected = _panel_star
 		galaxy.hide_system()
 		galaxy.fly_back()
-	_popup_zoom = -1
-	_popup_pick_star = false
 
 
 ## A map click while a map popup waits: a planet of the zoomed system, or the star picked.
@@ -5335,6 +5370,13 @@ func _smoke_todo(shots: String) -> bool:
 							dialog._answer(dialog.OPTION_ANSWER + i)
 							break
 				elif dialog._kind == "popup" and dialog.popup_name == "colony_confirm":
+					# The second question stays on the system (owner, 2026-11-20: it flew back out).
+					await get_tree().create_timer(1.0).timeout
+					print("smoke: to-do colonize confirm: galaxy system %d (item's star %d), window placement '%s'" % [galaxy.system_star,
+						int(item.get("star", -1)), dialog.placement])
+					if galaxy.system_star != int(item.get("star", -1)):
+						await host.smoke_fail("the colony ship's confirmation flew away from its system")
+						return false
 					if shots != "":
 						await get_tree().create_timer(1.5).timeout # the flight into the system
 						await host.shot(shots + "/native-todo-colony-confirm.png")
