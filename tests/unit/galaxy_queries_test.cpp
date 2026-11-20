@@ -325,11 +325,17 @@ DOCTEST_TEST_CASE("the designs query lists the player's design slots (WP3.3f)") 
     g_players_[0].ship_range = 0;
     g_players_[0].ship_speed = 0;
     const std::string prewarp = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"designs\"}");
-    DOCTEST_CHECK(Contains_(prewarp, "\"cost\":529,\"buildable\":false}]"));
+    DOCTEST_CHECK(Contains_(prewarp, "\"cost\":529,\"buildable\":false,\"locked\":false}]"));
     g_players_[0].ship_range = 4;
     g_players_[0].ship_speed = 2;
     const std::string designs = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"designs\"}");
-    DOCTEST_CHECK(Contains_(designs, "\"designs\":[{\"slot\":2,\"name\":\"Corvette VII\",\"hull\":2,\"hull_name\":\"Cruiser\",\"picture\":105,\"cost\":529,\"buildable\":true}],\"color\":2"));
+    DOCTEST_CHECK(Contains_(designs, "\"designs\":[{\"slot\":2,\"name\":\"Corvette VII\",\"hull\":2,\"hull_name\":\"Cruiser\",\"picture\":105,\"cost\":529,\"buildable\":true,\"locked\":false}],\"color\":2"));
+    // A Titan without Titan Construction (owner, 2026-11-20): listed, locked, with the tech it needs.
+    snprintf(g_players_[0].ship_designs[4].name, sizeof(g_players_[0].ship_designs[4].name), "War Ship");
+    g_players_[0].ship_designs[4].size = SHIP_SIZE_TITAN;
+    const std::string locked = Run_(SCREEN_MAIN, "{\"verb\":\"query\",\"what\":\"designs\"}");
+    DOCTEST_CHECK(Contains_(locked, "\"name\":\"War Ship\",\"hull\":4"));
+    DOCTEST_CHECK(Contains_(locked, "\"buildable\":true,\"locked\":true,\"needs\":\"Titan Construction\"}"));
     Tear_Down_Galaxy_();
 }
 

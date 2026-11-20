@@ -624,10 +624,12 @@ namespace antares::commands::internal {
             native::Hold_Music(-1);
         }
 
-        // auto_design: the build screen's Alt+A, D (colbldg.cpp, automatic_design_command) as a
-        // command (owner, 2026-11-20: a button on the ship design screen): every design slot gets
-        // the automatic design for the player's technology, custom designs included. With Doom
-        // Star Construction researched the slots take the advanced level's hulls, as there.
+        // auto_design (owner, 2026-11-20): every design slot redone by the automatic designer
+        // for the player's technology, each at its own hull, so the slots keep their sizes (the
+        // build screen's Alt+A, D, Init_Ship_Designs, gives each slot a fixed hull instead, a
+        // Titan even without Titan Construction). A slot on a hull not yet researched gets the
+        // largest one that is, so no design comes out unbuildable. Under strategic combat the
+        // strategic designer, as Init_Ship_Designs uses there.
         void Auto_Design(int16_t, const s_args&, s_out& out) {
             if (!Have_Game(out)) {
                 return;
@@ -637,13 +639,30 @@ namespace antares::commands::internal {
                 return;
             }
             const int16_t player_idx = MOX::PLAYER_NUM;
-            const uint8_t saved_civilization_level = MOX::settings.starting_civilization_level;
-            if (MOX::player[player_idx].tech_applications[TECH_APP_DOOM_STAR_CONSTRUCTION] ==
-                TECH_RESEARCH_STATUS_RESEARCHED) {
-                MOX::settings.starting_civilization_level = 2;
+            const int16_t largest = Hull_Researched(player_idx, SHIP_SIZE_DOOM_STAR) ? SHIP_SIZE_DOOM_STAR
+                : Hull_Researched(player_idx, SHIP_SIZE_TITAN)                    ? SHIP_SIZE_TITAN
+                                                                                    : SHIP_SIZE_HUGE;
+            s_out slots = out.Add_List("hulls");
+            for (int16_t slot = 0; slot < SHIP_SIZE_COUNT; ++slot) {
+                s_ship_design& design = MOX::player[player_idx].ship_designs[slot];
+                int16_t hull = design.size >= 0 && design.size < SHIP_SIZE_COUNT ? design.size : SHIP_SIZE_SMALL;
+                if (!Hull_Researched(player_idx, hull)) {
+                    hull = largest;
+                }
+                if (MOX::settings.strategic_combat_flag == 1) {
+                    struct_::Clear_Structure(&design, sizeof(design));
+                    INITSHIP::Auto_Strategic_Design_Ship(player_idx, hull, &design);
+                } else {
+                    // The first slot is the scout, as Init_Ship_Designs makes it (cur_combat_x -1000
+                    // asks the designer for one).
+                    if (slot == 0) {
+                        MOX::cur_combat_x = -1000;
+                    }
+                    aidesign::Auto_Design_Ship(&game::current, legacy_world::Player_Id(player_idx), &design, hull);
+                    MOX::cur_combat_x = 0;
+                }
+                slots.Append_Int(hull);
             }
-            INITSHIP::Init_Ship_Designs(player_idx);
-            MOX::settings.starting_civilization_level = saved_civilization_level;
             out.Bool("designed", true);
         }
 

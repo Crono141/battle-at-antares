@@ -28,12 +28,12 @@ func _ready() -> void:
 	auto_button = Button.new()
 	auto_button.text = "AUTO DESIGN"
 	auto_button.focus_mode = Control.FOCUS_NONE
-	auto_button.tooltip_text = "Redesign every ship automatically with your best technology (Alt+A, D on the build screen).\nReplaces all your designs, your own included."
+	auto_button.tooltip_text = "Redesign every ship automatically with your best technology, each at its own hull size\n(one not yet researched gets your largest). Replaces all your designs, your own included."
 	$Box/Header.add_child(auto_button)
 	$Box/Header.move_child(auto_button, $Box/Header/Close.get_index())
 	_auto_confirm = ConfirmationDialog.new()
 	_auto_confirm.borderless = true
-	_auto_confirm.dialog_text = "AUTO DESIGN\n\nReplace every ship design with an automatic design\nfor your current technology? Your own designs are lost."
+	_auto_confirm.dialog_text = "AUTO DESIGN\n\nReplace every ship design with an automatic design for your\ncurrent technology, each at its own hull size? Your own designs are lost."
 	_auto_confirm.ok_button_text = "Auto Design"
 	add_child(_auto_confirm)
 	auto_button.pressed.connect(func():
@@ -142,6 +142,16 @@ func _row(design: Dictionary) -> Control:
 	hull.text = design.hull_name
 	hull.theme_type_variation = &"Dim"
 	names.add_child(hull)
+	# A slot on a hull not researched yet (owner, 2026-11-20): shown, dimmed, with the tech it
+	# needs; EDIT stays, to redesign it on a hull that can be built.
+	if design.get("locked", false):
+		var needs := Label.new()
+		needs.text = "Needs %s" % String(design.get("needs", ""))
+		needs.add_theme_color_override("font_color", Color(1.0, 0.55, 0.4))
+		needs.add_theme_font_size_override("font_size", 13)
+		names.add_child(needs)
+		picture.modulate.a = 0.45
+		name_label.modulate.a = 0.6
 	row.add_child(names)
 	var cost := TextureRect.new()
 	cost.texture = preload("../themes.gd").icon("industry", 22) # the bar's pick and hammer

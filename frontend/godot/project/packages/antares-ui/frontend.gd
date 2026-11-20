@@ -2241,6 +2241,10 @@ func _smoke_design_panel(shots: String) -> bool:
 	if (before.get("designs", []) as Array).is_empty():
 		print("smoke: design: no designs to edit")
 		return false
+	if shots != "":
+		await host.shot(shots + "/native-design-list.png")
+	print("smoke: design: list before %s" % [(before.get("designs", []) as Array).map(func(d: Dictionary) -> String:
+		return "%d:%s%s" % [int(d.slot), d.hull_name, " (locked: %s)" % d.get("needs", "") if d.get("locked", false) else ""])])
 	# AUTO DESIGN (owner, 2026-11-20): asks first; confirmed, every slot is redesigned and the
 	# list shows the new designs.
 	designs.auto_button.pressed.emit()
@@ -2258,6 +2262,22 @@ func _smoke_design_panel(shots: String) -> bool:
 		describe.call(before), describe.call(auto), designs.rows.get_child_count()])
 	if not designs.auto_button.visible or not asked or not auto.get("ok", false) or not designs.visible:
 		return false
+	# Each slot keeps its hull (owner, 2026-11-20), or takes the largest researched one where its
+	# hull isn't; none comes out locked.
+	var largest := 3
+	for d: Dictionary in auto.get("designs", []):
+		if not d.get("locked", false):
+			largest = maxi(largest, int(d.hull))
+	var by_slot := {}
+	for d: Dictionary in before.get("designs", []):
+		by_slot[int(d.slot)] = d
+	for d: Dictionary in auto.get("designs", []):
+		var was: Dictionary = by_slot.get(int(d.slot), {})
+		var expected: int = int(was.get("hull", -1)) if not was.get("locked", false) else largest
+		if d.get("locked", false) or (not was.is_empty() and int(d.hull) != expected):
+			print("smoke: design: auto design slot %d: hull %d (was %d%s), locked %s" % [int(d.slot), int(d.hull), int(was.get("hull", -1)),
+				", locked" if was.get("locked", false) else "", d.get("locked", false)])
+			return false
 	before = auto
 	var slot := int(before.designs[0].slot)
 	var cost_before := int(before.designs[0].cost)
@@ -2265,11 +2285,15 @@ func _smoke_design_panel(shots: String) -> bool:
 	await get_tree().create_timer(1.2).timeout
 	var panel := _view("design_panel")
 	# Titans and Doom Stars only with their tech (owner, 2026-11-20): the size menu offers only the
-	# available hulls, and the list shows no design on a hull that isn't.
+	# available hulls, and the list marks a design on a hull that isn't as locked.
 	var available: Array = (panel.design.get("sizes", []) as Array).filter(func(z: Dictionary) -> bool: return z.get("available", true)).map(
 		func(z: Dictionary) -> int: return int(z.size))
-	var listed_hulls: Array = (before.get("designs", []) as Array).filter(func(d: Dictionary) -> bool: return d.get("buildable", true)).map(
+	var listed_hulls: Array = (before.get("designs", []) as Array).filter(func(d: Dictionary) -> bool: return not d.get("locked", false)).map(
 		func(d: Dictionary) -> int: return int(d.hull))
+	for d: Dictionary in before.get("designs", []):
+		if d.get("locked", false) == (int(d.hull) in available):
+			print("smoke: design: slot %d hull %d locked %s against the hulls available" % [int(d.slot), int(d.hull), d.get("locked", false)])
+			return false
 	var menu_sizes: Array = []
 	for i in panel._size.item_count:
 		menu_sizes.append(panel._size.get_item_id(i))

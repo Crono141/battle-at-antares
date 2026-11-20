@@ -241,7 +241,21 @@ namespace INITSHIP {
     void __cdecl Init_Ship_Designs(int16_t) {
         ++TEST_DESIGN::auto_designs;
     }
+    void __cdecl Auto_Strategic_Design_Ship(int16_t, int16_t design_idx, s_ship_design* design) {
+        ++TEST_DESIGN::auto_designs;
+        design->size = (int8_t)design_idx;
+    }
 } // namespace INITSHIP
+
+namespace struct_ {
+    void __cdecl Clear_Structure(void* data, uint32_t size) {
+        memset(data, 0, size);
+    }
+} // namespace struct_
+
+namespace MOX {
+    int16_t cur_combat_x = 0;
+} // namespace MOX
 
 namespace aidesign {
     void Auto_Design_Ship(const game::s_view*, game::id_player, s_ship_design* design, int16_t hull_idx) {

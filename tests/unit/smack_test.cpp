@@ -103,6 +103,7 @@ namespace fields {
         auto_function = fn;
     }
     void __cdecl Enable_Draw_All_Fields() {}
+    void __cdecl Clear_Mouse_Buffer() {}
     void __cdecl Draw_Visible_Fields() {}
     void __cdecl Clear_Fields() {}
     void __cdecl Deactivate_Help_List() {}
@@ -121,6 +122,11 @@ namespace mouse {
     void __cdecl Set_Mouse_List(s_mouse_list*, int16_t) {}
     int16_t __cdecl Mouse_Button() {
         return exit_mode == 2 ? 1 : 0;
+    }
+    // A click already released when the frame checks (2026-11-20: films couldn't be clicked
+    // through): only the click buffer has it.
+    int16_t __cdecl Mouse_Buffer() {
+        return exit_mode == 3 ? 1 : 0;
     }
 } // namespace mouse
 
@@ -172,7 +178,7 @@ namespace JIM {
 } // namespace JIM
 
 DOCTEST_TEST_CASE("cinematic cleanup leaves published pixels compatible with the restored palette") {
-    for (int mode = 0; mode < 3; ++mode) {
+    for (int mode = 0; mode < 4; ++mode) { // the film to its end, a key, a held button, a click
         for (char use_fade = 0; use_fade <= 1; ++use_fade) {
             DOCTEST_CAPTURE(mode);
             DOCTEST_CAPTURE(use_fade);

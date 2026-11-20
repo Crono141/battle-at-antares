@@ -760,7 +760,14 @@ namespace antares::commands::internal {
                 // KEN::Do_Get_Ship_Picture_Seg: SHIPS.LBX, picture + the designer's colour * 50.
                 item.Int("picture", design.picture_num + player.color * 50);
                 item.Int("cost", design.cost);
-                item.Bool("buildable", can_fly && Hull_Researched(MOX::PLAYER_NUM, design.size));
+                // Every slot shows (owner, 2026-11-20: a hidden Titan left its slot out of reach);
+                // a hull not researched yet marks it locked, with the tech it needs.
+                item.Bool("buildable", can_fly);
+                const bool locked = !Hull_Researched(MOX::PLAYER_NUM, design.size);
+                item.Bool("locked", locked);
+                if (locked) {
+                    item.Str("needs", design.size == SHIP_SIZE_TITAN ? "Titan Construction" : "Doom Star Construction");
+                }
             }
             out.Int("color", player.color); // the player's flag colour (SHIPS.LBX: picture + color * 50)
         }
