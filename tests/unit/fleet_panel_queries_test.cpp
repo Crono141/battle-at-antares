@@ -78,6 +78,61 @@ DOCTEST_TEST_CASE("the Fleets panel's ship detail and relocation (WP3.5c)") {
 
 // The system pane's relocation (2026-11-20): the targets with their distance, ETA and reasons,
 // set through the game's checks, cleared directly.
+// The select-combat window's sides (owner, 2026-11-20): ours with damage, theirs by hull, the
+// band only with Battle Scanner researched.
+DOCTEST_TEST_CASE("combat_fleet lists our ships in orbit with damage, and the others by hull") {
+    for (auto& p : f_players_) {
+        p = s_player{};
+    }
+    snprintf(f_players_[1].race_name, sizeof(f_players_[1].race_name), "Silicoid");
+    MOX::player = f_players_;
+    MOX::NUM_PLAYERS = 2;
+    MOX::PLAYER_NUM = 0;
+    MOX::current_screen = SCREEN_MAIN;
+    for (auto& s : f_ships_) {
+        s = s_ship_data{};
+        s.owner = -1;
+        s.officer_index = -1;
+    }
+    f_ships_[0].owner = 0; // ours, in orbit at star 1, damaged
+    f_ships_[0].location = 1;
+    f_ships_[0].d.ship_type = SHIP_TYPE_COMBAT;
+    f_ships_[0].d.size = 2;
+    f_ships_[0].armor_damage = 40;
+    f_ships_[0].structural_damage = 10;
+    f_ships_[0].drive_damage_percent = 25;
+    snprintf(f_ships_[0].d.name, sizeof(f_ships_[0].d.name), "Widow");
+    f_ships_[1].owner = 0; // ours, but on its way: not in the fight
+    f_ships_[1].location = 1;
+    f_ships_[1].status = 1;
+    f_ships_[1].d.ship_type = SHIP_TYPE_COMBAT;
+    f_ships_[2].owner = 1; // theirs, in orbit
+    f_ships_[2].location = 1;
+    f_ships_[2].d.size = 3;
+    f_ships_[3].owner = 0; // a colony ship of ours: not a warship
+    f_ships_[3].location = 1;
+    f_ships_[3].d.ship_type = SHIP_TYPE_COLONY;
+    MOX::ship = f_ships_;
+    MOX::NUM_SHIPS = 4;
+    for (auto& s : f_stars_) {
+        s = s_star_data{};
+    }
+    MOX::star = f_stars_;
+    MOX::NUM_STARS = 3;
+    const std::string fleet = Run_("{\"verb\":\"query\",\"what\":\"combat_fleet\",\"star\":1}");
+    DOCTEST_CHECK(Has_(fleet, "\"scanner\":false"));
+    DOCTEST_CHECK(Has_(fleet, "\"ship\":0,\"name\":\"Widow\""));
+    DOCTEST_CHECK(Has_(fleet, "\"armor\":60,\"armor_max\":100,\"structure\":50,\"structure_max\":60"));
+    DOCTEST_CHECK(Has_(fleet, "Drive 25% damaged"));
+    DOCTEST_CHECK_FALSE(Has_(fleet, "\"ship\":1,")); // on its way
+    DOCTEST_CHECK_FALSE(Has_(fleet, "\"ship\":3,")); // not a warship
+    DOCTEST_CHECK(Has_(fleet, "\"player\":1,\"name\":\"Silicoid\""));
+    DOCTEST_CHECK(Has_(fleet, "\"ships\":1"));
+    DOCTEST_CHECK_FALSE(Has_(fleet, "\"strength\""));
+    f_players_[0].tech_applications[TECH_APP_BATTLE_SCANNER] = TECH_RESEARCH_STATUS_RESEARCHED;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"combat_fleet\",\"star\":1}"), "\"strength\":\"superior\"")); // 30 vs 10
+}
+
 DOCTEST_TEST_CASE("relocation from the system pane: targets, set and clear") {
     for (auto& p : f_players_) {
         p = s_player{};

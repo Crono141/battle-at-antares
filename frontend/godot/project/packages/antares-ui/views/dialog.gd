@@ -713,6 +713,9 @@ func _centre() -> void:
 	match placement:
 		"left": # beside a system the camera flew into, where the system pane sits
 			position.x = 24.0
+		"beside": # just left of a system the camera flew into: its right edge at placement_at.x
+			position.x = placement_at.x - size.x
+			position.y = placement_at.y - size.y * 0.5
 		"top": # over the map while a star is picked on it
 			position.y = 56.0
 		"at": # a scene's list (diplomacy), where the legacy screen had it, kept on the screen
@@ -720,8 +723,8 @@ func _centre() -> void:
 	position = position.clamp(Vector2.ZERO, (area - size).max(Vector2.ZERO)).floor() # always on the screen
 
 
-## Where the next popup sits: "" centred, "left", "top" or "at" `placement_at` (set by the
-## frontend before `ask`).
+## Where the next popup sits: "" centred, "left", "top", "at" `placement_at`, or "beside" (its right
+## edge at `placement_at.x`, centred on its y) (set by the frontend before `ask`).
 var placement := ""
 var placement_at := Vector2.ZERO
 ## A scene's list (diplomacy; owner, 2026-11-14): no frame and no backdrop, just outlined text

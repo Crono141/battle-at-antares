@@ -806,7 +806,8 @@ namespace MAINPUPS {
                 options.push_back(o);
             }
             const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," +
-                Native_Zoom_Json(star_idx) + "," + Native_Options_Json(options) + ",\"buttons\":[\"CANCEL\"]";
+                Native_Zoom_Json(star_idx) + "," + Native_Options_Json(options) + ",\"buttons\":[\"CANCEL\"]" +
+                antares::native::Combat_Fleet_Field(star_idx); // the player's fleet window
             int32_t answer = 0;
             if (antares::native::Popup("attack_target", line, fields, &answer)) {
                 const int32_t pick = answer - k_option_answer;

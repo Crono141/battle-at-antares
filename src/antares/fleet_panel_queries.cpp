@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "game/legacy_ids.h"
 
 // WP3.5c: the Fleets panel (notes/antares/screens/04-fleet.md). The fleet's ships come from the
 // `fleet` query (the galaxy's fleet box); this adds what the Fleets screen shows beside them, a
@@ -61,6 +62,133 @@ namespace antares::commands::internal {
                 officer.Int("entry", k_officer_portraits + MOX::leaders[ship.officer_index].pict_num);
             }
             Design_Parts(ship.d, out.Add_Object("design"));
+        }
+
+        // The select-combat window's sides (owner, 2026-11-20): the player's ships in orbit there
+        // (as COMBFIND gathers a side: location the star, status 0), each with its picture, its
+        // damage (what persists between combats: armour, structure, shield, drive, computer and
+        // special devices), its officer and its design; and, of every other side there, only what
+        // the player can see from orbit: its ships by hull size. With Battle Scanner researched,
+        // a rough rating of each side against the player's (the AI's own Ship_Strength_Vs_Ships,
+        // read-only), deliberately banded: outmatched, even or superior.
+        void Query_Combat_Fleet(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t star = -1;
+            if (!args.Int("star", &star) || star < 0 || star > MOX::NUM_STARS) {
+                out.Fail("bad_args", "star: a star id");
+                return;
+            }
+            const int16_t player = MOX::PLAYER_NUM;
+            out.Int("star", star);
+            const bool scanner = MOX::player[player].tech_applications[TECH_APP_BATTLE_SCANNER] == TECH_RESEARCH_STATUS_RESEARCHED;
+            out.Bool("scanner", scanner);
+            uint32_t ours[15] = {};
+            uint32_t theirs[15] = {};
+            int32_t hulls[15][6] = {};
+            bool present[15] = {};
+            s_out ships = out.Add_List("ships");
+            for (int16_t i = 0; i < MOX::NUM_SHIPS; ++i) {
+                s_ship_data& ship = MOX::ship[i];
+                if (ship.location != star || ship.status != 0 || ship.owner < 0 || ship.owner >= 15) {
+                    continue;
+                }
+                const int16_t owner = ship.owner;
+                if (owner != player) {
+                    present[owner] = true;
+                    if (ship.d.size >= 0 && ship.d.size < 6) {
+                        ++hulls[owner][ship.d.size];
+                    }
+                    theirs[owner] += AIPOWER::Ship_Strength_Vs_Ships(&game::current, legacy_world::Ship_Id(i), legacy_world::Player_Id(player));
+                    continue;
+                }
+                if (ship.d.ship_type != SHIP_TYPE_COMBAT) {
+                    continue; // colony, outpost and transport ships stay out of the fight's list
+                }
+                s_out item = ships.Append_Object();
+                item.Int("ship", i);
+                item.Str("name", Utf8(ship.d.name, sizeof(ship.d.name)));
+                item.Int("hull", (int8_t)ship.d.size);
+                item.Str("hull_name", Utf8(TECHDATA::hull_data[ship.d.size].name, 40));
+                const int16_t builder = (int8_t)ship.d.previous_owner;
+                const int32_t color = builder >= 0 && builder < MAX_PLAYERS ? MOX::player[builder].color : MAX_PLAYERS;
+                item.Int("picture", ship.d.picture_num + color * 50); // SHIPS.LBX, as the fleet query's
+                const int16_t armor_max = INITSHIP::Get_Ship_Armor_Hits(i);
+                const int16_t structure_max = INITSHIP::Get_Ship_Structure(i);
+                item.Int("armor", std::max(0, armor_max - ship.armor_damage));
+                item.Int("armor_max", armor_max);
+                item.Int("structure", std::max(0, structure_max - ship.structural_damage));
+                item.Int("structure_max", structure_max);
+                s_out damaged = item.Add_List("damaged");
+                if (ship.shield_damage_percent > 0) {
+                    damaged.Append_Object().Str("text", "Shield " + std::to_string((int)ship.shield_damage_percent) + "% damaged");
+                }
+                if (ship.drive_damage_percent > 0) {
+                    damaged.Append_Object().Str("text", "Drive " + std::to_string((int)ship.drive_damage_percent) + "% damaged");
+                }
+                if (ship.computer_damage > 0) {
+                    damaged.Append_Object().Str("text", "Computer damaged");
+                }
+                for (int16_t sp = 1; sp < SPECIAL_COUNT; ++sp) {
+                    if (struct_::Test_Bit_Field(ship.special_device_damage_flags, sp) != 0 &&
+                        struct_::Test_Bit_Field((uint8_t*)ship.d.special_device_flags, sp) != 0) {
+                        damaged.Append_Object().Str("text", Utf8(TECHDATA::specials[sp].name, 60) + " damaged");
+                    }
+                }
+                if (ship.officer_index >= 0 && ship.officer_index < MAX_LEADERS) {
+                    Leader_Card(ship.officer_index, player, item.Add_Object("officer"));
+                }
+                Design_Parts(ship.d, item.Add_Object("design"));
+                // Each weapon as the combat panel lists it: count, name with its mods, arc.
+                s_out weapons = item.Add_List("weapons");
+                for (s_ship_weapons& weapon : ship.d.ship_weapon) {
+                    if (weapon.type == 0) {
+                        continue;
+                    }
+                    char text[200];
+                    char arc[40];
+                    COLBLDG::Build_Weapon_String(&weapon, text, sizeof(text), 1, (uint8_t)weapon.count);
+                    DESIGN::Weapon_Arc_String((uint8_t)weapon.firing_arc, arc, sizeof(arc));
+                    s_out w = weapons.Append_Object();
+                    w.Int("count", weapon.count);
+                    w.Str("text", Utf8(text, sizeof(text)));
+                    w.Str("arc", Utf8(arc, sizeof(arc)));
+                }
+                for (int16_t p = 0; p < 15; ++p) {
+                    if (p != player) {
+                        ours[p] += AIPOWER::Ship_Strength_Vs_Ships(&game::current, legacy_world::Ship_Id(i), legacy_world::Player_Id(p));
+                    }
+                }
+            }
+            s_out sides = out.Add_List("enemies");
+            for (int16_t p = 0; p < 15; ++p) {
+                if (!present[p]) {
+                    continue;
+                }
+                s_out side = sides.Append_Object();
+                side.Int("player", p);
+                side.Str("name", p < MAX_PLAYERS ? Utf8(MOX::player[p].race_name, sizeof(MOX::player[p].race_name)) :
+                    (p == 8 ? std::string("Antarans") : std::string("Monsters")));
+                side.Int("color", p < MAX_PLAYERS && p < MOX::NUM_PLAYERS ? (int64_t)MOX::player[p].color : -1);
+                s_out by_hull = side.Add_List("hulls");
+                int32_t count = 0;
+                for (int16_t h = 0; h < 6; ++h) {
+                    if (hulls[p][h] > 0) {
+                        s_out hull = by_hull.Append_Object();
+                        hull.Int("hull", h);
+                        hull.Str("name", Utf8(TECHDATA::hull_data[h].name, 40));
+                        hull.Int("count", hulls[p][h]);
+                        count += hulls[p][h];
+                    }
+                }
+                side.Int("ships", count);
+                if (scanner) {
+                    // Ours against theirs, in broad bands only (owner: vague and approximate).
+                    const double ratio = theirs[p] == 0 ? 10.0 : (double)ours[p] / (double)theirs[p];
+                    side.Str("strength", ratio < 0.67 ? "outmatched" : (ratio > 1.5 ? "superior" : "even"));
+                }
+            }
         }
 
         // A star clicked with RELOCATE on (FLT1::Star_Relocation): the first click picks where
@@ -190,6 +318,7 @@ namespace antares::commands::internal {
     void Add_Fleet_Panel_Entries(std::vector<s_entry>* table) {
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);
         table->push_back({"ship_detail", e_kind::query, ANY_SCREEN, 1, "ship: one of the player's ships", Query_Ship_Detail});
+        table->push_back({"combat_fleet", e_kind::query, ANY_SCREEN, 1, "star", Query_Combat_Fleet});
         table->push_back({"relocate_star", e_kind::command, galaxy, 0, "star: the from star, then the to star", Relocate_Star});
         table->push_back({"relocate_reset", e_kind::command, galaxy, 0, "", Relocate_Reset});
         table->push_back({"relocation_targets", e_kind::query, ANY_SCREEN, 1, "from: a star", Query_Relocation_Targets});

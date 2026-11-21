@@ -1,0 +1,279 @@
+extends PanelContainer
+## The select-combat window's other side (owner, 2026-11-20): beside the zoomed system, right of
+## it, opposite the target list. From the request's `fleet` (the combat_fleet query: the game
+## answers no queries while the window waits):
+##   - each other side there, as the player sees it from orbit: its ships by hull size, and with
+##     Battle Scanner researched a deliberately rough rating against the player's ships;
+##   - the player's ships in orbit, a scrolling list: picture, name, hull, armour and structure
+##     left, what is damaged;
+##   - the hovered (or clicked) ship: its officer, weapons with mods and arcs, specials and systems.
+
+const WIDTH := 470.0
+const STRENGTH_TEXT := {"outmatched": "We are outmatched", "even": "An even fight", "superior": "We are superior"}
+const STRENGTH_COLOR := {"outmatched": Color(0.95, 0.4, 0.35), "even": Color(0.95, 0.85, 0.45), "superior": Color(0.5, 0.9, 0.5)}
+
+var art: Node
+var fleet := {}
+var _enemies: VBoxContainer
+var _rows: VBoxContainer
+var _detail: VBoxContainer
+var _picked := -1 # a clicked ship stays shown; -1: the hovered one, else the first
+
+
+func _ready() -> void:
+	theme_type_variation = &"Pane"
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	custom_minimum_size.x = WIDTH
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	add_child(box)
+	_enemies = VBoxContainer.new()
+	_enemies.add_theme_constant_override("separation", 4)
+	box.add_child(_enemies)
+	var title := Label.new()
+	title.theme_type_variation = &"Heading"
+	title.text = "Your Fleet"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size.y = 230
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	preload("../themes.gd").scroll_gap(scroll)
+	box.add_child(scroll)
+	_rows = VBoxContainer.new()
+	_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rows.add_theme_constant_override("separation", 4)
+	scroll.add_child(_rows)
+	var detail_frame := PanelContainer.new()
+	detail_frame.theme_type_variation = &"Row"
+	box.add_child(detail_frame)
+	_detail = VBoxContainer.new()
+	_detail.add_theme_constant_override("separation", 4)
+	_detail.custom_minimum_size.y = 220
+	detail_frame.add_child(_detail)
+
+
+## Shows `data` (the combat_fleet query's answer), its left edge at `left`, centred on `centre_y`.
+func open(data: Dictionary, left: float, centre_y: float, max_height: float) -> void:
+	fleet = data
+	_picked = -1
+	_fill_enemies()
+	_fill_rows()
+	var ships: Array = data.get("ships", [])
+	_show_ship(ships[0] if not ships.is_empty() else {})
+	custom_minimum_size.y = 0
+	size = Vector2(WIDTH, 0)
+	show()
+	await get_tree().process_frame
+	var height := minf(get_combined_minimum_size().y, max_height)
+	size = Vector2(WIDTH, height)
+	var area := get_parent_area_size()
+	position = Vector2(clampf(left, 0.0, maxf(area.x - WIDTH, 0.0)), clampf(centre_y - height * 0.5, 0.0, maxf(area.y - height, 0.0))).floor()
+
+
+func close() -> void:
+	hide()
+	fleet = {}
+
+
+func _fill_enemies() -> void:
+	for child in _enemies.get_children():
+		_enemies.remove_child(child)
+		child.queue_free()
+	if not (fleet.get("enemies", []) as Array).is_empty():
+		var heading := Label.new()
+		heading.theme_type_variation = &"Heading"
+		heading.text = "Opposing Forces"
+		heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_enemies.add_child(heading)
+	for side: Dictionary in fleet.get("enemies", []):
+		var name_label := Label.new()
+		name_label.theme_type_variation = &"Name"
+		name_label.text = String(side.get("name", ""))
+		var color := int(side.get("color", -1))
+		if color >= 0:
+			name_label.add_theme_color_override("font_color", preload("../galaxy.gd").PLAYER_COLORS[color % 8])
+		_enemies.add_child(name_label)
+		var parts: Array = []
+		for hull: Dictionary in side.get("hulls", []):
+			parts.append("%d %s" % [int(hull.count), String(hull.name)])
+		var ships_line := Label.new()
+		ships_line.theme_type_variation = &"Dim"
+		ships_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var count := int(side.get("ships", 0))
+		ships_line.text = "%d %s in orbit: %s" % [count, "ship" if count == 1 else "ships", ", ".join(parts)] if not parts.is_empty() else "No ships in orbit"
+		_enemies.add_child(ships_line)
+		var strength := String(side.get("strength", ""))
+		if strength != "":
+			var band := Label.new()
+			band.text = "Battle Scanner: %s" % STRENGTH_TEXT.get(strength, strength)
+			band.add_theme_color_override("font_color", STRENGTH_COLOR.get(strength, Color.WHITE))
+			_enemies.add_child(band)
+	if not (fleet.get("enemies", []) as Array).is_empty():
+		var gap := HSeparator.new()
+		_enemies.add_child(gap)
+
+
+func _fill_rows() -> void:
+	for child in _rows.get_children():
+		_rows.remove_child(child)
+		child.queue_free()
+	var ships: Array = fleet.get("ships", [])
+	if ships.is_empty():
+		var none := Label.new()
+		none.theme_type_variation = &"Dim"
+		none.text = "None of your warships are in orbit"
+		_rows.add_child(none)
+		return
+	for ship: Dictionary in ships:
+		_rows.add_child(_ship_row(ship))
+
+
+func _ship_row(ship: Dictionary) -> Control:
+	var row := Button.new()
+	row.toggle_mode = true
+	row.focus_mode = Control.FOCUS_NONE
+	row.custom_minimum_size = Vector2(0, 82)
+	row.set_meta("ship", int(ship.ship))
+	var line := HBoxContainer.new()
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	line.offset_left = 6
+	line.offset_right = -6
+	line.add_theme_constant_override("separation", 8)
+	row.add_child(line)
+	var picture: TextureRect = preload("sprite_rect.gd").new()
+	picture.custom_minimum_size = Vector2(64, 56)
+	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if art:
+		picture.bind(art)
+		picture.show_sprite("SHIPS.LBX", int(ship.get("picture", -1)))
+	line.add_child(picture)
+	var text := VBoxContainer.new()
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.alignment = BoxContainer.ALIGNMENT_CENTER
+	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text.add_theme_constant_override("separation", 2)
+	line.add_child(text)
+	var name_label := Label.new()
+	name_label.theme_type_variation = &"Name"
+	name_label.text = "%s  ·  %s" % [String(ship.get("name", "")), String(ship.get("hull_name", ""))]
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text.add_child(name_label)
+	text.add_child(_bar("Armor", int(ship.get("armor", 0)), int(ship.get("armor_max", 0)), Color(0.45, 0.7, 0.95)))
+	text.add_child(_bar("Structure", int(ship.get("structure", 0)), int(ship.get("structure_max", 0)), Color(0.55, 0.85, 0.5)))
+	var damaged: Array = ship.get("damaged", [])
+	if not damaged.is_empty():
+		var hurt := Label.new()
+		hurt.text = ", ".join(damaged.map(func(d: Dictionary) -> String: return String(d.text)))
+		hurt.add_theme_color_override("font_color", Color(0.95, 0.45, 0.35))
+		hurt.add_theme_font_size_override("font_size", 12)
+		hurt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		text.add_child(hurt)
+		row.custom_minimum_size.y = 98
+	row.mouse_entered.connect(func():
+		if _picked < 0:
+			_show_ship(ship))
+	row.pressed.connect(func():
+		_picked = int(ship.ship) if row.button_pressed else -1
+		for other in _rows.get_children():
+			if other != row and other is Button:
+				(other as Button).set_pressed_no_signal(false)
+		_show_ship(ship))
+	return row
+
+
+## A thin bar: what is left of the most, with the numbers.
+func _bar(label_text: String, left: int, most: int, color: Color) -> Control:
+	var line := HBoxContainer.new()
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_theme_constant_override("separation", 6)
+	var label := Label.new()
+	label.text = label_text
+	label.custom_minimum_size.x = 70
+	label.add_theme_font_size_override("font_size", 12)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_child(label)
+	var bar := ProgressBar.new()
+	bar.show_percentage = false
+	bar.max_value = maxi(most, 1)
+	bar.value = left
+	bar.custom_minimum_size = Vector2(150, 8)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = color if left * 4 > most else Color(0.95, 0.4, 0.35)
+	bar.add_theme_stylebox_override("fill", fill)
+	line.add_child(bar)
+	var numbers := Label.new()
+	numbers.text = "%d / %d" % [left, most]
+	numbers.add_theme_font_size_override("font_size", 12)
+	numbers.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_child(numbers)
+	return line
+
+
+func _show_ship(ship: Dictionary) -> void:
+	for child in _detail.get_children():
+		_detail.remove_child(child)
+		child.queue_free()
+	if ship.is_empty():
+		return
+	var officer: Dictionary = ship.get("officer", {})
+	if not officer.is_empty():
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var portrait: TextureRect = preload("sprite_rect.gd").new()
+		portrait.custom_minimum_size = Vector2(64, 64)
+		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		if art:
+			portrait.bind(art)
+			portrait.show_sprite("OFFICER.LBX", int(officer.get("portrait", -1)))
+		row.add_child(portrait)
+		var names := VBoxContainer.new()
+		names.add_theme_constant_override("separation", 1)
+		names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(names)
+		var who := Label.new()
+		who.theme_type_variation = &"Name"
+		who.text = "%s, level %d" % [String(officer.get("name", "")), int(officer.get("level", 0)) + 1]
+		names.add_child(who)
+		for skill: Dictionary in officer.get("skills", []):
+			var line := Label.new()
+			line.text = "%s %s" % [String(skill.get("name", "")), String(skill.get("bonus", "")).strip_edges()]
+			line.add_theme_font_size_override("font_size", 13)
+			names.add_child(line)
+		_detail.add_child(row)
+	var heading := Label.new()
+	heading.theme_type_variation = &"Section"
+	heading.text = "WEAPONS"
+	_detail.add_child(heading)
+	for weapon: Dictionary in ship.get("weapons", []):
+		var w := Label.new()
+		w.text = "%d %s (%s)" % [int(weapon.get("count", 0)), String(weapon.get("text", "")).strip_edges(), String(weapon.get("arc", ""))]
+		w.add_theme_font_size_override("font_size", 13)
+		w.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_detail.add_child(w)
+	var design: Dictionary = ship.get("design", {})
+	var specials: Array = (design.get("specials", []) as Array).map(func(s: Dictionary) -> String: return String(s.text))
+	if not specials.is_empty():
+		var sh := Label.new()
+		sh.theme_type_variation = &"Section"
+		sh.text = "SPECIALS"
+		_detail.add_child(sh)
+		var sp := Label.new()
+		sp.text = ", ".join(specials)
+		sp.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		sp.add_theme_font_size_override("font_size", 13)
+		_detail.add_child(sp)
+	var systems := Label.new()
+	systems.theme_type_variation = &"Dim"
+	systems.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	systems.add_theme_font_size_override("font_size", 13)
+	systems.text = "%s · %s · %s · %s" % [String(design.get("shield", "")), String(design.get("computer", "")), String(design.get("armor", "")),
+		String(design.get("drive", ""))]
+	_detail.add_child(systems)
