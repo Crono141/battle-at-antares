@@ -5663,14 +5663,27 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 	# 2026-11-19: the same building could be queued again and again).
 	var listed := func() -> bool:
 		for b in build.items_box.get_children():
-			if b is Button and (b as Button).text == String(build._names.get(pick, {}).get("name", "")):
+			if b is Button and not b.is_queued_for_deletion() and (b as Button).text == String(build._names.get(pick, {}).get("name", "")):
 				return true
 		return false
+	# The lists are rebuilt (the old buttons freed at the frame's end): checked a few frames on,
+	# and the item taken off by its own slot.
+	for i in 3:
+		await get_tree().process_frame
 	var hidden_after_add: bool = pick in [build.HOUSING, build.TRADE_GOODS] or not listed.call()
 	var queued_slot: int = build._queue.size() - 1
+	for slot in build._queue.size():
+		if int(build._queue[slot].id) == pick:
+			queued_slot = slot
 	build._delete(queued_slot)
+	for i in 3:
+		await get_tree().process_frame
 	var back_after_delete: bool = listed.call()
 	print("smoke: build list: building %d hidden once queued %s, back once removed %s" % [pick, hidden_after_add, back_after_delete])
+	if not back_after_delete:
+		print("smoke: build list debug: queue %s; listed %s; option ids %s" % [build._queue.map(func(q: Dictionary) -> int: return int(q.id)),
+			build.items_box.get_children().filter(func(b: Node) -> bool: return b is Button and not b.is_queued_for_deletion()).map(func(b: Node) -> String: return (b as Button).text),
+			build.options.buildings.map(func(b: Dictionary) -> int: return int(b.get("id", -1)))])
 	if not hidden_after_add or not back_after_delete:
 		await host.smoke_fail("a queued building stayed in the BUILDINGS list, or did not come back")
 		return false
