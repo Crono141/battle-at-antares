@@ -2,6 +2,7 @@
 
 #include "antares/host.h"
 #include "antares/native.h"
+#include "antares/stall_trace.h"
 #include "command_line.h"
 
 #include <godot_cpp/classes/global_constants.hpp>
@@ -783,6 +784,7 @@ namespace godot {
         // How often a legacy screen has polled for input: one that polls waits for the player.
         d["input_polls"] = (int64_t)antares::native::Polls();
         d["legacy_combat"] = antares::native::In_Legacy_Combat(); // a tactical combat is on (the smoke)
+        d["io_calls"] = (int64_t)antares::stall_trace::g_io_calls_total.load(); // the game's file calls so far (the smoke)
         return d;
     }
 

@@ -2287,13 +2287,33 @@ namespace platform {
         s_input_event pending_events[k_input_queue_capacity];
         uint16_t pending_count = 0;
 
+        // A right button pressed and released between two pumps would never be seen held: the
+        // game reads it only from Mouse_Buffer then, which fields::Get_Input takes as a cancel
+        // (-1), not as a right click on a field (owner, 2026-11-20: ships could not be turned in a
+        // combat under the Godot frontend, whose combat polls ~18 times a second). The release
+        // waits for the next pump, so the press is seen held once, as on the original's fast poll.
+        static bool s_game_right = false; // the right button as the game was last given it
+        bool right_pressed = s_game_right;
+        bool right_went_down = false;
         SDL_LockMutex(g_input_queue_mutex);
         while (g_input_queue_read != g_input_queue_write && pending_count < k_input_queue_capacity) {
-            pending_events[pending_count] = g_input_event_queue[g_input_queue_read];
+            const s_input_event& next = g_input_event_queue[g_input_queue_read];
+            if (next.type == INPUT_EVENT_MOUSE) {
+                const bool right_now = (next.mouse_buttons & 2) != 0;
+                if (!right_now && right_pressed && right_went_down) {
+                    break; // the release: next pump
+                }
+                if (right_now && !right_pressed) {
+                    right_went_down = true;
+                }
+                right_pressed = right_now;
+            }
+            pending_events[pending_count] = next;
             g_input_queue_read = (uint16_t)((g_input_queue_read + 1) % k_input_queue_capacity);
             ++pending_count;
         }
         SDL_UnlockMutex(g_input_queue_mutex);
+        s_game_right = right_pressed;
 
         for (uint16_t i = 0; i < pending_count; ++i) {
             const s_input_event& event = pending_events[i];

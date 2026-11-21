@@ -19,6 +19,16 @@ namespace string_overrides {
 
     // Disk entry/record selection and logical string numbering belong to the caller.
     void Load_Message(const char* filename, int32_t entry, uint32_t record, uint16_t record_size, size_t id, char* dest, size_t capacity);
+    // While one is held, Load_Message reads each message once (a tactical combat asks for its
+    // texts hundreds of times a frame); the cache empties when the last one goes.
+    struct s_message_cache_scope {
+        s_message_cache_scope();
+        ~s_message_cache_scope();
+        s_message_cache_scope(const s_message_cache_scope&) = delete;
+        s_message_cache_scope& operator=(const s_message_cache_scope&) = delete;
+    };
+    // Load_Message without its cache (each call reads the entry and the sidecar).
+    void Load_Message_Uncached(const char* filename, int32_t entry, uint32_t record, uint16_t record_size, size_t id, char* dest, size_t capacity);
     char* Load_Raw_Table(const char* filename, int32_t entry, void* pool, int32_t allocation_mode, size_t count, size_t first_id = 1, bool skip_padding = false);
     // Only for standalone, exclusively owned pools. May replace and free *pool;
     // all pointers into the old table must be rebuilt by the caller.

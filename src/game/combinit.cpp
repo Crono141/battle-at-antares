@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "legacy_ids.h"
 #include "antares/native.h"
+#include "string_overrides.h"
 
 namespace {
     constexpr int kPlayerRemapPaletteStart = 144;
@@ -371,6 +372,7 @@ namespace COMBINIT {
 
     int16_t __cdecl Tactical_Combat(int16_t* plr1_ships, int16_t plr1_ship_count, int16_t* plr2_ships, int16_t plr2_ship_count, int16_t star_idx, int16_t colony_idx, int16_t retreat_flag) {
         const antares::native::Legacy_Combat_Scope legacy_combat; // its boxes drawn over it, not sent to the frontend
+        const string_overrides::s_message_cache_scope message_cache; // its texts read once, not every frame
         int8_t abort_tactical = 0;
         bool no_defender_ships = star_idx != MOX::NUM_STARS;
         int16_t has_tractor_beam = 0;

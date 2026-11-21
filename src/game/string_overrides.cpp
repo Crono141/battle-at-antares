@@ -261,8 +261,29 @@ namespace string_overrides {
 
     } // namespace
 
+    namespace {
+        // Antares (owner, 2026-11-20: combat stuttered, every move and shot waiting): the combat
+        // screen asks for its KENTEXT messages hundreds of times a frame, and each ask read the LBX
+        // entry and looked for the .json5 sidecar again (0.4-0.8 s a frame over a network share).
+        // While a s_message_cache_scope is held (a tactical combat) each message is read once;
+        // outside one every ask reads the files, so edits to them show at once.
+        std::unordered_map<std::string, std::string> message_cache;
+        int message_cache_scopes = 0;
+    } // namespace
+
+    s_message_cache_scope::s_message_cache_scope() {
+        ++message_cache_scopes;
+    }
+
+    s_message_cache_scope::~s_message_cache_scope() {
+        if (--message_cache_scopes == 0) {
+            message_cache.clear();
+        }
+    }
+
     void Reset_Cache() {
         cache.clear();
+        message_cache.clear();
     }
 
     bool Try_Apply_String(const char* filename, size_t id, char* dest, size_t capacity, std::string* diagnostic) {
@@ -297,6 +318,28 @@ namespace string_overrides {
     }
 
     void Load_Message(const char* filename, int32_t entry, uint32_t record, uint16_t record_size, size_t id, char* dest, size_t capacity) {
+        if (message_cache_scopes == 0) {
+            Load_Message_Uncached(filename, entry, record, record_size, id, dest, capacity);
+            return;
+        }
+        std::string key = filename != nullptr ? filename : "";
+        for (char& c : key) {
+            c = (char)toupper((unsigned char)c);
+        }
+        key += "|" + std::to_string(entry) + "|" + std::to_string(record) + "|" + std::to_string(record_size) + "|" + std::to_string(id);
+        if (const auto hit = message_cache.find(key); hit != message_cache.end()) {
+            if (hit->second.size() < capacity) {
+                memcpy(dest, hit->second.c_str(), hit->second.size() + 1);
+                return;
+            }
+        }
+        Load_Message_Uncached(filename, entry, record, record_size, id, dest, capacity);
+        if (capacity > 0 && memchr(dest, 0, capacity) != nullptr) {
+            message_cache[key] = dest;
+        }
+    }
+
+    void Load_Message_Uncached(const char* filename, int32_t entry, uint32_t record, uint16_t record_size, size_t id, char* dest, size_t capacity) {
         std::vector<char> original(record_size);
         farload::Farload_Data_Static(filename, entry, original.data(), record, 1, record_size);
         const std::string path = Sidecar_Path(filename);

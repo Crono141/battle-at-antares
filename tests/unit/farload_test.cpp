@@ -599,6 +599,30 @@ DOCTEST_TEST_SUITE("farload buffer vfs") {
         DOCTEST_CHECK(message() == "again");
     }
 
+    // A tactical combat reads each text once (owner, 2026-11-20: combat stuttered on hundreds of
+    // KENTEXT reads a frame); outside one an edit shows at once, as above.
+    DOCTEST_TEST_CASE("a message cache scope reads each message once and forgets them after") {
+        using namespace test_farload_buffer_detail;
+        Scoped_Test_Directory test_dir;
+        test_dir.Write_Lbx_File("custom.lbx", {Records({"base one", "base two"}, 32)});
+        const fs::path sidecar = "data/mods/lower/data/custom.json5";
+        test_dir.Write_File(sidecar, "{2:'first'}");
+        DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()));
+        Mount_Packages({"lower"});
+        const auto message = [&]() {
+            char output[32] = {};
+            string_overrides::Load_Message("custom.lbx", 0, 1, 32, 2, output, sizeof(output));
+            return std::string(output);
+        };
+        {
+            const string_overrides::s_message_cache_scope combat;
+            DOCTEST_CHECK(message() == "first");
+            test_dir.Write_File(sidecar, "{2:'second'}");
+            DOCTEST_CHECK(message() == "first"); // read once
+        }
+        DOCTEST_CHECK(message() == "second"); // forgotten after
+    }
+
     DOCTEST_TEST_CASE("higher package LBX files override lower JSON5 sidecars across mount changes") {
         using namespace test_farload_buffer_detail;
         for (bool lbx_zip : {false, true}) {

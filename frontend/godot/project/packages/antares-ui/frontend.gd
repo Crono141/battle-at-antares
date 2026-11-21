@@ -4059,9 +4059,41 @@ func _smoke_native() -> void:
 			while int(game.get_stats().get("input_polls", 0)) == polls and t_wait < 30.0: # the combat waits for orders
 				await get_tree().create_timer(0.25).timeout
 				t_wait += 0.25
+			# The combat's file calls while it waits for orders (owner, 2026-11-20: stutter from
+			# KENTEXT read hundreds of times a frame).
+			var io_before := int(game.get_stats().get("io_calls", 0))
+			var frames_before := int(game.get_stats().frames)
+			await get_tree().create_timer(3.0).timeout
+			var io_rate := (int(game.get_stats().get("io_calls", 0)) - io_before) / 3.0
+			var frame_rate := (int(game.get_stats().frames) - frames_before) / 3.0
+			print("smoke: combat idle: %.0f file calls/s at %.0f frames/s" % [io_rate, frame_rate])
 			if shots != "":
 				await host.shot(shots + "/selfdestruct-combat.png")
 			var rect := legacy.get_global_rect()
+			# A right click reaches the combat (owner, 2026-11-20: ships could not be turned).
+			var got := []
+			var hear := func(e: InputEvent):
+				var mb := e as InputEventMouseButton
+				if mb and mb.button_index == MOUSE_BUTTON_RIGHT:
+					got.append(mb.pressed)
+			game.gui_input.connect(hear)
+			var r_at := (rect.position + Vector2(OS.get_environment("RC_X").to_float() if OS.get_environment("RC_X") != "" else 300.0,
+				OS.get_environment("RC_Y").to_float() if OS.get_environment("RC_Y") != "" else 120.0) * rect.size / Vector2(640.0, 480.0)) * get_window().content_scale_factor
+			var rc := InputEventMouseButton.new()
+			rc.button_index = MOUSE_BUTTON_RIGHT
+			rc.position = r_at
+			rc.pressed = true
+			rc.button_mask = MOUSE_BUTTON_MASK_RIGHT
+			Input.parse_input_event(rc)
+			var rc_up := rc.duplicate() # released in the same frame: a quick click on a slow poll
+			rc_up.pressed = false
+			rc_up.button_mask = 0
+			Input.parse_input_event(rc_up)
+			await get_tree().create_timer(0.3).timeout
+			game.gui_input.disconnect(hear)
+			await get_tree().create_timer(0.5).timeout
+			print("smoke: right click in combat reached the game: %s; hovered %s; mouse filter of game %d, legacy %d" % [got,
+				get_viewport().gui_get_hovered_control(), game.mouse_filter, legacy.mouse_filter])
 			var at := (rect.position + Vector2(290.0, 352.0) * rect.size / Vector2(640.0, 480.0)) * get_window().content_scale_factor
 			print("smoke: selfdestruct: clicking %s (legacy rect %s)" % [at, rect])
 			_smoke_mouse(true, at)
