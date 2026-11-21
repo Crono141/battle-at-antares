@@ -69,12 +69,18 @@ namespace antares::commands::internal {
                 const int8_t field = p.current_research_field;
                 const int8_t app = p.current_research_application;
                 const uint8_t breakthrough = p.research_breakthrough;
-                const int16_t techs[2] = {1, 50};
+                int16_t techs[2] = {1, 50};
+                uint16_t tech_count = 2;
+                int64_t hyper = 0;
+                if (args.Int("hyper", &hyper) && hyper != 0) {
+                    techs[0] = TECH::Get_Hyper_Tech_App_ID(TECH_FIELD_BIOLOGY); // a hyper-advanced level's page
+                    tech_count = 1;
+                }
                 char room[32];
                 snprintf(room, sizeof(room), "SR_R%x_SC.LBX", (unsigned int)(uint8_t)p.race);
                 MOX2::action_func_t saved_auto = nullptr;
                 MOX2::Get_Auto_Function(&saved_auto);
-                SCIENCE::Native_Tech_Select_With(room, 2, techs, "Your scientists have completed their research!");
+                SCIENCE::Native_Tech_Select_With(room, tech_count, techs, "Your scientists have completed their research!");
                 MOX2::Put_Auto_Function(&saved_auto);
                 out.Int("chosen_field", (uint8_t)p.current_research_field);
                 out.Int("chosen_app", (uint8_t)p.current_research_application);

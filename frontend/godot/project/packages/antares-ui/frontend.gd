@@ -245,6 +245,7 @@ var _sounds_held := false
 
 
 func _process(delta: float) -> void:
+	_check_orphan_system(delta)
 	if todo_auto:
 		_auto_todo_step()
 	elif _todo_pending and _todo_may_open():
@@ -1101,6 +1102,33 @@ func _todo_may_open() -> bool:
 	return _todo_total() > 0
 
 
+var _orphan_system_time := 0.0
+
+
+## A system left on the map with no system pane (owner, 2026-11-21: after a turn's combat the
+## stars stayed dimmed around a system that still showed a colony just destroyed, with no way
+## back): once it has lasted a second on the galaxy, with no game question, landing or map
+## popup showing, the galaxy comes back.
+func _check_orphan_system(delta: float) -> void:
+	var pane: Control = _views.get("system_pane")
+	var orphan: bool = native_screen == Screens.MAIN and galaxy.visible and pane != null and not pane.visible and \
+		(galaxy.system_star >= 0 or galaxy.others_alpha < 0.99) and not overlay.visible and _popup_zoom < 0 and \
+		_popup_map_ending < 0 and not (_scene_window != null and _scene_window.is_open()) and not legacy.visible
+	if not orphan:
+		_orphan_system_time = 0.0
+		return
+	_orphan_system_time += delta
+	if _orphan_system_time < 1.0:
+		return
+	_orphan_system_time = 0.0
+	print("frontend: a system (%d) was left on the map with no pane: back to the galaxy" % galaxy.system_star)
+	_panel_star = -1
+	galaxy.selected = -1
+	galaxy.clear_system_view()
+	galaxy.fly_back()
+	galaxy.redraw()
+
+
 ## What the to-do list shows (owner, 2026-11-21): the choices that hold the turn and the news
 ## not yet read. TURN reads TO DO (n) while it isn't 0.
 func _todo_total() -> int:
@@ -1722,7 +1750,7 @@ func _smoke_research(shots: String) -> bool:
 	await get_tree().create_timer(0.5).timeout
 	print("smoke: research at scale %.0f%%, window %s, view %s" % [ui_scale, get_window().size, get_viewport().get_visible_rect().size])
 	var box := {}
-	_send({"verb": "preview_popup", "popup": "research"}, func(r: Dictionary): box["r"] = r)
+	_send({"verb": "preview_popup", "popup": "research", "hyper": 1 if "--research-hyper" in OS.get_cmdline_user_args() else 0}, func(r: Dictionary): box["r"] = r)
 	var waited := 0.0
 	var pages := 0
 	var aligned := false
@@ -1780,7 +1808,7 @@ func _smoke_research(shots: String) -> bool:
 	print("smoke: research bar on the page %s, with the picker %s" % [bar_on_page, bar_with_picker])
 	print("smoke: research pages %d, aligned %s, result %s, window %s; window on the page %s, with the picker %s (stayed %s)" % [pages, aligned,
 		box.get("r", {}), _scene_window.visible if _scene_window else false, page_rect, picker_window, stayed])
-	return stayed and box.has("r") and bool(box.r.get("ok", false)) and pages == 2 and aligned and _scene_window != null and not _scene_window.visible
+	return stayed and box.has("r") and bool(box.r.get("ok", false)) and pages == (1 if "--research-hyper" in OS.get_cmdline_user_args() else 2) and aligned and _scene_window != null and not _scene_window.visible
 
 
 ## WP3.5a (`-- --smoke --native --colonies`): the Colonies panel opens beside the fitted galaxy,
@@ -3013,7 +3041,13 @@ const POPUP_FOLLOW_UP_WAIT := 0.6
 
 
 func _start_popup_map(dialog: Control, request: Dictionary) -> void:
+	var zoomed_before := _popup_zoom
 	_popup_zoom = int(request.get("zoom", -1))
+	# A live window's next step (the bombing, sent again each bomb) keeps the system its first
+	# step showed (owner, 2026-11-21: after the bombing the map stayed dimmed on that system, its
+	# fly-back forgotten with the zoom).
+	if _popup_zoom < 0 and zoomed_before >= 0 and bool(request.get("live", false)) and not request.get("pick_star", false):
+		_popup_zoom = zoomed_before
 	# The question after a system-zoom answer (the colony ship's "are you sure?" after its planet
 	# pick; owner, 2026-11-20: it flew back out, then the landing flew in again) stays on that
 	# system, its window beside it.
@@ -4160,6 +4194,119 @@ func _smoke_native() -> void:
 			if not shown_by_itself or layers < 3 or not beside or (not pushed and not narrow) or not back or not hidden_now or not stays_hidden or not shown_again \
 					or over_tabs or not in_band or not over_build:
 				await host.smoke_fail("the colony landscape did not open, move or toggle as it should")
+				return
+			game.request_game_quit()
+			return
+		if arg == "--attack-bomb":
+			# Owner, 2026-11-21: a colony without defences goes straight from the attack window to
+			# the bombing; after it the map stayed dimmed on that system with no window.
+			var target_star := -1
+			var target_colony := -1
+			for star: Dictionary in galaxy.stars:
+				var sys: Dictionary = await _query_args({"what": "system", "star": int(star.id)})
+				for planet: Dictionary in sys.get("planets", []):
+					var colony: Dictionary = planet.get("colony", {})
+					if not colony.is_empty() and not colony.get("mine", false) and not colony.get("outpost", false):
+						target_star = int(star.id)
+						target_colony = int(colony.id)
+						break
+				if target_star >= 0:
+					break
+			var first := {}
+			_send({"verb": "preview_popup", "popup": "attack_target", "star": target_star}, func(r: Dictionary): first["r"] = r)
+			for i in 40:
+				await get_tree().create_timer(0.1).timeout
+				if _views.dialog.visible and String(_views.dialog.popup_name) == "attack_target":
+					break
+			await get_tree().create_timer(1.5).timeout
+			_views.dialog._answer(_views.dialog.OPTION_ANSWER) # the first target
+			for i in 30:
+				await get_tree().create_timer(0.1).timeout
+				if first.has("r"):
+					break
+			var bomb := {}
+			_send({"verb": "preview_popup", "popup": "colony_bombing", "colony": target_colony, "hits": 8}, func(r: Dictionary): bomb["r"] = r)
+			for i in 40:
+				await get_tree().create_timer(0.1).timeout
+				if _views.dialog.visible and String(_views.dialog.popup_name) == "colony_bombing":
+					break
+			await get_tree().create_timer(1.0).timeout
+			var during := "system %d, popup zoom %d" % [galaxy.system_star, _popup_zoom]
+			var dialog: Control = _views.dialog
+			if dialog._bombing_buttons.get_child_count() > 1:
+				(dialog._bombing_buttons.get_child(1) as Button).pressed.emit() # DROP ALL
+			await get_tree().create_timer(1.0).timeout
+			(dialog._bombing_buttons.get_child(dialog._bombing_buttons.get_child_count() - 1) as Button).pressed.emit() # CLOSE
+			for i in 30:
+				await get_tree().create_timer(0.1).timeout
+				if bomb.has("r"):
+					break
+			await get_tree().create_timer(0.9).timeout # the fly-back's own wait, before the stale-system check
+			var after := "system %d, others_alpha %.2f, overlay %s, popup zoom %d" % [galaxy.system_star, galaxy.others_alpha, overlay.visible, _popup_zoom]
+			print("smoke: attack then bombing at %d (colony %d): during the bombing %s; 0.9 s after it closed %s" % [target_star, target_colony, during, after])
+			if shots != "":
+				await host.shot(shots + "/attack-bomb-after.png")
+			if target_star < 0 or not bomb.has("r") or galaxy.system_star >= 0:
+				await host.smoke_fail("after the attack's bombing the map stayed on the system")
+				return
+			game.request_game_quit()
+			return
+		if arg == "--system-endturn":
+			# Owner, 2026-11-21: zoomed into a system, END TURN from the to-do list: after the turn
+			# the stars stayed dimmed with no system pane.
+			var home := -1
+			for st: Dictionary in galaxy.stars:
+				if int(st.get("label_owner", -1)) == int(galaxy.data.get("player", -2)):
+					home = int(st.id)
+					break
+			_open_system(home)
+			await get_tree().create_timer(2.0).timeout
+			# Whatever holds the turn answered, so END TURN is enabled.
+			if not await _smoke_clear_todo():
+				return
+			_open_system(home)
+			await get_tree().create_timer(2.0).timeout
+			_on_view_action("turn")
+			await get_tree().create_timer(1.0).timeout
+			var todo_list := _view("todo_panel")
+			print("smoke: system-endturn: system pane %s on %d, to-do list %s, END TURN %s" % [_view("system_pane").visible, galaxy.system_star,
+				todo_list.visible, (not todo_list._end_turn.disabled) if todo_list._end_turn else "none"])
+			if todo_list.visible and todo_list._end_turn != null:
+				todo_list._end_turn.pressed.emit()
+			else:
+				_send({"verb": "end_turn"})
+			var waited := 0.0
+			while waited < 3.0 and native_screen == Screens.MAIN:
+				await get_tree().create_timer(0.1).timeout
+				waited += 0.1
+			waited = 0.0
+			while waited < 90.0:
+				await get_tree().create_timer(0.5).timeout
+				waited += 0.5
+				_smoke_answer()
+				if native_screen == Screens.MAIN and not overlay.visible and waited > 3.0:
+					break
+			for i in 8:
+				await get_tree().create_timer(0.5).timeout
+				_smoke_answer()
+			var state := "system_star %d, system empty %s, others_alpha %.2f, system pane %s, panel star %d, to-do %s" % [galaxy.system_star,
+				galaxy.system.is_empty(), galaxy.others_alpha, _view("system_pane").visible, _panel_star, _view("todo_panel").visible]
+			print("smoke: system-endturn after the turn: %s" % state)
+			if shots != "":
+				await host.shot(shots + "/system-endturn.png")
+			if (galaxy.others_alpha < 0.99 or galaxy.system_star >= 0) and not _view("system_pane").visible:
+				await host.smoke_fail("after END TURN the map stayed dimmed for a system with no pane")
+				return
+			# The owner's state forced: a system on the map, its pane gone (a stale view): the
+			# galaxy comes back by itself.
+			_view("system_pane").close()
+			await get_tree().create_timer(1.0).timeout
+			var sq: Dictionary = await _query_args({"what": "system", "star": home})
+			galaxy.show_system(home, sq)
+			await get_tree().create_timer(2.5).timeout
+			print("smoke: system-endturn orphan system: system_star %d, others_alpha %.2f" % [galaxy.system_star, galaxy.others_alpha])
+			if galaxy.system_star >= 0 or galaxy.others_alpha < 0.99:
+				await host.smoke_fail("a system left on the map with no pane stayed")
 				return
 			game.request_game_quit()
 			return
