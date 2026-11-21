@@ -4150,6 +4150,34 @@ func _smoke_native() -> void:
 			if not map_lit or not row_lit or galaxy.lit_owner != -1:
 				await host.smoke_fail("the select-combat window's ships rows and the map's fleets did not light each other")
 				return
+			# The message before an attack on the player (owner, 2026-11-20): the same layout.
+			var home := -1
+			for st3: Dictionary in galaxy.stars:
+				var cf3: Dictionary = await _query_args({"what": "combat_fleet", "star": int(st3.id)})
+				if cf3.get("ok", false) and not (cf3.ships as Array).is_empty():
+					home = int(st3.id)
+					break
+			var pa := {}
+			_send({"verb": "preview_popup", "popup": "player_attacked", "star": home}, func(r: Dictionary): pa["r"] = r)
+			for i in 40:
+				await get_tree().create_timer(0.1).timeout
+				if _views.dialog.visible and String(_views.dialog.popup_name) == "player_attacked":
+					break
+			await get_tree().create_timer(1.5).timeout
+			var pa_fleet: bool = _combat_fleet != null and _combat_fleet.visible
+			var pa_beside: bool = _views.dialog.placement == "beside" and galaxy.system_star == home
+			print("smoke: attacked message at %d: shown %s, beside its system %s, fleet window %s, text '%s'" % [home, _views.dialog.visible, pa_beside,
+				pa_fleet, _views.dialog.get_node("Fit/Box/Text").text.left(80)])
+			if shots != "":
+				await host.shot(shots + "/player-attacked.png")
+			_views.dialog._answer(0)
+			for i in 20:
+				await get_tree().create_timer(0.1).timeout
+				if pa.has("r"):
+					break
+			if not pa_fleet or not pa_beside or not pa.has("r"):
+				await host.smoke_fail("the attacked message did not show beside its system with the fleet")
+				return
 			game.request_game_quit()
 			return
 		if arg == "--combat-turn":

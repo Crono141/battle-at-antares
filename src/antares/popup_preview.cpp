@@ -157,6 +157,16 @@ namespace antares::commands::internal {
                     return;
                 }
                 answer = MAINPUPS::Dragon_New_Star_Popup(player, star);
+            } else if (popup == "player_attacked") {
+                // The message before an attack on the player (combfind.cpp), by `attacker` (an
+                // empire id, default the first other one) at the star.
+                if (!Star_Arg(args, out, &star)) {
+                    return;
+                }
+                int64_t attacker = player == 0 ? 1 : 0;
+                args.Int("attacker", &attacker);
+                MAINPUPS::Player_Attacked_Popup((int16_t)attacker, player, star, -1);
+                answer = 0;
             } else if (popup == "colony_combat") {
                 int64_t colony = -1;
                 if (!args.Int("colony", &colony) || colony < 0 || colony >= MOX::NUM_COLONIES || MOX::colony[colony].owner < 0) {
@@ -216,7 +226,7 @@ namespace antares::commands::internal {
                 int8_t selected = 0;
                 answer = fields::Get_List_Field(10, 102, 245, "Diplomacy", &list[0][0], 50, &selected, flags, 17, nullptr, 0, nullptr, 0, nullptr);
             } else {
-                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute, colony_combat, colony_bombing, choose, gnn, diplomacy or research");
+                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, player_attacked, monster_tribute, colony_combat, colony_bombing, choose, gnn, diplomacy or research");
                 return;
             }
             MOX::PLAYER_NUM = player;
@@ -226,7 +236,7 @@ namespace antares::commands::internal {
 
     void Add_Preview_Entries(std::vector<s_entry>* table) {
         table->push_back({"preview_popup", e_kind::command, ANY_SCREEN, 0,
-            "popup (new_system, planet_pick, outpost_pick, attack_target, monster_tribute: star; colony_combat: colony; colony_bombing: colony, hits; choose; gnn: event; diplomacy: player; research); developer verb", Preview_Popup});
+            "popup (new_system, planet_pick, outpost_pick, attack_target, player_attacked, monster_tribute: star; colony_combat: colony; colony_bombing: colony, hits; choose; gnn: event; diplomacy: player; research); developer verb", Preview_Popup});
     }
 
 } // namespace antares::commands::internal
