@@ -1534,6 +1534,7 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		dialog = load(_views_dir() + "/dialog.tscn").instantiate()
 		dialog.art = art
 		dialog.answered.connect(_on_answered)
+		dialog.released.connect(_popup_closed)
 		dialog.planet_row_hovered.connect(func(planet_id: int):
 			galaxy.hovered_planet = planet_id
 			galaxy.redraw())
@@ -3082,6 +3083,15 @@ func _on_answered(id: int, value: int, text := "") -> void:
 		else:
 			game.answer_request(id, value)
 		return
+	_popup_closed()
+	if text != "" or (_views.has("dialog") and _views.dialog._kind == "text"):
+		game.answer_request_text(id, value, text)
+	else:
+		game.answer_request(id, value)
+
+
+## The question's window gone: the overlay down, the galaxy or the legacy view back.
+func _popup_closed() -> void:
 	overlay.hide()
 	_end_popup_map()
 	if _question_over_galaxy:
@@ -3100,10 +3110,6 @@ func _on_answered(id: int, value: int, text := "") -> void:
 			# the title flashed before a combat).
 			_legacy_after_frame = int(game.get_stats().frames)
 			_legacy_waited = 0.0
-	if text != "" or (_views.has("dialog") and _views.dialog._kind == "text"):
-		game.answer_request_text(id, value, text)
-	else:
-		game.answer_request(id, value)
 
 
 ## A star click: with F4's mode on it takes the merged relocations; with ships selected in the
@@ -4185,7 +4191,31 @@ func _smoke_native() -> void:
 				if enemy_colony >= 0:
 					break
 			var box := {}
-			_send({"verb": "preview_popup", "popup": "colony_bombing", "colony": enemy_colony, "hits": 60}, func(r: Dictionary): box["r"] = r)
+			# One window from the orbit's choice to the last bomb (owner, 2026-11-20): BOMB keeps it.
+			_send({"verb": "preview_popup", "popup": "colony_combat", "colony": enemy_colony, "then_bomb": 60}, func(r: Dictionary): box["r"] = r)
+			for i in 30:
+				await get_tree().create_timer(0.1).timeout
+				if _views.has("dialog") and _views.dialog.visible and String(_views.dialog.popup_name) == "colony_combat":
+					break
+			var choice_dialog: Control = _views["dialog"]
+			var choice_buttons: Array = choice_dialog._bombing_buttons.get_children().map(func(b: Button) -> String: return b.text)
+			if shots != "":
+				await host.shot(shots + "/native-orbit-choice.png")
+			var bomb_at: Vector2 = (choice_dialog._bombing_buttons.get_child(0) as Control).get_global_rect().position
+			(choice_dialog._bombing_buttons.get_child(0) as Button).pressed.emit() # BOMB
+			var stayed := true
+			for i in 30:
+				await get_tree().process_frame
+				if not choice_dialog.visible:
+					stayed = false
+				if String(choice_dialog.popup_name) == "colony_bombing":
+					break
+			var same_place: bool = (choice_dialog._bombing_buttons.get_child(0) as Control).get_global_rect().position.distance_to(bomb_at) < 1.0
+			print("smoke: orbit choice %s; BOMB kept the window %s, bombing in it %s, its first button in place %s" % [choice_buttons, stayed,
+				String(choice_dialog.popup_name) == "colony_bombing", same_place])
+			if not stayed or not same_place or String(choice_dialog.popup_name) != "colony_bombing" or choice_buttons.is_empty() or choice_buttons[0] != "BOMB":
+				await host.smoke_fail("BOMB did not carry the orbit's window into the bombing")
+				return
 			var dialog: Control
 			var left := func() -> int: # the window's "N bomb strikes" row
 				for label: Label in _views["dialog"].find_children("*", "Label", true, false):
@@ -4223,6 +4253,7 @@ func _smoke_native() -> void:
 				(dialog._bombing_buttons.get_child(1) as Button).pressed.emit() # ALL AT ONCE
 			await get_tree().create_timer(0.5).timeout
 			var done_buttons: Array = labels.call()
+			var done_enabled: Array = dialog._bombing_buttons.get_children().filter(func(b: Button) -> bool: return not b.disabled).map(func(b: Button) -> String: return b.text)
 			var visible_while: bool = dialog.visible and overlay.visible
 			if shots != "":
 				await host.shot(shots + "/native-bombing-done.png")
@@ -4231,12 +4262,13 @@ func _smoke_native() -> void:
 				await get_tree().create_timer(0.1).timeout
 				if box.has("r"):
 					break
-			print("smoke: bombing steady %s" % steady)
+			print("smoke: bombing steady %s, explosions %d, open at the end %s" % [steady, dialog.blast_count, done_enabled])
 			print("smoke: bombing colony %d: bombs left %d, after 1.5 s %d %s; STOP at %d, 1 s later %d %s; CONTINUE 0.7 s %d; ALL AT ONCE %s; window up %s; result %s" % [
 				enemy_colony, at_start, after_second, running_buttons, at_stop, still, stopped_buttons, after_continue, done_buttons, visible_while, box.get("r", "none")])
 			# One step every 5 frames of 55 ms; a step may take several hits, as in the original.
 			var paced: bool = after_second < at_start and after_second > 0 and steady
-			if enemy_colony < 0 or not paced or still != at_stop or after_continue >= still or done_buttons != ["CLOSE"] or not box.has("r") or overlay.visible:
+			if enemy_colony < 0 or not paced or still != at_stop or after_continue >= still or done_enabled != ["CLOSE"] or not box.has("r") or overlay.visible \
+					or dialog.blast_count == 0 or running_buttons.slice(0, 2) != ["STOP", "DROP ALL"] or stopped_buttons[0] != "BOMB":
 				await host.smoke_fail("bombing was not paced, stoppable and closable")
 				return
 			game.request_game_quit()

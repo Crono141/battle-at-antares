@@ -48,6 +48,17 @@ namespace MAINPUPS {
 
     s_colony_combat_popup_data* g_data_ptr;
 
+    // The explosions of the bomb hits applied since the native window last drew (owner,
+    // 2026-11-20: the native bombing showed none): the picture (MAINPUPS.LBX 61 bomb, 73
+    // biological) and its place as Apply_Next_Bomb_Hit puts it, from the planet picture's centre,
+    // in the window's 640x480 pixels.
+    struct s_native_blast {
+        int16_t entry;
+        int16_t dx;
+        int16_t dy;
+    };
+    std::vector<s_native_blast> g_native_blasts;
+
     int16_t mp_fields[26];
 
     void __cdecl Load_Colony_Fields() {
@@ -1685,13 +1696,14 @@ namespace MAINPUPS {
             // The buttons Add_Colony_Combat_Fields would add, with what each returns. While bombs
             // fall (mode 1): STOP (state 1) or CONTINUE (state 0), ALL AT ONCE (state 2) and CLOSE.
             if (popup_mode == 1) {
+                // BOMB turns to STOP and back (owner, 2026-11-20); DROP ALL drops the rest at once.
                 if (state == 0) {
                     buttons.emplace_back("STOP", k_bomb_stop);
                 } else if (state == 1) {
-                    buttons.emplace_back("CONTINUE", k_bomb_continue);
+                    buttons.emplace_back("BOMB", k_bomb_continue);
                 }
                 if (state == 0 || state == 1) {
-                    buttons.emplace_back("ALL AT ONCE", k_bomb_all);
+                    buttons.emplace_back("DROP ALL", k_bomb_all);
                 }
                 buttons.emplace_back("CLOSE", -1);
             }
@@ -1706,7 +1718,7 @@ namespace MAINPUPS {
                     buttons.emplace_back("MIND CONTROL", 4);
                 }
                 if (data->has_stellar_converter != 0 && data->n_pops > 0) {
-                    buttons.emplace_back("STELLAR CONVERTER", 1);
+                    buttons.emplace_back("DESTROY", 1); // the stellar converter
                 }
                 buttons.emplace_back("IGNORE", -1);
             }
@@ -1719,9 +1731,19 @@ namespace MAINPUPS {
                 ",\"colony\":" + std::to_string(data->colony_idx) + ",\"buttons\":[" + labels + "]" +
                 ",\"picture\":{\"lbx\":\"CMBTPLNT.LBX\",\"entry\":" + std::to_string(planet_picture) + "},\"rows\":[" + rows +
                 "],\"summary\":" + antares::native::Quote(summary.c_str());
+            if (popup_mode == 1) {
+                std::string blasts;
+                for (const s_native_blast& b : g_native_blasts) {
+                    blasts += std::string(blasts.empty() ? "" : ",") + "{\"lbx\":\"MAINPUPS.LBX\",\"entry\":" + std::to_string(b.entry) +
+                        ",\"dx\":" + std::to_string(b.dx) + ",\"dy\":" + std::to_string(b.dy) + "}";
+                }
+                g_native_blasts.clear();
+                fields += ",\"blasts\":[" + blasts + "],\"planet_width\":" + std::to_string(animate::Get_Width(MOX::combat_planet_seg));
+            }
         };
 
         int16_t result = -1;
+        g_native_blasts.clear();
         if (popup_mode == 1) {
             // Owner, 2026-11-20: the bombs fall one at a time, as the window drops them (one hit
             // every `bombardment_hit_frames` frames of 55 ms), and STOP keeps the rest: hits not
@@ -2073,6 +2095,7 @@ namespace MAINPUPS {
                             int rand_x = base_x + game_random::Random(abs_diff * 2) - abs_diff;
 
                             FLCQUEUE::Add_Flic_To_End_Of_Queue(rand_x, rand_y, anims[25], 1, 0);
+                            g_native_blasts.push_back({61, (int16_t)(rand_x - base_x), (int16_t)(rand_y - base_y)});
                             ERICNET::Mox_Play_Sound(24 /* 0x18 */);
                         }
                     }
@@ -2090,6 +2113,7 @@ namespace MAINPUPS {
                     int rand_x = base_x + game_random::Random(40) - 20;
 
                     FLCQUEUE::Add_Flic_To_End_Of_Queue(rand_x, rand_y, anims[26], 1, 0);
+                    g_native_blasts.push_back({73, (int16_t)(rand_x - base_x), (int16_t)(rand_y - base_y)});
                     ERICNET::Mox_Play_Sound(32 /* 0x20 */);
                 }
 

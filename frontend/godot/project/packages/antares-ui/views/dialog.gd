@@ -68,7 +68,9 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 	# The bombing's next step (owner, 2026-11-20: rebuilt each bomb, the text and the buttons
 	# swapped places and the buttons moved): the same window, its numbers and buttons updated.
 	if live and kind == "popup" and String(request.get("popup", "")) == "colony_bombing" and visible and \
-			popup_name == "colony_bombing" and is_instance_valid(_bombing):
+			popup_name in ["colony_bombing", "colony_combat"] and is_instance_valid(_bombing):
+		popup_name = "colony_bombing"
+		_kind = kind
 		_update_bombing(request)
 		return
 	_apply_bare()
@@ -138,7 +140,7 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 			request = request.merged({"buttons": []}, true) # Esc or a right click cancels
 		elif choose:
 			request = request.merged({"buttons": ["CANCEL"]}, true)
-		if request.has("rows") and popup_name == "colony_bombing":
+		if request.has("rows") and popup_name in ["colony_bombing", "colony_combat"]:
 			_extra.add_child(_bombing_body(request))
 			$Fit/Box/Text.text = ""
 			request = request.merged({"buttons": []}, true) # its own, stacked on the right
@@ -333,103 +335,225 @@ func _combat_rows(request: Dictionary) -> Control:
 	return body
 
 
-## The bombing (owner, 2026-11-20): laid out as the original window, the planet with its defences
-## and buildings on the left, the bomb strikes and the buttons stacked on the right, the result
-## under the planet. Each step updates it in place (_update_bombing): nothing moves.
+## The orbit's window (owner, 2026-11-20: "a copy of the invade/bombard legacy window"): one
+## window from the choice to the last bomb. The planet with its defenders and the result on the
+## left, the attackers and the buttons stacked on the right: BOMB (STOP while bombs fall, BOMB
+## again to go on), DROP ALL, INVADE, MIND CONTROL, DESTROY and IGNORE (CLOSE once bombing), each
+## in its place throughout, greyed when not open. BOMB keeps the window for the bombing, which
+## updates it in place (_update_bombing), each hit's explosion on the planet.
 var _bombing: Control
 var _bombing_rows: VBoxContainer
-var _bombing_strikes: Label
+var _bombing_right: VBoxContainer
 var _bombing_summary: Label
 var _bombing_buttons: VBoxContainer
+var _bombing_planet: TextureRect
+var _bombing_picture := {}
+var _blast_layer: Control
+var _blasts: Array = [] # {lbx, entry, dx, dy, born}
+var _planet_width := 0.0
+var _offered: Array = [] # the choice's buttons (the orbit's), kept for the bombing's layout
+const BLAST_FPS := 15.0
+var blast_count := 0 # explosions shown (the smoke)
+signal released # a held window let go without an answer (BOMB with no bombing after it)
+const BUTTON_ORDER := ["BOMB", "DROP ALL", "INVADE", "MIND CONTROL", "DESTROY", "IGNORE"]
 
 
 func _bombing_body(request: Dictionary) -> Control:
 	var body := HBoxContainer.new()
-	body.add_theme_constant_override("separation", 20)
+	body.add_theme_constant_override("separation", 24)
 	_bombing = body
+	_blasts.clear()
 	var left := VBoxContainer.new()
 	left.add_theme_constant_override("separation", 8)
-	left.custom_minimum_size.x = 300
+	left.custom_minimum_size.x = 320
 	body.add_child(left)
-	var picture: Dictionary = request.get("picture", {})
-	var planet: TextureRect = preload("sprite_rect.gd").new()
-	planet.custom_minimum_size = Vector2(150, 150)
-	planet.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	planet.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_bombing_picture = request.get("picture", {})
+	_bombing_planet = preload("sprite_rect.gd").new()
+	_bombing_planet.custom_minimum_size = Vector2(220, 220)
+	_bombing_planet.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_bombing_planet.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	if art:
-		planet.bind(art)
-		planet.show_sprite(String(picture.get("lbx", "")), int(picture.get("entry", -1)))
-	left.add_child(planet)
+		_bombing_planet.bind(art)
+		_bombing_planet.show_sprite(String(_bombing_picture.get("lbx", "")), int(_bombing_picture.get("entry", -1)))
+	left.add_child(_bombing_planet)
+	_blast_layer = Control.new()
+	_blast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_blast_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_blast_layer.draw.connect(_draw_blasts)
+	_bombing_planet.add_child(_blast_layer)
 	_bombing_rows = VBoxContainer.new()
 	_bombing_rows.add_theme_constant_override("separation", 6)
+	_bombing_rows.custom_minimum_size.y = 5 * 30 + 4 * 6 # up to five defenders' rows: the window keeps its size
 	left.add_child(_bombing_rows)
 	_bombing_summary = Label.new()
 	_bombing_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_bombing_summary.custom_minimum_size = Vector2(300, 44)
+	_bombing_summary.custom_minimum_size = Vector2(320, 44)
 	_bombing_summary.add_theme_font_size_override("font_size", 14)
 	left.add_child(_bombing_summary)
 	var right := VBoxContainer.new()
 	right.add_theme_constant_override("separation", 10)
-	right.custom_minimum_size.x = 180
-	right.alignment = BoxContainer.ALIGNMENT_CENTER
+	right.custom_minimum_size.x = 200
 	body.add_child(right)
-	_bombing_strikes = Label.new()
-	_bombing_strikes.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_bombing_strikes.theme_type_variation = &"Name"
-	right.add_child(_bombing_strikes)
+	var top_gap := Control.new()
+	top_gap.custom_minimum_size.y = 40
+	right.add_child(top_gap)
+	_bombing_right = VBoxContainer.new()
+	_bombing_right.add_theme_constant_override("separation", 6)
+	_bombing_right.custom_minimum_size.y = 2 * 30 + 6 # the marines and the bombs
+	right.add_child(_bombing_right)
 	_bombing_buttons = VBoxContainer.new()
 	_bombing_buttons.add_theme_constant_override("separation", 8)
 	right.add_child(_bombing_buttons)
+	if String(request.get("popup", "")) == "colony_combat":
+		_offered = (request.get("buttons", []) as Array).duplicate()
 	_update_bombing(request)
 	return body
 
 
-func _update_bombing(request: Dictionary) -> void:
-	# The defenders' rows (left), the bomb strikes (right).
-	var rows: Array = (request.get("rows", []) as Array).filter(func(r: Dictionary) -> bool: return String(r.get("side", "left")) == "left")
-	var strikes: Array = (request.get("rows", []) as Array).filter(func(r: Dictionary) -> bool: return String(r.get("side", "")) == "right")
-	if _bombing_rows.get_child_count() != rows.size():
-		for child in _bombing_rows.get_children():
-			_bombing_rows.remove_child(child)
+## Rows of icon and text, rebuilt when their count changes, else only their text.
+func _fill_rows(box: VBoxContainer, rows: Array, right_side: bool) -> void:
+	if box.get_child_count() != rows.size():
+		for child in box.get_children():
+			box.remove_child(child)
 			child.queue_free()
 		for r: Dictionary in rows:
 			var line := HBoxContainer.new()
 			line.add_theme_constant_override("separation", 8)
+			line.alignment = BoxContainer.ALIGNMENT_END if right_side else BoxContainer.ALIGNMENT_BEGIN
 			var icon: TextureRect = preload("sprite_rect.gd").new()
+			icon.name = "Icon"
 			icon.custom_minimum_size = Vector2(30, 30)
 			icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			if art:
 				icon.bind(art)
 				icon.show_sprite(String(r.lbx), int(r.entry))
-			line.add_child(icon)
 			var label := Label.new()
 			label.name = "Text"
 			label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			line.add_child(label)
-			_bombing_rows.add_child(line)
+			if right_side:
+				line.add_child(label)
+				line.add_child(icon)
+			else:
+				line.add_child(icon)
+				line.add_child(label)
+			box.add_child(line)
 	for i in rows.size():
-		(_bombing_rows.get_child(i).get_node("Text") as Label).text = String(rows[i].text).strip_edges()
-	_bombing_strikes.text = String(strikes[0].text).strip_edges() if not strikes.is_empty() else ""
+		(box.get_child(i).get_node("Text") as Label).text = String(rows[i].text).strip_edges()
+
+
+func _update_bombing(request: Dictionary) -> void:
+	var all_rows: Array = request.get("rows", [])
+	_fill_rows(_bombing_rows, all_rows.filter(func(r: Dictionary) -> bool: return String(r.get("side", "left")) == "left"), false)
+	_fill_rows(_bombing_right, all_rows.filter(func(r: Dictionary) -> bool: return String(r.get("side", "")) == "right"), true)
 	_bombing_summary.text = String(request.get("summary", ""))
-	# The buttons, stacked: the same while their labels are; all but the last keep the window up.
+	# This step's explosions on the planet.
+	_planet_width = float(request.get("planet_width", _planet_width))
+	var now := Time.get_ticks_msec() / 1000.0
+	for b: Dictionary in request.get("blasts", []):
+		blast_count += 1
+		_blasts.append(b.merged({"born": now}))
+		if art:
+			art.sprite(String(b.lbx), int(b.entry))
+	# The buttons, each in its place: the engine's (with what each answers) by label; the others
+	# of the window's set greyed.
+	var bombing := String(request.get("popup", "")) == "colony_bombing"
 	var labels: Array = request.get("buttons", [])
+	var answer_of := {}
+	for i in labels.size():
+		answer_of[String(labels[i])] = i
+	var shown: Array = []
+	for name: String in BUTTON_ORDER:
+		var live_name := name
+		if name == "BOMB" and answer_of.has("STOP"):
+			live_name = "STOP"
+		if name == "IGNORE" and bombing:
+			live_name = "CLOSE"
+		var offered: bool = _offered.has(name) or answer_of.has(live_name) or (name == "DROP ALL" and _offered.has("BOMB")) \
+				or name == "IGNORE"
+		if offered:
+			shown.append([live_name, int(answer_of.get(live_name, -1))])
 	var current: Array = _bombing_buttons.get_children().map(func(b: Node) -> String: return (b as Button).text)
-	if current != labels:
+	if current.size() != shown.size():
 		for child in _bombing_buttons.get_children():
 			_bombing_buttons.remove_child(child)
 			child.queue_free()
-		for i in labels.size():
+		for k in shown.size():
 			var b := Button.new()
-			b.text = String(labels[i])
 			b.focus_mode = Control.FOCUS_NONE
-			b.custom_minimum_size = Vector2(180, 36)
-			var value := i
-			if i < labels.size() - 1:
-				b.pressed.connect(func(): _step(value))
-			else:
-				b.pressed.connect(func(): _answer(value))
+			b.custom_minimum_size = Vector2(200, 36)
+			b.pressed.connect(_bombing_pressed.bind(b))
 			_bombing_buttons.add_child(b)
+	for k in shown.size():
+		var b := _bombing_buttons.get_child(k) as Button
+		b.text = String(shown[k][0])
+		b.set_meta("answer", int(shown[k][1]))
+		b.disabled = int(shown[k][1]) < 0
+	_bombing_buttons.set_meta("bombing", bombing)
+	_bombing_buttons.set_meta("count", labels.size())
+
+
+func _bombing_pressed(b: Button) -> void:
+	var value := int(b.get_meta("answer", -1))
+	if value < 0:
+		return
+	var bombing: bool = _bombing_buttons.get_meta("bombing", false)
+	var last: bool = value == int(_bombing_buttons.get_meta("count", 0)) - 1
+	if bombing:
+		if last:
+			_answer(value) # CLOSE
+		else:
+			_step(value) # STOP / BOMB / DROP ALL: the window stays
+	elif b.text == "BOMB":
+		_hold_for_bombing(value)
+	else:
+		_answer(value)
+
+
+## BOMB from the orbit's choice: the window stays for the bombing the game sends next (the same
+## window, updated); if none comes, it goes.
+func _hold_for_bombing(value: int) -> void:
+	var id := request_id
+	for b in _bombing_buttons.get_children():
+		(b as Button).disabled = true
+	_step(value)
+	get_tree().create_timer(2.5).timeout.connect(func():
+		if request_id == id and visible:
+			hide()
+			released.emit())
+
+
+func _draw_blasts() -> void:
+	if art == null or _bombing_planet == null:
+		return
+	var planet: Dictionary = art.sprite(String(_bombing_picture.get("lbx", "")), int(_bombing_picture.get("entry", -1)))
+	if planet.is_empty():
+		return
+	var area := _blast_layer.size
+	var planet_size: Vector2 = planet.size
+	var k := minf(area.x / planet_size.x, area.y / planet_size.y)
+	if _planet_width > 0.0:
+		k = minf(area.x, area.y * planet_size.x / planet_size.y) / _planet_width
+	var centre := area * 0.5
+	var now := Time.get_ticks_msec() / 1000.0
+	for b: Dictionary in _blasts:
+		var s: Dictionary = art.sprite(String(b.lbx), int(b.entry))
+		if s.is_empty():
+			continue
+		var frame := int((now - float(b.born)) * BLAST_FPS)
+		if frame >= (s.frames as Array).size():
+			continue
+		art.draw(_blast_layer, String(b.lbx), int(b.entry), frame, centre + Vector2(float(b.dx), float(b.dy)) * k, k)
+
+
+func _process(_delta: float) -> void:
+	if _blasts.is_empty() or not is_instance_valid(_blast_layer):
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	_blasts = _blasts.filter(func(b: Dictionary) -> bool:
+		var s: Dictionary = art.sprite(String(b.lbx), int(b.entry)) if art else {}
+		return s.is_empty() or (now - float(b.born)) * BLAST_FPS < (s.frames as Array).size())
+	_blast_layer.queue_redraw()
 
 
 ## Shows a planet's card in the popup (a hovered row or map planet); -1 keeps the current one.

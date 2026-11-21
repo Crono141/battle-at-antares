@@ -171,6 +171,22 @@ namespace antares::commands::internal {
                 defender.unit_counts[UNIT_MARINES] = MOX::colony[colony].military[0];
                 defender.unit_counts[0] = MOX::colony[colony].military[1];
                 answer = MAINPUPS::Colony_Selection_Popup(&attacker, &defender, 0, (int16_t)colony, 3, 0);
+                // `then_bomb` hits: BOMB goes on to the bombing, as combfind.cpp does (the one
+                // window throughout, owner 2026-11-20). The hits are real, as colony_bombing's.
+                int64_t then_bomb = 0;
+                if (answer == 2 && args.Int("then_bomb", &then_bomb) && then_bomb > 0) {
+                    s_combat_bomb_result bomb{};
+                    bomb.attacker_idx = (int8_t)player;
+                    bomb.colony_idx = (int16_t)colony;
+                    bomb.bomb_hits_remaining = (int16_t)then_bomb;
+                    s_invasion_side_info bomb_attacker{};
+                    s_invasion_side_info bomb_defender{};
+                    bomb_attacker.player_id = player;
+                    bomb_defender.player_id = MOX::colony[colony].owner;
+                    MAINPUPS::Colony_Bombing_Popup(&bomb, &bomb_attacker, &bomb_defender, game_random::Get_Random_Seed(), (int16_t)colony,
+                        (int16_t)then_bomb, 0);
+                    out.Int("population_killed", bomb.population_killed);
+                }
             } else if (popup == "colony_bombing") {
                 // The bombing after BOMB (combfind.cpp: COMBAT::Bombardment, then
                 // Colony_Bombing_Popup), with `hits` bomb hits (default 12) on the colony. The
