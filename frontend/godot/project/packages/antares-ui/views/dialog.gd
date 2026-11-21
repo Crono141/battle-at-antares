@@ -117,6 +117,7 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 		for planet: Dictionary in request.get("system", {}).get("planets", []):
 			_planets[int(planet.planet)] = planet
 		_planet_rows.clear()
+		_fleet_rows.clear()
 		if popup_name == "new_system" and not _planets.is_empty():
 			# The system's planets, the special's marked (owner, 2026-11-21: nothing said which
 			# planet had the gem deposits, nor listed the planets), each lit with its planet.
@@ -126,8 +127,24 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 				_potentials[int(option.planet)] = option.potential
 		if request.has("potential") and request.has("planet"):
 			_potentials[int(request.planet)] = request.potential
+		# The other sides' ships (the select-combat windows' `fleet`; owner, 2026-11-21: every enemy
+		# fleet and colony on this side, the player's own on the other): under the side's target
+		# row, or a block of their own.
+		var enemies: Array = request.get("fleet", {}).get("enemies", [])
+		var enemies_shown := {}
+		var option_items: Array = request.get("options", [])
+		if not enemies.is_empty() and request.has("options"):
+			option_items = option_items.duplicate(true)
+			for item: Dictionary in option_items:
+				var side := _enemy_side(enemies, int(item.get("fleet_owner", -1)))
+				if not side.is_empty():
+					item["details"] = (item.get("details", []) as Array) + _enemy_lines(side)
+					enemies_shown[int(side.player)] = true
 		if request.has("options"):
-			_extra.add_child(_option_list(request.options, 0 if choose else OPTION_ANSWER, int(request.get("selected", -1))))
+			_extra.add_child(_option_list(option_items, 0 if choose else OPTION_ANSWER, int(request.get("selected", -1))))
+		for side: Dictionary in enemies:
+			if not enemies_shown.has(int(side.get("player", -1))):
+				_extra.add_child(_enemy_fleet_block(side))
 		if not _potentials.is_empty():
 			# The planet card: the hovered planet's (a row, or the planet on the map), else the
 			# first that can be picked, or the one asked about.
@@ -599,6 +616,8 @@ func hover_fleet_owner(owner: int) -> void:
 			continue
 		if id == owner:
 			row.add_theme_color_override("font_color", lit)
+		elif row.has_meta("color"):
+			row.add_theme_color_override("font_color", row.get_meta("color"))
 		else:
 			row.remove_theme_color_override("font_color")
 
@@ -674,10 +693,13 @@ func _option_list(items: Array, base: int, selected: int) -> Control:
 		list.add_child(row)
 		# Lines under the choice (an attack target's planet and defences, as the original's
 		# planet box shows them).
-		for line: String in item.get("details", []):
+		for line in item.get("details", []):
 			var detail := Label.new()
 			detail.theme_type_variation = &"Dim"
-			detail.text = "    " + line
+			if line is Dictionary: # a coloured line (the Battle Scanner's rating)
+				detail.add_theme_color_override("font_color", line.get("color", Color.WHITE))
+				line = String(line.get("text", ""))
+			detail.text = "    " + String(line)
 			detail.add_theme_font_size_override("font_size", 13)
 			detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			detail.custom_minimum_size.x = row.custom_minimum_size.x
@@ -732,6 +754,74 @@ func _special_box(special: Dictionary) -> Control:
 	column.add_child(text)
 	box.add_child(column)
 	return box
+
+
+const STRENGTH_TEXT := {"outmatched": "We are outmatched", "even": "An even fight", "superior": "We are superior"}
+const STRENGTH_COLOR := {"outmatched": Color(0.95, 0.4, 0.35), "even": Color(0.95, 0.85, 0.45), "superior": Color(0.5, 0.9, 0.5)}
+
+
+func _enemy_side(enemies: Array, owner: int) -> Dictionary:
+	if owner < 0:
+		return {}
+	for side: Dictionary in enemies:
+		if int(side.get("player", -1)) == owner:
+			return side
+	return {}
+
+
+## A side's ships as the player sees them from orbit: by hull size, and with Battle Scanner a
+## rough rating (ships only).
+func _enemy_lines(side: Dictionary) -> Array:
+	var parts: Array = []
+	for hull: Dictionary in side.get("hulls", []):
+		parts.append("%d %s" % [int(hull.count), String(hull.name)])
+	var count := int(side.get("ships", 0))
+	var lines: Array = ["%d %s in orbit: %s" % [count, "ship" if count == 1 else "ships", ", ".join(parts)] if not parts.is_empty() else "No ships in orbit"]
+	var strength := String(side.get("strength", ""))
+	if strength != "":
+		lines.append({"text": "Battle Scanner, ships only: %s" % STRENGTH_TEXT.get(strength, strength),
+			"color": STRENGTH_COLOR.get(strength, Color.WHITE)})
+	return lines
+
+
+## An enemy side's fleet with no target row of its own (its colony's rows, or an attacker's): its
+## name in its colour and its ships; hovering it frames its fleets on the map, and back.
+func _enemy_fleet_block(side: Dictionary) -> Control:
+	var block := VBoxContainer.new()
+	block.add_theme_constant_override("separation", 2)
+	var owner := int(side.get("player", -1))
+	var head := Button.new()
+	head.theme_type_variation = &"ListItem"
+	head.focus_mode = Control.FOCUS_NONE
+	head.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	head.text = "%s fleet" % String(side.get("name", ""))
+	head.custom_minimum_size = Vector2(bare_width if bare_width > 0.0 else 320.0, 28)
+	head.flat = bare_width > 0.0
+	if bare_width > 0.0:
+		_outline(head)
+	var color := int(side.get("color", -1))
+	if color >= 0:
+		head.add_theme_color_override("font_color", preload("../galaxy.gd").PLAYER_COLORS[color % 8])
+		head.set_meta("color", preload("../galaxy.gd").PLAYER_COLORS[color % 8])
+	if owner >= 0:
+		_fleet_rows[owner] = head
+		head.mouse_entered.connect(func(): fleet_row_hovered.emit(owner))
+		head.mouse_exited.connect(func(): fleet_row_hovered.emit(-1))
+	block.add_child(head)
+	for line in _enemy_lines(side):
+		var label := Label.new()
+		label.theme_type_variation = &"Dim"
+		if line is Dictionary:
+			label.add_theme_color_override("font_color", line.get("color", Color.WHITE))
+			line = String(line.get("text", ""))
+		label.text = "    " + String(line)
+		label.add_theme_font_size_override("font_size", 13)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.custom_minimum_size.x = head.custom_minimum_size.x
+		if bare_width > 0.0:
+			_outline(label)
+		block.add_child(label)
+	return block
 
 
 ## A just-visited system's planets (the scouts' window): name, size, climate and minerals, a

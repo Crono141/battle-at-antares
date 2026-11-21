@@ -11,12 +11,9 @@ extends PanelContainer
 
 const WIDTH := 470.0
 const TEXT_WIDTH := 370.0 # wrapped lines' width (measured before layout, a wrapped label is one word wide)
-const STRENGTH_TEXT := {"outmatched": "We are outmatched", "even": "An even fight", "superior": "We are superior"}
-const STRENGTH_COLOR := {"outmatched": Color(0.95, 0.4, 0.35), "even": Color(0.95, 0.85, 0.45), "superior": Color(0.5, 0.9, 0.5)}
 
 var art: Node
 var fleet := {}
-var _enemies: VBoxContainer
 var _colonies: VBoxContainer
 var _rows: VBoxContainer
 var _detail: VBoxContainer
@@ -30,9 +27,6 @@ func _ready() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
 	add_child(box)
-	_enemies = VBoxContainer.new()
-	_enemies.add_theme_constant_override("separation", 4)
-	box.add_child(_enemies)
 	_colonies = VBoxContainer.new()
 	_colonies.add_theme_constant_override("separation", 4)
 	box.add_child(_colonies)
@@ -72,7 +66,6 @@ func _ready() -> void:
 func open(data: Dictionary, left: float, top: float, height: float, right_limit := INF) -> void:
 	fleet = data
 	_picked = -1
-	_fill_enemies()
 	_fill_colonies()
 	_fill_rows()
 	var ships: Array = data.get("ships", [])
@@ -89,47 +82,6 @@ func close() -> void:
 	fleet = {}
 
 
-func _fill_enemies() -> void:
-	for child in _enemies.get_children():
-		_enemies.remove_child(child)
-		child.queue_free()
-	if not (fleet.get("enemies", []) as Array).is_empty():
-		var heading := Label.new()
-		heading.theme_type_variation = &"Heading"
-		heading.text = "Opposing Forces"
-		heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_enemies.add_child(heading)
-	for side: Dictionary in fleet.get("enemies", []):
-		var name_label := Label.new()
-		name_label.theme_type_variation = &"Name"
-		name_label.text = String(side.get("name", ""))
-		var color := int(side.get("color", -1))
-		if color >= 0:
-			name_label.add_theme_color_override("font_color", preload("../galaxy.gd").PLAYER_COLORS[color % 8])
-		_enemies.add_child(name_label)
-		var parts: Array = []
-		for hull: Dictionary in side.get("hulls", []):
-			parts.append("%d %s" % [int(hull.count), String(hull.name)])
-		var ships_line := Label.new()
-		ships_line.theme_type_variation = &"Dim"
-		ships_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		ships_line.custom_minimum_size.x = TEXT_WIDTH
-		var count := int(side.get("ships", 0))
-		ships_line.text = "%d %s in orbit: %s" % [count, "ship" if count == 1 else "ships", ", ".join(parts)] if not parts.is_empty() else "No ships in orbit"
-		_enemies.add_child(ships_line)
-		var strength := String(side.get("strength", ""))
-		if strength != "":
-			var band := Label.new()
-			band.text = "Battle Scanner, ships only: %s" % STRENGTH_TEXT.get(strength, strength) # not the planet's defences
-			band.add_theme_color_override("font_color", STRENGTH_COLOR.get(strength, Color.WHITE))
-			_enemies.add_child(band)
-	if not (fleet.get("enemies", []) as Array).is_empty():
-		var gap := HSeparator.new()
-		_enemies.add_child(gap)
-
-
-## The player's colonies at the star with their defences (owner, 2026-11-21: "you are attacked"
-## showed the fleet but not the planets' defences).
 func _fill_colonies() -> void:
 	for child in _colonies.get_children():
 		_colonies.remove_child(child)
