@@ -782,6 +782,7 @@ namespace godot {
         d["height"] = height_;
         // How often a legacy screen has polled for input: one that polls waits for the player.
         d["input_polls"] = (int64_t)antares::native::Polls();
+        d["legacy_combat"] = antares::native::In_Legacy_Combat(); // a tactical combat is on (the smoke)
         return d;
     }
 

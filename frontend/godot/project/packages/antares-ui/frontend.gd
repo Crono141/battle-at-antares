@@ -4039,6 +4039,79 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--selfdestruct":
+			# Owner, 2026-11-20: SELF DESTRUCT in a combat froze, then crashed. The turn's end into
+			# the combat (questions answered), then the button (combat1.cpp: 283,348) and Enter.
+			await _smoke_clear_todo()
+			_send({"verb": "end_turn"})
+			var waited := 0.0
+			while not bool(game.get_stats().get("legacy_combat", false)) and waited < 120.0:
+				_smoke_answer()
+				await get_tree().create_timer(0.25).timeout
+				waited += 0.25
+			print("smoke: selfdestruct: in combat %s after %.1f s" % [game.get_stats().get("legacy_combat", false), waited])
+			if not bool(game.get_stats().get("legacy_combat", false)):
+				await host.smoke_fail("no combat came")
+				return
+			await get_tree().create_timer(4.0).timeout
+			var polls: int = int(game.get_stats().get("input_polls", 0))
+			var t_wait := 0.0
+			while int(game.get_stats().get("input_polls", 0)) == polls and t_wait < 30.0: # the combat waits for orders
+				await get_tree().create_timer(0.25).timeout
+				t_wait += 0.25
+			if shots != "":
+				await host.shot(shots + "/selfdestruct-combat.png")
+			var rect := legacy.get_global_rect()
+			var at := (rect.position + Vector2(290.0, 352.0) * rect.size / Vector2(640.0, 480.0)) * get_window().content_scale_factor
+			print("smoke: selfdestruct: clicking %s (legacy rect %s)" % [at, rect])
+			_smoke_mouse(true, at)
+			await get_tree().create_timer(0.15).timeout
+			_smoke_mouse(false, at)
+			for i in 20:
+				await get_tree().create_timer(0.5).timeout
+				print("smoke: selfdestruct: %.1f s: frames %d polls %d" % [i * 0.5, int(game.get_stats().frames), int(game.get_stats().get("input_polls", 0))])
+			if shots != "":
+				await host.shot(shots + "/selfdestruct-after.png")
+			game.send_key(KEY_ENTER, false, false, false)
+			await get_tree().create_timer(3.0).timeout
+			print("smoke: selfdestruct: after Enter frames %d polls %d" % [int(game.get_stats().frames), int(game.get_stats().get("input_polls", 0))])
+			if shots != "":
+				await host.shot(shots + "/selfdestruct-enter.png")
+			var sd_frames := 0
+			# The battlestation's turn: OPTIONS, then SELF DESTRUCT, then YES (owner's save,
+			# work/fixtures/owner-2026-11-20-selfdestruct, as SAVE10).
+			var options_at := (rect.position + Vector2(332.0, 456.0) * rect.size / Vector2(640.0, 480.0)) * get_window().content_scale_factor
+			_smoke_mouse(true, options_at)
+			await get_tree().create_timer(0.15).timeout
+			_smoke_mouse(false, options_at)
+			await get_tree().create_timer(1.5).timeout
+			if shots != "":
+				await host.shot(shots + "/selfdestruct-options.png")
+			var sd_at := (rect.position + Vector2(OS.get_environment("SD_X").to_float() if OS.get_environment("SD_X") != "" else 290.0,
+				OS.get_environment("SD_Y").to_float() if OS.get_environment("SD_Y") != "" else 352.0) * rect.size / Vector2(640.0, 480.0)) * get_window().content_scale_factor
+			_smoke_mouse(true, sd_at)
+			await get_tree().create_timer(0.15).timeout
+			_smoke_mouse(false, sd_at)
+			for i in 30:
+				await get_tree().create_timer(0.5).timeout
+				print("smoke: selfdestruct 2: %.1f s: frames %d polls %d combat %s" % [i * 0.5, int(game.get_stats().frames), int(game.get_stats().get("input_polls", 0)),
+					game.get_stats().get("legacy_combat", false)])
+				if i == 4 and shots != "":
+					await host.shot(shots + "/selfdestruct-2.png")
+				if i == 5: # YES
+					var yes_at := (rect.position + Vector2(260.0, 314.0) * rect.size / Vector2(640.0, 480.0)) * get_window().content_scale_factor
+					_smoke_mouse(true, yes_at)
+					await get_tree().create_timer(0.15).timeout
+					_smoke_mouse(false, yes_at)
+				if i == 12 and shots != "":
+					await host.shot(shots + "/selfdestruct-yes.png")
+				if i == 8:
+					sd_frames = int(game.get_stats().frames)
+			if int(game.get_stats().frames) <= sd_frames:
+				await host.smoke_fail("the combat stopped after SELF DESTRUCT")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--build-turns":
 			# The build time on hover (owner, 2026-11-20): colonists moved into industry with the
 			# build pane open shorten the hovered item's time.
