@@ -108,11 +108,14 @@ func set_bottom_clear(room: float) -> void:
 ## Its left edge at `x` (the colony pane's actual right edge plus the gap: that pane grows with its
 ## contents), its right edge no further than `right` (the side tabs) or the screen's inset.
 func place_at(x: float, right := INF) -> void:
-	offset_left = x
 	var edge := get_viewport_rect().size.x - get_theme_constant("inset", "Screen") - get_theme_constant("pane_gap", "Screen")
-	var room := minf(edge, right) - x
-	offset_right = x + clampf(room, 0.0, WIDTH)
+	var width := clampf(minf(edge, right) - x, 0.0, WIDTH)
 	_shown_left = x
+	if _tween and _tween.is_running():
+		offset_right = offset_left + width # mid-slide: the slide carries it to x
+	else:
+		offset_left = x
+		offset_right = x + width
 
 
 ## Opens on a colony's queue (`bought`: its front item is bought and stays first).
@@ -900,7 +903,12 @@ func _slide(opening: bool) -> void:
 		modulate.a = 0.0
 		preload("../themes.gd").move_x(self, hidden_x)
 	_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_method(func(x: float): preload("../themes.gd").move_x(self, x), position.x, _shown_left if opening else hidden_x, SLIDE_TIME)
+	# Towards where it rests now, not where it rested when the slide began: place_at moves it while
+	# it slides in (the colony pane beside it widened as its colony's rows came).
+	var from_x := position.x
+	_tween.tween_method(func(t: float):
+		var to_x := _shown_left if opening else _shown_left - 80.0
+		preload("../themes.gd").move_x(self, lerpf(from_x, to_x, t)), 0.0, 1.0, SLIDE_TIME)
 	_tween.tween_property(self, "modulate:a", 1.0 if opening else 0.0, SLIDE_TIME)
 	if not opening:
 		_tween.chain().tween_callback(func():
