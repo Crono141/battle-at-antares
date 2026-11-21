@@ -10,6 +10,10 @@
 namespace TEST_EMPIRE_PANEL {
     extern int dismissed;
     extern int assigned;
+    extern int confirmations;
+    extern int16_t answer;
+    extern int8_t ship_eta;
+    extern int recalculations;
 } // namespace TEST_EMPIRE_PANEL
 
 namespace {
@@ -72,4 +76,63 @@ DOCTEST_TEST_CASE("the Races panel's spies, ignore and war, the Leaders panel's 
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"leader_dismiss\",\"leader\":3}"), "\"dismissed\":true"));
     DOCTEST_CHECK(TEST_EMPIRE_PANEL::dismissed == 1);
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"leader_pool\",\"leader\":7}"), "bad_args")); // not the player's
+}
+
+DOCTEST_TEST_CASE("assign_officer asks the officer screen's questions in plain boxes, then assigns (the remote crash)") {
+    for (auto& p : e_players_) {
+        p = s_player{};
+    }
+    MOX::player = e_players_;
+    MOX::NUM_PLAYERS = 3;
+    MOX::PLAYER_NUM = 0;
+    MOX::current_screen = SCREEN_MAIN;
+    for (auto& l : e_leaders_) {
+        l = s_leader_data{};
+        l.player_index = -1;
+        l.status = -1;
+        l.location = -1;
+    }
+    MOX::leaders = e_leaders_;
+    for (auto& sh : e_ships_) {
+        sh = s_ship_data{};
+        sh.owner = 1;
+        sh.officer_index = -1;
+    }
+    MOX::ship = e_ships_;
+    MOX::NUM_SHIPS = 6;
+    // Officer 4 in the pool; ship 2 the player's, no officer; ship 3 the player's, officer 5 on it.
+    e_leaders_[4].player_index = 0;
+    e_leaders_[4].type = LEADER_TYPE_SHIP;
+    e_leaders_[4].status = 0;
+    e_leaders_[5] = e_leaders_[4];
+    e_leaders_[5].status = 1;
+    e_leaders_[5].location = 3;
+    e_ships_[2].owner = 0;
+    e_ships_[3].owner = 0;
+    e_ships_[3].officer_index = 5;
+    TEST_EMPIRE_PANEL::assigned = 0;
+    TEST_EMPIRE_PANEL::confirmations = 0;
+    TEST_EMPIRE_PANEL::recalculations = 0;
+    TEST_EMPIRE_PANEL::answer = 1;
+    // A remote ship: the turns question, answered Yes: assigned, both fleets recalculated.
+    TEST_EMPIRE_PANEL::ship_eta = 5;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"assign_officer\",\"leader\":4,\"ship\":2}"), "\"assigned\":true"));
+    DOCTEST_CHECK(TEST_EMPIRE_PANEL::confirmations == 1);
+    DOCTEST_CHECK(TEST_EMPIRE_PANEL::assigned == 1);
+    DOCTEST_CHECK(TEST_EMPIRE_PANEL::recalculations == 2);
+    const int16_t on_two = e_ships_[2].officer_index; // copies: the structs are packed
+    const int8_t eta = e_leaders_[4].eta;
+    DOCTEST_CHECK(on_two == 4);
+    DOCTEST_CHECK(eta == 5);
+    // A ship with an officer: a second question about the one there.
+    TEST_EMPIRE_PANEL::confirmations = 0;
+    TEST_EMPIRE_PANEL::ship_eta = 0;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"assign_officer\",\"leader\":4,\"ship\":3}"), "\"assigned\":true"));
+    DOCTEST_CHECK(TEST_EMPIRE_PANEL::confirmations == 2);
+    // Answered No: nothing changes.
+    TEST_EMPIRE_PANEL::answer = 0;
+    TEST_EMPIRE_PANEL::assigned = 0;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"assign_officer\",\"leader\":5,\"ship\":2}"), "\"assigned\":false"));
+    DOCTEST_CHECK(TEST_EMPIRE_PANEL::assigned == 0);
+    TEST_EMPIRE_PANEL::answer = 1;
 }

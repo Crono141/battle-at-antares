@@ -8,6 +8,9 @@ namespace TEST_EMPIRE_PANEL {
     int dismissed = 0;
     int assigned = 0;
     int confirmations = 0;
+    int16_t answer = 1;  // what the confirmation boxes answer (0: No)
+    int8_t ship_eta = 0; // Get_Ship_Leader_ETA's answer
+    int recalculations = 0;
 } // namespace TEST_EMPIRE_PANEL
 
 namespace MOX {
@@ -43,7 +46,7 @@ namespace BILL {
 namespace GENDRAW {
     int16_t __cdecl Confirmation_Box(const char*) {
         ++TEST_EMPIRE_PANEL::confirmations;
-        return 1;
+        return TEST_EMPIRE_PANEL::answer;
     }
 } // namespace GENDRAW
 
@@ -59,9 +62,14 @@ namespace JIM {
 } // namespace JIM
 
 namespace OFFICER {
-    void __cdecl Assign_Captain(int16_t leader_idx, int16_t ship_idx) {
+    int8_t __cdecl Get_Ship_Leader_ETA(int16_t, int16_t, int16_t) {
+        return TEST_EMPIRE_PANEL::ship_eta;
+    }
+    void __cdecl Assign_Leader_To_Ship(s_player*, s_leader_data* leader, s_ship_data* ship, int8_t eta) {
         ++TEST_EMPIRE_PANEL::assigned;
-        MOX::ship[ship_idx].officer_index = leader_idx;
+        ship->officer_index = (int16_t)(leader - MOX::leaders);
+        leader->location = (int16_t)(ship - MOX::ship);
+        leader->eta = eta;
     }
     void __cdecl Dismiss_Officer(int16_t leader_idx) {
         ++TEST_EMPIRE_PANEL::dismissed;
@@ -83,6 +91,9 @@ namespace OFFICER {
 namespace SHIPMOVE {
     bool __cdecl Confirm_Officer_Change(int16_t, int16_t, int8_t) {
         return true;
+    }
+    void __cdecl Recalculate_Moving_Fleet(int16_t) {
+        ++TEST_EMPIRE_PANEL::recalculations;
     }
 } // namespace SHIPMOVE
 
