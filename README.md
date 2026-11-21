@@ -8,7 +8,7 @@ Orion II engine, in the way [Augustus](https://github.com/Keriew/augustus) is to
 
 ![The galaxy map](docs/screenshots/galaxy.jpg)
 
-**Version 0.6.1** for Windows, Linux and (experimental) Apple Silicon macOS is on the
+**Version 0.6.2** for Windows, Linux and (experimental) Apple Silicon macOS is on the
 [releases page](https://github.com/Crono141/battle-at-antares/releases). You need your own copy of
 Master of Orion II 1.31 (GOG or Steam).
 
