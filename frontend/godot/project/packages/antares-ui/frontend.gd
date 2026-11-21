@@ -4033,6 +4033,39 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--build-turns":
+			# The build time on hover (owner, 2026-11-20): colonists moved into industry with the
+			# build pane open shorten the hovered item's time.
+			var c: Dictionary = await _query_args({"what": "colony", "colony": 0})
+			_open_colony_at(int(c.star), 0, false)
+			await get_tree().create_timer(1.5).timeout
+			_open_build_pane(0, false)
+			await get_tree().create_timer(1.5).timeout
+			var build := _view("build_pane")
+			var dearest := {}
+			for item: Dictionary in build.options.buildings + build.options.units:
+				if int(item.get("cost", 0)) > int(dearest.get("cost", 0)):
+					dearest = item
+			build._show_detail(dearest)
+			await get_tree().create_timer(0.5).timeout
+			var before: String = build._cost_label.text
+			var industry_before: int = build._cost_label.get_meta("industry", -1)
+			var moved := 0
+			for job: Dictionary in c.jobs:
+				if int(job.job) != 1:
+					for p: Dictionary in job.colonists:
+						var r: Dictionary = await _command({"verb": "move_colonist", "colony": 0, "pop": int(p.pop), "job": 1}, true)
+						moved += int(r.get("count", 0))
+			build._show_detail(dearest)
+			await get_tree().create_timer(0.5).timeout
+			var after: String = build._cost_label.text
+			print("smoke: build turns: industry %d -> %d" % [industry_before, int(build._cost_label.get_meta("industry", -1))])
+			print("smoke: build turns for '%s': before '%s', %d colonists to industry, after '%s'" % [dearest.get("name", ""), before, moved, after])
+			if moved == 0 or before == after:
+				await host.smoke_fail("the build time did not follow the colony's production")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--colony-base":
 			# Owner, 2026-11-20: Colony Base is offered while the system's free planets outnumber
 			# the Colony Bases in the queue being edited.

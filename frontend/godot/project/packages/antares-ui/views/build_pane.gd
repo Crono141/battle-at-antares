@@ -788,8 +788,26 @@ func _on_splitter_input(event: InputEvent) -> void:
 		_splitter.accept_event()
 
 
+func _show_turns(result: Dictionary) -> void:
+	if not result.get("ok", false) or int(result.get("item", -1)) != _cost_item or int(result.get("colony", -1)) != colony_id \
+			or not is_instance_valid(_cost_label) or not result.has("turns"):
+		return
+	_cost_label.text = "Cost here %s · Build time %d" % [_thousands(int(result.cost)), int(result.turns)]
+	_cost_label.set_meta("industry", int(result.get("industry", -1)))
+	if _names.has(_cost_item):
+		_names[_cost_item]["turns"] = int(result.turns)
+
+
+## The detail box's cost line, and its item: the build time is asked for on each hover, at the
+## colony's production now (owner, 2026-11-20: colonists moved with the pane open change it).
+var _cost_label: Label
+var _cost_item := -1
+
+
 ## The detail box: picture, name, cost here, build time, upkeep; a design's parts.
 func _show_detail(item: Dictionary) -> void:
+	_cost_label = null
+	_cost_item = -1
 	for child in detail.get_children():
 		detail.remove_child(child)
 		child.queue_free()
@@ -820,12 +838,16 @@ func _show_detail(item: Dictionary) -> void:
 		var specials: Array = item.get("specials", []).map(func(w: Dictionary) -> String: return w.text)
 		if not specials.is_empty():
 			lines.append(", ".join(specials))
-	for text in lines:
+	for i in lines.size():
 		var l := Label.new()
 		l.theme_type_variation = &"Dim"
-		l.text = text
+		l.text = lines[i]
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		detail.add_child(l)
+		if i == 0 and not item.has("refit_cost") and item.has("cost") and item.has("id"):
+			_cost_label = l
+			_cost_item = int(item.id)
+			command.emit({"verb": "query", "what": "build_turns", "colony": colony_id, "item": _cost_item, "_reply_to": "_show_turns"})
 	var description := String(item.get("description", "")).strip_edges()
 	if description != "":
 		var gap := Control.new()

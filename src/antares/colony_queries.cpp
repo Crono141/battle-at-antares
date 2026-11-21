@@ -1092,6 +1092,35 @@ namespace antares::commands::internal {
         // What CHANGE offers (COLBLDG::Build_Arrays for the colony, as the popup opens): Buildings
         // (trade goods, housing, the buildable buildings by name) and Units (in the popup's order,
         // separators kept), with the queue and the auto build switch.
+        // One item's build time at the colony's production now (owner, 2026-11-20: the build
+        // pane's estimate was the one from when it opened; colonists moved since change it). The
+        // pane asks on hover.
+        void Query_Build_Turns(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            int64_t id = -1;
+            if (!args.Int("colony", &colony_id) || !args.Int("item", &id) || id < INT16_MIN || id > INT16_MAX) { // ships are negative
+                out.Fail("bad_args", "colony: one of the player's colonies; item: a build item");
+                return;
+            }
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            const int16_t c = (int16_t)colony_id;
+            out.Int("colony", c);
+            out.Int("item", id);
+            if (id == COLONY_PRODUCTION_HOUSING || id == COLONY_PRODUCTION_TRADE_GOODS || id == COLONY_PRODUCTION_NONE) {
+                return;
+            }
+            s_build_scope scope(c);
+            COLBLDG::Build_Arrays();
+            out.Int("cost", COLCALC::Colony_Product_Cost(&MOX::colony[c], (int16_t)id));
+            out.Int("turns", COLONY::Calculate_Colony_Turn_Count_From_Scrap_For_Prod(c, (int16_t)id));
+            out.Int("industry", MOX::colony[c].production[ECON_INDUSTRY]);
+        }
+
         void Query_Build_Options(int16_t, const s_args& args, s_out& out) {
             if (!Have_Game(out)) {
                 return;
@@ -1362,6 +1391,7 @@ namespace antares::commands::internal {
         table->push_back({"buy", e_kind::command, galaxy, 0, "colony", Buy});
         table->push_back({"set_occupation", e_kind::command, galaxy, 0, "colony, annihilate", Set_Occupation});
         table->push_back({"build_options", e_kind::query, ANY_SCREEN, 1, "colony", Query_Build_Options});
+        table->push_back({"build_turns", e_kind::query, ANY_SCREEN, 1, "colony, item", Query_Build_Turns});
         table->push_back({"build_commit", e_kind::command, galaxy, 0, "colony, edits [{add, repeat} / {delete} / {move} / {refit, design}], auto", Build_Commit});
     }
 
