@@ -224,13 +224,17 @@ func _slot(r: Dictionary) -> Control:
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(frame)
 	var portrait: TextureRect = preload("sprite_rect.gd").new()
-	portrait.custom_minimum_size = Vector2(card_height * 76.0 / 88.0, card_height) # RACES.LBX's 76x88
+	portrait.custom_minimum_size = Vector2(card_height * 290.0 / 322.0, card_height) # RACESEL.LBX's 290x322
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	portrait.bind(art)
 	if met or eliminated:
-		portrait.show_sprite("RACES.LBX", int(r.portrait))
+		var large: Dictionary = r.get("portrait_large", {})
+		if large.is_empty():
+			portrait.show_sprite("RACES.LBX", int(r.portrait))
+		else:
+			portrait.show_sprite(String(large.lbx), int(large.entry)) # the race select screen's, sharper
 	frame.add_child(portrait)
 	if eliminated:
 		var sign_rect: TextureRect = preload("sprite_rect.gd").new()

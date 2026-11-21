@@ -240,6 +240,11 @@ namespace antares::commands::internal {
                 item.Str("race", Utf8(other.race_name, sizeof(other.race_name)));
                 item.Int("race_id", (uint8_t)other.race);
                 item.Int("portrait", (uint8_t)other.race + 32); // races.lbx
+                // The race select screen's portrait (owner, 2026-11-20: the cards upscaled the 76x88
+                // one), as the report's: RACESEL.LBX 15 + race, 290x322, HD at most 2x.
+                s_out large = item.Add_Object("portrait_large");
+                large.Str("lbx", "RACESEL.LBX:2");
+                large.Int("entry", 15 + (uint8_t)other.race);
                 item.Int("color", other.color);
                 item.Bool("eliminated", other.eliminated != 0);
                 item.Bool("contact", player.contact[p] != 0);
