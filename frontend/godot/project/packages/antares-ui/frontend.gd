@@ -845,7 +845,18 @@ func apply_theme(id: String, remember := true) -> void:
 	if _views.has("options_menu"):
 		_views.options_menu.show_themes(_themes, theme_id)
 	print("frontend: theme %s" % (built.get("name", "?")))
+	_rescale_for_theme()
 	_reflow_open_panes()
+
+
+## The scale again under a new theme (owner, 2026-11-20: 130% on Glass stayed 130% on Chrome, whose
+## taller side tabs hold 125% at most, and buttons ran off the bottom): once the tabs are laid out
+## in the theme, the wanted scale held to what it holds. The player's saved choice is kept, so
+## the old theme gets it back.
+func _rescale_for_theme() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	set_ui_scale(_wanted_ui_scale(), false)
 
 
 func _views_dir() -> String:
@@ -6308,6 +6319,15 @@ func _smoke_queue_drag(shots: String) -> void:
 	var overlaps := []
 	_scene()
 	_research_picker() # the overlay's windows follow the theme (owner, 2026-11-20: the discovery window stayed Glass)
+	var saved_scale := Themes.saved_ui_scale()
+	if OS.get_environment("SMOKE_SCALE") != "": # a player's scale near the limit (owner: 130% on Glass, then Chrome)
+		var wide := OS.get_environment("SMOKE_WINDOW").split("x")
+		if wide.size() == 2:
+			get_window().size = Vector2i(int(wide[0]), int(wide[1]))
+			await get_tree().create_timer(0.5).timeout
+		Themes.save_ui_scale(float(OS.get_environment("SMOKE_SCALE")) * 100.0)
+		set_ui_scale(_wanted_ui_scale(), false)
+		await get_tree().create_timer(0.3).timeout
 	for entry: Dictionary in _themes + [{"id": first_theme}]:
 		if entry.id == theme_id:
 			continue
@@ -6318,9 +6338,14 @@ func _smoke_queue_drag(shots: String) -> void:
 		print("smoke: theme %s with the build pane open: colony right %.0f, build left %.0f" % [entry.id, colony_right, build_left])
 		if colony_view.visible and build_left < colony_right - 1.0:
 			overlaps.append(entry.id)
+		await get_tree().create_timer(0.2).timeout
+		print("smoke: theme %s scale %.0f%%, largest %.0f%%" % [entry.id, get_window().content_scale_factor * 100.0, max_ui_scale()])
+		if get_window().content_scale_factor * 100.0 > max_ui_scale() + 0.5:
+			overlaps.append("%s: the scale stayed over the theme's largest" % entry.id)
 		if _scene_window.theme != native_layer.theme or _picker.theme != native_layer.theme:
 			overlaps.append("%s: the discovery window or research picker kept the old theme" % entry.id)
-	print("smoke: theme back to %s (started on %s)" % [theme_id, first_theme])
+	print("smoke: theme back to %s (started on %s), scale %.0f%%" % [theme_id, first_theme, get_window().content_scale_factor * 100.0])
+	Themes.save_ui_scale(saved_scale)
 	if not overlaps.is_empty():
 		await host.smoke_fail("the build pane overlapped the colony pane after a theme change: %s" % [overlaps])
 		return
