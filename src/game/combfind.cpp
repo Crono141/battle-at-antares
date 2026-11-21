@@ -2,6 +2,7 @@
 #include "legacy_ids.h"
 
 #include "antares/cosmetic_random.h"
+#include "antares/native.h"
 #include "antares/rules_trace.h"
 
 namespace COMBFIND {
@@ -2173,7 +2174,14 @@ namespace COMBFIND {
                             } else if (has_stellar) {
                                 results->info.planet_destroyed_flag = 1;
                                 terminal_destroyed = 1;
+                                const int16_t destroyed_planet = colony->planet;
+                                const uint8_t destroyed_outpost = (uint8_t)colony->outpost_flag;
                                 BOMB::Destroy_Colony(colony, 2);
+                                if (MOX::player[colony_owner].objectives == PLAYER_OBJECTIVE_HUMAN &&
+                                    (MOX::settings.strategic_combat_flag == 0 || (MOX::game_type != 2 && MOX::game_type != 3) ||
+                                        MOX::player[colony_owner].network_player_id == NETMOX::net.local_net_id)) {
+                                    antares::native::Planet_Destroyed_Notice(destroyed_planet, destroyed_outpost); // Antares: it showed nothing
+                                }
                             } else {
                                 BOMB::Apply_Bomb_Hits(&results->bomb);
                             }

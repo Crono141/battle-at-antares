@@ -148,6 +148,13 @@ namespace antares::native {
     // The select-combat window's sides at `star` (the combat_fleet query), as a request field
     // ',"fleet":{...}': the game answers no queries while a popup waits, so it comes with it.
     std::string Combat_Fleet_Field(int16_t star, const std::vector<int16_t>& sides);
+    // A colony's orbital and planetary defences, the planetary shield included (the select-combat
+    // window's targets and the player's own colonies in it), by building name.
+    std::vector<std::string> Colony_Defences(int16_t colony);
+    // An enemy's stellar converter destroyed the player's colony on `planet` after a combat
+    // (combfind.cpp): the destruction film and the lost-colony message at once, as the player's
+    // own destruction of a planet and the network path show it (owner, 2026-11-21: nothing showed).
+    void Planet_Destroyed_Notice(int16_t planet, uint8_t outpost);
 
     // Requests from the game's generic dialogs (WP3.2b). Each returns true when the frontend
     // answered, so the legacy popup is skipped; false when no frontend claimed that kind.

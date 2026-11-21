@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "antares/native.h"
 #include "game/legacy_ids.h"
 #include "yyjson.h"
 
@@ -179,6 +180,28 @@ namespace antares::commands::internal {
                     if (p != player) {
                         ours[p] += AIPOWER::Ship_Strength_Vs_Ships(&game::current, legacy_world::Ship_Id(i), legacy_world::Player_Id(p));
                     }
+                }
+            }
+            // The player's own colonies here and their defences (owner, 2026-11-21: "you are
+            // attacked" showed the fleet but not the planets' defences).
+            s_out colonies = out.Add_List("colonies");
+            const size_t orbits = sizeof(MOX::star[star].planet_index) / sizeof(MOX::star[star].planet_index[0]);
+            for (size_t orbit = 0; orbit < orbits; ++orbit) {
+                const int16_t p = MOX::star[star].planet_index[orbit]; // a copy: the packed star's fields are unaligned
+                if (p < 0 || p >= MOX::planet_count) {
+                    continue;
+                }
+                const int16_t colony = MOX::planet[p].colony_index;
+                if (colony < 0 || colony >= MOX::NUM_COLONIES || MOX::colony[colony].owner != player) {
+                    continue;
+                }
+                s_out item = colonies.Append_Object();
+                item.Int("colony", colony);
+                item.Int("planet", p);
+                item.Str("name", Utf8(HACCESS::Get_Planet_Name(p), 40));
+                s_out defences = item.Add_List("defences");
+                for (const std::string& name : antares::native::Colony_Defences(colony)) {
+                    defences.Append_Object().Str("name", Utf8(name.c_str(), name.size()));
                 }
             }
             s_out sides = out.Add_List("enemies");

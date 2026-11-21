@@ -4204,8 +4204,11 @@ func _smoke_native() -> void:
 			await get_tree().create_timer(1.5).timeout
 			var pa_fleet: bool = _combat_fleet != null and _combat_fleet.visible
 			var pa_beside: bool = _views.dialog.placement == "beside" and galaxy.system_star == home
-			print("smoke: attacked message at %d: shown %s, beside its system %s, fleet window %s, text '%s'" % [home, _views.dialog.visible, pa_beside,
-				pa_fleet, _views.dialog.get_node("Fit/Box/Text").text.left(80)])
+			# Owner, 2026-11-21: the player's colonies there and their defences show too.
+			var pa_colonies: Array = _combat_fleet.fleet.get("colonies", []) if _combat_fleet != null else []
+			var pa_defences: bool = not pa_colonies.is_empty() and _combat_fleet._colonies.get_child_count() > 0
+			print("smoke: attacked message at %d: shown %s, beside its system %s, fleet window %s, colonies %s, text '%s'" % [home, _views.dialog.visible, pa_beside,
+				pa_fleet, JSON.stringify(pa_colonies).left(200), _views.dialog.get_node("Fit/Box/Text").text.left(80)])
 			if shots != "":
 				await host.shot(shots + "/player-attacked.png")
 			_views.dialog._answer(0)
@@ -4213,8 +4216,8 @@ func _smoke_native() -> void:
 				await get_tree().create_timer(0.1).timeout
 				if pa.has("r"):
 					break
-			if not pa_fleet or not pa_beside or not pa.has("r"):
-				await host.smoke_fail("the attacked message did not show beside its system with the fleet")
+			if not pa_fleet or not pa_beside or not pa_defences or not pa.has("r"):
+				await host.smoke_fail("the attacked message did not show beside its system with the fleet and the colonies' defences")
 				return
 			game.request_game_quit()
 			return

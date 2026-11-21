@@ -309,6 +309,7 @@ namespace SYS {
 
 // preview_popup (popup_preview.cpp, WP3.4c): the legacy windows it shows answer nothing in tests.
 s_combfind_target COMBFIND::target{};
+uint8_t COMBFIND::messed_up_fleet_palette = 0;
 namespace EVENTS {
     void Preview_Native_Gnn(int16_t, int16_t, int16_t) {}
 } // namespace EVENTS
@@ -395,6 +396,7 @@ namespace MSG_ {
 
 namespace ERIC {
     void __cdecl Play_Amoeba_Flic() {} // popup_preview's "film" (WP3.11b)
+    void __cdecl Play_Planetary_Destruction_Flic() {} // native Planet_Destroyed_Notice
 } // namespace ERIC
 
 namespace ANTAROOM {

@@ -840,6 +840,37 @@ namespace antares::native {
             "{\"verb\":\"query\",\"what\":\"combat_fleet\",\"star\":" + std::to_string(star) + ",\"sides\":[" + list + "]}");
     }
 
+    std::vector<std::string> Colony_Defences(int16_t colony) {
+        std::vector<std::string> names;
+        if (colony < 0 || colony >= MOX::NUM_COLONIES) {
+            return names;
+        }
+        for (const int16_t building : {(int16_t)BUILDING_STAR_FORTRESS, (int16_t)BUILDING_STAR_BASE, (int16_t)BUILDING_BATTLESTATION,
+                 (int16_t)BUILDING_MISSILE_BASE, (int16_t)BUILDING_GROUND_BATTERIES, (int16_t)BUILDING_STELLAR_CONVERTER,
+                 (int16_t)BUILDING_FIGHTER_GARRISON, (int16_t)BUILDING_BARRIER_SHIELD, (int16_t)BUILDING_FLUX_SHIELD,
+                 (int16_t)BUILDING_RADIATION_SHIELD}) {
+            if (MOX::colony[colony].buildings[building] != 0) {
+                names.push_back(TECHDATA::buildings[building].name);
+            }
+        }
+        return names;
+    }
+
+    void Planet_Destroyed_Notice(int16_t planet, uint8_t outpost) {
+        ERIC::Play_Planetary_Destruction_Flic();
+        COMBFIND::messed_up_fleet_palette = 1;
+        s_MSG msg;
+        memset(&msg, 0, sizeof(s_MSG));
+        msg.msg_type = MSG_TYPE_LOST_COLONY;
+        msg.u.lost_colony.planet_idx = planet;
+        msg.u.lost_colony.reason = 2; // destroyed (Destroy_Colony's reason for a stellar converter)
+        msg.u.lost_colony.leader_idx = -1;
+        msg.u.lost_colony.colony_or_outpost = outpost;
+        char text[600];
+        MSG_::sprintf_msg(text, sizeof(text), &msg);
+        GENDRAW::Message_Box(text);
+    }
+
     bool Message(const char* title, const char* raw_text, uint16_t timeout_ticks) {
         if (!Claimed_Kind(KIND_MESSAGE)) {
             return false;

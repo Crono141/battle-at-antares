@@ -811,13 +811,8 @@ namespace MAINPUPS {
                 o.details.push_back(detail);
                 std::string defences;
                 // The planetary shield too (owner, 2026-11-20: the defences, always shown in orbit).
-                for (const int16_t building : {(int16_t)BUILDING_STAR_FORTRESS, (int16_t)BUILDING_STAR_BASE, (int16_t)BUILDING_BATTLESTATION,
-                         (int16_t)BUILDING_MISSILE_BASE, (int16_t)BUILDING_GROUND_BATTERIES, (int16_t)BUILDING_STELLAR_CONVERTER,
-                         (int16_t)BUILDING_FIGHTER_GARRISON, (int16_t)BUILDING_BARRIER_SHIELD, (int16_t)BUILDING_FLUX_SHIELD,
-                         (int16_t)BUILDING_RADIATION_SHIELD}) {
-                    if (target.buildings[building] != 0) {
-                        defences += std::string(defences.empty() ? "" : ", ") + TECHDATA::buildings[building].name;
-                    }
+                for (const std::string& name : antares::native::Colony_Defences(colony_idx)) {
+                    defences += (defences.empty() ? "" : ", ") + name;
                 }
                 o.details.push_back(defences.empty() ? std::string("No defences") : defences);
                 options.push_back(o);

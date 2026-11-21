@@ -4,6 +4,7 @@ extends PanelContainer
 ## answers no queries while the window waits):
 ##   - each other side there, as the player sees it from orbit: its ships by hull size, and with
 ##     Battle Scanner researched a deliberately rough rating against the player's ships;
+##   - the player's own colonies there and their defences (bases, batteries, shields);
 ##   - the player's ships in orbit, a scrolling list: picture, name, hull, armour and structure
 ##     left, what is damaged;
 ##   - the hovered (or clicked) ship: its officer, weapons with mods and arcs, specials and systems.
@@ -16,6 +17,7 @@ const STRENGTH_COLOR := {"outmatched": Color(0.95, 0.4, 0.35), "even": Color(0.9
 var art: Node
 var fleet := {}
 var _enemies: VBoxContainer
+var _colonies: VBoxContainer
 var _rows: VBoxContainer
 var _detail: VBoxContainer
 var _picked := -1 # a clicked ship stays shown; -1: the hovered one, else the first
@@ -31,6 +33,9 @@ func _ready() -> void:
 	_enemies = VBoxContainer.new()
 	_enemies.add_theme_constant_override("separation", 4)
 	box.add_child(_enemies)
+	_colonies = VBoxContainer.new()
+	_colonies.add_theme_constant_override("separation", 4)
+	box.add_child(_colonies)
 	var title := Label.new()
 	title.theme_type_variation = &"Heading"
 	title.text = "Your Fleet"
@@ -68,6 +73,7 @@ func open(data: Dictionary, left: float, top: float, height: float, right_limit 
 	fleet = data
 	_picked = -1
 	_fill_enemies()
+	_fill_colonies()
 	_fill_rows()
 	var ships: Array = data.get("ships", [])
 	_show_ship(ships[0] if not ships.is_empty() else {})
@@ -120,6 +126,37 @@ func _fill_enemies() -> void:
 	if not (fleet.get("enemies", []) as Array).is_empty():
 		var gap := HSeparator.new()
 		_enemies.add_child(gap)
+
+
+## The player's colonies at the star with their defences (owner, 2026-11-21: "you are attacked"
+## showed the fleet but not the planets' defences).
+func _fill_colonies() -> void:
+	for child in _colonies.get_children():
+		_colonies.remove_child(child)
+		child.queue_free()
+	var colonies: Array = fleet.get("colonies", [])
+	if colonies.is_empty():
+		return
+	var heading := Label.new()
+	heading.theme_type_variation = &"Heading"
+	heading.text = "Your Defences"
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_colonies.add_child(heading)
+	for colony: Dictionary in colonies:
+		var name_label := Label.new()
+		name_label.theme_type_variation = &"Name"
+		name_label.text = String(colony.get("name", ""))
+		_colonies.add_child(name_label)
+		var names: Array = []
+		for d: Dictionary in colony.get("defences", []):
+			names.append(String(d.get("name", "")))
+		var line := Label.new()
+		line.theme_type_variation = &"Dim"
+		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		line.custom_minimum_size.x = TEXT_WIDTH
+		line.text = ", ".join(names) if not names.is_empty() else "No defences"
+		_colonies.add_child(line)
+	_colonies.add_child(HSeparator.new())
 
 
 func _fill_rows() -> void:
