@@ -416,6 +416,11 @@ func _on_native_screen(screen: int) -> void:
 				side_view.refresh()
 		if _fleet_ship >= 0:
 			_refresh_fleet()
+		var todo_back: Control = _views.get("todo_panel")
+		if todo_back != null and todo_back.get_meta("was_open", false):
+			todo_back.set_meta("was_open", false)
+			if int(_todo.get("open", 0)) > 0:
+				todo_back.show()
 	else:
 		system_pane.hide() # hidden, not closed: it comes back with the galaxy
 		_view("colony_pane").dismiss()
@@ -443,6 +448,11 @@ func _on_native_screen(screen: int) -> void:
 		var landscape_view: Control = _views.get("colony_landscape")
 		if landscape_view != null and landscape_view.visible:
 			landscape_view.close()
+		# The to-do list too (owner, 2026-11-20: it stayed over a combat); back with the galaxy.
+		var todo_hide: Control = _views.get("todo_panel")
+		if todo_hide != null:
+			todo_hide.set_meta("was_open", todo_hide.visible or todo_hide.get_meta("was_open", false))
+			todo_hide.hide()
 		if screen == Screens.SHOW_COMMAND_POINTS:
 			# Opened as the game's screen (from elsewhere): the same drop-down, closing it closes
 			# the screen.
@@ -3516,23 +3526,34 @@ func _place_landscape() -> void:
 	var pane := _colony_pane_rest()
 	var gap := maxf(get_theme_constant_from(land, "pane_gap"), 6.0)
 	var right := _landscape_right_limit()
-	# The band's full height at any screen (owner, 2026-11-20); without room beside the colony
-	# pane it moves left, under the colony pane.
+	# The band's full height at any screen (owner, 2026-11-20). Without room beside the colony
+	# pane (a 16:9 screen) it pops up centred over the panes, with its own close button (owner:
+	# under the colony pane it hid the colony's controls).
 	var band := _pane_band()
 	var frame: Vector2 = land.frame_size_for(band.y)
+	var view_width := get_viewport().get_visible_rect().size.x
+	if frame.x > view_width - 16.0:
+		frame = land.frame_size_for_width(view_width - 16.0)
 	var left := pane.end.x + gap
 	var build := _view("build_pane")
 	if build.visible:
 		left = float(build._shown_left) + build.size.x + gap
+	var popped := not _landscape_fits_beside()
 	var x := maxf(minf(left, right - frame.x), 8.0)
+	if popped:
+		x = floorf((view_width - frame.x) * 0.5)
+	land.set_popped_up(popped)
 	land.size = frame
 	land.position.y = band.x
 	land.move_to(x) # slides in when just opened, as the other panes
-	land.move_to_front()
-	if x < pane.end.x:
-		_view("colony_pane").move_to_front() # over it where it overlaps
-	if build.visible:
-		build.move_to_front()
+	if popped:
+		land.move_to_front() # over the panes; a build pane opened after it over it
+		if build.visible:
+			build.move_to_front()
+	else:
+		land.move_to_front()
+		if build.visible:
+			build.move_to_front() # over it where it overlaps
 	_raise_chrome()
 
 
@@ -3964,7 +3985,10 @@ func _smoke_native() -> void:
 				land = _views.get("colony_landscape")
 				shown_by_itself = land != null and land.visible
 			var layers: int = (land.landscape.get("layers", []) as Array).size() if land else 0
-			var beside: bool = land != null and (narrow or land.get_global_rect().position.x >= pane.get_global_rect().end.x - 1.0)
+			var view_w := get_viewport().get_visible_rect().size.x
+			var centred: bool = land != null and absf(land.get_global_rect().get_center().x - view_w * 0.5) < 2.0 and land._close_button.visible
+			var beside: bool = land != null and (centred if narrow else land.get_global_rect().position.x >= pane.get_global_rect().end.x - 1.0)
+			print("smoke: landscape narrow %s: centred with a close button %s" % [narrow, centred])
 			var rect_alone: Rect2 = land.get_global_rect() if land else Rect2()
 			print("smoke: landscape for colony %d (%d buildings): shown by itself %s, %d layers, at %s beside the pane %s (pane ends %.0f), fits %s" % [
 				int(source.colony), best, shown_by_itself, layers, rect_alone, beside, pane.get_global_rect().end.x, _landscape_fits_beside()])

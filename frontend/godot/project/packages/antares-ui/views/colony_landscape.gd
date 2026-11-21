@@ -30,6 +30,7 @@ var _next := {} # the asked-for colony's layers while their art loads
 var _next_since := 0.0
 var _target_x := 0.0
 var _reveal_waiting := false # placed, waiting for the art to slide in
+var _close_button: Button # shown when it pops up over the panes (no room beside them)
 
 
 func _ready() -> void:
@@ -40,6 +41,17 @@ func _ready() -> void:
 	_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.draw.connect(_draw_stage)
 	add_child(_stage)
+	_close_button = Button.new()
+	_close_button.text = "X"
+	_close_button.focus_mode = Control.FOCUS_NONE
+	_close_button.tooltip_text = "Close (VIEW COLONY shows it again)"
+	_close_button.custom_minimum_size = Vector2(34, 30)
+	_close_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	_close_button.position += Vector2(-8.0, 8.0)
+	_close_button.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_close_button.pressed.connect(close)
+	_close_button.hide()
+	_stage.add_child(_close_button)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE # until it is in
 	gui_input.connect(func(event: InputEvent):
 		var click := event as InputEventMouseButton
@@ -105,6 +117,11 @@ func _check_next() -> void:
 	_stage.queue_redraw()
 	if _reveal_waiting:
 		_reveal()
+
+
+## Over the panes, centred (no room beside them): with its own close button.
+func set_popped_up(on: bool) -> void:
+	_close_button.visible = on
 
 
 ## Ready to be seen: this colony's layers are in.
