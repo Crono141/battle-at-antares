@@ -4197,6 +4197,40 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--officer-badge":
+			# Owner, 2026-11-21: a ship with an officer aboard is marked in the select-combat
+			# window's Your Fleet. A real fleet, the first ship given a real ship officer's card.
+			var fleet_data := {}
+			for st: Dictionary in galaxy.stars:
+				var cf: Dictionary = await _query_args({"what": "combat_fleet", "star": int(st.id)})
+				if cf.get("ok", false) and not (cf.get("ships", []) as Array).is_empty():
+					fleet_data = cf
+					break
+			var officers: Dictionary = await _query_args({"what": "leaders", "type": "ship"})
+			var card: Dictionary = {}
+			for l: Dictionary in officers.get("leaders", []):
+				if not l.get("for_hire", false):
+					card = l.card
+					break
+			if fleet_data.is_empty() or card.is_empty():
+				print("smoke: officer badge: fleet %s, leaders %s" % [JSON.stringify(fleet_data).left(120), JSON.stringify(officers).left(300)])
+				await host.smoke_fail("no fleet or no ship officer for the badge")
+				return
+			fleet_data.ships[0]["officer"] = card
+			var band := _pane_band()
+			_combat_fleet_view().open(fleet_data, get_viewport().get_visible_rect().size.x * 0.55, band.x, band.y, _landscape_right_limit())
+			await get_tree().create_timer(1.5).timeout
+			var row: Control = _combat_fleet._rows.get_child(0)
+			var badge := row.find_children("*", "PanelContainer", false, false)
+			print("smoke: officer badge: %s on '%s', tooltip '%s'" % [not badge.is_empty(), fleet_data.ships[0].name, (row as Button).tooltip_text])
+			if shots != "":
+				await host.shot(shots + "/officer-badge.png")
+			_combat_fleet.close()
+			if badge.is_empty():
+				await host.smoke_fail("the officer's ship was not marked")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--attack-bomb":
 			# Owner, 2026-11-21: a colony without defences goes straight from the attack window to
 			# the bombing; after it the map stayed dimmed on that system with no window.
@@ -6732,6 +6766,14 @@ func _smoke_todo(shots: String) -> bool:
 		await get_tree().create_timer(0.1).timeout
 		waited_open += 0.1
 	var opened_itself: bool = panel.visible
+	# A count still changing reopens the list by design (new items): let it settle first.
+	var settled_total := _todo_total()
+	var steady := 0.0
+	while steady < 1.0 and waited_open < 8.0:
+		await get_tree().create_timer(0.1).timeout
+		waited_open += 0.1
+		steady = steady + 0.1 if _todo_total() == settled_total else 0.0
+		settled_total = _todo_total()
 	_on_view_action("turn")
 	await get_tree().create_timer(0.5).timeout
 	var closed_by_bar: bool = not panel.visible

@@ -170,6 +170,34 @@ func _ship_row(ship: Dictionary) -> Control:
 		hurt.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		text.add_child(hurt)
 		row.custom_minimum_size.y = 98
+	var officer: Dictionary = ship.get("officer", {})
+	if not officer.is_empty():
+		# An officer aboard (owner, 2026-11-21): their portrait in a gold frame, top right.
+		var frame := PanelContainer.new()
+		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var frame_style := StyleBoxFlat.new()
+		frame_style.bg_color = Color(0, 0, 0, 0.5)
+		frame_style.set_border_width_all(2)
+		frame_style.border_color = Color(1.0, 0.8, 0.3)
+		frame_style.set_corner_radius_all(3)
+		frame.add_theme_stylebox_override("panel", frame_style)
+		frame.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		frame.offset_left = -40.0
+		frame.offset_right = -6.0
+		frame.offset_top = 6.0
+		frame.offset_bottom = 40.0
+		var face: TextureRect = preload("sprite_rect.gd").new()
+		face.custom_minimum_size = Vector2(30, 30)
+		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if art:
+			face.bind(art)
+			face.show_sprite("OFFICER.LBX", int(officer.get("portrait", -1)))
+		frame.add_child(face)
+		row.add_child(frame)
+		line.offset_right = -46 # the bars stop short of it
+		row.tooltip_text = "Officer: %s, level %d" % [String(officer.get("name", "")), int(officer.get("level", 0)) + 1]
 	row.mouse_entered.connect(func():
 		if _picked < 0:
 			_show_ship(ship))
