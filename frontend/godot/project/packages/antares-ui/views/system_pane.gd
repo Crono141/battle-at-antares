@@ -736,12 +736,37 @@ func _details(planet: Dictionary, colony: Dictionary) -> Control:
 		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		stack.add_theme_constant_override("separation", -6)
 		morale.add_child(stack)
+		# Hovered: the morale breakdown (the legacy colony screen's right click on the masks), asked
+		# for the player's colonies; on the masks, or the row when there are none.
+		var tips: Array = [morale]
 		for i in mini(masks, 10):
 			var mask := _icon("COLONY2.LBX", int(colony.morale_sprite), Vector2(18, 18), "Morale")
 			_help_on_right_click(mask, 490)
 			stack.add_child(mask)
+			tips.append(mask)
 		box.add_child(morale)
+		if colony.has("id"):
+			_morale_tips[int(colony.id)] = tips
+			command.emit({"verb": "query", "what": "colony_breakdowns", "colony": int(colony.id), "_reply_to": "_show_morale_breakdown"})
 	return box
+
+
+## Colony id -> the morale row and its masks, for their breakdown tooltip.
+var _morale_tips := {}
+
+
+func _show_morale_breakdown(result: Dictionary) -> void:
+	if not result.get("ok", false):
+		return # another empire's colony: the masks keep "Morale"
+	var morale: Dictionary = result.get("morale", {})
+	if morale.get("rows", []).is_empty():
+		return
+	var text := preload("colony_pane.gd").breakdown_text(morale)
+	for tip: Variant in _morale_tips.get(int(result.get("colony", -1)), []):
+		if is_instance_valid(tip):
+			(tip as Control).tooltip_text = text
+			if (tip as Control).mouse_filter == Control.MOUSE_FILTER_IGNORE:
+				(tip as Control).mouse_filter = Control.MOUSE_FILTER_PASS
 
 
 ## A bar icon (the theme art's: food, industry, research), at a row's size.

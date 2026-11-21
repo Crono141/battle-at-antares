@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 // WP3.4: the colony pane's query and commands (contract: notes/antares/native-bridge.md, "The
@@ -301,6 +302,87 @@ namespace antares::commands::internal {
 
         }
 
+
+        // A COLCALC breakdown's text (the legacy screen's right-click Text_Box) as rows: after the
+        // fmtpara tab stops ("\aT+15,+65." and "\x1A0"), "\t<value>\t<label>\r" lines, a blank one
+        // before the total; a plain message (the space anomaly) is one row with no value.
+        void Breakdown_Rows(const char* text, s_out& rows) {
+            std::string all(text);
+            if (!all.empty() && all[0] == '\x07') { // the tab stops, "\aT+15,+65."
+                const size_t dot = all.find('.');
+                all.erase(0, dot == std::string::npos ? all.size() : dot + 1);
+            }
+            if (!all.empty() && all[0] == '\x1A') { // left alignment, "\x1A0"
+                all.erase(0, all.size() > 1 && all[1] == '0' ? 2 : 1);
+            }
+            size_t start = 0;
+            bool after_blank = false; // the total follows a blank line
+            while (start <= all.size()) {
+                size_t end = all.find('\r', start);
+                if (end == std::string::npos) {
+                    end = all.size();
+                }
+                const std::string line = all.substr(start, end - start);
+                start = end + 1;
+                if (line.empty()) {
+                    after_blank = true;
+                    continue;
+                }
+                s_out row = rows.Append_Object();
+                row.Bool("total", after_blank);
+                if (line[0] == '\t') {
+                    const size_t tab = line.find('\t', 1);
+                    row.Str("value", Utf8(line.substr(1, tab == std::string::npos ? std::string::npos : tab - 1).c_str(), 40));
+                    row.Str("label", Utf8(tab == std::string::npos ? "" : line.substr(tab + 1).c_str(), 120));
+                } else {
+                    row.Str("value", "");
+                    row.Str("label", Utf8(line.c_str(), 200));
+                }
+            }
+        }
+
+        // colony_breakdowns {colony}: the legacy colony screen's right-click breakdowns of BC, food,
+        // industry, research and morale (COLONY::Show_BC_Production and friends). The calculators
+        // rewrite the colony as they go, so they run on it between a copy and its restore: the
+        // query changes nothing.
+        void Query_Colony_Breakdowns(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            if (!args.Int("colony", &colony_id)) {
+                out.Fail("bad_args", "colony: one of the player's colonies");
+                return;
+            }
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            const int16_t c = (int16_t)colony_id;
+            s_colony* colony = &MOX::colony[c];
+            out.Int("colony", c);
+            struct {
+                const char* name;
+                void (*calculate)(s_colony*, STRBUILD::s_builder*);
+                const char* const* title;
+            } kinds[] = {
+                {"bc", COLCALC::Colony_BC_Production, &COLCALC::bc_summary_msg},
+                {"food", COLCALC::Colony_Food_Production, &COLCALC::food_summary_msg},
+                {"industry", COLCALC::Colony_Industry_Production, &COLCALC::industry_summary_msg},
+                {"research", COLCALC::Colony_Research_Production, &COLCALC::research_summary_msg},
+                {"morale", COLCALC::Colony_Morale, &COLCALC::morale_summary_msg},
+            };
+            for (const auto& kind : kinds) {
+                const s_colony saved = *colony;
+                char buffer[3000] = {};
+                STRBUILD::s_builder builder = STRBUILD::Init(buffer, sizeof(buffer));
+                kind.calculate(colony, &builder);
+                *colony = saved;
+                s_out breakdown = out.Add_Object(kind.name);
+                breakdown.Str("title", Utf8(*kind.title != nullptr ? *kind.title : "", 80));
+                s_out rows = breakdown.Add_List("rows");
+                Breakdown_Rows(buffer, rows);
+            }
+        }
 
         void Query_Colony(int16_t, const s_args& args, s_out& out) {
             if (!Have_Game(out)) {
@@ -1381,6 +1463,7 @@ namespace antares::commands::internal {
     void Add_Colony_Entries(std::vector<s_entry>* table) {
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);
         table->push_back({"colony", e_kind::query, ANY_SCREEN, 1, "colony: colony id (the player's)", Query_Colony});
+        table->push_back({"colony_breakdowns", e_kind::query, ANY_SCREEN, 1, "colony: colony id (the player's)", Query_Colony_Breakdowns});
         table->push_back({"colonies", e_kind::query, ANY_SCREEN, 1, "", Query_Colonies});
         table->push_back({"help", e_kind::query, ANY_SCREEN, 1, "topic: a help record (HELP.LBX)", Query_Help});
         table->push_back({"move_colonist", e_kind::command, galaxy, 0, "colony, pop or pops (a cluster), job (0-2)", Move_Colonist});

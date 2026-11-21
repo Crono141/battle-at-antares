@@ -59,6 +59,10 @@ var art: Node
 var colony := {}
 var colony_id := -1
 var _tween: Tween
+## The output rows (bc, food, industry, research) and their legacy right-click breakdowns
+## (`colony_breakdowns`), shown as the rows' tooltips.
+var _output_rows := {}
+var _breakdowns := {}
 var _shown_left := 0.0
 ## Room kept free under the pane: the map controls' previous/next buttons (owner, 2026-11-14).
 var bottom_clear := 0.0
@@ -214,7 +218,9 @@ func show_colony(result: Dictionary) -> void:
 	population.text = "%s · %d / %d" % [result.race, int(result.population), int(result.max_population)]
 	if int(result.growth) != 0:
 		population.text += "  (%+d.%03d)" % [int(result.growth) / 1000, absi(int(result.growth)) % 1000]
-	_fill($Scroll/Box/Money, _icon_row(result.rows.bc.icons, WIDTH - 40.0))
+	_output_rows = {}
+	_output_rows.bc = _icon_row(result.rows.bc.icons, WIDTH - 40.0)
+	_fill($Scroll/Box/Money, _output_rows.bc)
 	_fill($Scroll/Box/Build, _build_box(result.build))
 	_show_jobs()
 	_show_occupation()
@@ -225,6 +231,9 @@ func show_colony(result: Dictionary) -> void:
 	$Scroll/Box/DefencesTitle.visible = any_defence
 	_fill($Scroll/Box/Garrison, _garrison_row())
 	_fill($Scroll/Box/Buildings, _buildings_list())
+	_apply_breakdowns() # the rows are new: the last answer's tooltips, until this one's come
+	if not bool(result.get("outpost", false)):
+		command.emit({"verb": "query", "what": "colony_breakdowns", "colony": colony_id, "_reply_to": "_show_breakdowns"})
 	if not visible:
 		_slide(true)
 	if not bool(result.get("outpost", false)):
@@ -242,6 +251,38 @@ func _fill(holder: Control, content: Control) -> void:
 
 ## A row of icon runs (the `colony` query's `icons`): the colony screen's overlapping icons, packed
 ## to fit `width` the way it squeezes them; gaps are a step of space; shortages in red.
+## The breakdowns of this colony's output (the legacy screen showed them on a right click).
+func _show_breakdowns(result: Dictionary) -> void:
+	if not result.get("ok", false) or int(result.get("colony", -1)) != colony_id:
+		return
+	_breakdowns = result
+	_apply_breakdowns()
+
+
+func _apply_breakdowns() -> void:
+	if int(_breakdowns.get("colony", -1)) != colony_id:
+		return
+	for kind: String in _output_rows:
+		var row: Control = _output_rows[kind]
+		var breakdown: Dictionary = _breakdowns.get(kind, {})
+		if not is_instance_valid(row) or breakdown.get("rows", []).is_empty():
+			continue
+		row.mouse_filter = Control.MOUSE_FILTER_STOP
+		row.tooltip_text = breakdown_text(breakdown)
+
+
+## A breakdown as tooltip text: its title, a line a value, a rule before the total (the system pane's
+## morale masks use it too).
+static func breakdown_text(breakdown: Dictionary) -> String:
+	var lines: PackedStringArray = [String(breakdown.get("title", ""))]
+	for r: Dictionary in breakdown.rows:
+		if r.get("total", false):
+			lines.append("―――――――――――――")
+		var value := String(r.get("value", ""))
+		lines.append(("%6s   %s" % [value, String(r.label)]) if value != "" else String(r.label))
+	return "\n".join(lines).strip_edges()
+
+
 func _icon_row(runs: Array, width: float) -> Control:
 	var total := 0
 	for r: Dictionary in runs:
@@ -427,7 +468,9 @@ func _show_jobs() -> void:
 		rows.add_child(people)
 		# The output below, also with no farming: food brought in (dimmed) or missing (outlined in
 		# red: starving), as the legacy box shows it.
-		rows.add_child(_icon_row(colony.rows[JOB_ROWS[job]].icons, WIDTH - 40.0))
+		var output := _icon_row(colony.rows[JOB_ROWS[job]].icons, WIDTH - 40.0)
+		_output_rows[JOB_ROWS[job]] = output
+		rows.add_child(output)
 		jobs_box.add_child(panel)
 
 
