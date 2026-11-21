@@ -201,7 +201,8 @@ func _input(event: InputEvent) -> void:
 			return
 	# Turns passing by themselves: a click or Esc stops them (the legacy galaxy's exit field). Not
 	# while a film plays in its window: the click is the film's, to skip it (owner, 2026-11-20).
-	if _turn_over_galaxy and overlay.visible == false and not _film_active:
+	# Nor during a native battle (WP3.9): its clicks are the battle's.
+	if _turn_over_galaxy and overlay.visible == false and not _film_active and not _in_battle():
 		var stop_click := event as InputEventMouseButton
 		var stop_key := event as InputEventKey
 		if (stop_click and stop_click.pressed) or (stop_key and stop_key.pressed and stop_key.keycode == KEY_ESCAPE):
@@ -4744,10 +4745,20 @@ func _smoke_native() -> void:
 			await _smoke_clear_todo()
 			_send({"verb": "end_turn"})
 			var waited := 0.0
-			while not bool(game.get_stats().get("legacy_combat", false)) and waited < 120.0:
+			while not bool(game.get_stats().get("legacy_combat", false)) and not _in_battle() and waited < 120.0:
 				_smoke_answer()
 				await get_tree().create_timer(0.25).timeout
 				waited += 0.25
+			if _in_battle():
+				# WP3.9: the battle came up native. The same order (the acting ship, in the owner's
+				# save the battlestation) through the battle scene; the game must survive it.
+				if await _smoke_selfdestruct_native():
+					print("smoke: selfdestruct: native OK")
+					game.request_game_quit()
+					print("smoke: asked the game to quit")
+				else:
+					await host.smoke_fail("selfdestruct in the native battle")
+				return
 			print("smoke: selfdestruct: in combat %s after %.1f s" % [game.get_stats().get("legacy_combat", false), waited])
 			if not bool(game.get_stats().get("legacy_combat", false)):
 				await host.smoke_fail("no combat came")
@@ -7228,6 +7239,11 @@ func _smoke_combat(shots: String) -> bool:
 		print("smoke: targets after the move %s" % [view.state.get("targets", [])])
 		var after: Dictionary = view._ship(acting)
 		print("smoke: moved ship %d from %s to %d,%d (now %d,%d)" % [acting, before, best / 1000, best % 1000, int(after.get("x", -1)), int(after.get("y", -1))])
+		# The click must move the ship (2026-11-21: after the merge of main a click in the battle was
+		# taken as "stop the turns", and the smoke went on in auto unnoticed).
+		if int(after.get("x", -1)) != best / 1000 or int(after.get("y", -1)) != best % 1000:
+			print("smoke: the player's move did not land")
+			return false
 		await get_tree().create_timer(0.8).timeout
 		if shots != "":
 			await host.shot(shots + "/combat-moved.png")
@@ -7253,6 +7269,43 @@ func _smoke_combat(shots: String) -> bool:
 	print("smoke: effects seen %s" % [counts])
 	print("smoke: effects played for the engine %s" % [view.animated]) # WP3.9d
 	print("smoke: battle over after %.0f s (scene shown: %s)" % [waited, view.visible])
+	return not view.visible
+
+
+## WP3.9: SELF DESTRUCT in a native battle (owner, 2026-11-20: on a battlestation it crashed the
+## game; ec6244a). The acting ship is ordered to self destruct; it must be gone and the battle must
+## go on to its end.
+func _smoke_selfdestruct_native() -> bool:
+	var view: Control = _combat_view()
+	var waited := 0.0
+	while view.visible and not view._my_turn() and waited < 60.0:
+		_smoke_answer()
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	if not view._my_turn():
+		print("smoke: selfdestruct: no order asked for")
+		return false
+	var acting := int(view.state.get("ship", -1))
+	var ship: Dictionary = view._ship(acting)
+	print("smoke: selfdestruct: ship %d '%s' size %s planet %s" % [acting, ship.get("name", "?"), ship.get("size", "?"), ship.get("planet", false)])
+	view._act({"action": "self_destruct"})
+	waited = 0.0
+	while view.visible and int(view._ship(acting).get("status", 0)) == 0 and waited < 30.0:
+		_smoke_answer()
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	var status := int(view._ship(acting).get("status", 0))
+	print("smoke: selfdestruct: ship %d status %d after %.1f s (battle shown %s)" % [acting, status, waited, view.visible])
+	if view.visible and status == 0:
+		return false
+	# The rest of the battle on Auto: it must end.
+	waited = 0.0
+	while view.visible and waited < 240.0:
+		if not _smoke_answer() and view._my_turn():
+			view._act({"action": "auto"})
+		await get_tree().create_timer(0.5).timeout
+		waited += 0.5
+	print("smoke: selfdestruct: battle over after %.0f s (shown %s)" % [waited, view.visible])
 	return not view.visible
 
 
