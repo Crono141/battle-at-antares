@@ -51,6 +51,7 @@ const SIDE_PANELS := {"colonies": "colonies_panel", "planets": "planets_panel", 
 ## Side panels the galaxy isn't fitted for (owner, 2026-11-14: "The galaxy is not moved" for Races).
 const SIDE_PANELS_UNFITTED := ["races_panel", "info_panel"]
 var _switching_panel := false # one side panel replaces another: the camera stays fitted
+var _side_panel_opens := 0 # side panels opened so far: a system asked for before one opened stays shut
 ## The camera's view of an open system: the legacy scale it flies to, and how much of the free
 ## area the system's orbits take.
 const SYSTEM_VIEW_SCALE := 7.0
@@ -1407,6 +1408,15 @@ func _on_view_closed(scene_name: String) -> void:
 		galaxy.selected = -1
 		if not _colonies_return and not _switching_panel:
 			galaxy.unfit() # the camera where it was before the panel
+		# A system shown on the map with no system pane (owner, 2026-11-21: every star stayed
+		# dimmed, zoomed out, with no way back): the galaxy comes back.
+		var map_question: bool = overlay.visible or _popup_zoom >= 0 or _popup_map_ending >= 0 or \
+			(_scene_window != null and _scene_window.is_open()) # a game question or a landing on that system
+		if not _switching_panel and not map_question and native_screen == Screens.MAIN and \
+				(galaxy.system_star >= 0 or galaxy.others_alpha < 0.99) and not _view("system_pane").visible:
+			galaxy.selected = -1
+			galaxy.clear_system_view()
+			galaxy.redraw()
 	elif scene_name == "options_menu":
 		_view("side_tabs").show_open("options", false)
 	elif scene_name == "game_menu":
@@ -3203,6 +3213,7 @@ var _fleet_for_panel := -1
 
 func _open_side_panel(action_name: String) -> void:
 	var side_view := _view(SIDE_PANELS[action_name])
+	_side_panel_opens += 1
 	var fleet_shown := _fleet_ship if _fleet_for_panel < 0 else _fleet_for_panel # Fleets opens on the fleet whose box was open
 	_fleet_for_panel = -1
 	var system_shown := _panel_star # Leaders opens on the system whose pane was open
@@ -3339,9 +3350,13 @@ func _on_star_selected(result: Dictionary) -> void:
 ## Opens (or refreshes) a star's system pane; `fly` sends the camera to the star, with its planets
 ## filling a share of the area right of the pane.
 func _open_system(star_id: int, fly := true) -> void:
+	var opens := _side_panel_opens
 	_send({"verb": "query", "what": "system", "star": star_id}, func(result: Dictionary):
 		if not result.get("ok", false) or native_screen != Screens.MAIN:
 			return
+		if opens != _side_panel_opens:
+			_send({"verb": "close_system"}, func(_r: Dictionary): pass) # the game's system box record too
+			return # a side panel opened since (owner, 2026-11-21): the system doesn't open over it
 		_show_system_result(star_id, result, fly))
 
 
@@ -4130,6 +4145,46 @@ func _smoke_native() -> void:
 			if not shown_by_itself or layers < 3 or not beside or (not pushed and not narrow) or not back or not hidden_now or not stays_hidden or not shown_again \
 					or over_tabs or not in_band or not over_build:
 				await host.smoke_fail("the colony landscape did not open, move or toggle as it should")
+				return
+			game.request_game_quit()
+			return
+		if arg == "--system-side":
+			# Owner, 2026-11-21: a system open, a right side panel opened and closed: the stars
+			# stayed dimmed as in a system, zoomed out, with no way back to the galaxy.
+			var home := -1
+			for st: Dictionary in galaxy.stars:
+				if int(st.get("label_owner", -1)) == int(galaxy.data.get("player", -2)):
+					home = int(st.id)
+					break
+			var bad := []
+			for run: String in ["colonies", "planets", "fleets", "leaders", "races", "info", "colonies:quick", "leaders:quick", "colonies:colony"]:
+				var panel_name := run.get_slice(":", 0)
+				var how := run.get_slice(":", 1) if ":" in run else ""
+				if how == "colony":
+					var cs: Dictionary = await _query_args({"what": "system", "star": home})
+					var col := -1
+					for pl: Dictionary in cs.get("planets", []):
+						if pl.get("colony") is Dictionary and pl.colony.get("mine", false) and not pl.colony.get("outpost", false):
+							col = int(pl.colony.id)
+							break
+					_open_colony_at(home, col, false)
+				else:
+					_open_system(home)
+				await get_tree().create_timer(0.05 if how == "quick" else 1.5).timeout
+				_on_view_action(panel_name)
+				await get_tree().create_timer(1.5).timeout
+				var side := _view(SIDE_PANELS[panel_name])
+				side.close()
+				await get_tree().create_timer(1.5).timeout
+				var state := "system_star %d, system empty %s, others_alpha %.2f, system pane %s, zoom %.3f" % [galaxy.system_star,
+					galaxy.system.is_empty(), galaxy.others_alpha, _view("system_pane").visible, galaxy.scale.x]
+				print("smoke: system then %s, closed: %s" % [run, state])
+				if (galaxy.others_alpha < 0.99 or galaxy.system_star >= 0) != _view("system_pane").visible:
+					bad.append(panel_name)
+				if shots != "":
+					await host.shot(shots + "/system-side-%s.png" % panel_name)
+			if not bad.is_empty():
+				await host.smoke_fail("the galaxy stayed dimmed with no system pane after: %s" % ", ".join(bad))
 				return
 			game.request_game_quit()
 			return

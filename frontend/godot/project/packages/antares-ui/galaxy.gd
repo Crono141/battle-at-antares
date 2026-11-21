@@ -495,6 +495,26 @@ func hide_system() -> void:
 	_system_tweens.append_array([fade, others])
 
 
+## No system on the map, whatever was left of one (owner, 2026-11-21: the stars stayed dimmed with
+## no system pane open): its fades stop, the other stars come back to full.
+func clear_system_view() -> void:
+	if not system.is_empty():
+		hide_system()
+		return
+	for tween in _system_tweens:
+		if tween.is_valid():
+			tween.kill()
+	_system_tweens.clear()
+	system_star = -1
+	selected_planet = -1
+	system_fleets_alpha = 1.0
+	$Orbits.modulate.a = 0.0
+	var others := create_tween()
+	others.tween_property(self, "others_alpha", 1.0, 0.3)
+	_system_tweens.append(others)
+	$Orbits.queue_redraw()
+
+
 ## Flies the camera to `world` at `zoom`, so that `world` ends at `screen` (a point in the area the
 ## panes leave free). The first flight remembers the view to come back to.
 func fly_to(world: Vector2, zoom: float, screen: Vector2) -> void:
