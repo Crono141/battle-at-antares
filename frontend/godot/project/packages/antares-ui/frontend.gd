@@ -831,6 +831,11 @@ func apply_theme(id: String, remember := true) -> void:
 		built = Themes.plain()
 	native_layer.theme = built.theme
 	_built = built
+	# The overlay's windows took the theme when made (owner, 2026-11-20: the discovery window stayed
+	# Glass after a switch to Chrome): every themed one in the overlay takes the new one.
+	for node in $Overlay.get_children():
+		if node is Control and (node as Control).theme != null:
+			(node as Control).theme = built.theme
 	if _views.has("dialog"):
 		_views.dialog.theme = built.theme
 	_frame = built.get("frame")
@@ -3401,6 +3406,21 @@ func _open_build_pane(colony_id: int, bought: bool) -> void:
 	pane.open(colony_id, bought)
 
 
+## The band the colony, build and landscape panes fill (owner, 2026-11-20: one height for all, at
+## any zoom and theme): from under the top bar (the theme's content_top, its frame included) to
+## above the map controls, less the gap.
+func _pane_band() -> Vector2:
+	var bar: Control = _view("galaxy_bar")
+	var view_height := get_viewport().get_visible_rect().size.y
+	var gap := maxf(float(bar.get_theme_constant("pane_gap", "Screen")), 6.0)
+	var top := float(bar.get_theme_constant("content_top", "Screen"))
+	var bottom := view_height - float(bar.get_theme_constant("inset", "Screen")) - gap
+	var controls: Control = _views.get("map_controls")
+	if controls != null and controls.is_visible_in_tree():
+		bottom = controls.get_global_rect().position.y - gap
+	return Vector2(top, maxf(bottom - top, 200.0))
+
+
 ## The colony and build panes end above the map controls, so the previous/next buttons stay in reach
 ## (owner, 2026-11-14).
 func _clear_map_controls() -> void:
@@ -3472,10 +3492,8 @@ func _landscape_right_limit() -> float:
 func _landscape_fits_beside() -> bool:
 	var land := _view("colony_landscape")
 	var pane := _colony_pane_rest()
-	if pane.size.y <= 0.0:
-		return false
 	var gap := maxf(get_theme_constant_from(land, "pane_gap"), 6.0)
-	return pane.end.x + gap + land.frame_size_for(pane.size.y).x <= _landscape_right_limit()
+	return pane.end.x + gap + land.frame_size_for(_pane_band().y).x <= _landscape_right_limit()
 
 
 func _place_landscape() -> void:
@@ -3485,23 +3503,23 @@ func _place_landscape() -> void:
 	var pane := _colony_pane_rest()
 	var gap := maxf(get_theme_constant_from(land, "pane_gap"), 6.0)
 	var right := _landscape_right_limit()
-	var frame: Vector2 = land.frame_size_for(pane.size.y)
-	var room := right - (pane.end.x + gap)
-	if frame.x > room:
-		# Narrower screens: as wide as there is room for beside the colony pane (4:3 kept), at
-		# least 480; less than that, over the colony pane's right side.
-		frame = land.frame_size_for_width(maxf(room, 480.0))
+	# The band's full height at any screen (owner, 2026-11-20); without room beside the colony
+	# pane it moves left, under the colony pane.
+	var band := _pane_band()
+	var frame: Vector2 = land.frame_size_for(band.y)
 	var left := pane.end.x + gap
 	var build := _view("build_pane")
 	if build.visible:
 		left = float(build._shown_left) + build.size.x + gap
-	var x := clampf(minf(left, right - frame.x), 8.0, right - frame.x)
+	var x := maxf(minf(left, right - frame.x), 8.0)
 	land.size = frame
-	land.position.y = pane.position.y
+	land.position.y = band.x
 	land.move_to(x) # slides in when just opened, as the other panes
 	land.move_to_front()
+	if x < pane.end.x:
+		_view("colony_pane").move_to_front() # over it where it overlaps
 	if build.visible:
-		build.move_to_front() # over it where it overlaps
+		build.move_to_front()
 	_raise_chrome()
 
 
@@ -3922,6 +3940,13 @@ func _smoke_native() -> void:
 			var rect_build: Rect2 = land.get_global_rect()
 			var pushed: bool = rect_build.position.x > rect_alone.position.x + 1.0
 			var over_tabs: bool = rect_build.end.x > _landscape_right_limit() + 1.0
+			# One band for the three (owner, 2026-11-20): the same top and height, at any zoom.
+			var band := _pane_band()
+			var in_band := true
+			for r: Rect2 in [rect_build, build.get_global_rect(), pane.get_global_rect()]:
+				if absf(r.position.y - band.x) > 1.0 or absf(r.size.y - band.y) > 1.0:
+					in_band = false
+			print("smoke: landscape band top %.1f height %.1f: landscape, build and colony panes in it %s" % [band.x, band.y, in_band])
 			print("smoke: landscape with the build pane: at %s (pushed %s), build pane %s, colony pane %s, system pane %s, landscape over the side tabs %s" % [rect_build, pushed,
 				build.get_global_rect(), pane.get_global_rect(), _view("system_pane").get_global_rect(), rect_build.end.x > _landscape_right_limit() + 1.0])
 			if shots != "":
@@ -3943,7 +3968,7 @@ func _smoke_native() -> void:
 			get_window().size = window_before
 			await get_tree().create_timer(0.5).timeout
 			if not shown_by_itself or layers < 3 or not beside or (not pushed and not narrow) or not back or not hidden_now or not stays_hidden or not shown_again \
-					or over_tabs:
+					or over_tabs or not in_band:
 				await host.smoke_fail("the colony landscape did not open, move or toggle as it should")
 				return
 			game.request_game_quit()
@@ -6281,6 +6306,8 @@ func _smoke_queue_drag(shots: String) -> void:
 	var colony_view: Control = _view("colony_pane")
 	var first_theme := theme_id
 	var overlaps := []
+	_scene()
+	_research_picker() # the overlay's windows follow the theme (owner, 2026-11-20: the discovery window stayed Glass)
 	for entry: Dictionary in _themes + [{"id": first_theme}]:
 		if entry.id == theme_id:
 			continue
@@ -6291,6 +6318,8 @@ func _smoke_queue_drag(shots: String) -> void:
 		print("smoke: theme %s with the build pane open: colony right %.0f, build left %.0f" % [entry.id, colony_right, build_left])
 		if colony_view.visible and build_left < colony_right - 1.0:
 			overlaps.append(entry.id)
+		if _scene_window.theme != native_layer.theme or _picker.theme != native_layer.theme:
+			overlaps.append("%s: the discovery window or research picker kept the old theme" % entry.id)
 	print("smoke: theme back to %s (started on %s)" % [theme_id, first_theme])
 	if not overlaps.is_empty():
 		await host.smoke_fail("the build pane overlapped the colony pane after a theme change: %s" % [overlaps])
