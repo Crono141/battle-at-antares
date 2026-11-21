@@ -3468,8 +3468,8 @@ func _clear_map_controls() -> void:
 ## narrower one): the build list follows its edge.
 func _on_colony_pane_resized() -> void:
 	var build: Control = _views.get("build_pane")
-	if build != null and build.visible and not build._sliding_out:
-		_place_build_pane()
+	if build != null and build.visible:
+		_place_build_pane() # sliding out too: it may be about to slide back in for the next colony
 
 
 ## Beside the colony pane, clear of the side tabs (Glass keeps them on the screen's right edge,
