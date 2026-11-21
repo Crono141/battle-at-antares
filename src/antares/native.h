@@ -155,6 +155,12 @@ namespace antares::native {
     // (combfind.cpp): the destruction film and the lost-colony message at once, as the player's
     // own destruction of a planet and the network path show it (owner, 2026-11-21: nothing showed).
     void Planet_Destroyed_Notice(int16_t planet, uint8_t outpost);
+    // A colony emptied in a combat (its population and buildings all gone, combat.cpp and
+    // combat_lifecycle.cpp remove it silently; owner, 2026-11-21: "no popup or message"): when
+    // the player's own, its lost-colony message is kept and shown once the combat screen is gone
+    // (Show_Colony_Lost_Notices, after the combat in combfind.cpp).
+    void Note_Colony_Lost_In_Combat(int16_t colony);
+    void Show_Colony_Lost_Notices();
 
     // Requests from the game's generic dialogs (WP3.2b). Each returns true when the frontend
     // answered, so the legacy popup is skipped; false when no frontend claimed that kind.

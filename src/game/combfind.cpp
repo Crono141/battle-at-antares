@@ -1680,6 +1680,7 @@ namespace COMBFIND {
 
         antares::rules_trace::Mark("combat-end"); // rules replay probe (WP0.5)
         MAINSCR::Update_Ship_Icons_In_Between_Turns();
+        antares::native::Show_Colony_Lost_Notices(); // Antares: a colony emptied in the combat
 
         if (combat_result_code < 0) {
             return -1;

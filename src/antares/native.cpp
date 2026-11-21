@@ -856,6 +856,48 @@ namespace antares::native {
         return names;
     }
 
+    namespace {
+        void Show_Lost_Colony_Message(int16_t planet, uint8_t outpost, int16_t reason) {
+            s_MSG msg;
+            memset(&msg, 0, sizeof(s_MSG));
+            msg.msg_type = MSG_TYPE_LOST_COLONY;
+            msg.u.lost_colony.planet_idx = planet;
+            msg.u.lost_colony.reason = reason;
+            msg.u.lost_colony.leader_idx = -1;
+            msg.u.lost_colony.colony_or_outpost = outpost;
+            char text[600];
+            MSG_::sprintf_msg(text, sizeof(text), &msg);
+            GENDRAW::Message_Box(text);
+        }
+
+        struct s_lost_colony {
+            int16_t planet;
+            uint8_t outpost;
+        };
+        std::vector<s_lost_colony> s_lost_in_combat;
+    } // namespace
+
+    void Note_Colony_Lost_In_Combat(int16_t colony) {
+        if (colony < 0 || colony >= MOX::NUM_COLONIES) {
+            return;
+        }
+        const s_colony& c = MOX::colony[colony];
+        const int16_t owner = c.owner;
+        if (owner < 0 || owner >= MAX_PLAYERS || MOX::player[owner].objectives != PLAYER_OBJECTIVE_HUMAN ||
+            (MOX::game_type >= 2 && MOX::player[owner].network_player_id != NETMOX::net.local_net_id)) {
+            return; // a computer player's, or another human's in a network game
+        }
+        s_lost_in_combat.push_back({c.planet, (uint8_t)c.outpost_flag});
+    }
+
+    void Show_Colony_Lost_Notices() {
+        std::vector<s_lost_colony> lost;
+        lost.swap(s_lost_in_combat);
+        for (const s_lost_colony& l : lost) {
+            Show_Lost_Colony_Message(l.planet, l.outpost, 1); // Destroy_Colony's reason after a combat
+        }
+    }
+
     void Planet_Destroyed_Notice(int16_t planet, uint8_t outpost) {
         ERIC::Play_Planetary_Destruction_Flic();
         COMBFIND::messed_up_fleet_palette = 1;

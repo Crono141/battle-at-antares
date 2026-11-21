@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/native.h"
 
 namespace {
     COMBINIT::s_satellite_capture_state satellite_capture_state;
@@ -669,6 +670,7 @@ namespace COMBINIT {
                     has_buildings += col->buildings[i];
                 }
                 if (has_buildings == 0) {
+                    antares::native::Note_Colony_Lost_In_Combat(MOX::cmbt_colony_id); // Antares: said after the combat
                     BOMB::Destroy_Colony(col, 1);
                 }
             }

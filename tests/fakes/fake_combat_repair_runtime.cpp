@@ -636,6 +636,10 @@ namespace NETMOX {
     }
 }
 
+namespace antares::native {
+    void Note_Colony_Lost_In_Combat(int16_t) {} // End_Of_Combat's after-combat notice
+} // namespace antares::native
+
 namespace antarans {
     void __cdecl Kill_Antaran_Defensive_Ship(int16_t) {
     }

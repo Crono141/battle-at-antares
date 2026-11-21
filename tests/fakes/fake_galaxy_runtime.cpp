@@ -310,6 +310,7 @@ namespace SYS {
 // preview_popup (popup_preview.cpp, WP3.4c): the legacy windows it shows answer nothing in tests.
 s_combfind_target COMBFIND::target{};
 uint8_t COMBFIND::messed_up_fleet_palette = 0;
+s_network NETMOX::net{}; // native Note_Colony_Lost_In_Combat
 namespace EVENTS {
     void Preview_Native_Gnn(int16_t, int16_t, int16_t) {}
 } // namespace EVENTS

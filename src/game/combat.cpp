@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/native.h"
 #include "legacy_ids.h"
 
 #include "lua/lua_game.h"
@@ -342,6 +343,7 @@ namespace COMBAT {
                 }
 
                 if (has_buildings == 0) {
+                    antares::native::Note_Colony_Lost_In_Combat(MOX::cmbt_colony_id); // Antares: said after the combat
                     BOMB::Destroy_Colony(&MOX::colony[MOX::cmbt_colony_id], 1);
                 }
             }
