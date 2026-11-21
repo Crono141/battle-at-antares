@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/native.h"
+
 namespace OCPOLPUP {
     uint16_t occupation_policy_value;
 
@@ -26,7 +28,16 @@ namespace OCPOLPUP {
         owner_index = MOX::colony[colony_index].owner;
 
         if (MOX::player[owner_index].traits[TRAIT_CURRENT_GOVERNMENT] != GOVERNMENT_DEMOCRACY && MOX::player[owner_index].traits[TRAIT_CURRENT_GOVERNMENT] != GOVERNMENT_FEDERATION) {
-            if (GENDRAW::Confirmation_Box(ESTRINGS::E_Strings(0xB4)) != 0) {
+            // Antares (owner, 2026-11-19): natively, beside the colony's system (YES answers 0).
+            const int16_t star_idx = MOX::planet[planet_index].star_index;
+            const std::string fields = "\"title\":" + antares::native::Quote(HACCESS::Get_Planet_Name(planet_index)) + ",\"zoom\":" +
+                std::to_string(star_idx) + ",\"star\":" + std::to_string(star_idx) + ",\"colony\":" + std::to_string(colony_index) +
+                ",\"buttons\":[\"YES\",\"NO\"]";
+            int32_t native_answer = -1;
+            const bool annihilate = antares::native::Popup("occupation", ESTRINGS::E_Strings(0xB4), fields, &native_answer)
+                ? native_answer == 0
+                : GENDRAW::Confirmation_Box(ESTRINGS::E_Strings(0xB4)) != 0;
+            if (annihilate) {
                 occupation_policy_value = 0;
             } else {
                 occupation_policy_value = 3;

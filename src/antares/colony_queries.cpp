@@ -291,6 +291,17 @@ namespace antares::commands::internal {
             }
         }
 
+        // OCPOLPUP::Occupation_Policy_Popup asks only governments other than Democracy and Federation.
+
+        bool Occupation_Can_Annihilate(int16_t owner) {
+
+            const int8_t government = MOX::player[owner].traits[TRAIT_CURRENT_GOVERNMENT];
+
+            return government != GOVERNMENT_DEMOCRACY && government != GOVERNMENT_FEDERATION;
+
+        }
+
+
         void Query_Colony(int16_t, const s_args& args, s_out& out) {
             if (!Have_Game(out)) {
                 return;
@@ -335,6 +346,19 @@ namespace antares::commands::internal {
             out.Int("government", government);
             out.Int("government_sprite", k_government_icons + government);
             out.Int("morale", (int8_t)colony.morale);
+            // The occupation policy (owner, 2026-11-19: the legacy colony screen's button, natively):
+            // for colonies with conquered people (or natives, with annihilation allowed).
+            {
+                bool targets = false;
+                for (int16_t i = 0; i < (uint8_t)colony.n_pops && !targets; ++i) {
+                    targets = COLONY::Colony_Pop_Is_Annihilation_Target(&colony, POP::Load(&colony.pop[i]));
+                }
+                if (targets) {
+                    s_out occupation = out.Add_Object("occupation");
+                    occupation.Bool("annihilate", colony.occupation_policy == 0);
+                    occupation.Bool("can_annihilate", Occupation_Can_Annihilate(colony.owner));
+                }
+            }
             out.Int("morale_icons", std::min<int16_t>(std::abs(masks), 20));
             out.Int("morale_sprite", masks >= 0 ? k_morale_happy : k_morale_unhappy);
             // The four rows: BC, food, industry, research (Draw_Colony_Info_Production).
@@ -658,6 +682,200 @@ namespace antares::commands::internal {
             out.Int("moved", before - (uint8_t)source.n_pops);
         }
 
+        // transport_targets {colony, pop}: where that colonist (and its cluster) can be sent, as
+        // the original's transport list offers (COLXPORT::Xport_Popup), with what the game's own
+        // check says of each (SETTLER::Pop_Tries_To_Settle, which changes nothing): every other
+        // colony of the player's (not outposts) with its system, population, planet and ETA, and
+        // why it can't take them. A reason that holds for any destination (freighters, a
+        // blockade at home, the last colonist) comes once, as `blocked`.
+        void Query_Transport_Targets(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            int64_t pop = -1;
+            if (!args.Int("colony", &colony_id) || !args.Int("pop", &pop)) {
+                out.Fail("bad_args", "colony, pop (a colonist of that colony)");
+                return;
+            }
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            s_colony& source = MOX::colony[colony_id];
+            if (source.outpost_flag != 0 || pop < 0 || pop >= (uint8_t)source.n_pops) {
+                out.Fail("bad_args", "pop: a colonist of a colony (not an outpost)");
+                return;
+            }
+            const int16_t me = source.owner;
+            const s_player& player = MOX::player[me];
+            out.Int("freighters", player.n_freighters);
+            out.Int("settlers_freighted", player.settlers_freighted);
+            std::string blocked;
+            s_out list = out.Add_List("targets");
+            for (int16_t c = 0; c < MOX::NUM_COLONIES; ++c) {
+                s_colony& colony = MOX::colony[c];
+                if (c == colony_id || colony.owner != me || colony.outpost_flag != 0 || colony.planet < 0) {
+                    continue;
+                }
+                s_settler_settle_result result{};
+                SETTLER::Pop_Tries_To_Settle(&source, (int16_t)pop, &colony, &result);
+                const char* global = result.source_blockaded ? "This system is blockaded"
+                    : result.source_space_anomaly ? "A space anomaly holds the colonists here"
+                    : result.source_plague ? "The plague keeps the colonists here"
+                    : result.only_one_pop_left ? "The last colonist can't leave"
+                    : result.selected_pop_flag_0x400 ? "Conquered colonists can't be moved"
+                    : nullptr;
+                if (global != nullptr && blocked.empty()) {
+                    blocked = global;
+                }
+                const s_planet_data& planet = MOX::planet[colony.planet];
+                const int16_t star = planet.star_index;
+                s_out row = list.Append_Object();
+                row.Int("colony", c);
+                row.Int("planet", colony.planet);
+                row.Int("star", star);
+                row.Str("name", Utf8(HACCESS::Get_Planet_Name_No_Prime(colony.planet), 80));
+                row.Str("system", Utf8(MOX::star[star].name, sizeof(MOX::star[0].name)));
+                row.Int("population", (uint8_t)colony.n_pops);
+                row.Int("max_population", COLCALC::Planet_Max_Population_For_Player(&MOX::planet[colony.planet], me));
+                row.Str("size_name", Utf8(MOX::planet_size_string[planet.size], 40));
+                row.Str("climate_name", Utf8(MOX::planet_climate_string[(uint8_t)colony.climate], 40));
+                row.Str("minerals_name", Utf8(MOX::mineral_class_string[planet.mineral_class], 40));
+                if (planet.planet_special > SYSTEM_SPECIAL_NO_SPECIAL && planet.planet_special < SYSTEM_SPECIAL_COUNT &&
+                    planet.planet_special != SYSTEM_SPECIAL_MAROONED_HERO && planet.planet_special != SYSTEM_SPECIAL_ORION_STAR) {
+                    row.Str("special_name", Utf8(MOX::planet_special_string[planet.planet_special], 80));
+                }
+                row.Int("eta", result.can_settle ? (int)result.eta_turns
+                                                 : (int)SETTLER::Settler_ETA(&MOX::player[me], MOX::planet[source.planet].star_index, star));
+                const char* reason = global != nullptr ? nullptr
+                    : result.insufficient_freighters ? "Not enough freighters"
+                    : result.max_settlers_in_transit ? "Too many colonists already in transit"
+                    : result.no_room_at_destination ? "No room for them there"
+                    : result.dest_blockaded ? "That system is blockaded"
+                    : result.dest_space_anomaly ? "A space anomaly there"
+                    : nullptr;
+                // The game still takes them where there is no room or a blockade (it asks first).
+                row.Bool("can_send", global == nullptr && result.can_settle != 0);
+                if (reason != nullptr) {
+                    row.Str("reason", reason);
+                }
+            }
+            if (!blocked.empty()) {
+                out.Str("blocked", blocked);
+            }
+        }
+
+        // colony_landscape {colony} (owner, 2026-11-20: VIEW COLONY natively, beside the colony
+        // pane): what the colony screen's landscape view draws (Draw_Landscape_View), back to front
+        // as it draws it, for the frontend to compose: the backdrop (COLONY2.LBX 49), the planet
+        // picture, the roads, each cell's vegetation and building, the satellites. The layout is
+        // the screen's own (Make_Bldg_Array_For_Colony: the colony index as its seed, the game's
+        // seed restored), worked out in the screen's tables, which are put back afterwards.
+        // Positions are in the 640x480 screen; "bottom" layers are placed by their bottom centre.
+        // Their art goes under the colony palette ("@<planet picture>", sprites.cpp).
+        void Query_Colony_Landscape(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            if (!args.Int("colony", &colony_id)) {
+                out.Fail("bad_args", "colony: one of the player's colonies");
+                return;
+            }
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            const int16_t c = (int16_t)colony_id;
+            const s_colony& colony = MOX::colony[c];
+            if (colony.outpost_flag != 0) {
+                out.Fail("refused", "an outpost has no landscape");
+                return;
+            }
+            // The screen's tables and the globals its layout reads, kept to be put back.
+            s_colony_bldg saved_bldgs[6];
+            int16_t saved_satellites[10];
+            s_coldraw_road saved_roads[7][7];
+            s_coldraw_veggie_cell saved_veggies[6][6];
+            memcpy(saved_bldgs, COLONY::colony_bldgs, sizeof(saved_bldgs));
+            memcpy(saved_satellites, COLONY::colony_satellites, sizeof(saved_satellites));
+            memcpy(saved_roads, COLDRAW::road_list, sizeof(saved_roads));
+            memcpy(saved_veggies, COLDRAW::veggie_list, sizeof(saved_veggies));
+            const int16_t saved_screen_data = MOX::screen_data;
+            const int16_t saved_orbit = COLONY::orbit_temp;
+            const int16_t saved_handle = COLONY::colony_handle;
+            const uint32_t saved_seed = game_random::Get_Random_Seed();
+
+            const s_planet_data& planet = MOX::planet[colony.planet];
+            MOX::screen_data = planet.star_index;
+            COLONY::orbit_temp = (int16_t)planet.orbit;
+            COLONY::colony_handle = c;
+            COLDRAW::Load_Road_List_Anims();
+            COLONY::Make_Bldg_Array_For_Colony(c, 0);
+
+            const int32_t backdrop = (int8_t)planet.climate_bg_type + (uint8_t)colony.climate * 3; // C_Anims(0)
+            const std::string palette = "@" + std::to_string(backdrop);
+            out.Int("colony", c);
+            out.Int("width", 640);
+            out.Int("height", 480);
+            s_out layers = out.Add_List("layers");
+            auto layer = [&](const std::string& lbx, int32_t entry, int32_t x, int32_t y, const char* anchor) {
+                s_out item = layers.Append_Object();
+                item.Str("lbx", lbx);
+                item.Int("entry", entry);
+                item.Int("x", x);
+                item.Int("y", y);
+                item.Str("anchor", anchor);
+            };
+            layer("COLONY2.LBX", 0x31, 0, 0, "top_left");
+            layer("PLANETS.LBX", backdrop, 0, 0, "top_left");
+            static const uint8_t k_road_order[4] = {3, 2, 0, 1}; // Draw_Road_List
+            for (int16_t i = 0; i < 49; ++i) {
+                int16_t y = 0;
+                int16_t x = 0;
+                COLDRAW::Road_Back_To_Front(i, &y, &x);
+                for (const uint8_t dir : k_road_order) {
+                    if (COLDRAW::road_list[y][x].connections[dir] != 0) {
+                        layer("COLROADS.LBX" + palette, COLDRAW::road_list[y][x].anims[dir], 0, 0, "top_left");
+                    }
+                }
+            }
+            for (int16_t i = 0; i < 36; ++i) { // Draw_Colony_Bldgs: each cell's vegetation, then its building
+                int16_t a = 0;
+                int16_t b = 0;
+                COLONY::Bldg_Back_To_Front(i, &a, &b);
+                const s_coldraw_veggie_cell& veggie = COLDRAW::veggie_list[a][b];
+                for (int k = 0; k < 2; ++k) {
+                    if (veggie.sprites[k].draw_flag != 0) {
+                        layer("COLVEGGI.LBX" + palette, veggie.anim_entries[k], veggie.sprites[k].screen_x, veggie.sprites[k].screen_y, "bottom");
+                    }
+                }
+                const int32_t building = COLONY::colony_bldgs[a].buildings[b];
+                if (building != 0) {
+                    // COLBCACH::Cache_Load_Bldg: bldg<n>.lbx, the cell's frame of the building's ten.
+                    const int32_t type = building - BUILDING_ALIEN_CONTROL_CENTER;
+                    const int32_t entry = COLONY::Bldg_Coords_To_Effective_Frame(a, b) + (type % 10) * 36;
+                    layer("BLDG" + std::to_string(type / 10) + ".LBX" + palette, entry, 0, 0, "top_left");
+                }
+            }
+            for (int16_t i = 0; i < 10; ++i) { // Draw_Colony_Satellites
+                const int16_t satellite = COLONY::colony_satellites[i];
+                const int16_t picture = satellite >= 0 ? COLONY::Satellite_Anim_Pic(satellite) : (int16_t)-1;
+                if (picture < 0) {
+                    continue;
+                }
+                layer("COLONY.LBX", picture + 9, (i % 2 == 0 ? 1 : -1) * i * 50 + 295, 162, "top_left");
+            }
+
+            memcpy(COLONY::colony_bldgs, saved_bldgs, sizeof(saved_bldgs));
+            memcpy(COLONY::colony_satellites, saved_satellites, sizeof(saved_satellites));
+            memcpy(COLDRAW::road_list, saved_roads, sizeof(saved_roads));
+            memcpy(COLDRAW::veggie_list, saved_veggies, sizeof(saved_veggies));
+            MOX::screen_data = saved_screen_data;
+            COLONY::orbit_temp = saved_orbit;
+            COLONY::colony_handle = saved_handle;
+            game_random::Set_Random_Seed(saved_seed);
+        }
+
         // A building scrapped from the colony pane (COLONY::Scrap_Building, as clicking it on the
         // landscape does): the game's question with the refund, its once-a-turn rule and message.
         void Sell_Building(int16_t, const s_args& args, s_out& out) {
@@ -681,6 +899,32 @@ namespace antares::commands::internal {
             const bool sold = COLONY::Scrap_Building(c, (int16_t)building, false);
             out.Bool("sold", sold);
             out.Int("bc", MOX::player[MOX::colony[c].owner].bc);
+        }
+
+        // The occupation policy (OCPOLPUP::Occupation_Policy_Popup's two answers): annihilate the
+        // conquered people (0) or keep them (3). Democracies and Federations always keep them.
+        void Set_Occupation(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            int64_t annihilate_arg = -1;
+            if (!args.Int("colony", &colony_id) || !args.Int("annihilate", &annihilate_arg) || annihilate_arg < 0 || annihilate_arg > 1) {
+                out.Fail("bad_args", "colony, annihilate (1 or 0)");
+                return;
+            }
+            const bool annihilate = annihilate_arg == 1;
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            const int16_t c = (int16_t)colony_id;
+            if (annihilate && !Occupation_Can_Annihilate(MOX::colony[c].owner)) {
+                out.Fail("refused", "your government keeps conquered people");
+                return;
+            }
+            MOX::colony[c].occupation_policy = annihilate ? 0 : 3;
+            COLONY::Col_Calc_Wrapper(c);
+            out.Bool("annihilate", annihilate);
         }
 
         // The colony screen's BUY (COLONY::Buy_Or_Unbuy_Product): un-buys a bought item, else asks
@@ -840,7 +1084,7 @@ namespace antares::commands::internal {
                     s_out target = targets.Append_Object();
                     target.Int("design", slot);
                     target.Str("name", Utf8(design.name, sizeof(design.name)));
-                    target.Int("cost", AIBUILD::Refit_Cost(colony.owner, &ship.d, &design));
+                    target.Int("cost", AIBUILD::Refit_Cost(&MOX::player[colony.owner], &ship.d, &design));
                 }
             }
         }
@@ -848,6 +1092,35 @@ namespace antares::commands::internal {
         // What CHANGE offers (COLBLDG::Build_Arrays for the colony, as the popup opens): Buildings
         // (trade goods, housing, the buildable buildings by name) and Units (in the popup's order,
         // separators kept), with the queue and the auto build switch.
+        // One item's build time at the colony's production now (owner, 2026-11-20: the build
+        // pane's estimate was the one from when it opened; colonists moved since change it). The
+        // pane asks on hover.
+        void Query_Build_Turns(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t colony_id = -1;
+            int64_t id = -1;
+            if (!args.Int("colony", &colony_id) || !args.Int("item", &id) || id < INT16_MIN || id > INT16_MAX) { // ships are negative
+                out.Fail("bad_args", "colony: one of the player's colonies; item: a build item");
+                return;
+            }
+            if (!Player_Colony(colony_id, out)) {
+                return;
+            }
+            const int16_t c = (int16_t)colony_id;
+            out.Int("colony", c);
+            out.Int("item", id);
+            if (id == COLONY_PRODUCTION_HOUSING || id == COLONY_PRODUCTION_TRADE_GOODS || id == COLONY_PRODUCTION_NONE) {
+                return;
+            }
+            s_build_scope scope(c);
+            COLBLDG::Build_Arrays();
+            out.Int("cost", COLCALC::Colony_Product_Cost(&MOX::colony[c], (int16_t)id));
+            out.Int("turns", COLONY::Calculate_Colony_Turn_Count_From_Scrap_For_Prod(c, (int16_t)id));
+            out.Int("industry", MOX::colony[c].production[ECON_INDUSTRY]);
+        }
+
         void Query_Build_Options(int16_t, const s_args& args, s_out& out) {
             if (!Have_Game(out)) {
                 return;
@@ -869,11 +1142,32 @@ namespace antares::commands::internal {
             for (int i = 0; i < COLBLDG::n_building_indexes; ++i) {
                 Build_Item(c, COLBLDG::building_indexes[i], buildings.Append_Object());
             }
+            // Colony Bases (owner, 2026-11-20): one per planet the system has free
+            // (Star_N_Uncolonized_Worlds), less those already queued. The list is edited here
+            // before OK, so the pane counts its own queue against `colony_base_room`; the item is
+            // offered whenever the colony can build one at all (Calculate_Military_Array leaves it
+            // out once the saved queue has used the room, and the pane may take one off).
+            const int16_t colony_base_room = COLBLDG::Star_N_Uncolonized_Worlds(MOX::planet[MOX::colony[c].planet].star_index);
+            out.Int("colony_base_room", colony_base_room);
             s_out units = out.Add_List("units");
+            bool colony_base_listed = false;
+            for (int i = 0; i < COLBLDG::n_military_indexes; ++i) {
+                colony_base_listed = colony_base_listed || COLBLDG::military_indexes[i] == BUILDING_COLONY_BASE;
+            }
+            if (!colony_base_listed && colony_base_room > 0 && COLCALC::Colony_Can_Build_Product(&MOX::colony[c], BUILDING_COLONY_BASE)) {
+                Build_Item(c, BUILDING_COLONY_BASE, units.Append_Object());
+            }
             for (int i = 0; i < COLBLDG::n_military_indexes; ++i) {
                 const int16_t id = COLBLDG::military_indexes[i];
                 if (id == COLONY_PRODUCTION_SEPARATOR) {
                     units.Append_Object().Bool("separator", true);
+                    continue;
+                }
+                // A Titan or Doom Star design without its tech isn't offered (the original listed
+                // it and refused it).
+                if (COLBLDG::Colony_Production_Is_Ship_Design(id) &&
+                    !Hull_Researched(MOX::colony[c].owner,
+                        MOX::player[MOX::colony[c].owner].ship_designs[COLBLDG::Colony_Production_Ship_Design_Index(id)].size)) {
                     continue;
                 }
                 Build_Item(c, id, units.Append_Object());
@@ -1091,9 +1385,13 @@ namespace antares::commands::internal {
         table->push_back({"help", e_kind::query, ANY_SCREEN, 1, "topic: a help record (HELP.LBX)", Query_Help});
         table->push_back({"move_colonist", e_kind::command, galaxy, 0, "colony, pop or pops (a cluster), job (0-2)", Move_Colonist});
         table->push_back({"send_colonists", e_kind::command, galaxy, 0, "from, pop, to, job (-1: any)", Send_Colonists});
+        table->push_back({"transport_targets", e_kind::query, ANY_SCREEN, 1, "colony, pop", Query_Transport_Targets});
+        table->push_back({"colony_landscape", e_kind::query, galaxy, 1, "colony", Query_Colony_Landscape});
         table->push_back({"sell_building", e_kind::command, galaxy, 0, "colony, building", Sell_Building});
         table->push_back({"buy", e_kind::command, galaxy, 0, "colony", Buy});
+        table->push_back({"set_occupation", e_kind::command, galaxy, 0, "colony, annihilate", Set_Occupation});
         table->push_back({"build_options", e_kind::query, ANY_SCREEN, 1, "colony", Query_Build_Options});
+        table->push_back({"build_turns", e_kind::query, ANY_SCREEN, 1, "colony, item", Query_Build_Turns});
         table->push_back({"build_commit", e_kind::command, galaxy, 0, "colony, edits [{add, repeat} / {delete} / {move} / {refit, design}], auto", Build_Commit});
     }
 

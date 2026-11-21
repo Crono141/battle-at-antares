@@ -16,6 +16,7 @@ namespace TEST_COLONY {
     int refuse_after = -1;   // Give_Colonist_New_Job says no after this many moves (-1: never)
     int sells = 0;
     bool answer_sell = true; // the game's question
+    bool captured_people = false; // Colony_Pop_Is_Annihilation_Target for every pop
 } // namespace TEST_COLONY
 
 namespace COLCALC {
@@ -51,6 +52,13 @@ namespace COLONY {
             case BUILDING_STAR_FORTRESS: return 0;
             default: return -1;
         }
+    }
+    int16_t orbit_temp = 0;
+    bool __cdecl Colony_Pop_Is_Annihilation_Target(const s_colony*, uint32_t) {
+        return TEST_COLONY::captured_people;
+    }
+    void __cdecl Col_Calc_Wrapper(int16_t) {
+        ++TEST_COLONY::colony_calculations;
     }
     void __cdecl Buy_Or_Unbuy_Product(int16_t colony_idx, bool) {
         ++TEST_COLONY::buys;
@@ -261,7 +269,7 @@ namespace COLBLDG {
 } // namespace COLBLDG
 
 namespace AIBUILD {
-    int16_t __cdecl Refit_Cost(int16_t, s_ship_design*, s_ship_design*) {
+    int16_t __cdecl Refit_Cost(const s_player*, const s_ship_design*, const s_ship_design*) {
         return 25;
     }
 } // namespace AIBUILD
@@ -374,3 +382,64 @@ namespace COLMOVE {
         cluster_colony_n = -1;
     }
 } // namespace COLMOVE
+
+// The colony pane's transport list (transport_targets, 2026-11-20): every destination can take
+// them, one turn per star index apart.
+namespace SETTLER {
+    void __cdecl Pop_Tries_To_Settle(s_colony*, int16_t, s_colony*, s_settler_settle_result* result) {
+        *result = {};
+        result->can_settle = 1;
+        result->eta_turns = 1;
+    }
+    int32_t __cdecl Settler_ETA(s_player*, int16_t source_star, int16_t dest_star) {
+        return source_star > dest_star ? source_star - dest_star : dest_star - source_star;
+    }
+} // namespace SETTLER
+
+// The build list's Colony Base room (build_options, 2026-11-20): none free in the fake.
+namespace COLBLDG {
+    int16_t __cdecl Star_N_Uncolonized_Worlds(int16_t) {
+        return 0;
+    }
+} // namespace COLBLDG
+namespace COLCALC {
+    uint8_t __cdecl Colony_Can_Build_Product(s_colony*, int16_t) {
+        return 0;
+    }
+} // namespace COLCALC
+
+// The colony's landscape (colony_landscape, 2026-11-20): the screen's tables, and a layout with
+// one building, one road and one plant.
+namespace COLONY {
+    s_colony_bldg colony_bldgs[6] = {};
+    int16_t colony_satellites[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    void __cdecl Make_Bldg_Array_For_Colony(int16_t, uint8_t) {
+        memset(colony_bldgs, 0, sizeof(colony_bldgs));
+        colony_bldgs[0].buildings[0] = BUILDING_AUTOMATED_FACTORY;
+        COLDRAW::road_list[0][0].connections[0] = 1;
+        COLDRAW::road_list[0][0].anims[0] = 7;
+        COLDRAW::veggie_list[1][1].sprites[0].draw_flag = 1;
+        COLDRAW::veggie_list[1][1].anim_entries[0] = 3;
+        COLDRAW::veggie_list[1][1].sprites[0].screen_x = 100;
+        COLDRAW::veggie_list[1][1].sprites[0].screen_y = 200;
+    }
+    void __cdecl Bldg_Back_To_Front(int16_t i, int16_t* a, int16_t* b) {
+        *a = (int16_t)(i / 6);
+        *b = (int16_t)(i % 6);
+    }
+    int16_t __cdecl Bldg_Coords_To_Effective_Frame(int16_t x, int32_t y) {
+        return (int16_t)(y * 6 + x);
+    }
+} // namespace COLONY
+
+namespace COLDRAW {
+    s_coldraw_road road_list[7][7] = {};
+    s_coldraw_veggie_cell veggie_list[6][6] = {};
+    void __cdecl Load_Road_List_Anims() {
+        memset(road_list, 0, sizeof(road_list));
+    }
+    void __cdecl Road_Back_To_Front(int16_t index, int16_t* row, int16_t* col) {
+        *row = (int16_t)(index / 7);
+        *col = (int16_t)(index % 7);
+    }
+} // namespace COLDRAW

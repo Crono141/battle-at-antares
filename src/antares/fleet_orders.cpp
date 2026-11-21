@@ -65,7 +65,7 @@ namespace antares::commands::internal {
             std::vector<int16_t> ships;
             for (int16_t node = MOX::ship_stack_start[stack]; node != -1 && (int16_t)ships.size() < MAX_SHIPS;
                  node = MOX::ship_node[node].next_node) {
-                ships.push_back(MOX::ship_node[node].ship_idx);
+                ships.push_back(int16_t(MOX::ship_node[node].ship_idx)); // a copy: the field is packed
             }
             return ships;
         }
@@ -716,14 +716,46 @@ namespace antares::commands::internal {
                 out.Fail("refused", "no ship of that kind in the fleet");
                 return;
             }
+            // The game's own question (the planet's potential, natively beside the system), as the
+            // legacy galaxy's Colonize asks it (owner, 2026-11-19: the plain list and dialog).
+            if (!outpost && args.Has("confirm") && MAINPUPS::New_Colony_Confirmation_Box((int16_t)planet) == 0) {
+                out.Bool("done", false);
+                out.Bool("declined", true);
+                return;
+            }
+            // A new colony takes a slot the turn reserved for the player (COLONIZE::
+            // Allocate_New_Colony_Slots); a loaded save has none until its next turn, and
+            // Make_New_Colony then did nothing while the ship was still used up. Reserve them now,
+            // and refuse (keeping the ship) if the colony still can't be made.
+            const bool reuses = !outpost && MOX::planet[planet].colony_index != -1;
+            bool have_slot = reuses;
+            for (int16_t c = 0; c < MAX_COLONIES && !have_slot; ++c) {
+                have_slot = MOX::colony[c].allocated_to == (int8_t)MOX::PLAYER_NUM;
+            }
+            if (!have_slot) {
+                COLONIZE::Allocate_New_Colony_Slots();
+            }
             if (outpost) {
                 COLONIZE::Make_New_Outpost((int16_t)planet, MOX::PLAYER_NUM);
             } else {
                 COLONIZE::Make_New_Colony((int16_t)planet, MOX::PLAYER_NUM);
             }
+            if (MOX::planet[planet].colony_index == -1 || MOX::colony[MOX::planet[planet].colony_index].owner != MOX::PLAYER_NUM) {
+                out.Fail("refused", "no colony can be founded there this turn");
+                return;
+            }
             antares::fleet::Consume_Ship(used);
             COLCALC::Update_Player_Stats(&MOX::player[MOX::PLAYER_NUM]);
             Rebuild_Icons();
+            if (!outpost && args.Has("confirm") && MOX::settings.animations_on != 0) {
+                // The landing, as MAINSCR2::Planet_Colonization_In_Main_Screen plays it: in the
+                // scene window, the new colony and its build list after (WP3.11a).
+                MOX::screen_data = star;
+                COLONY::orbit_temp = (int16_t)MOX::planet[planet].orbit;
+                COLLAND::Colony_Landing_Screen();
+                MOX::current_screen = SCREEN_MAIN;
+                Rebuild_Icons();
+            }
             out.Bool("done", true);
             out.Int("ship", used);
             out.Int("colony", MOX::planet[planet].colony_index);
@@ -876,6 +908,26 @@ namespace antares::commands::internal {
         }
 
     } // namespace
+
+    int16_t Settler_For(int16_t planet, bool outpost) {
+        if (planet < 0 || planet >= MOX::planet_count || !Target_Allowed(outpost ? e_target::outpost : e_target::colonize, planet)) {
+            return -1;
+        }
+        const int16_t star = MOX::planet[planet].star_index;
+        for (int16_t stack = 0; stack < (int16_t)MOX::ship_stack_count; ++stack) {
+            const int16_t head = Head_Ship(stack);
+            if (head < 0 || MOX::ship[head].owner != MOX::PLAYER_NUM || Stack_Star(stack, !outpost) != star) {
+                continue;
+            }
+            const int16_t count = (int16_t)Stack_Ships(stack).size();
+            const bool can = outpost ? FLEETPOP::Set_Build_Outpost_Button_Flag(stack, count) != 0
+                                     : FLEETPOP::Set_Colonize_Button_Flag(stack, count) != 0;
+            if (can) {
+                return head;
+            }
+        }
+        return -1;
+    }
 
     void Add_Fleet_Entries(std::vector<s_entry>* table) {
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);

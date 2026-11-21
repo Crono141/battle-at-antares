@@ -1,9 +1,10 @@
 extends PanelContainer
 ## The build pane (WP3.4b, the owner's design: "CHANGE: the build pane: item details, Auto build /
-## Repeat build, the build list, the buildable list with Buildings / Units tabs, OK and Cancel").
-## Slides out from the colony pane's right edge. From the `build_options` query: what CHANGE offers
-## (Buildings, Units, and Refit: the warships in orbit, each choosing a design of its size in a
-## popup), each item's details (the original's help text, or a design's parts) and the colony's
+## Repeat build, the build list, the buildable list with Buildings / Units tabs, OK and Cancel"; the
+## tabs became one list on the owner's request, 2026-11-17: the units, a short fixed list, pinned
+## above the buildings; each takes half the column and scrolls). Slides out from the colony pane's right edge. From the
+## `build_options` query: what CHANGE offers (Units and Buildings, and Refit: the warships in orbit,
+## each choosing a design of its size in a popup, shown in place of the list while REFIT is on), each item's details (the original's help text, or a design's parts) and the colony's
 ## queue, shown as the game's seven numbered slots. Items are clicked onto the end of the list or
 ## dragged between its items; list items drag to a new place the same way. The pane keeps a working copy of the queue and the edits made to it, by
 ## the original popup's rules (seven slots, a repeat stays with its item, a bought front item stays
@@ -21,11 +22,10 @@ const WIDTH := 660.0
 const REPEAT := -10
 const HOUSING := -3
 const TRADE_GOODS := -2
+const COLONY_BASE := 11 # BUILDING_COLONY_BASE, a product id too
 const SLOTS := 7
 const ROW_HEIGHT := 30.0
 
-@onready var tabs_buildings: Button = $Box/Header/Buildings
-@onready var tabs_units: Button = $Box/Header/Units
 @onready var tabs_refit: Button = $Box/Header/Refit
 @onready var detail: VBoxContainer = $Box/Columns/Left/Detail/Scroll/Box
 @onready var detail_scroll: ScrollContainer = $Box/Columns/Left/Detail/Scroll
@@ -34,7 +34,12 @@ const ROW_HEIGHT := 30.0
 @onready var auto_button: Button = $Box/Columns/Left/Toggles/Auto
 @onready var repeat_button: Button = $Box/Columns/Left/Toggles/Repeat
 @onready var queue_box: VBoxContainer = $Box/Columns/Left/Queue/Box
-@onready var items_box: VBoxContainer = $Box/Columns/Right/Scroll/Items
+@onready var lists: VBoxContainer = $Box/Columns/Right/Lists
+@onready var units_title: Label = $Box/Columns/Right/Lists/UnitsFrame/UnitsBox/UnitsTitle
+@onready var units_scroll: ScrollContainer = $Box/Columns/Right/Lists/UnitsFrame/UnitsBox/UnitsScroll
+@onready var units_box: VBoxContainer = $Box/Columns/Right/Lists/UnitsFrame/UnitsBox/UnitsScroll/Units
+@onready var items_title: Label = $Box/Columns/Right/Lists/ItemsFrame/ItemsBox/ItemsTitle
+@onready var items_box: VBoxContainer = $Box/Columns/Right/Lists/ItemsFrame/ItemsBox/Scroll/Items
 
 var bottom_clear := 0.0 # set_bottom_clear
 var art: Node
@@ -53,20 +58,17 @@ var _refitting := {} # ship -> true: refits added in this pane
 
 
 func _ready() -> void:
+	_add_splitter()
+	preload("../themes.gd").see_through(self)
 	$Box/Header/Close.pressed.connect(cancel)
 	$Box/Buttons/Cancel.pressed.connect(cancel)
 	$Box/Buttons/Ok.pressed.connect(_ok)
-	var group := ButtonGroup.new()
-	for b: Button in [tabs_buildings, tabs_units, tabs_refit]:
-		b.button_group = group
-		b.toggled.connect(func(_on: bool): _show_items())
-		preload("../themes.gd").glowing(b)
-	tabs_buildings.set_pressed_no_signal(true)
+	tabs_refit.toggled.connect(func(_on: bool): _show_items())
+	preload("../themes.gd").glowing(tabs_refit)
 	for b: Button in [auto_button, repeat_button]:
 		preload("../themes.gd").glowing(b)
-	# The list takes drops: an item from the right, or one of its own moved.
+	# The list takes drags (_arm_drag): an item from the right, or one of its own moved.
 	queue_box.custom_minimum_size.y = SLOTS * ROW_HEIGHT + (SLOTS - 1) * 2
-	queue_panel.set_drag_forwarding(Callable(), _can_drop, _drop)
 	_marker = Control.new()
 	_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_marker.draw.connect(_draw_marker)
@@ -117,6 +119,8 @@ func open(id: int, is_bought: bool) -> void:
 	bought = is_bought
 	_edits.clear()
 	_refitting.clear()
+	tabs_refit.set_pressed_no_signal(false)
+	preload("../themes.gd").glow(tabs_refit)
 	command.emit({"verb": "query", "what": "build_options", "colony": id, "_reply_to": "show_options"})
 
 
@@ -148,6 +152,18 @@ func cancel() -> void:
 	if visible:
 		_slide(false)
 		closed.emit()
+
+
+## Closed by a click away from it (the galaxy, another colony, a side panel): the changes are kept,
+## as OK (owner, 2026-11-19: clicking outside after adding things acted as Cancel).
+func close_keeping() -> void:
+	if not visible:
+		return
+	if _edits.is_empty() and auto_button.button_pressed == bool(options.get("auto", false)):
+		cancel()
+	else:
+		_close_refit_popup()
+		_ok()
 
 
 ## Hidden at once (a legacy screen took over): a Cancel.
@@ -186,6 +202,7 @@ func _add(id: int, gap := -1) -> void:
 	_edits.append({"add": id, "repeat": repeat})
 	_place_last(gap)
 	_show_queue()
+	_show_items() # a building queued leaves the list
 
 
 ## A refit (REFIT's popup chose a design): the game queues the ship, at the end.
@@ -224,9 +241,9 @@ func _delete(slot: int) -> void:
 		_queue.remove_at(slot)
 	if id <= -100 and _refitting.has(-100 - id):
 		_refitting.erase(-100 - id) # the commit puts the ship back as it was
-		_show_items()
 	_edits.append({"delete": slot})
 	_show_queue()
+	_show_items() # a building taken off the list can be chosen again
 
 
 ## Moves the item at `from` ahead of the item at `to`, its repeat with it (as the popup's
@@ -272,18 +289,48 @@ func _pair(slot: int) -> Vector2i:
 func _show_items() -> void:
 	if not is_node_ready() or options.is_empty():
 		return
-	for child in items_box.get_children():
-		items_box.remove_child(child)
-		child.queue_free()
-	if tabs_refit.button_pressed:
+	for box in [units_box, items_box]:
+		for child in box.get_children():
+			box.remove_child(child)
+			child.queue_free()
+	var refit := tabs_refit.button_pressed
+	units_title.visible = not refit
+	units_scroll.visible = not refit
+	$Box/Columns/Right/Lists/UnitsFrame.visible = not refit # its own frame (owner, 2026-11-19)
+	if _splitter:
+		_splitter.visible = not refit
+	items_title.text = "REFIT" if refit else "BUILDINGS"
+	if refit:
 		_show_refit_ships()
 		return
-	var list: Array = options.buildings if tabs_buildings.button_pressed else options.units
+	_fill(units_box, options.units)
+	_fill(items_box, options.buildings)
+
+
+func _queued(id: int) -> bool:
+	return _queue.any(func(q: Dictionary) -> bool: return int(q.id) == id)
+
+
+## Colony Bases this queue may still take (owner, 2026-11-20): the system's free planets less those
+## already queued here, as the build screen counts them (Calculate_Military_Array).
+func _colony_base_room() -> int:
+	var queued := _queue.filter(func(q: Dictionary) -> bool: return int(q.id) == COLONY_BASE).size()
+	return int(options.get("colony_base_room", 0)) - queued
+
+
+func _fill(box: VBoxContainer, list: Array) -> void:
 	for item: Dictionary in list:
+		# A building in the build list is built once: it leaves the list (owner, 2026-11-19: it
+		# could be queued again and again). Housing and trade goods can repeat.
+		if box == items_box and not item.get("separator", false) and int(item.id) != HOUSING and \
+				int(item.id) != TRADE_GOODS and _queued(int(item.id)):
+			continue
+		if not item.get("separator", false) and int(item.id) == COLONY_BASE and _colony_base_room() <= 0:
+			continue
 		if item.get("separator", false):
 			var gap := Control.new()
-			gap.custom_minimum_size.y = 12
-			items_box.add_child(gap)
+			gap.custom_minimum_size.y = 8
+			box.add_child(gap)
 			continue
 		var b := Button.new()
 		b.text = String(item.name)
@@ -295,10 +342,8 @@ func _show_items() -> void:
 		var id := int(item.id)
 		b.mouse_entered.connect(func(): _show_detail(item))
 		b.pressed.connect(func(): _add(id))
-		b.set_drag_forwarding(func(_at: Vector2) -> Variant:
-			set_drag_preview(_drag_preview(item))
-			return {"build_item": id}, Callable(), Callable())
-		items_box.add_child(b)
+		_arm_drag(b, {"kind": "item", "id": id, "item": item})
+		box.add_child(b)
 
 
 ## REFIT: the warships in orbit; one chooses its new design in a popup.
@@ -327,9 +372,7 @@ func _show_refit_ships() -> void:
 			b.add_theme_font_size_override("font_size", 19)
 			b.mouse_entered.connect(func(): _show_detail(ship))
 			b.pressed.connect(func(): _open_refit_popup(ship, b, -1))
-			b.set_drag_forwarding(func(_at: Vector2) -> Variant:
-				set_drag_preview(_drag_preview(ship))
-				return {"refit_ship": ship}, Callable(), Callable())
+			_arm_drag(b, {"kind": "refit", "ship": ship, "item": ship})
 			row.add_child(b)
 			items_box.add_child(row)
 		if shown == 0:
@@ -456,19 +499,32 @@ func _draw_marker() -> void:
 
 
 ## The seven slots, numbered, empty ones shown; each item drags to a new place.
+## While a drag is on (_drag.active), the dragged item's rows are left out and a gap (_spacer)
+## opens where it would land.
 func _show_queue() -> void:
 	for child in queue_box.get_children():
 		queue_box.remove_child(child)
-		child.queue_free()
+		if child != _spacer:
+			child.queue_free()
 	queue_title.text = "BUILD LIST   %d / %d" % [_queue.size(), SLOTS]
+	var hidden := _drag_hidden()
+	# A new item's gap takes the room of the last empty rows (a moved item's rows left their own).
+	var extra := maxi(_spacer_rows() - hidden.y, 0)
+	var rows_in := 0 # rows put in so far: numbered where they will be, the gap counted
 	for slot in SLOTS:
+		if slot >= hidden.x and slot < hidden.x + hidden.y:
+			continue # the dragged item: on the pointer
+		if slot >= SLOTS - extra and slot >= _queue.size():
+			continue
+		var place := rows_in + (_spacer_rows() if _drag_gap >= 0 and rows_in >= _drag_gap else 0)
+		rows_in += 1
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 6)
 		row.custom_minimum_size.y = ROW_HEIGHT
 		row.mouse_filter = Control.MOUSE_FILTER_PASS
 		var number := Label.new()
 		number.theme_type_variation = &"Dim"
-		number.text = str(slot + 1)
+		number.text = str(place + 1)
 		number.custom_minimum_size.x = 18
 		number.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		row.add_child(number)
@@ -506,10 +562,7 @@ func _show_queue() -> void:
 				shown = design.merged({"refit_cost": int(entry.refit.cost)}, true) if not design.is_empty() else entry
 			name_button.mouse_entered.connect(func(): _show_detail(shown))
 			if not (slot == 0 and bought):
-				var s := slot
-				name_button.set_drag_forwarding(func(_at: Vector2) -> Variant:
-					set_drag_preview(_drag_preview(entry))
-					return {"build_slot": s}, Callable(), Callable())
+				_arm_drag(name_button, {"kind": "slot", "slot": slot, "item": entry})
 			row.add_child(name_button)
 		if not (slot == 0 and bought):
 			var remove := Button.new()
@@ -520,10 +573,241 @@ func _show_queue() -> void:
 			remove.pressed.connect(func(): _delete(s2))
 			row.add_child(remove)
 		queue_box.add_child(row)
+	if _spacer != null and _drag.get("active", false) and _drag_gap >= 0:
+		queue_box.add_child(_spacer)
+		queue_box.move_child(_spacer, mini(_drag_gap, queue_box.get_child_count() - 1))
+
+
+# ---- Dragging (owner, 2026-11-19: drag and drop onto the list was broken, its rows took the drop,
+# and a thin line was all it showed): the row comes off and follows the pointer, and a gap opens in
+# the list where it would land. A plain click on a list item still adds it at the end. ----
+
+var _drag := {} # {kind: slot / item / refit, slot, id, ship, item, start, active}
+var _ghost: Control
+var _spacer: Control
+var _drag_gap := -1 # the gap among the shown rows (the dragged item's rows left out)
+var _spacer_tween: Tween
+const DRAG_THRESHOLD := 6.0
+
+
+func _arm_drag(control: Control, info: Dictionary) -> void:
+	control.gui_input.connect(func(event: InputEvent):
+		var press := event as InputEventMouseButton
+		if press and press.button_index == MOUSE_BUTTON_LEFT and press.pressed:
+			_drag = info.merged({"start": press.global_position, "active": false}, true))
+
+
+## The dragged item's rows in the queue (a slot drag): its first slot and how many.
+func _drag_hidden() -> Vector2i:
+	if _drag.get("active", false) and String(_drag.kind) == "slot":
+		return _pair(int(_drag.slot))
+	return Vector2i(-1, 0)
+
+
+func _spacer_rows() -> int:
+	if not _drag.get("active", false) or _drag_gap < 0:
+		return 0
+	return _drag_hidden().y if String(_drag.kind) == "slot" else 1
+
+
+func _input(event: InputEvent) -> void:
+	if _drag.is_empty() or not visible:
+		return
+	var motion := event as InputEventMouseMotion
+	if motion:
+		if not _drag.active and motion.global_position.distance_to(_drag.start) > DRAG_THRESHOLD:
+			if String(_drag.kind) != "slot" and _queue.size() >= SLOTS:
+				_drag = {} # a full list takes nothing new
+				return
+			_begin_drag()
+		if _drag.get("active", false):
+			_follow(motion.global_position)
+		return
+	var release := event as InputEventMouseButton
+	if release and release.button_index == MOUSE_BUTTON_LEFT and not release.pressed:
+		if _drag.get("active", false):
+			get_viewport().set_input_as_handled() # not a click on the button under it
+			_finish_drag(release.global_position)
+		_drag = {}
+
+
+func _begin_drag() -> void:
+	_drag.active = true
+	_ghost = PanelContainer.new()
+	_ghost.theme_type_variation = &"RowOpen"
+	_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ghost.top_level = true
+	_ghost.z_index = 10
+	var preview := _drag_preview(_drag.item)
+	preview.modulate.a = 1.0
+	_ghost.add_child(preview)
+	add_child(_ghost)
+	_ghost.custom_minimum_size = Vector2(queue_box.size.x, ROW_HEIGHT * _drag_hidden().y if String(_drag.kind) == "slot" else ROW_HEIGHT)
+	_spacer = Control.new()
+	_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_drag_gap = -1
+	_follow(get_global_mouse_position())
+
+
+## The ghost on the pointer; over the list, the gap where it would land.
+func _follow(at: Vector2) -> void:
+	if _ghost == null:
+		return
+	_ghost.global_position = at - Vector2(24.0, ROW_HEIGHT * 0.5)
+	var gap := _gap_for(at) if queue_panel.get_global_rect().has_point(at) else -1
+	if gap == _drag_gap:
+		return
+	_drag_gap = gap
+	if _spacer_tween:
+		_spacer_tween.kill()
+	_spacer.custom_minimum_size.y = 0.0
+	_show_queue()
+	if gap >= 0:
+		_spacer_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		_spacer_tween.tween_property(_spacer, "custom_minimum_size:y", _spacer_rows() * (ROW_HEIGHT + 2.0) - 2.0, 0.12)
+
+
+## The gap among the shown rows under `at`: whole items only (an item and its repeat stay
+## together), never ahead of a bought first item.
+func _gap_for(at: Vector2) -> int:
+	var hidden := _drag_hidden()
+	var shown: Array = [] # the queue's slots still in the list, in order
+	for slot in _queue.size():
+		if not (slot >= hidden.x and slot < hidden.x + hidden.y):
+			shown.append(slot)
+	var pitch := ROW_HEIGHT + 2.0
+	var y := (queue_box.get_global_transform().affine_inverse() * at).y
+	# Rows under the open gap sit lower by its height; the gap itself keeps the place.
+	var open := _spacer_rows() * pitch
+	if _drag_gap >= 0:
+		if y >= _drag_gap * pitch and y < _drag_gap * pitch + open:
+			return _drag_gap
+		if y >= _drag_gap * pitch + open:
+			y -= open
+	var gap := clampi(roundi(y / pitch), 0, shown.size())
+	while gap > 0 and gap < shown.size() and int(_queue[shown[gap]].id) == REPEAT:
+		gap += 1
+	if bought and not shown.is_empty() and int(shown[0]) == 0:
+		gap = maxi(gap, _pair(0).y)
+	return gap
+
+
+func _finish_drag(at: Vector2) -> void:
+	var gap := _drag_gap
+	var info := _drag
+	if _ghost != null:
+		_ghost.queue_free()
+		_ghost = null
+	if _spacer_tween:
+		_spacer_tween.kill()
+	_drag = {}
+	_drag_gap = -1
+	if _spacer != null:
+		if _spacer.get_parent() != null:
+			_spacer.get_parent().remove_child(_spacer)
+		_spacer.queue_free()
+		_spacer = null
+	if gap < 0 or not queue_panel.get_global_rect().has_point(at):
+		_show_queue() # dropped elsewhere: nothing changes
+		return
+	match String(info.kind):
+		"slot":
+			# The gap counts the shown rows; in the queue's own slots the dragged rows come back.
+			var src := _pair(int(info.slot))
+			var to := gap if gap <= src.x else gap + src.y
+			_move_to(src.x, to)
+			_show_queue()
+		"item":
+			_add(int(info.id), gap)
+		"refit":
+			var ship: Dictionary = info.ship
+			var targets: Array = ship.get("targets", [])
+			if targets.size() == 1:
+				_refit(ship, targets[0], gap)
+			else:
+				_open_refit_popup(ship, queue_box, gap)
+
+
+# ---- The partition between Units and Buildings (owner, 2026-11-19): drag it to share the column
+# as you like; kept in the interface settings. ----
+
+const SPLIT_MIN := 0.15
+var _splitter: Control
+var _splitting := false
+
+
+func _add_splitter() -> void:
+	var units_frame: Control = $Box/Columns/Right/Lists/UnitsFrame
+	lists.add_theme_constant_override("separation", 0)
+	_splitter = Control.new()
+	_splitter.name = "Splitter"
+	_splitter.custom_minimum_size.y = 12.0
+	_splitter.mouse_filter = Control.MOUSE_FILTER_STOP
+	_splitter.mouse_default_cursor_shape = Control.CURSOR_VSPLIT
+	_splitter.tooltip_text = "Drag to share the room between units and buildings"
+	_splitter.draw.connect(func():
+		# A short grip in the middle, brighter while hovered or dragged.
+		var hot := _splitting or _splitter.get_global_rect().has_point(_splitter.get_global_mouse_position())
+		var color := get_theme_color("font_color", "Label")
+		color.a = 0.75 if hot else 0.35
+		var mid := _splitter.size * 0.5
+		for dy in [-2.0, 2.0]:
+			_splitter.draw_line(Vector2(mid.x - 18.0, mid.y + dy), Vector2(mid.x + 18.0, mid.y + dy), color, 1.5, true))
+	_splitter.mouse_entered.connect(_splitter.queue_redraw)
+	_splitter.mouse_exited.connect(_splitter.queue_redraw)
+	_splitter.gui_input.connect(_on_splitter_input)
+	lists.add_child(_splitter)
+	lists.move_child(_splitter, units_frame.get_index() + 1)
+	_set_split(float(preload("../themes.gd").saved_value("build_pane", "units_share", 0.5)))
+
+
+func _set_split(share: float) -> void:
+	share = clampf(share, SPLIT_MIN, 1.0 - SPLIT_MIN)
+	($Box/Columns/Right/Lists/UnitsFrame as Control).size_flags_stretch_ratio = share
+	($Box/Columns/Right/Lists/ItemsFrame as Control).size_flags_stretch_ratio = 1.0 - share
+
+
+func _on_splitter_input(event: InputEvent) -> void:
+	var button := event as InputEventMouseButton
+	if button and button.button_index == MOUSE_BUTTON_LEFT:
+		_splitting = button.pressed
+		if not _splitting:
+			preload("../themes.gd").save_value("build_pane", "units_share",
+				($Box/Columns/Right/Lists/UnitsFrame as Control).size_flags_stretch_ratio)
+		_splitter.queue_redraw()
+		_splitter.accept_event()
+		return
+	var motion := event as InputEventMouseMotion
+	if motion and _splitting:
+		# The share of the column above the pointer (the grip's own height left out).
+		var room := lists.size.y - _splitter.size.y
+		if room > 0.0:
+			# The event's position is the grip's own; the grip sits in the column.
+			var y := _splitter.position.y + motion.position.y - _splitter.size.y * 0.5
+			_set_split(y / room)
+		_splitter.accept_event()
+
+
+func _show_turns(result: Dictionary) -> void:
+	if not result.get("ok", false) or int(result.get("item", -1)) != _cost_item or int(result.get("colony", -1)) != colony_id \
+			or not is_instance_valid(_cost_label) or not result.has("turns"):
+		return
+	_cost_label.text = "Cost here %s · Build time %d" % [_thousands(int(result.cost)), int(result.turns)]
+	_cost_label.set_meta("industry", int(result.get("industry", -1)))
+	if _names.has(_cost_item):
+		_names[_cost_item]["turns"] = int(result.turns)
+
+
+## The detail box's cost line, and its item: the build time is asked for on each hover, at the
+## colony's production now (owner, 2026-11-20: colonists moved with the pane open change it).
+var _cost_label: Label
+var _cost_item := -1
 
 
 ## The detail box: picture, name, cost here, build time, upkeep; a design's parts.
 func _show_detail(item: Dictionary) -> void:
+	_cost_label = null
+	_cost_item = -1
 	for child in detail.get_children():
 		detail.remove_child(child)
 		child.queue_free()
@@ -554,12 +838,16 @@ func _show_detail(item: Dictionary) -> void:
 		var specials: Array = item.get("specials", []).map(func(w: Dictionary) -> String: return w.text)
 		if not specials.is_empty():
 			lines.append(", ".join(specials))
-	for text in lines:
+	for i in lines.size():
 		var l := Label.new()
 		l.theme_type_variation = &"Dim"
-		l.text = text
+		l.text = lines[i]
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		detail.add_child(l)
+		if i == 0 and not item.has("refit_cost") and item.has("cost") and item.has("id"):
+			_cost_label = l
+			_cost_item = int(item.id)
+			command.emit({"verb": "query", "what": "build_turns", "colony": colony_id, "item": _cost_item, "_reply_to": "_show_turns"})
 	var description := String(item.get("description", "")).strip_edges()
 	if description != "":
 		var gap := Control.new()
@@ -575,6 +863,10 @@ func _show_detail(item: Dictionary) -> void:
 ## An item's picture: a game sprite {lbx, entry}, or the interface's own {icon} (trade goods).
 func _picture(pic: Dictionary, min_size: Vector2) -> TextureRect:
 	var rect := _sprite(String(pic.get("lbx", "")), int(pic.get("entry", -1)), min_size)
+	# Ships at the game's scale in their frame: a Frigate small, a Titan large (owner, 2026-11-19:
+	# every hull was stretched to the box, as the design panel was before 2026-11-15).
+	if String(pic.get("lbx", "")).begins_with("SHIPS.LBX"):
+		rect.set("whole_frame", true)
 	if pic.has("icon"):
 		rect.texture = Themes.icon(String(pic.icon), int(min_size.y * 0.6))
 	return rect
@@ -601,9 +893,9 @@ func _slide(opening: bool) -> void:
 	if opening:
 		show()
 		modulate.a = 0.0
-		position.x = hidden_x
+		preload("../themes.gd").move_x(self, hidden_x)
 	_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_property(self, "position:x", _shown_left if opening else hidden_x, SLIDE_TIME)
+	_tween.tween_method(func(x: float): preload("../themes.gd").move_x(self, x), position.x, _shown_left if opening else hidden_x, SLIDE_TIME)
 	_tween.tween_property(self, "modulate:a", 1.0 if opening else 0.0, SLIDE_TIME)
 	if not opening:
 		_tween.chain().tween_callback(hide)

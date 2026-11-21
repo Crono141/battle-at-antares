@@ -8,15 +8,19 @@ extends "side_panel.gd"
 ## picks it and the ones right of it up onto the pointer, a click on another empire's icons or the
 ## spies at home puts them down (Esc or a right click puts them back). Eliminated empires keep their slot:
 ## the portrait under the red Eliminated sign (races.lbx 31), No contact. A click on a slot picks the
-## empire; the fixed bottom has BONUSES (spy and agent), the spies at home, and AUDIENCE (the
-## native diplomacy window), REPORT (the original Races screen for now), DECLARE WAR (carried out
-## next turn, the game's question) and IGNORE.
+## empire; the fixed bottom has BONUSES (spy and agent), the spies at home, and the actions, each
+## armed and then done on the empire clicked: AUDIENCE (the native diplomacy window), REPORT
+## (its report beside the panel), DECLARE WAR (carried out next turn, the game's question) and
+## IGNORE / LISTEN.
 
 signal command(dict: Dictionary)
 signal width_changed
 
 const Themes := preload("../themes.gd")
-const WIDTH := 430.0
+const WIDTH := 540.0 # wider (owner, 2026-11-20): each card's REPORT tab, its full-height portrait
+const TREATY_LINES := 4 # the most a card's treaty text has: treaty, research, trade, tribute
+const MISSION_HEIGHT := 24.0
+const REPORT_TAB_WIDTH := 30.0
 const MISSIONS := ["ESPIONAGE", "SABOTAGE", "HIDE"]
 const ELIMINATED_SIGN := 31 # races.lbx: the red Eliminated sign over a portrait
 const HOME := -1 # a spy strip's owner: the spies at home
@@ -25,6 +29,10 @@ var art: Node
 var races: Array = []
 var result := {}
 var picked := -1
+## The action armed (owner, 2026-11-20: every action in two clicks, the action then the empire,
+## not the picked one): "AUDIENCE", "REPORT", "DECLARE WAR", "IGNORE", or "".
+var armed_action := ""
+const ACTION_LABELS := {"AUDIENCE": "AUDIENCE", "DECLARE WAR": "DECLARE WAR", "IGNORE": "IGNORE / LISTEN"}
 
 var _slots: VBoxContainer
 var _bonuses: Label
@@ -79,22 +87,29 @@ func _ready() -> void:
 	_home_strip.grabbed.connect(_pick_up)
 	home.add_child(_home_strip)
 	var grid := GridContainer.new()
-	grid.columns = 2
+	grid.columns = 3 # AUDIENCE, DECLARE WAR, IGNORE / LISTEN in one row; REPORT is on each card
 	grid.add_theme_constant_override("h_separation", 6)
 	grid.add_theme_constant_override("v_separation", 6)
 	box.add_child(grid)
-	for pair in [["AUDIENCE", "Talk with the picked empire's ambassador"], ["REPORT", "The picked empire's report (the original Races screen for now)"],
-			["DECLARE WAR", "Declare war on the picked empire (carried out next turn)"], ["IGNORE", "Ignore the picked empire's messages (again: listen)"]]:
+	for pair in [["AUDIENCE", "Then click the empire to talk with"],
+			["DECLARE WAR", "Then click the empire to declare war on (carried out next turn)"],
+			["IGNORE", "Then click the empire whose messages to ignore (one ignored already is listened to again)"]]:
 		var b := _button(pair[0], pair[1])
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var key := String(pair[0])
-		b.pressed.connect(func(): _act(key))
+		b.text = ACTION_LABELS[key]
+		b.toggle_mode = true
+		b.tooltip_text += " (Esc or a right click: not now)"
+		Themes.glowing(b)
+		b.toggled.connect(func(on: bool): _arm(key if on else ""))
 		grid.add_child(b)
 		_buttons[key] = b
 	resized.connect(func():
+		if _report != null and _report.visible:
+			(func(): _report.place(get_global_rect())).call_deferred() # the report keeps beside the panel
 		if visible and not _closing and _rect.size.x > 0.0:
 			if _tween == null or not _tween.is_running():
-				position.x = _rect.end.x - size.x
+				preload("../themes.gd").move_x(self, _rect.end.x - size.x)
 			width_changed.emit())
 
 
@@ -139,7 +154,14 @@ func show_races(answer: Dictionary) -> void:
 	_home_strip.held = int(_carry.n) if not _carry.is_empty() and int(_carry.from) == HOME else 0
 	_clear(_slots)
 	_strips = [_home_strip]
-	for r: Dictionary in races:
+	# From the top down (owner, 2026-11-19: met empires sat below empty No-contact rows, in player
+	# order): the empires met, then the eliminated, then those not met, each in player order.
+	var rank := func(r: Dictionary) -> int:
+		return 2 if not r.contact else (1 if r.eliminated else 0)
+	var ordered: Array = races.duplicate()
+	ordered.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return rank.call(a) < rank.call(b) or (rank.call(a) == rank.call(b) and int(a.player) < int(b.player)))
+	for r: Dictionary in ordered:
 		_slots.add_child(_slot(r))
 	_update_buttons()
 
@@ -154,12 +176,43 @@ func _slot(r: Dictionary) -> Control:
 	panel.gui_input.connect(func(event: InputEvent):
 		var mb := event as InputEventMouseButton
 		if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT and met:
+			if armed_action != "":
+				if _can_act(armed_action, r):
+					var action := armed_action
+					_arm("")
+					_act(action, p)
+				return
 			picked = p
 			show_races(result))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(row)
+	# Every card as tall as the fullest one can be (owner, 2026-11-20: portraits were sized by each
+	# card's own lines), the portrait and the bar at that height.
+	var card_height := _card_height()
+	# REPORT down the card's left side, as the screen's side tabs (owner, 2026-11-20): one click
+	# opens this empire's report beside the panel; again, or the report's X, closes it.
+	if met:
+		var tab: Button = preload("side_tab.gd").new()
+		tab.label = "REPORT"
+		tab.tooltip_text = "%s's report: its techs, ruler, spies and relations" % String(r.race)
+		tab.toggle_mode = true
+		tab.focus_mode = Control.FOCUS_NONE
+		tab.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		row.add_child(tab)
+		tab.custom_minimum_size = Vector2(REPORT_TAB_WIDTH, 0.0)
+		tab.set_pressed_no_signal(_report != null and _report.visible and int(_report.player) == p)
+		tab.pressed.connect(func():
+			if _report != null and _report.visible and int(_report.player) == p:
+				close_report()
+			else:
+				_act("REPORT", p))
+	else:
+		var spacer := Control.new()
+		spacer.custom_minimum_size = Vector2(REPORT_TAB_WIDTH, card_height)
+		spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(spacer)
 	# The ruler's portrait in the empire's colour.
 	var colors: Array = preload("../galaxy.gd").PLAYER_COLORS
 	var frame := PanelContainer.new()
@@ -171,13 +224,17 @@ func _slot(r: Dictionary) -> Control:
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(frame)
 	var portrait: TextureRect = preload("sprite_rect.gd").new()
-	portrait.custom_minimum_size = Vector2(84, 84)
+	portrait.custom_minimum_size = Vector2(card_height * 290.0 / 322.0, card_height) # RACESEL.LBX's 290x322
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	portrait.bind(art)
 	if met or eliminated:
-		portrait.show_sprite("RACES.LBX", int(r.portrait))
+		var large: Dictionary = r.get("portrait_large", {})
+		if large.is_empty():
+			portrait.show_sprite("RACES.LBX", int(r.portrait))
+		else:
+			portrait.show_sprite(String(large.lbx), int(large.entry)) # the race select screen's, sharper
 	frame.add_child(portrait)
 	if eliminated:
 		var sign_rect: TextureRect = preload("sprite_rect.gd").new()
@@ -191,11 +248,12 @@ func _slot(r: Dictionary) -> Control:
 	var bar := _RelationBar.new()
 	bar.value = float(int(r.relations) + 100) / 200.0
 	bar.shown = met
-	bar.custom_minimum_size = Vector2(10, 84)
+	bar.custom_minimum_size = Vector2(10, card_height)
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(bar)
 	var info := VBoxContainer.new()
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.custom_minimum_size.y = card_height
 	info.add_theme_constant_override("separation", 2)
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(info)
@@ -224,6 +282,7 @@ func _slot(r: Dictionary) -> Control:
 		treaty.text += "   ·   War next turn"
 	treaty.add_theme_font_size_override("font_size", 13)
 	treaty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	treaty.size_flags_vertical = Control.SIZE_EXPAND_FILL # the room of four lines, the spies and missions at the bottom
 	info.add_child(treaty)
 	# Spies against this empire: their icons, the mission switch.
 	var spies := HBoxContainer.new()
@@ -245,7 +304,7 @@ func _slot(r: Dictionary) -> Control:
 		var b := _button(MISSIONS[m], "Their mission")
 		b.toggle_mode = true
 		b.add_theme_font_size_override("font_size", 11)
-		b.custom_minimum_size.y = 24
+		b.custom_minimum_size.y = MISSION_HEIGHT
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.set_pressed_no_signal(int(r.mission) == m)
 		Themes.glow(b)
@@ -262,28 +321,85 @@ func _race(p: int) -> Dictionary:
 	return {}
 
 
+## Each action is enabled while some empire can take it (it picks its empire itself).
 func _update_buttons() -> void:
-	var r := _race(picked)
-	var met: bool = not r.is_empty() and r.contact and not r.eliminated
 	for key: String in _buttons:
-		(_buttons[key] as Button).disabled = not met
-	if met:
-		(_buttons["DECLARE WAR"] as Button).disabled = r.get("at_war", false) or r.get("war_declared", false)
-		(_buttons["IGNORE"] as Button).text = "LISTEN" if r.get("ignoring", false) else "IGNORE"
+		var any := races.any(func(x: Dictionary) -> bool: return _can_act(key, x))
+		(_buttons[key] as Button).disabled = not any
+		if not any and armed_action == key:
+			_arm("")
 
 
-func _act(key: String) -> void:
-	if picked < 0:
-		return
+## Whether `race` can take `action`: an empire met; war on one not at war nor declared on already.
+func _can_act(action: String, race: Dictionary) -> bool:
+	if race.is_empty() or not race.contact or race.eliminated:
+		return false
+	if action == "DECLARE WAR":
+		return not race.get("at_war", false) and not race.get("war_declared", false)
+	return true
+
+
+## An action armed (or "" for none): the next click on an empire that can take it does it.
+func _arm(action: String) -> void:
+	armed_action = action
+	for key: String in _buttons:
+		var b: Button = _buttons[key]
+		b.set_pressed_no_signal(key == action)
+		b.text = "PICK AN EMPIRE…" if key == action else ACTION_LABELS[key]
+		Themes.glow(b)
+
+
+func _act(key: String, player: int) -> void:
 	match key:
 		"AUDIENCE":
-			command.emit({"verb": "audience", "player": picked, "_reply_to": "_after_command"})
+			command.emit({"verb": "audience", "player": player, "_reply_to": "_after_command"})
 		"REPORT":
-			command.emit({"verb": "open", "screen": 6}) # the original Races screen (its REPORT)
+			picked = player
+			_open_report(player)
+			show_races(result) # the card's tab lit
 		"DECLARE WAR":
-			command.emit({"verb": "declare_war", "player": picked, "_reply_to": "_after_command"})
+			command.emit({"verb": "declare_war", "player": player, "_reply_to": "_after_command"})
 		"IGNORE":
-			command.emit({"verb": "toggle_ignore", "player": picked, "_reply_to": "_after_command"})
+			command.emit({"verb": "toggle_ignore", "player": player, "_reply_to": "_after_command"})
+
+
+# ---- The report flyout (owner, 2026-11-20: REPORT fell back to the legacy screen) ----
+
+var _report: PanelContainer
+
+
+func _open_report(player: int) -> void:
+	if _report == null:
+		_report = preload("race_report.gd").new()
+		_report.art = art
+		_report.name = "RaceReport"
+		# Its queries' answers come back to this panel (the view that sent them), relayed.
+		_report.command.connect(func(dict: Dictionary):
+			if dict.has("_reply_to"):
+				dict["_reply_to"] = "_report_" + String(dict["_reply_to"]).trim_prefix("_")
+			command.emit(dict))
+		add_child(_report)
+		_report.closed.connect(func():
+			if is_inside_tree() and not result.is_empty():
+				show_races(result)) # the card's tab unlit
+	_report.open_for(player, get_global_rect())
+
+
+func close_report() -> void:
+	if _report:
+		_report.close()
+
+
+func _report_show_report(answer: Dictionary) -> void:
+	_report.show_report(answer)
+
+
+func _report_show_review(answer: Dictionary) -> void:
+	_report.show_review(answer)
+
+
+func _report_show_help(answer: Dictionary) -> void:
+	_report._show_help(answer)
 
 
 func _after_command(_answer: Dictionary) -> void:
@@ -368,6 +484,14 @@ func _drop_carry() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if armed_action != "" and _carry.is_empty():
+		var cancel_key := event as InputEventKey
+		var cancel_click := event as InputEventMouseButton
+		if (cancel_key and cancel_key.pressed and cancel_key.keycode == KEY_ESCAPE) or \
+				(cancel_click and cancel_click.pressed and cancel_click.button_index == MOUSE_BUTTON_RIGHT):
+			_arm("")
+			get_viewport().set_input_as_handled()
+		return
 	if _carry.is_empty():
 		return
 	if event is InputEventMouseMotion:
@@ -422,7 +546,19 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func close() -> void:
 	_drop_carry()
+	_arm("")
+	close_report()
 	super.close()
+
+
+## A card's height: its name, four treaty lines, the spy strip and the mission buttons, in the
+## theme's fonts (the same for every card, whatever it shows).
+func _card_height() -> float:
+	var name_font := get_theme_font("font", "Name")
+	var name_size := get_theme_font_size("font_size", "Name")
+	var text_font := get_theme_font("font", "Label")
+	var line := text_font.get_height(13) + float(get_theme_constant("line_spacing", "Label"))
+	return name_font.get_height(name_size) + line * TREATY_LINES + (_SpyStrip.ICON + 4.0) + MISSION_HEIGHT + 2.0 * 3.0
 
 
 func _button(text: String, tip: String) -> Button:

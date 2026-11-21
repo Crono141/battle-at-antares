@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "antares/native.h"
 
 #include <cstring>
 
@@ -27,8 +28,15 @@ namespace antares::commands::internal {
         // The officer screen's tab (OFFICER::Is_Fleet_Officer_Screen), set for one command.
         struct s_officer_tab {
             int8_t saved = MOX::officer_scrn_type;
-            explicit s_officer_tab(uint8_t type) { MOX::officer_scrn_type = (int8_t)type; }
-            ~s_officer_tab() { MOX::officer_scrn_type = saved; }
+            bool saved_command = antares::native::Officer_Panel_Command();
+            explicit s_officer_tab(uint8_t type) {
+                MOX::officer_scrn_type = (int8_t)type;
+                antares::native::Set_Officer_Panel_Command(true); // no Leaders screen behind its boxes
+            }
+            ~s_officer_tab() {
+                MOX::officer_scrn_type = saved;
+                antares::native::Set_Officer_Panel_Command(saved_command);
+            }
         };
 
         // leaders {type: colony | ship}: the player's leaders of that kind as the Leaders screen
@@ -240,6 +248,11 @@ namespace antares::commands::internal {
                 item.Str("race", Utf8(other.race_name, sizeof(other.race_name)));
                 item.Int("race_id", (uint8_t)other.race);
                 item.Int("portrait", (uint8_t)other.race + 32); // races.lbx
+                // The race select screen's portrait (owner, 2026-11-20: the cards upscaled the 76x88
+                // one), as the report's: RACESEL.LBX 15 + race, 290x322, HD at most 2x.
+                s_out large = item.Add_Object("portrait_large");
+                large.Str("lbx", "RACESEL.LBX:2");
+                large.Int("entry", 15 + (uint8_t)other.race);
                 item.Int("color", other.color);
                 item.Bool("eliminated", other.eliminated != 0);
                 item.Bool("contact", player.contact[p] != 0);

@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/rules_trace.h"
+#include "legacy_world.h"
 #include "game/savegame.h"
 #include "game/config_refresh.h"
 
@@ -16,6 +17,8 @@ namespace FILEDEF {
             const bool loaded = fread(&loaded_settings, sizeof(loaded_settings), 1, file) == 1;
             fclose(file);
             if (loaded) {
+                loaded_settings.number_of_players = (int8_t)INITGAME::Normalize_New_Game_Player_Count(
+                    loaded_settings.number_of_players, NEW_GAME_DEFAULT_PLAYER_COUNT);
                 MOX::settings = loaded_settings;
                 RUSS::Assert_Settings();
             }
@@ -32,12 +35,12 @@ namespace FILEDEF {
             return false;
         }
 
-        fwrite(&MOX::settings, sizeof(MOX::settings), 1, file);
-        fclose(file);
+        const bool written = fwrite(&MOX::settings, sizeof(MOX::settings), 1, file) == 1;
+        const bool closed = fclose(file) == 0;
 
         RUSS::Assert_Settings();
 
-        return true;
+        return written && closed;
     }
 
     void __cdecl Save_Game(int16_t slot_index) {
@@ -136,7 +139,7 @@ namespace FILEDEF {
         }
         fclose(file);
 
-        SERIAL::Reader_ reader(save_buffer, file_size, "Invalid or truncated save game");
+        SERIAL::Reader_ reader(save_buffer, file_size, "Invalid or truncated save game", true);
         SAVEGAME::s_metadata metadata = {};
         std::string load_error;
         if (!SAVEGAME::Read_Game(
@@ -164,6 +167,8 @@ namespace FILEDEF {
         }
         free(save_buffer);
 
+        AIDATA::Reset(&AIDATA::state);
+        game::current = legacy_world::World();
         MISC::Increment_Mouse_Clock_Image();
 
         int16_t description_slot_index = (slot_index >= 9) ? 9 : slot_index;

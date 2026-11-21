@@ -76,7 +76,7 @@ namespace spy {
     void __cdecl Compute_Spy_Bonuses(s_player* player, int16_t* defense_bonus_out, int16_t* attack_bonus_out);
 
     /* Resolves the turn's global spy phase for all active players. */
-    void __cdecl Resolve_Spies();
+    void __cdecl Resolve_Spies(const AIDATA::s_player_assessment* players);
 
     extern int16_t spy_bonuses[16];
 
@@ -91,7 +91,7 @@ namespace spy {
     /* Allocates an AI player's available spies across home and foreign targets.
      * @param player AI player whose spies are being reassigned.
      */
-    void __cdecl Allocate_AI_Spies(s_player* player);
+    void __cdecl Allocate_AI_Spies(s_player* player, int16_t contact_count);
 
     /* Resolves all spy actions currently targeting the given player.
      * @param player Player whose incoming spy actions are processed.
@@ -125,9 +125,9 @@ namespace spy {
     bool __cdecl Frame_Another(int16_t player_idx_a, int16_t player_idx_b, int16_t* framed_player_idx, int32_t tech_app_id);
 
     /* Destroys a random victim building and reports the sabotage outcome.
-     * @param framed_player_idx Player blamed for the sabotage.
-     * @param victim_player_idx Player whose building is destroyed.
      * @param acting_player_idx Player who actually performed the sabotage.
+     * @param victim_player_idx Player whose building is destroyed.
+     * @param framed_player_idx Player blamed for the sabotage, or the acting player if no one was framed.
      */
-    void __cdecl Destroy_Random_Building(int16_t framed_player_idx, int16_t victim_player_idx, int32_t acting_player_idx);
+    void __cdecl Destroy_Random_Building(int16_t acting_player_idx, int16_t victim_player_idx, int32_t framed_player_idx);
 } // namespace spy

@@ -3,13 +3,6 @@
 #include "string_overrides.h"
 #include "yyjson.h"
 
-#include <charconv>
-#include <map>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <vector>
-
 namespace string_overrides {
     namespace {
         bool Fail(const std::string& path, const std::string& reason, std::string* diagnostic) {
@@ -91,27 +84,30 @@ namespace string_overrides {
         }
 
         using t_overrides = std::map<size_t, std::string>;
+        using t_file = std::unique_ptr<s_vfs_file, decltype(&vfs::fclose)>;
         struct s_cached_sidecar {
-            std::string source;
+            std::vector<std::string> sources;
             t_overrides overrides;
         };
         std::map<std::string, s_cached_sidecar> cache;
 
-        bool Read(const std::string& path, std::string* source, bool* exists, std::string* diagnostic) {
-            source->clear();
-            s_vfs_file* file = vfs::fopen(path.c_str(), "rb");
-            *exists = file != nullptr;
-            if (file == nullptr) return true;
-            const int32_t size = vfs::fsize(file);
-            if (size < 0 || size > 4 * 1024 * 1024) {
-                vfs::fclose(file);
-                return Fail(path, "invalid sidecar size (maximum 4 MiB)", diagnostic);
-            }
-            source->resize(size_t(size));
-            const bool read = vfs::fread(source->data(), 1, source->size(), file) == source->size();
-            vfs::fclose(file);
-            if (!read) {
-                return Fail(path, "could not read sidecar", diagnostic);
+        bool Read(const char* filename, const std::string& path, std::vector<std::string>* sources, std::string* diagnostic) {
+            sources->clear();
+            size_t cursor = 0;
+            t_file file(vfs::fopen_next_read(path.c_str(), &cursor), &vfs::fclose);
+            if (!file) return true;
+            t_file lbx(vfs::fopen(filename, "rb"), &vfs::fclose);
+            for (; file; file.reset(vfs::fopen_next_read(path.c_str(), &cursor))) {
+                if (vfs::File_Has_Higher_Priority(lbx.get(), file.get())) break;
+                const int32_t size = vfs::fsize(file.get());
+                if (size < 0 || size > 4 * 1024 * 1024) {
+                    return Fail(path, "invalid sidecar size (maximum 4 MiB)", diagnostic);
+                }
+                sources->emplace_back(size_t(size), '\0');
+                std::string& source = sources->back();
+                if (vfs::fread(source.data(), 1, source.size(), file.get()) != source.size()) {
+                    return Fail(path, "could not read sidecar", diagnostic);
+                }
             }
             return true;
         }
@@ -159,31 +155,35 @@ namespace string_overrides {
             return name + ".json5";
         }
 
-        const t_overrides* Get(const std::string& path, std::string* diagnostic) {
-            std::string source;
-            bool exists;
-            if (!Read(path, &source, &exists, diagnostic)) {
+        const t_overrides* Get(const char* filename, const std::string& path, std::string* diagnostic) {
+            std::vector<std::string> sources;
+            if (!Read(filename, path, &sources, diagnostic)) {
                 cache.erase(path);
                 return nullptr;
             }
-            if (!exists) {
+            if (sources.empty()) {
                 cache.erase(path);
                 static const t_overrides empty;
                 return &empty;
             }
 
-            // Compare resolved bytes, not timestamps: VFS precedence can change
-            // and same-size edits may preserve a file's modification time.
+            // Include every contributing layer in priority order: lower-layer
+            // edits and mount changes must invalidate the merged result too.
             auto found = cache.find(path);
-            if (found != cache.end() && found->second.source == source) {
+            if (found != cache.end() && found->second.sources == sources) {
                 return &found->second.overrides;
             }
             s_cached_sidecar candidate;
-            if (!Parse(path, source, &candidate.overrides, diagnostic)) {
-                cache.erase(path);
-                return nullptr;
+            for (const std::string& source : sources) {
+                t_overrides layer;
+                if (!Parse(path, source, &layer, diagnostic)) {
+                    cache.erase(path);
+                    return nullptr;
+                }
+                // Sources are highest priority first; keep the first value per ID.
+                candidate.overrides.insert(layer.begin(), layer.end());
             }
-            candidate.source = std::move(source);
+            candidate.sources = std::move(sources);
             found = cache.insert_or_assign(path, std::move(candidate)).first;
             return &found->second.overrides;
         }
@@ -261,8 +261,29 @@ namespace string_overrides {
 
     } // namespace
 
+    namespace {
+        // Antares (owner, 2026-11-20: combat stuttered, every move and shot waiting): the combat
+        // screen asks for its KENTEXT messages hundreds of times a frame, and each ask read the LBX
+        // entry and looked for the .json5 sidecar again (0.4-0.8 s a frame over a network share).
+        // While a s_message_cache_scope is held (a tactical combat) each message is read once;
+        // outside one every ask reads the files, so edits to them show at once.
+        std::unordered_map<std::string, std::string> message_cache;
+        int message_cache_scopes = 0;
+    } // namespace
+
+    s_message_cache_scope::s_message_cache_scope() {
+        ++message_cache_scopes;
+    }
+
+    s_message_cache_scope::~s_message_cache_scope() {
+        if (--message_cache_scopes == 0) {
+            message_cache.clear();
+        }
+    }
+
     void Reset_Cache() {
         cache.clear();
+        message_cache.clear();
     }
 
     bool Try_Apply_String(const char* filename, size_t id, char* dest, size_t capacity, std::string* diagnostic) {
@@ -270,7 +291,7 @@ namespace string_overrides {
         const std::string path = Sidecar_Path(filename);
         if (id == 0 || dest == nullptr || capacity == 0)
             return Fail(path, "invalid string ID or destination", diagnostic);
-        const t_overrides* overrides = Get(path, diagnostic);
+        const t_overrides* overrides = Get(filename, path, diagnostic);
         return overrides != nullptr && Copy(overrides, id, dest, capacity, path, diagnostic);
     }
 
@@ -279,7 +300,7 @@ namespace string_overrides {
         const std::string path = Sidecar_Path(filename);
         if (first_id == 0 || count > SIZE_MAX - first_id || data == nullptr || data->empty())
             return Fail(path, "invalid string range or destination", diagnostic);
-        const t_overrides* overrides = Get(path, diagnostic);
+        const t_overrides* overrides = Get(filename, path, diagnostic);
         if (overrides == nullptr) return false;
         return Packed(overrides, data, count, first_id, skip_padding, path, diagnostic);
     }
@@ -297,11 +318,33 @@ namespace string_overrides {
     }
 
     void Load_Message(const char* filename, int32_t entry, uint32_t record, uint16_t record_size, size_t id, char* dest, size_t capacity) {
+        if (message_cache_scopes == 0) {
+            Load_Message_Uncached(filename, entry, record, record_size, id, dest, capacity);
+            return;
+        }
+        std::string key = filename != nullptr ? filename : "";
+        for (char& c : key) {
+            c = (char)toupper((unsigned char)c);
+        }
+        key += "|" + std::to_string(entry) + "|" + std::to_string(record) + "|" + std::to_string(record_size) + "|" + std::to_string(id);
+        if (const auto hit = message_cache.find(key); hit != message_cache.end()) {
+            if (hit->second.size() < capacity) {
+                memcpy(dest, hit->second.c_str(), hit->second.size() + 1);
+                return;
+            }
+        }
+        Load_Message_Uncached(filename, entry, record, record_size, id, dest, capacity);
+        if (capacity > 0 && memchr(dest, 0, capacity) != nullptr) {
+            message_cache[key] = dest;
+        }
+    }
+
+    void Load_Message_Uncached(const char* filename, int32_t entry, uint32_t record, uint16_t record_size, size_t id, char* dest, size_t capacity) {
         std::vector<char> original(record_size);
         farload::Farload_Data_Static(filename, entry, original.data(), record, 1, record_size);
         const std::string path = Sidecar_Path(filename);
         std::string diagnostic;
-        const t_overrides* overrides = Get(path, &diagnostic);
+        const t_overrides* overrides = Get(filename, path, &diagnostic);
         if (overrides == nullptr) {
             exitm::Exit_With_Message(diagnostic.c_str());
             return;

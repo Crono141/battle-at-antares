@@ -1,7 +1,7 @@
 extends PanelContainer
 ## Ship Design (WP3.3f): the player's design slots from the `designs` query, each with its picture,
-## hull and cost, sliding out from the right edge. Edit opens the game's designer on that slot
-## (`open` screen 3; the legacy screen for now). The original has a fixed set of slots and no
+## hull and cost, sliding out from the right edge; AUTO DESIGN redesigns them all (Alt+A, D).
+## Edit opens the game's designer on that slot (`open` screen 3; the legacy screen for now). The original has a fixed set of slots and no
 ## "new design": a design is made by editing a slot over.
 
 signal command(dict: Dictionary)
@@ -17,9 +17,45 @@ var _tween: Tween
 var _shown_right := 0.0 # offset_right when open: a flyout keeps its right edge by the tabs
 
 
+var auto_button: Button
+var _auto_confirm: ConfirmationDialog
+
+
 func _ready() -> void:
 	$Box/Header/Close.pressed.connect(close)
+	# AUTO DESIGN: the build screen's hidden Alt+A, D as a button (owner, 2026-11-20). It replaces
+	# every design, custom ones too, so it asks first.
+	auto_button = Button.new()
+	auto_button.text = "AUTO DESIGN"
+	auto_button.focus_mode = Control.FOCUS_NONE
+	auto_button.tooltip_text = "Redesign every ship automatically with your best technology, each at its own hull size\n(one not yet researched gets your largest). Replaces all your designs, your own included."
+	$Box/Header.add_child(auto_button)
+	$Box/Header.move_child(auto_button, $Box/Header/Close.get_index())
+	_auto_confirm = ConfirmationDialog.new()
+	_auto_confirm.borderless = true
+	_auto_confirm.dialog_text = "AUTO DESIGN\n\nReplace every ship design with an automatic design for your\ncurrent technology, each at its own hull size? Your own designs are lost."
+	_auto_confirm.ok_button_text = "Auto Design"
+	add_child(_auto_confirm)
+	auto_button.pressed.connect(func():
+		# A popup window doesn't inherit the theme: it takes the one the panes have now.
+		var node: Node = self
+		while node != null and not (node is Control and (node as Control).theme != null):
+			node = node.get_parent()
+		_auto_confirm.theme = (node as Control).theme if node != null else null
+		# No window frame (the themes don't draw one): the panes' own panel, its heading inside.
+		_auto_confirm.add_theme_stylebox_override("panel", get_theme_stylebox("panel", "Pane"))
+		_auto_confirm.popup_centered())
+	_auto_confirm.confirmed.connect(auto_design)
 	_restyle()
+
+
+## Every slot redesigned by the game (the `auto_design` command), then the list again.
+func auto_design() -> void:
+	command.emit({"verb": "auto_design", "_reply_to": "_after_auto_design"})
+
+
+func _after_auto_design(_result: Dictionary) -> void:
+	open()
 
 
 func _notification(what: int) -> void:
@@ -27,7 +63,7 @@ func _notification(what: int) -> void:
 		_restyle()
 	elif what == NOTIFICATION_RESIZED and visible and not (_tween and _tween.is_running()):
 		# Rows laid out after the slide (or a refresh) widened it: keep the right edge by the tabs.
-		position.x = get_parent_area_size().x + _shown_right - size.x
+		preload("../themes.gd").move_x(self, get_parent_area_size().x + _shown_right - size.x)
 
 
 ## Beside the tabs, from under the top bar to the bottom (WP3.3g).
@@ -64,6 +100,7 @@ func show_designs(result: Dictionary) -> void:
 		if design.get("buildable", true):
 			rows.add_child(_row(design))
 			shown += 1
+	auto_button.visible = shown > 0 # pre-warp it would make nothing buildable either
 	if shown == 0:
 		var none := Label.new()
 		none.theme_type_variation = &"Dim"
@@ -105,6 +142,16 @@ func _row(design: Dictionary) -> Control:
 	hull.text = design.hull_name
 	hull.theme_type_variation = &"Dim"
 	names.add_child(hull)
+	# A slot on a hull not researched yet (owner, 2026-11-20): shown, dimmed, with the tech it
+	# needs; EDIT stays, to redesign it on a hull that can be built.
+	if design.get("locked", false):
+		var needs := Label.new()
+		needs.text = "Needs %s" % String(design.get("needs", ""))
+		needs.add_theme_color_override("font_color", Color(1.0, 0.55, 0.4))
+		needs.add_theme_font_size_override("font_size", 13)
+		names.add_child(needs)
+		picture.modulate.a = 0.45
+		name_label.modulate.a = 0.6
 	row.add_child(names)
 	var cost := TextureRect.new()
 	cost.texture = preload("../themes.gd").icon("industry", 22) # the bar's pick and hammer
@@ -138,11 +185,11 @@ func _slide(opening: bool) -> void:
 	var hidden_x := parent_width
 	if opening:
 		show()
-		position.x = hidden_x
+		preload("../themes.gd").move_x(self, hidden_x)
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	if opening:
-		_tween.finished.connect(func(): position.x = get_parent_area_size().x + _shown_right - size.x)
-	_tween.tween_property(self, "position:x", shown_x if opening else hidden_x, SLIDE_TIME)
+		_tween.finished.connect(func(): preload("../themes.gd").move_x(self, get_parent_area_size().x + _shown_right - size.x))
+	_tween.tween_method(func(x: float): preload("../themes.gd").move_x(self, x), position.x, shown_x if opening else hidden_x, SLIDE_TIME)
 	if not opening:
 		_tween.tween_callback(hide)
 

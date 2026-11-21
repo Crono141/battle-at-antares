@@ -104,6 +104,106 @@ static func save_ui_scale(percent: float) -> void:
 	cfg.save(SETTINGS)
 
 
+## A pane the system shows through (owner, 2026-11-19: with the build list open the system behind
+## should still show): its own background and every framed part inside it, now and added later, at
+## `pane_alpha` and `frame_alpha`; text, pictures and buttons stay solid (self_modulate only).
+static func see_through(pane: Control, pane_alpha := 0.62, frame_alpha := 0.55) -> void:
+	pane.self_modulate.a = pane_alpha
+	var fade := func(node: Node) -> void:
+		if node is PanelContainer and node != pane:
+			(node as Control).self_modulate.a = frame_alpha
+	for node in pane.find_children("*", "PanelContainer", true, false):
+		fade.call(node)
+	pane.get_tree().node_added.connect(func(node: Node) -> void:
+		if is_instance_valid(pane) and pane.is_ancestor_of(node):
+			fade.call(node))
+
+
+## A clear strip between a scroll area's content and its vertical bar (owner, 2026-11-20: on
+## Glass the colony pane's rows ran right up to the bar). ScrollContainer has no such spacing, so
+## the bar is made `gap` wider with its styles drawn only in its right part; the content gives up
+## that room only while the bar shows. Taken again from the theme whenever it changes.
+static func scroll_gap(scroll: ScrollContainer, gap := 10.0) -> void:
+	var bar := scroll.get_v_scroll_bar()
+	var apply := func() -> void:
+		if bar.has_meta("_gapping"):
+			return
+		bar.set_meta("_gapping", true)
+		for style_name in ["scroll", "scroll_focus", "grabber", "grabber_highlight", "grabber_pressed"]:
+			bar.remove_theme_stylebox_override(style_name)
+			var style := bar.get_theme_stylebox(style_name)
+			if style == null:
+				continue
+			style = style.duplicate()
+			style.content_margin_left = maxf(style.content_margin_left, 0.0) + gap
+			if style is StyleBoxFlat or style is StyleBoxTexture:
+				style.set("expand_margin_left", float(style.get("expand_margin_left")) - gap)
+			bar.add_theme_stylebox_override(style_name, style)
+		bar.remove_meta("_gapping")
+	apply.call()
+	bar.theme_changed.connect(apply)
+
+
+## A question with OK and Cancel in the theme's pane style (a popup window doesn't inherit the
+## theme, and the themes draw no window frame): `on_ok` runs on OK, `on_cancel` on Cancel or
+## closing. Freed when answered.
+static func confirm(owner: Control, text: String, ok_text: String, on_ok: Callable, on_cancel := Callable()) -> ConfirmationDialog:
+	var dialog := ConfirmationDialog.new()
+	dialog.borderless = true
+	dialog.dialog_text = text
+	dialog.ok_button_text = ok_text
+	var node: Node = owner
+	while node != null and not (node is Control and (node as Control).theme != null):
+		node = node.get_parent()
+	dialog.theme = (node as Control).theme if node != null else null
+	dialog.add_theme_stylebox_override("panel", owner.get_theme_stylebox("panel", "Pane"))
+	owner.add_child(dialog)
+	var answered := [false]
+	dialog.confirmed.connect(func():
+		answered[0] = true
+		on_ok.call())
+	dialog.visibility_changed.connect(func():
+		if not dialog.visible:
+			if not answered[0] and on_cancel.is_valid():
+				on_cancel.call()
+			dialog.queue_free())
+	dialog.popup_centered()
+	return dialog
+
+
+## Moves a pane sideways by its left and right offsets only. Setting `position` rewrites all four
+## offsets from the pane's current rect, so a pane that was briefly taller than the screen (its
+## content grew for a frame) stayed that tall for good (owner, 2026-11-19: the system pane
+## stretched off the screen after some system/planet/fleet clicking).
+## The two edges move one after the other, so the pane is resized in between; panes that keep
+## their right edge in place on a resize call this again from there, hence the guard.
+static func move_x(pane: Control, x: float) -> void:
+	if pane.has_meta("_moving_x"):
+		return
+	pane.set_meta("_moving_x", true)
+	var dx := x - pane.position.x
+	pane.offset_left += dx
+	pane.offset_right += dx
+	pane.remove_meta("_moving_x")
+
+
+## A layout setting of the player's (a split, a width), or `default` when none is saved.
+
+
+static func saved_value(section: String, key: String, default: Variant) -> Variant:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS) != OK:
+		return default
+	return cfg.get_value(section, key, default)
+
+
+static func save_value(section: String, key: String, value: Variant) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS)
+	cfg.set_value(section, key, value)
+	cfg.save(SETTINGS)
+
+
 static func save_choice(id: String) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(SETTINGS)

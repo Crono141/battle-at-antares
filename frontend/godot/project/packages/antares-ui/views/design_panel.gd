@@ -176,6 +176,13 @@ func _ready() -> void:
 	var footer := HBoxContainer.new()
 	footer.add_theme_constant_override("separation", 8)
 	box.add_child(footer)
+	# AUTO: this design only, redone by the game's automatic designer for its hull (owner,
+	# 2026-11-20); tweak it, BUILD or CANCEL as after any change. The design list's AUTO DESIGN
+	# does every slot at once (Alt+A, D).
+	var auto := _button("AUTO", "Design this ship automatically with your best technology: change it further, BUILD to keep it or CANCEL")
+	auto.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	auto.pressed.connect(func(): _send({"verb": "design_auto"}))
+	footer.add_child(auto)
 	var clear := _button("CLEAR", "No weapons or specials; the best drive, armour and computer")
 	clear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clear.pressed.connect(func(): _send({"verb": "design_clear"}))
@@ -187,12 +194,16 @@ func _ready() -> void:
 	_build = _button("BUILD", "Save the design in its slot")
 	_build.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_build.size_flags_stretch_ratio = 2.0
-	_build.pressed.connect(func(): command.emit({"verb": "design_build", "_reply_to": "_after_build"}))
+	# A name typed without Enter is sent first (owner, 2026-11-20: BUILD kept the old name; the
+	# buttons don't take the focus, so the field never lost it).
+	_build.pressed.connect(func():
+		_send_name()
+		command.emit({"verb": "design_build", "_reply_to": "_after_build"}))
 	footer.add_child(_build)
 	resized.connect(func():
 		if visible and not _closing and _rect.size.x > 0.0:
 			if _tween == null or not _tween.is_running():
-				position.x = _rect.end.x - size.x
+				preload("../themes.gd").move_x(self, _rect.end.x - size.x)
 			width_changed.emit())
 
 
@@ -233,6 +244,8 @@ func close() -> void:
 
 
 func _send(cmd: Dictionary) -> void:
+	if not cmd.has("name"):
+		_send_name() # a name typed without Enter goes first (the buttons don't take the focus)
 	cmd["_reply_to"] = "show_design"
 	command.emit(cmd)
 
@@ -272,9 +285,11 @@ func show_design(result: Dictionary) -> void:
 	if not _name.has_focus():
 		_name.text = String(result.name)
 	_size.clear()
+	# Titans and Doom Stars once their construction is researched (owner, 2026-11-20).
 	for s: Dictionary in result.sizes:
-		_size.add_item("%s · %d space" % [String(s.name), int(s.space)], int(s.size))
-	_size.select(int(result.size))
+		if s.get("available", true) or int(s.size) == int(result.size):
+			_size.add_item("%s · %d space" % [String(s.name), int(s.space)], int(s.size))
+	_size.select(_size.get_item_index(int(result.size)))
 	_combat.text = "BEAM ATT +%d · BEAM DEF %+d · MISSILE EVASION %d%%" % [int(result.beam_attack), int(result.beam_defense), int(result.missile_evasion)]
 	_picture.bind(art)
 	_picture.show_sprite("SHIPS.LBX", int(result.picture))
@@ -304,8 +319,9 @@ func show_design(result: Dictionary) -> void:
 	Themes.glow(_build)
 	command.emit({"verb": "query", "what": "design_weapons", "_reply_to": "_on_weapons"})
 	command.emit({"verb": "query", "what": "design_specials", "_reply_to": "_on_specials"})
-	if _systems.is_empty():
-		command.emit({"verb": "query", "what": "design_systems", "_reply_to": "_on_systems"})
+	# Asked each time, like the weapons and specials: what is researched changes between openings
+	# (and with a loaded save or a new game), and the costs and spaces follow the hull size.
+	command.emit({"verb": "query", "what": "design_systems", "_reply_to": "_on_systems"})
 	_show_body()
 
 

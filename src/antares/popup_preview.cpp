@@ -69,12 +69,18 @@ namespace antares::commands::internal {
                 const int8_t field = p.current_research_field;
                 const int8_t app = p.current_research_application;
                 const uint8_t breakthrough = p.research_breakthrough;
-                const int16_t techs[2] = {1, 50};
+                int16_t techs[2] = {1, 50};
+                uint16_t tech_count = 2;
+                int64_t hyper = 0;
+                if (args.Int("hyper", &hyper) && hyper != 0) {
+                    techs[0] = TECH::Get_Hyper_Tech_App_ID(TECH_FIELD_BIOLOGY); // a hyper-advanced level's page
+                    tech_count = 1;
+                }
                 char room[32];
                 snprintf(room, sizeof(room), "SR_R%x_SC.LBX", (unsigned int)(uint8_t)p.race);
                 MOX2::action_func_t saved_auto = nullptr;
                 MOX2::Get_Auto_Function(&saved_auto);
-                SCIENCE::Native_Tech_Select_With(room, 2, techs, "Your scientists have completed their research!");
+                SCIENCE::Native_Tech_Select_With(room, tech_count, techs, "Your scientists have completed their research!");
                 MOX2::Put_Auto_Function(&saved_auto);
                 out.Int("chosen_field", (uint8_t)p.current_research_field);
                 out.Int("chosen_app", (uint8_t)p.current_research_application);
@@ -82,6 +88,29 @@ namespace antares::commands::internal {
                 p.current_research_application = app;
                 p.research_breakthrough = breakthrough;
                 JIM::Play_Background_Music();
+                answer = 0;
+            } else if (popup == "council") {
+                // WP3.11d: a council meeting, for tests on a scratch save only: it runs the rules
+                // (relations change; a ruling accepted ends the game at the next turn).
+                council::Main_Council_Screen();
+                answer = 0;
+            } else if (popup == "occupation") {
+                // The occupation question for the player's home colony; its policy is put back.
+                const int16_t home = MOX::player[player].home_planet_id;
+                const int16_t colony = MOX::planet[home].colony_index;
+                const char saved_policy = MOX::colony[colony].occupation_policy;
+                MOX::screen_data = MOX::planet[home].star_index;
+                COLONY::orbit_temp = (int16_t)MOX::planet[home].orbit;
+                OCPOLPUP::Occupation_Policy_Popup();
+                MOX::colony[colony].occupation_policy = saved_policy;
+                answer = 0;
+            } else if (popup == "antarans") {
+                // WP3.11c: the Antarans' message (the attack's message set).
+                ANTAROOM::Main_Antaran_Room_Screen(0);
+                answer = 0;
+            } else if (popup == "film") {
+                // WP3.11b: a film in its box (the amoeba's: no rules run in it).
+                ERIC::Play_Amoeba_Flic();
                 answer = 0;
             } else if (popup == "gnn") {
                 // The GNN window: the intro and one story (`event`, default 0) about the player's
@@ -134,6 +163,16 @@ namespace antares::commands::internal {
                     return;
                 }
                 answer = MAINPUPS::Dragon_New_Star_Popup(player, star);
+            } else if (popup == "player_attacked") {
+                // The message before an attack on the player (combfind.cpp), by `attacker` (an
+                // empire id, default the first other one) at the star.
+                if (!Star_Arg(args, out, &star)) {
+                    return;
+                }
+                int64_t attacker = player == 0 ? 1 : 0;
+                args.Int("attacker", &attacker);
+                MAINPUPS::Player_Attacked_Popup((int16_t)attacker, player, star, -1);
+                answer = 0;
             } else if (popup == "colony_combat") {
                 int64_t colony = -1;
                 if (!args.Int("colony", &colony) || colony < 0 || colony >= MOX::NUM_COLONIES || MOX::colony[colony].owner < 0) {
@@ -148,6 +187,44 @@ namespace antares::commands::internal {
                 defender.unit_counts[UNIT_MARINES] = MOX::colony[colony].military[0];
                 defender.unit_counts[0] = MOX::colony[colony].military[1];
                 answer = MAINPUPS::Colony_Selection_Popup(&attacker, &defender, 0, (int16_t)colony, 3, 0);
+                // `then_bomb` hits: BOMB goes on to the bombing, as combfind.cpp does (the one
+                // window throughout, owner 2026-11-20). The hits are real, as colony_bombing's.
+                int64_t then_bomb = 0;
+                if (answer == 2 && args.Int("then_bomb", &then_bomb) && then_bomb > 0) {
+                    s_combat_bomb_result bomb{};
+                    bomb.attacker_idx = (int8_t)player;
+                    bomb.colony_idx = (int16_t)colony;
+                    bomb.bomb_hits_remaining = (int16_t)then_bomb;
+                    s_invasion_side_info bomb_attacker{};
+                    s_invasion_side_info bomb_defender{};
+                    bomb_attacker.player_id = player;
+                    bomb_defender.player_id = MOX::colony[colony].owner;
+                    MAINPUPS::Colony_Bombing_Popup(&bomb, &bomb_attacker, &bomb_defender, game_random::Get_Random_Seed(), (int16_t)colony,
+                        (int16_t)then_bomb, 0);
+                    out.Int("population_killed", bomb.population_killed);
+                }
+            } else if (popup == "colony_bombing") {
+                // The bombing after BOMB (combfind.cpp: COMBAT::Bombardment, then
+                // Colony_Bombing_Popup), with `hits` bomb hits (default 12) on the colony. The
+                // hits are real: the colony loses what they destroy (a developer verb).
+                int64_t colony = -1;
+                if (!args.Int("colony", &colony) || colony < 0 || colony >= MOX::NUM_COLONIES || MOX::colony[colony].owner < 0) {
+                    out.Fail("bad_args", "colony: a colony id");
+                    return;
+                }
+                int64_t hits = 12;
+                args.Int("hits", &hits);
+                s_invasion_side_info attacker{};
+                s_invasion_side_info defender{};
+                attacker.player_id = player;
+                defender.player_id = MOX::colony[colony].owner;
+                s_combat_bomb_result bomb{};
+                bomb.attacker_idx = (int8_t)player;
+                bomb.colony_idx = (int16_t)colony;
+                bomb.bomb_hits_remaining = (int16_t)hits;
+                answer = MAINPUPS::Colony_Bombing_Popup(&bomb, &attacker, &defender, game_random::Get_Random_Seed(), (int16_t)colony, (int16_t)hits, 0);
+                out.Int("population_killed", bomb.population_killed);
+                out.Int("hits_left", bomb.bomb_hits_remaining);
             } else if (popup == "choose") {
                 // The diplomacy screen's lists (fields::Get_List_Field): three items, the last one off.
                 char list[4][50] = {"Propose Treaty", "Form Alliance", "Exchange Technology", ""};
@@ -155,7 +232,7 @@ namespace antares::commands::internal {
                 int8_t selected = 0;
                 answer = fields::Get_List_Field(10, 102, 245, "Diplomacy", &list[0][0], 50, &selected, flags, 17, nullptr, 0, nullptr, 0, nullptr);
             } else {
-                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute, colony_combat, choose, gnn, diplomacy or research");
+                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, player_attacked, monster_tribute, colony_combat, colony_bombing, choose, gnn, diplomacy or research");
                 return;
             }
             MOX::PLAYER_NUM = player;
@@ -165,7 +242,7 @@ namespace antares::commands::internal {
 
     void Add_Preview_Entries(std::vector<s_entry>* table) {
         table->push_back({"preview_popup", e_kind::command, ANY_SCREEN, 0,
-            "popup (new_system, planet_pick, outpost_pick, attack_target, monster_tribute: star; colony_combat: colony; choose; gnn: event; diplomacy: player; research); developer verb", Preview_Popup});
+            "popup (new_system, planet_pick, outpost_pick, attack_target, player_attacked, monster_tribute: star; colony_combat: colony; colony_bombing: colony, hits; choose; gnn: event; diplomacy: player; research); developer verb", Preview_Popup});
     }
 
 } // namespace antares::commands::internal

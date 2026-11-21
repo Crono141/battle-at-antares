@@ -27,6 +27,15 @@ signal system_panned(away: bool)
 ## The pointer moved onto a planet of the open system, or off them (-1): the system pane lights
 ## its row, a colony ship's window shows it (owner, 2026-11-13).
 signal planet_hovered(planet_id: int)
+## A fleet of the open system hovered: its owner (-1: none) (the select-combat window lights its row).
+signal fleet_owner_hovered(owner: int)
+## An empire's fleets framed in the open system (the select-combat window's hovered row; -1: none).
+var lit_owner := -1:
+	set(value):
+		if value != lit_owner:
+			lit_owner = value
+			$Fleets.queue_redraw()
+var _hovered_owner := -1
 
 ## Banner colours by the game's player colour index (s_player.color).
 const PLAYER_COLORS := [
@@ -57,6 +66,15 @@ var influence_mode := 0 # as the legacy V key: 0 off, 1 filled, 2 borders only
 var selected_fleet := -1 # the first ship of the fleet whose panel is open
 var preview := {} # the route preview: {"star": id, "line": "ok" or "blocked"}
 var relocating := false # F4: the next star click merges relocations there
+## F9, measure distance (galaxy/measure.gd): a star click picks the star measured from.
+var measuring := false:
+	set(value):
+		measuring = value
+		measure_from = -1
+var measure_from := -1
+## Picking where a system's new ships go (the system pane's menu): the `relocation_targets`
+## answer with its stars by id; galaxy/measure.gd draws the line, star clicks only.
+var relocation_pick := {}
 ## The open system on the map (WP3.3f): its `system` query, star, scale and selected planet;
 ## the Orbits layer draws it.
 var system := {}
@@ -78,6 +96,7 @@ var system_fleets_alpha := 1.0:
 func fleet_alpha(fleet: Dictionary) -> float:
 	return system_fleets_alpha if system_star >= 0 and int(fleet.get("star", -1)) == system_star else 1.0
 var system_scale := 0.25 # world units per system box pixel
+var _system_tweens: Array[Tween] = [] # the open system's fades, stopped when another opens
 var selected_planet := -1
 ## How long a camera flight takes, and the view it left (Back returns to it).
 const FLIGHT_TIME := 1.0
@@ -110,6 +129,9 @@ var _press_pos := Vector2.ZERO
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	var measure: Node2D = preload("galaxy/measure.gd").new()
+	measure.name = "Measure"
+	add_child(measure) # over the labels
 
 
 ## Placed at the saved view with every star's picture: the frontend fades the view in then
@@ -212,6 +234,28 @@ func pixel() -> float:
 	return 1.0 / camera.zoom.x
 
 
+## The star under the pointer, or -1.
+func hovered_star() -> int:
+	return _hovered_star
+
+
+## Parsecs between two stars, as GEO::Parsecs_Between_Points counts them: the ceiling of the
+## distance over 30 map units, in whole numbers.
+func parsecs_between(a: int, b: int) -> int:
+	var dx := int(stars[a].x) - int(stars[b].x)
+	var dy := int(stars[a].y) - int(stars[b].y)
+	var dist_sq := dx * dx + dy * dy
+	var parsecs := int(sqrt(float(dist_sq / 900)))
+	while parsecs * parsecs * 900 < dist_sq:
+		parsecs += 1
+	return parsecs
+
+
+## The part of the map in view, in map units.
+func view_rect() -> Rect2:
+	return get_canvas_transform().affine_inverse() * Rect2(Vector2.ZERO, get_viewport_rect().size)
+
+
 func star_position(star_id: int) -> Vector2:
 	if star_id < 0 or star_id >= stars.size():
 		return Vector2.ZERO
@@ -286,9 +330,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				zoom_by(1.2 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.2, at)
 			get_viewport().set_input_as_handled()
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
-			# A right click cancels F4's mode, or in a system shows a planet's potential (no panning).
+			# A right click cancels F4's or F9's mode, or in a system shows a planet's potential.
 			if button.pressed:
-				if relocating:
+				if relocating or measuring or not relocation_pick.is_empty():
 					right_clicked.emit()
 				elif not system.is_empty(): # no right-click panning (owner, 2026-11-13: dropped)
 					var planet: int = $Orbits.pick(_screen_to_world(button.position))
@@ -311,14 +355,15 @@ func _unhandled_input(event: InputEvent) -> void:
 					var star := pick(button.position)
 					# A planet of the open system (owner, 2026-11-13: a colony's planet opens its
 					# colony pane, as its row in the system pane does).
-					var planet: int = -1 if relocating else $Orbits.pick(_screen_to_world(button.position))
+					var stars_only := relocating or measuring or not relocation_pick.is_empty() # star clicks only
+					var planet: int = -1 if stars_only else $Orbits.pick(_screen_to_world(button.position))
 					if planet >= 0:
 						planet_clicked.emit(planet)
-					elif fleet >= 0 and not relocating:
+					elif fleet >= 0 and not stars_only:
 						fleet_clicked.emit(fleet)
 					elif star >= 0:
 						star_clicked.emit(star)
-					elif not relocating:
+					elif not stars_only:
 						empty_clicked.emit()
 			get_viewport().set_input_as_handled()
 		return
@@ -328,6 +373,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		if star != _hovered_star:
 			_hovered_star = star
 			star_hovered.emit(star)
+		if not system.is_empty():
+			var ship := _pick_fleet(motion.position)
+			var owner := -1
+			for fleet: Dictionary in fleets:
+				if int(fleet.ship) == ship and int(fleet.get("star", -1)) == system_star:
+					owner = int(fleet.owner)
+			if owner != _hovered_owner:
+				_hovered_owner = owner
+				fleet_owner_hovered.emit(owner)
 		var planet: int = $Orbits.pick(_screen_to_world(motion.position)) if not system.is_empty() else -1
 		if planet != hovered_planet:
 			hovered_planet = planet
@@ -401,27 +455,64 @@ func show_system(star_id: int, result: Dictionary) -> void:
 	system_star = star_id
 	if fresh:
 		selected_planet = -1
-		create_tween().tween_property(self, "others_alpha", OTHERS_IN_SYSTEM, maxf(flight_time, 0.3))
+		# A system closing just before (another system's question, a to-do item) stops fading:
+		# its end would otherwise clear this one and leave every star dimmed (owner, 2026-11-19).
+		for tween in _system_tweens:
+			if tween.is_valid():
+				tween.kill()
+		_system_tweens.clear()
+		_system_tweens.append(create_tween())
+		_system_tweens[-1].tween_property(self, "others_alpha", OTHERS_IN_SYSTEM, maxf(flight_time, 0.3))
+		# The system's own fleets stay by its star, clickable as on the map (owner, 2026-11-19,
+		# reversing 2026-11-13's fade: more intuitive than the pane's list, which keeps them too).
 		system_fleets_alpha = 1.0
-		create_tween().tween_property(self, "system_fleets_alpha", 0.0, maxf(flight_time, 0.3))
 		$Orbits.modulate.a = 0.0
-		create_tween().tween_property($Orbits, "modulate:a", 1.0, maxf(flight_time, 0.3)).set_delay(flight_time * 0.5)
+		_system_tweens.append(create_tween())
+		_system_tweens[-1].tween_property($Orbits, "modulate:a", 1.0, maxf(flight_time, 0.3)).set_delay(flight_time * 0.5)
 	$Orbits.queue_redraw()
 
 
 func hide_system() -> void:
 	if system.is_empty():
 		return
+	for tween in _system_tweens:
+		if tween.is_valid():
+			tween.kill()
+	_system_tweens.clear()
+	var hiding := system_star
 	var fade := create_tween()
-	create_tween().tween_property(self, "others_alpha", 1.0, maxf(flight_time, 0.3))
-	create_tween().tween_property(self, "system_fleets_alpha", 1.0, maxf(flight_time, 0.3))
+	var others := create_tween()
+	others.tween_property(self, "others_alpha", 1.0, maxf(flight_time, 0.3))
 	fade.tween_property($Orbits, "modulate:a", 0.0, 0.3)
 	fade.tween_callback(func():
+		if system_star != hiding:
+			return # another system opened meanwhile: it stays
 		system = {}
 		system_star = -1
 		system_fleets_alpha = 1.0
 		selected_planet = -1
 		$Orbits.queue_redraw())
+	_system_tweens.append_array([fade, others])
+
+
+## No system on the map, whatever was left of one (owner, 2026-11-21: the stars stayed dimmed with
+## no system pane open): its fades stop, the other stars come back to full.
+func clear_system_view() -> void:
+	if not system.is_empty():
+		hide_system()
+		return
+	for tween in _system_tweens:
+		if tween.is_valid():
+			tween.kill()
+	_system_tweens.clear()
+	system_star = -1
+	selected_planet = -1
+	system_fleets_alpha = 1.0
+	$Orbits.modulate.a = 0.0
+	var others := create_tween()
+	others.tween_property(self, "others_alpha", 1.0, 0.3)
+	_system_tweens.append(others)
+	$Orbits.queue_redraw()
 
 
 ## Flies the camera to `world` at `zoom`, so that `world` ends at `screen` (a point in the area the

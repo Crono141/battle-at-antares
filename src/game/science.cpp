@@ -248,6 +248,9 @@ namespace SCIENCE {
                     techs[count++] = tech;
                 }
             }
+            if (count == 0 && field >= TECH_FIELD_BIOLOGY) {
+                techs[count++] = TECH::Get_Hyper_Tech_App_ID(field); // Antares: a hyper-advanced level, its own page
+            }
             if (count != 0) {
                 JIM::Get_Text_Message("billtext.lbx", 1, footer, 0xFA);
                 JIM::Decode_Text_Field(footer, field, 0xFA);
@@ -569,6 +572,11 @@ namespace SCIENCE {
                 if (tech_id > TECH_APP_NO_TECH && MOX::cur_plyr_ptr->tech_applications[tech_id] == TECH_RESEARCH_STATUS_RESEARCHED) {
                     researched_tech_ids[researched_tech_count++] = tech_id;
                 }
+            }
+            // Antares (owner, 2026-11-21): a hyper-advanced field's level is never "researched"
+            // (it repeats, counted in hyper_advanced_tech): its hologram (TANM_204-211) and text.
+            if (researched_tech_count == 0 && research_field >= TECH_FIELD_BIOLOGY) {
+                researched_tech_ids[researched_tech_count++] = TECH::Get_Hyper_Tech_App_ID(research_field);
             }
 
             if (researched_tech_count != 0) {

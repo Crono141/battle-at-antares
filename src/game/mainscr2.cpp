@@ -1,4 +1,6 @@
 #include "pch.h"
+
+#include "antares/todo.h"
 #include "antares/fleet_orders.h"
 #include "antares/native.h"
 
@@ -559,7 +561,8 @@ namespace MAINSCR2 {
             REPORT::something_interesting_happened[MOX::PLAYER_NUM] != 0 ||
             MAINSCR::next_turn_hit == 0 ||
             MOX::game_type != 0 ||
-            enemy_ship_coming) {
+            enemy_ship_coming ||
+            antares::todo::Open_Count() > 0) { // Antares: the to-do list holds the turns too (owner, 2026-11-19)
             MAINSCR::check_next_turn_exit_field = 0;
             mouse::Set_Mouse_List(&MOX::mouse_list_arrow, 1);
             MAINSCR::next_turn_hit = 0;

@@ -5,11 +5,90 @@
 #include "lua/lua_game_ship_identity.h"
 
 namespace TEST_SHIPMOVE {
+    extern int icon_refresh_count;
+    extern int8_t icon_refresh_ship_status;
+    extern int16_t pooled_officer, killed_officer;
+    extern int16_t best_warp[MAX_PLAYERS], ftl_speed[MAX_PLAYERS];
+    extern int drive_queries, speed_queries;
+    extern std::vector<s_MSG> messages;
+    extern std::vector<int16_t> message_players;
     void Reset_();
     void Set_Hyperspace_Flux_(bool active);
     int16_t Movement_Speed_();
     bool Navigator_Pointer_Supplied_();
 } // namespace TEST_SHIPMOVE
+
+DOCTEST_TEST_CASE("stopping transit changes location and activity without arrival side effects") {
+    TEST_SHIPMOVE::Reset_();
+    auto* ship = &MOX::ship[0];
+    ship->status = 2;
+    ship->location = SHIP_LOCATION_WORMHOLE_OFFSET + 1;
+    ship->x = 37;
+    ship->y = 19;
+    ship->mission = 5;
+    DOCTEST_REQUIRE(SHIPMOVE::Stop_Ship_Transit(ship, 0));
+    DOCTEST_CHECK((int8_t)ship->status == 0);
+    DOCTEST_CHECK((int16_t)ship->location == 0);
+    DOCTEST_CHECK((int16_t)ship->x == 37);
+    DOCTEST_CHECK((int16_t)ship->y == 19);
+    DOCTEST_CHECK((int8_t)ship->mission == 5);
+    ship->status = 2;
+    DOCTEST_CHECK_FALSE(SHIPMOVE::Stop_Ship_Transit(ship, UINT32_MAX));
+    DOCTEST_CHECK((int8_t)ship->status == 2);
+    DOCTEST_REQUIRE(SHIPMOVE::Stop_Ship_Transit(ship, std::nullopt));
+    DOCTEST_CHECK((int16_t)ship->location == -1);
+    DOCTEST_CHECK((int8_t)ship->status == 0);
+}
+
+DOCTEST_TEST_CASE("hypothetical fleet origins preserve legacy evaluation without mutating ships") {
+    struct s_case {
+        int8_t status;
+        bool partial;
+    };
+    const s_case cases[] = {{0, false}, {1, false}, {2, false}, {0, true}, {1, true}, {2, true}};
+    for (auto test : cases) {
+        const int8_t status = test.status;
+        TEST_SHIPMOVE::Reset_();
+        MOX::NUM_STARS = 3;
+        MOX::NUM_SHIPS = 2;
+        MOX::star[2].x = 240;
+        MOX::star[0].has_jumpgate = 1;
+        MOX::star[2].has_jumpgate = 1;
+        for (int32_t i = 0; i < 2; ++i) {
+            MOX::ship[i] = MOX::ship[0];
+            MOX::ship[i].owner = 0;
+            MOX::ship[i].status = status;
+            MOX::ship[i].location = 1 + (status == 1 ? SHIP_LOCATION_MOVING_OFFSET : status == 2 ? SHIP_LOCATION_WORMHOLE_OFFSET
+                                                                                                 : 0);
+            MOX::ship[i].x = 120;
+            MOX::ship[i].travelling_speed = 6;
+            MOX::ship[i].group_has_navigator = 1;
+            MOX::ship[i].special_device_damage_flags[0] |= 1;
+            MOX::ship[i].prior_jump_gate_stardate = MOX::stardate;
+            MOX::ship[i].prior_jump_gate_destination = 2;
+        }
+        const std::array<s_ship_data, 2> before{MOX::ship[0], MOX::ship[1]};
+        int16_t ships[] = {0, 1, 0, -1};
+        if (test.partial) {
+            ships[1] = 0;
+            ships[2] = -1;
+        }
+        for (uint32_t i = 0; ships[i] != -1; ++i) {
+            auto* ship = &MOX::ship[ships[i]];
+            ship->location = 0;
+            ship->x = MOX::star[0].x;
+            ship->y = MOX::star[0].y;
+        }
+        s_ship_move_info expected{};
+        SHIPMOVE::Ships_Try_To_Move_To(ships, 2, &expected);
+        for (int32_t i = 0; i < 2; ++i) MOX::ship[i] = before[i];
+
+        s_ship_move_info actual{};
+        SHIPMOVE::Evaluate_Fleet_Move_From_Star(ships, 2, 0, &actual);
+        DOCTEST_CHECK(memcmp(&actual, &expected, sizeof(actual)) == 0);
+        for (int32_t i = 0; i < 2; ++i) DOCTEST_CHECK(memcmp(&MOX::ship[i], &before[i], sizeof(s_ship_data)) == 0);
+    }
+}
 
 DOCTEST_TEST_CASE("movement to assigned planet star keeps auto-colonization") {
     struct s_case {
@@ -43,6 +122,122 @@ DOCTEST_TEST_CASE("movement to assigned planet star keeps auto-colonization") {
         DOCTEST_CHECK(MOX::ship[0].d.ship_weapon[0].type == 3);
         DOCTEST_CHECK(MOX::ship[0].d.ship_weapon[1].type == 1);
     }
+}
+
+DOCTEST_TEST_CASE("fleet range refresh uses the highest researched fuel tier and drive services") {
+    TEST_SHIPMOVE::Reset_();
+    MOX::NUM_PLAYERS = 2;
+    TECHDATA::fuel[1].tech_app_id = TECH_APP_NUCLEAR_DRIVE;
+    TECHDATA::fuel[1].ship_range = 4;
+    TECHDATA::fuel[2].tech_app_id = TECH_APP_NUCLEAR_BOMB;
+    TECHDATA::fuel[2].ship_range = 9;
+    for (int i = 0; i < 2; ++i) MOX::player[i].tech_applications[TECH_APP_NUCLEAR_DRIVE] = TECH_RESEARCH_STATUS_RESEARCHED;
+    MOX::player[1].tech_applications[TECH_APP_NUCLEAR_BOMB] = TECH_RESEARCH_STATUS_RESEARCHED;
+    TEST_SHIPMOVE::best_warp[0] = 2;
+    TEST_SHIPMOVE::best_warp[1] = 3;
+    TEST_SHIPMOVE::ftl_speed[0] = 5;
+    TEST_SHIPMOVE::ftl_speed[1] = 8;
+    SHIPMOVE::Update_All_Ship_Ranges();
+    DOCTEST_CHECK((MOX::player[0].ship_range == 4));
+    DOCTEST_CHECK((MOX::player[1].ship_range == 9));
+    DOCTEST_CHECK((MOX::player[0].best_ftl_drive == 2));
+    DOCTEST_CHECK((MOX::player[1].best_ftl_drive == 3));
+    DOCTEST_CHECK((MOX::player[0].ship_speed == 5));
+    DOCTEST_CHECK((MOX::player[1].ship_speed == 8));
+    DOCTEST_CHECK(TEST_SHIPMOVE::drive_queries == 2);
+    DOCTEST_CHECK(TEST_SHIPMOVE::speed_queries == 2);
+}
+
+DOCTEST_TEST_CASE("spare ship slots reserve bounded Antaran capacity before player rotation") {
+    for (int antaran_count : {0, 25}) {
+        TEST_SHIPMOVE::Reset_();
+        MOX::NUM_PLAYERS = 2;
+        MOX::NUM_SHIPS = 0;
+        MOX::antarans.offensive_ships[0] = antaran_count;
+        SHIPMOVE::Allocate_New_Ship_Slots();
+        const int reserved = antaran_count == 0 ? 2 : 20;
+        for (int i = 0; i < reserved; ++i) DOCTEST_CHECK((MOX::ship[i].owner == MAX_PLAYERS));
+        for (int i = reserved; i < MAX_SHIPS; ++i) DOCTEST_CHECK((MOX::ship[i].owner == (i - reserved) % 2));
+    }
+}
+
+DOCTEST_TEST_CASE("whole-turn movement refreshes icons after arrivals and clears idle missions") {
+    TEST_SHIPMOVE::Reset_();
+    MOX::game_type = 2;
+    MOX::NUM_SHIPS = 2;
+    MOX::star[0].just_visited = 1;
+    MOX::ship[0].status = 1;
+    MOX::ship[0].location = SHIP_LOCATION_MOVING_OFFSET + 1;
+    MOX::ship[0].travelling_speed = 4;
+    MOX::ship[0].turns_left = 1;
+    MOX::ship[1].mission = 7;
+    SHIPMOVE::Move_All_Ships_Toward_Stars();
+    DOCTEST_CHECK((MOX::ship[0].location == 1));
+    DOCTEST_CHECK((MOX::ship[0].status == 0));
+    DOCTEST_CHECK((MOX::ship[1].mission == 0));
+    DOCTEST_CHECK((MOX::star[0].just_visited == 0));
+    DOCTEST_CHECK((MOX::star[1].just_visited == 1));
+    DOCTEST_CHECK(TEST_SHIPMOVE::icon_refresh_count == 1);
+    DOCTEST_CHECK(TEST_SHIPMOVE::icon_refresh_ship_status == 0);
+}
+
+DOCTEST_TEST_CASE("combat-ignore cleanup keeps flags only while another empire is present") {
+    TEST_SHIPMOVE::Reset_();
+    MOX::NUM_PLAYERS = 2;
+    MOX::NUM_COLONIES = 1;
+    MOX::colony[0].owner = 1;
+    MOX::colony[0].planet = 0;
+    MOX::planet[0].star_index = 0;
+    MOX::ship[0].location = 1;
+    MOX::star[0].ignore_combat_ships = 1;
+    MOX::star[1].ignore_combat_ships = 1;
+    SHIPMOVE::Reset_Needless_Ignore_Combat_Ships_Flags();
+    DOCTEST_CHECK((MOX::star[0].ignore_combat_ships == 1));
+    DOCTEST_CHECK((MOX::star[1].ignore_combat_ships == 0));
+}
+
+DOCTEST_TEST_CASE("hyperspace beasts report the lost ship and officer fate to each player") {
+    TEST_SHIPMOVE::Reset_();
+    MOX::NUM_PLAYERS = 2;
+    MOX::ship[0].status = 1;
+    MOX::ship[0].location = SHIP_LOCATION_MOVING_OFFSET + 1;
+    MOX::ship[0].officer_index = 0;
+    SHIPMOVE::Do_Hyperspace_Beast(0);
+    DOCTEST_CHECK(TEST_SHIPMOVE::pooled_officer == 0);
+    DOCTEST_CHECK(TEST_SHIPMOVE::killed_officer == 0);
+    DOCTEST_CHECK((MOX::ship[0].status == 8));
+    DOCTEST_REQUIRE(TEST_SHIPMOVE::messages.size() == 2);
+    for (int i = 0; i < 2; ++i) {
+        DOCTEST_CHECK(TEST_SHIPMOVE::message_players[i] == i);
+        const s_MSG& message = TEST_SHIPMOVE::messages[i];
+        DOCTEST_CHECK((message.msg_type == MSG_TYPE_HYPERSPACE_BEAST));
+        DOCTEST_CHECK((message.u.hyperspace_beast.ship_idx == 0));
+        DOCTEST_CHECK((message.u.hyperspace_beast.star_idx == 1));
+        DOCTEST_CHECK((message.u.hyperspace_beast.leader_status == 0));
+        DOCTEST_CHECK((message.u.hyperspace_beast.fate == (i == 0 ? 1 : 0)));
+    }
+}
+
+DOCTEST_TEST_CASE("survival pods transfer a beast victim's officer to a matching travelling ship") {
+    TEST_SHIPMOVE::Reset_();
+    MOX::NUM_SHIPS = 2;
+    MOX::player[0].tech_applications[TECH_APP_SURVIVAL_PODS] = TECH_RESEARCH_STATUS_RESEARCHED;
+    for (int i = 0; i < 2; ++i) {
+        MOX::ship[i].owner = 0;
+        MOX::ship[i].status = 1;
+        MOX::ship[i].location = SHIP_LOCATION_MOVING_OFFSET + 1;
+        MOX::ship[i].travelling_speed = 4;
+        MOX::ship[i].d.ship_type = SHIP_TYPE_COMBAT;
+    }
+    MOX::ship[1].officer_index = 0;
+    SHIPMOVE::Do_Hyperspace_Beast(0);
+    DOCTEST_CHECK(TEST_SHIPMOVE::pooled_officer == 0);
+    DOCTEST_CHECK(TEST_SHIPMOVE::killed_officer == -1);
+    DOCTEST_CHECK((MOX::ship[0].officer_index == 0));
+    DOCTEST_CHECK((MOX::leaders[0].location == 0));
+    DOCTEST_CHECK((MOX::leaders[0].status == 1));
+    DOCTEST_REQUIRE(TEST_SHIPMOVE::messages.size() == 1);
+    DOCTEST_CHECK((TEST_SHIPMOVE::messages[0].u.hyperspace_beast.leader_status == 2));
 }
 
 DOCTEST_TEST_CASE("new nonplayer ship lifetime advances Lua slot generation") {
@@ -141,6 +336,176 @@ DOCTEST_TEST_CASE("movement stores the numeric navigator bonus") {
     DOCTEST_CHECK(move_info.has_navigator == 2);
     DOCTEST_CHECK(MOX::ship[0].group_has_navigator == 2);
     DOCTEST_CHECK(MOX::ship[0].travelling_speed == 6);
+}
+
+DOCTEST_TEST_CASE("Phase Shifter scales departing fleet speed using an exact ratio") {
+    struct s_case {
+        s_ratio16 multiplier;
+        uint8_t base_speed;
+        bool first_has_phase_shifter;
+        bool second_has_phase_shifter;
+        int16_t expected_speed;
+    };
+    const s_case cases[] = {
+        {{1, 1}, 4, true, true, 4},
+        {{2, 1}, 4, true, true, 8},
+        {{1, 2}, 4, true, true, 2},
+        {{2, 1}, 4, false, false, 4},
+        {{2, 1}, 4, true, false, 4},
+        {{2, 1}, 4, false, true, 4},
+        {{1, 2}, 4, true, false, 2},
+        {{1, 2}, 4, false, true, 2},
+        {{1, 2}, 5, true, true, 2},
+        {{1, 2}, 1, true, true, 1},
+        {{32767, 1}, 255, true, true, 254},
+    };
+
+    for (const s_case& test_case : cases) {
+        TEST_SHIPMOVE::Reset_();
+        SHIPMOVE::phase_shifter_speed_multiplier = test_case.multiplier;
+        MOX::player[0].ship_speed = test_case.base_speed;
+        MOX::NUM_SHIPS = 2;
+        MOX::ship[1] = MOX::ship[0];
+        const bool equipped[] = {
+            test_case.first_has_phase_shifter,
+            test_case.second_has_phase_shifter,
+        };
+        for (int i = 0; i < 2; ++i) {
+            if (equipped[i]) {
+                MOX::ship[i].d.special_device_flags[SPECIAL_PHASE_SHIFTER / 8] |=
+                    1 << (SPECIAL_PHASE_SHIFTER % 8);
+            }
+        }
+        MOX::ship[0].d.combat_speed = 7;
+
+        int16_t ship_list[] = {0, 1, -1};
+        s_ship_move_info move_info;
+        SHIPMOVE::Ships_Try_To_Move_To(ship_list, 1, &move_info);
+
+        DOCTEST_CHECK_FALSE(move_info.immobile);
+        DOCTEST_CHECK(move_info.traveling_speed == test_case.expected_speed);
+        DOCTEST_CHECK(move_info.turns_left == (4 + test_case.expected_speed - 1) / test_case.expected_speed);
+        DOCTEST_CHECK(TEST_SHIPMOVE::Movement_Speed_() == test_case.expected_speed);
+        SHIPMOVE::Make_Ships_Move_To(ship_list, 1, &move_info);
+        DOCTEST_CHECK(MOX::ship[0].travelling_speed == test_case.expected_speed);
+        DOCTEST_CHECK(MOX::ship[1].travelling_speed == test_case.expected_speed);
+        DOCTEST_CHECK(MOX::ship[0].d.combat_speed == 7);
+    }
+    SHIPMOVE::phase_shifter_speed_multiplier = {1, 1};
+}
+
+DOCTEST_TEST_CASE("Phase Shifter does not create propulsion or permit nonpositive speed") {
+    struct s_case {
+        s_ratio16 multiplier;
+        uint8_t base_speed;
+    };
+    const s_case cases[] = {
+        {{2, 1}, 0},
+        {{0, 1}, 4},
+        {{-1, 2}, 4},
+    };
+    for (const s_case& test_case : cases) {
+        TEST_SHIPMOVE::Reset_();
+        SHIPMOVE::phase_shifter_speed_multiplier = test_case.multiplier;
+        MOX::player[0].ship_speed = test_case.base_speed;
+        MOX::ship[0].d.special_device_flags[SPECIAL_PHASE_SHIFTER / 8] |=
+            1 << (SPECIAL_PHASE_SHIFTER % 8);
+
+        int16_t ship_list[] = {0, -1};
+        s_ship_move_info move_info;
+        SHIPMOVE::Ships_Try_To_Move_To(ship_list, 1, &move_info);
+        DOCTEST_CHECK(move_info.immobile == 1);
+        DOCTEST_CHECK(move_info.moving == 0);
+        DOCTEST_CHECK(move_info.turns_left == UINT8_MAX);
+    }
+    SHIPMOVE::phase_shifter_speed_multiplier = {1, 1};
+}
+
+DOCTEST_TEST_CASE("Phase Shifter leaves Navigator and Jump Gate bonuses additive") {
+    TEST_SHIPMOVE::Reset_();
+    SHIPMOVE::phase_shifter_speed_multiplier = {2, 1};
+    MOX::ship[0].d.special_device_flags[SPECIAL_PHASE_SHIFTER / 8] |=
+        1 << (SPECIAL_PHASE_SHIFTER % 8);
+    MOX::leaders[0].xp = 5;
+    MOX::leaders[0].special_skills = LEADER_SHIP_SKILL_NAVIGATOR2;
+    MOX::ship[0].officer_index = 0;
+    MOX::star[0].has_jumpgate = 1;
+    MOX::star[1].has_jumpgate = 1;
+
+    int16_t ship_list[] = {0, -1};
+    s_ship_move_info move_info;
+    SHIPMOVE::Ships_Try_To_Move_To(ship_list, 1, &move_info);
+    DOCTEST_CHECK(move_info.traveling_speed == 13);
+    DOCTEST_CHECK(TEST_SHIPMOVE::Movement_Speed_() == 13);
+
+    MOX::player[0].ship_speed = 127;
+    SHIPMOVE::Ships_Try_To_Move_To(ship_list, 1, &move_info);
+    DOCTEST_CHECK(move_info.traveling_speed == 254);
+    DOCTEST_CHECK(TEST_SHIPMOVE::Movement_Speed_() == 254);
+
+    SHIPMOVE::jump_gate_speed_bonus = UINT8_MAX;
+    SHIPMOVE::Ships_Try_To_Move_To(ship_list, 1, &move_info);
+    DOCTEST_CHECK(move_info.traveling_speed == 254);
+    SHIPMOVE::Make_Ships_Move_To(ship_list, 1, &move_info);
+    MOX::ship[0].status = 1;
+    MOX::ship[0].location = SHIP_LOCATION_MOVING_OFFSET + 1;
+    MOX::ship[0].x = 30;
+    SHIPMOVE::Ships_Try_To_Move_To(ship_list, 1, &move_info);
+    DOCTEST_CHECK(move_info.traveling_speed == 254);
+    DOCTEST_CHECK(TEST_SHIPMOVE::Movement_Speed_() == 254);
+    SHIPMOVE::jump_gate_speed_bonus = 3;
+    SHIPMOVE::phase_shifter_speed_multiplier = {1, 1};
+}
+
+DOCTEST_TEST_CASE("Phase Shifter is not reapplied to in-flight departure speed") {
+    TEST_SHIPMOVE::Reset_();
+    SHIPMOVE::phase_shifter_speed_multiplier = {2, 1};
+    MOX::ship[0].d.special_device_flags[SPECIAL_PHASE_SHIFTER / 8] |=
+        1 << (SPECIAL_PHASE_SHIFTER % 8);
+    MOX::star[1].x = 600;
+    MOX::NUM_STARS = 3;
+    MOX::star[2].x = 540;
+
+    int16_t ship_list[] = {0, -1};
+    s_ship_move_info move_info;
+    SHIPMOVE::Ships_Try_To_Move_To(ship_list, 1, &move_info);
+    DOCTEST_REQUIRE(move_info.traveling_speed == 8);
+    SHIPMOVE::Make_Ships_Move_To(ship_list, 1, &move_info);
+    MOX::ship[0].status = 1;
+    MOX::ship[0].location = SHIP_LOCATION_MOVING_OFFSET + 1;
+    MOX::ship[0].x = 30;
+    MOX::player[0].ship_speed = 6;
+
+    for (int16_t target : {1, 2}) {
+        SHIPMOVE::Ships_Try_To_Move_To(ship_list, target, &move_info);
+        DOCTEST_CHECK(move_info.traveling_speed == 8);
+        DOCTEST_CHECK(TEST_SHIPMOVE::Movement_Speed_() == 8);
+    }
+    SHIPMOVE::phase_shifter_speed_multiplier = {1, 1};
+}
+
+DOCTEST_TEST_CASE("Phase Shifter does not change instantaneous travel routes") {
+    TEST_SHIPMOVE::Reset_();
+    SHIPMOVE::phase_shifter_speed_multiplier = {2, 1};
+    MOX::ship[0].d.special_device_flags[SPECIAL_PHASE_SHIFTER / 8] |=
+        1 << (SPECIAL_PHASE_SHIFTER % 8);
+    MOX::star[0].wormhole_star_id = 1;
+
+    int16_t ship_list[] = {0, -1};
+    s_ship_move_info move_info;
+    SHIPMOVE::Ships_Try_To_Move_To(ship_list, 1, &move_info);
+    DOCTEST_CHECK(move_info.uses_wormhole == 1);
+    DOCTEST_CHECK(move_info.traveling_speed == UINT8_MAX);
+    DOCTEST_CHECK(move_info.turns_left == 1);
+
+    MOX::star[0].wormhole_star_id = -1;
+    MOX::star[0].has_stargate = 1;
+    MOX::star[1].has_stargate = 1;
+    SHIPMOVE::Ships_Try_To_Move_To(ship_list, 1, &move_info);
+    DOCTEST_CHECK(move_info.has_stargate_route == 1);
+    DOCTEST_CHECK(move_info.traveling_speed == UINT8_MAX);
+    DOCTEST_CHECK(move_info.turns_left == 1);
+    SHIPMOVE::phase_shifter_speed_multiplier = {1, 1};
 }
 
 DOCTEST_TEST_CASE("jump gate speed preserves the complete unsigned byte domain") {

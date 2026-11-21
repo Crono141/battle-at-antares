@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/native.h"
+
 namespace SMACK {
     s_mouse_list smack_mouse = {0, 0, 0, 0, 639, 479};
     MOX2::action_func_t smack_auto_function;
@@ -98,14 +100,22 @@ namespace SMACK {
         }
 
         total_frames = smckplay::Get_Smacker_Animation_Total_Frames();
+        if (use_fade == 0) {
+            antares::native::Set_Film(SMACK::smack_x, SMACK::smack_y, animation_width, animation_height); // Antares (WP3.11b)
+        }
 
+        // Antares (owner, 2026-11-20: the Antarans' attack couldn't be clicked through): a click
+        // since the last frame skips the film too, not only a button still held when the frame
+        // checks; a quick click (or a slow frame) fell between the checks. Clicks from before the
+        // film don't count.
+        fields::Clear_Mouse_Buffer();
         do {
             if (key::Keyboard_Status() == 1) {
                 exit_requested = 1;
                 key::Read_Key();
             }
 
-            if (mouse::Mouse_Button() != 0) {
+            if (mouse::Mouse_Button() != 0 || mouse::Mouse_Buffer() != 0) {
                 exit_requested = 1;
             }
 
@@ -133,6 +143,13 @@ namespace SMACK {
         }
 
         smckplay::Close_Smacker_Animation();
+        if (use_fade == 0) {
+            antares::native::Set_Film(0, 0, 0, 0); // Antares (WP3.11b): the film's window closes
+            // Palette-only fades reuse the published pixels. Replace the movie
+            // frame with its saved background now that the game palette is back.
+            video::Copy_Back_To_Off();
+            video::Publish_Off_Page();
+        }
         MOX::global_cache_seg = (void*)buffer::Allocate_Buffer_Space(MOX::global_cache_size);
         RUSS::Mox_Update();
         JIM::jim_current_stream = (uint16_t)-1;

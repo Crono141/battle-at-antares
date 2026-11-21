@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/cosmetic_random.h"
+#include "antares/native.h"
 #include "string_overrides.h"
 
 namespace council {
@@ -32,6 +33,86 @@ namespace council {
     uint8_t council_total_members;
     char* council_votes_total_message;
     uint8_t council_vote_for;
+
+    // Antares (WP3.11d, owner 2026-11-19): the council in the native scene window over the galaxy.
+    // The rules run as before; the click waits become the window's pages, and its two lists (the
+    // vote, accepting the ruling) are the native lists Get_List_Field already asks over a scene.
+    namespace {
+        bool native_council = false;
+        int32_t native_page = 0;
+        int16_t native_winner_speaker = -1; // the race speaking on a voted-winner page
+
+        constexpr int16_t k_member_x[6] = {44, 520, 143, 444, 215, 377};
+        constexpr int16_t k_member_y[6] = {96, 100, 148, 149, 169, 168};
+
+        std::string Native_Tally() {
+            char buffer[40];
+            std::string tally[2];
+            for (int i = 0; i < 2; ++i) {
+                if (council_nominee_vote_total[i] < 1) {
+                    strlcpy(buffer, council_no_votes_message, sizeof(buffer));
+                    JIM::Decode_Text_Race(buffer, council_nominee_[i], sizeof(buffer));
+                } else {
+                    strlcpy(buffer, council_nominee_vote_total[i] < 2 ? council_vote_message : council_votes_message, sizeof(buffer));
+                    JIM::Decode_Text_Name_And_Stat(buffer, council_nominee_[i], council_nominee_vote_total[i], sizeof(buffer));
+                }
+                tally[i] = buffer;
+            }
+            snprintf(buffer, sizeof(buffer), "%d %s", (int)council_total_votes, council_votes_total_message);
+            return tally[0] + "     " + buffer + "     " + tally[1];
+        }
+
+        std::string Native_Layer(int16_t entry, int16_t x, int16_t y, bool animated) {
+            return "{\"lbx\":\"council.LBX@0\",\"entry\":" + std::to_string(entry) + ",\"x\":" + std::to_string(x) + ",\"y\":" +
+                std::to_string(y) + (animated ? ",\"loop_from\":0}" : ",\"frame\":0}");
+        }
+
+        std::string Native_Council_State() {
+            std::string json = "{\"scene\":\"council\",\"backdrop\":{\"lbx\":\"council.LBX@0\",\"entry\":1,\"loop_from\":1}"
+                ",\"text\":" + antares::native::Quote(council_message) + ",\"list_at\":[214,388,180],\"layers\":[";
+            bool first = true;
+            const auto add = [&](const std::string& layer) {
+                json += (first ? "" : ",") + layer;
+                first = false;
+            };
+            for (int i = 0; i < (int)council_total_members && i < 6; ++i) {
+                if (council_members[i] >= 100) {
+                    continue; // already spoken on the voted-winner pages
+                }
+                const int16_t race = (int16_t)(uint8_t)MOX::player[council_members[i]].race;
+                const bool lit = native_winner_speaker < 0 && (council_state == 2 || council_state == 3) && council_members[i] == (uint8_t)council_voter;
+                add(Native_Layer((int16_t)(race * 6 + i + (lit ? 2 : 80)), k_member_x[i], k_member_y[i], true));
+            }
+            if (native_winner_speaker < 0) {
+                for (int i = 0; i < 2; ++i) {
+                    const int16_t race = (int16_t)(uint8_t)MOX::player[council_nominee_[i]].race;
+                    add(Native_Layer((int16_t)(race * 2 + 158 + i), (int16_t)(115 + 205 * i), 225, council_nominee_[i] == (uint8_t)council_voter));
+                }
+                json += "],\"title\":" + antares::native::Quote(Native_Tally().c_str());
+            } else {
+                add("{\"lbx\":\"council.LBX@0\",\"entry\":" + std::to_string(native_winner_speaker + 0xB8) + ",\"loop_from\":0}");
+                json += "]";
+            }
+            return json + "}";
+        }
+
+        void Native_Council_Music() {
+            JIM::Play_Streaming_Music(0x77, -1, 1);
+        }
+
+        void Native_Council_Page() {
+            antares::native::Popup("scene", "", "\"scene\":\"council\",\"page\":" + std::to_string(native_page++), nullptr);
+        }
+
+        void Native_Council_End() {
+            if (!native_council) {
+                return;
+            }
+            antares::native::Popup("scene_end", "", "\"scene\":\"council\"", nullptr);
+            antares::native::Clear_Scene();
+            native_council = false;
+        }
+    } // namespace
 
     void Check_For_Council_Meeting() {
         int16_t active_players = 0;
@@ -73,6 +154,10 @@ namespace council {
     }
 
     void __cdecl Control_Main_Council_Screen() {
+        if (native_council) {
+            Native_Council_Page();
+            return;
+        }
         int16_t field_id;
         int16_t input_id;
         int16_t done = 0;
@@ -102,15 +187,20 @@ namespace council {
     }
 
     void __cdecl Main_Council_Screen() {
+        native_council = antares::native::Galaxy_Will_Be_Native() && antares::native::Popups_Native();
+        native_page = 0;
+        native_winner_speaker = -1;
         fields::Deactivate_Help_List();
         fields::Enable_Draw_All_Fields();
         graphics::Reset_Window();
         video::Clip_Off();
         mouse::Set_Mouse_List(&council::council_blank_mouse, 1);
         JIM::Play_Streaming_Music(0x77 /* MUSIC_COUNCIL */, -1, 1);
-        ERIC::Set_Fade_Percent(0);
-        ERIC::Set_Fade_Speed_Percent(10);
-        ERIC::Fast_Fade_Out();
+        if (!native_council) {
+            ERIC::Set_Fade_Percent(0);
+            ERIC::Set_Fade_Speed_Percent(10);
+            ERIC::Fast_Fade_Out();
+        }
         fields::Set_Input_Delay(1);
         fields::Clear_Fields();
         video::Set_Refresh_Stencil();
@@ -122,6 +212,9 @@ namespace council {
         diplodef::COUNCIL_FLAG = 1;
         council::council_nominee_vote_total[0] = 0;
         council::council_nominee_vote_total[1] = 0;
+        if (native_council) {
+            antares::native::Set_Scene(Native_Council_State, Native_Council_Music);
+        }
         fields::Assign_Auto_Function(council::Draw_Main_Council_Screen, 2);
 
         while (council::council_state != 0x63 /* 'c' */) {
@@ -139,13 +232,19 @@ namespace council {
         fields::Clear_Fields();
         REPORT::something_interesting_happened[MOX::PLAYER_NUM] = 1;
         file_ani::Reset_File_Animation_Buffer();
+        const bool was_native = native_council || native_page > 0;
+        Native_Council_End();
         JIM::Play_Background_Music();
-        ERIC::Set_Fade_Percent(0);
-        ERIC::Set_Fade_Speed_Percent(10);
-        ERIC::Fast_Fade_Out();
+        if (!was_native) {
+            ERIC::Set_Fade_Percent(0);
+            ERIC::Set_Fade_Speed_Percent(10);
+            ERIC::Fast_Fade_Out();
+        }
         RUSS::Release_All_Blocks(MOX::screen_seg);
         MOX2::Put_Auto_Function(&EVENTS::jim_saved_autofunction);
-        MISC::Fade_Into_Screen(MAINSCR::Draw_Main_Screen, &MOX::draw_main_screen_to_back, 0);
+        if (!was_native) {
+            MISC::Fade_Into_Screen(MAINSCR::Draw_Main_Screen, &MOX::draw_main_screen_to_back, 0);
+        }
     }
 
     void __cdecl Draw_Main_Council_Screen() {
@@ -634,6 +733,7 @@ namespace council {
 
                 if (MOX::PLAYER_NUM == diplodef::council_winner) {
                     Council_Player_Voted_Winner();
+                    Native_Council_End(); // the ending plays full screen
                     ERIC::Play_Diplomatic_Win_Flic();
                 }
 
@@ -787,6 +887,11 @@ namespace council {
 
     void Drive_Council_Player_Voted_Winner(int16_t player_idx, int16_t unused_callback_arg) {
         Get_Player_Voted_Winner_Message(unused_callback_arg);
+        if (native_council) {
+            native_winner_speaker = (int16_t)(uint8_t)MOX::player[player_idx].race;
+            Native_Council_Page();
+            return;
+        }
 
         int16_t race_anim_id = (int16_t)((uint8_t)MOX::player[player_idx].race + 0xB8);
         file_ani::Open_Multi_File_Animation("council.LBX", race_anim_id, 1);

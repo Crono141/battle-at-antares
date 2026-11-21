@@ -48,6 +48,17 @@ namespace MAINPUPS {
 
     s_colony_combat_popup_data* g_data_ptr;
 
+    // The explosions of the bomb hits applied since the native window last drew (owner,
+    // 2026-11-20: the native bombing showed none): the picture (MAINPUPS.LBX 61 bomb, 73
+    // biological) and its place as Apply_Next_Bomb_Hit puts it, from the planet picture's centre,
+    // in the window's 640x480 pixels.
+    struct s_native_blast {
+        int16_t entry;
+        int16_t dx;
+        int16_t dy;
+    };
+    std::vector<s_native_blast> g_native_blasts;
+
     int16_t mp_fields[26];
 
     void __cdecl Load_Colony_Fields() {
@@ -112,6 +123,7 @@ namespace MAINPUPS {
             int32_t value = -1;
             bool enabled = true;
             int16_t planet = -1;
+            int16_t fleet_owner = -1; // a side's ships (select combat): its fleets light on the map
             bool potential = false; // carries the planet's potential (the window's hover card)
             std::vector<std::string> details; // lines under the choice (a target's planet and defences)
         };
@@ -121,7 +133,8 @@ namespace MAINPUPS {
             for (const s_native_option& o : options) {
                 json += std::string(json.empty() ? "" : ",") + "{\"text\":" + antares::native::Quote(o.text.c_str()) +
                     ",\"enabled\":" + (o.enabled ? "true" : "false") +
-                    (o.planet >= 0 ? ",\"planet\":" + std::to_string(o.planet) : std::string());
+                    (o.planet >= 0 ? ",\"planet\":" + std::to_string(o.planet) : std::string()) +
+                    (o.fleet_owner >= 0 ? ",\"fleet_owner\":" + std::to_string(o.fleet_owner) : std::string());
                 const std::string potential = o.potential && o.planet >= 0 ? antares::native::Potential_Json(o.planet) : std::string();
                 if (!potential.empty()) {
                     json += ",\"potential\":" + potential;
@@ -136,6 +149,19 @@ namespace MAINPUPS {
                 json += "}";
             }
             return "\"options\":[" + json + "]";
+        }
+
+        // The sides a select-combat window's targets belong to (a colony's owner, or a side's ships).
+        std::vector<int16_t> Target_Sides(const std::vector<s_native_option>& options) {
+            std::vector<int16_t> sides;
+            for (const s_native_option& o : options) {
+                const int16_t side = o.fleet_owner >= 0 ? o.fleet_owner
+                    : (o.value >= 15 && o.value - 15 < MOX::NUM_COLONIES ? (int16_t)MOX::colony[o.value - 15].owner : (int16_t)-1);
+                if (side >= 0) {
+                    sides.push_back(side);
+                }
+            }
+            return sides;
         }
 
         std::string Native_Zoom_Json(int16_t star_idx) {
@@ -716,6 +742,17 @@ namespace MAINPUPS {
             snprintf(formatted_msg, sizeof(formatted_msg), ESTRINGS::E_Strings(format_id), attacker_name, defender_name, location_name);
         }
 
+        // Antares (owner, 2026-11-20): natively, the camera flies into the system, the message
+        // beside it and the player's fleet there on its other side, as in the select-combat window.
+        if (antares::native::Popups_Native() && star_idx >= 0 && star_idx < MOX::NUM_STARS) {
+            const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," + Native_Zoom_Json(star_idx) +
+                ",\"buttons\":[\"OK\"]" + antares::native::Combat_Fleet_Field(star_idx, {attacker_idx});
+            int32_t answer = 0;
+            if (antares::native::Popup("player_attacked", formatted_msg, fields, &answer)) {
+                MOX2::Put_Auto_Function(&eric_saved_autofunction);
+                return;
+            }
+        }
         ERICHELP::Set_Player_Attacked_Popup_Help_List();
         GENDRAW::Message_Box_Exploding_Star(formatted_msg, star_idx);
         fields::Deactivate_Help_List();
@@ -773,12 +810,9 @@ namespace MAINPUPS {
                     MOX::planet_climate_string[(uint8_t)target.climate], (int)(uint8_t)target.n_pops);
                 o.details.push_back(detail);
                 std::string defences;
-                for (const int16_t building : {(int16_t)BUILDING_STAR_FORTRESS, (int16_t)BUILDING_STAR_BASE, (int16_t)BUILDING_BATTLESTATION,
-                         (int16_t)BUILDING_MISSILE_BASE, (int16_t)BUILDING_GROUND_BATTERIES, (int16_t)BUILDING_STELLAR_CONVERTER,
-                         (int16_t)BUILDING_FIGHTER_GARRISON}) {
-                    if (target.buildings[building] != 0) {
-                        defences += std::string(defences.empty() ? "" : ", ") + TECHDATA::buildings[building].name;
-                    }
+                // The planetary shield too (owner, 2026-11-20: the defences, always shown in orbit).
+                for (const std::string& name : antares::native::Colony_Defences(colony_idx)) {
+                    defences += (defences.empty() ? "" : ", ") + name;
                 }
                 o.details.push_back(defences.empty() ? std::string("No defences") : defences);
                 options.push_back(o);
@@ -792,10 +826,12 @@ namespace MAINPUPS {
                 s_native_option o;
                 o.text = std::string(MOX::player[owner].race_name) + " ships";
                 o.value = owner;
+                o.fleet_owner = owner;
                 options.push_back(o);
             }
             const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," +
-                Native_Zoom_Json(star_idx) + "," + Native_Options_Json(options) + ",\"buttons\":[\"CANCEL\"]";
+                Native_Zoom_Json(star_idx) + "," + Native_Options_Json(options) + ",\"buttons\":[\"CANCEL\"]" +
+                antares::native::Combat_Fleet_Field(star_idx, Target_Sides(options)); // the player's fleet window
             int32_t answer = 0;
             if (antares::native::Popup("attack_target", line, fields, &answer)) {
                 const int32_t pick = answer - k_option_answer;
@@ -867,7 +903,7 @@ namespace MAINPUPS {
             g_y + 154 /* 0x9a */,
             tooltip_generic,
             anims[34],
-            ESTRINGS::E_Strings(137 /* 0x89 */),
+            ESTRINGS::E_Strings(11 /* 0xb */),
             40 /* 0x28 */
         );
 
@@ -876,7 +912,7 @@ namespace MAINPUPS {
             g_y + 154 /* 0x9a */,
             tooltip_generic,
             anims[33],
-            ESTRINGS::E_Strings(11 /* 0xb */),
+            ESTRINGS::E_Strings(137 /* 0x89 */),
             40 /* 0x28 */
         );
 
@@ -1114,11 +1150,10 @@ namespace MAINPUPS {
     }
 
     bool __cdecl Random_New_Officer_Popup(int16_t player_idx) {
-        // Player_Capitol_World returns a colony index: its planet's star is the capital's
-        // (indexing planet[] with the colony index anchored the popup, and the map's re-centring,
-        // on an unrelated star).
         const int16_t capital_colony = ERIC::Player_Capitol_World(player_idx);
-        int16_t star_idx = capital_colony >= 0 ? MOX::planet[MOX::colony[capital_colony].planet].star_index : -1;
+        int16_t star_idx = capital_colony >= 0
+            ? MOX::planet[MOX::colony[capital_colony].planet].star_index
+            : -1;
 
         s_colors colors;
         colors.colors[0] = 0x9F;
@@ -1144,8 +1179,10 @@ namespace MAINPUPS {
         }
 
         if (star_idx == -1) {
-            int16_t colony_idx = ERIC::Pick_Random_Colony(player_idx);
-            star_idx = MOX::planet[MOX::colony[colony_idx].planet].star_index;
+            const int16_t colony_idx = ERIC::Pick_Random_Colony(player_idx);
+            if (colony_idx >= 0) {
+                star_idx = MOX::planet[MOX::colony[colony_idx].planet].star_index;
+            }
         }
 
         COLONY::sys_disp_star_handle = star_idx;
@@ -1571,11 +1608,17 @@ namespace MAINPUPS {
         ccp_data->best_shield_bldg = Get_Colony_Best_Shield_Bldg(colony_idx);
     }
 
+    // The bombing window's own buttons (Native_Colony_Combat_Popup), apart from the values the
+    // window returns.
+    constexpr int16_t k_bomb_stop = 100;
+    constexpr int16_t k_bomb_continue = 101;
+    constexpr int16_t k_bomb_all = 102;
+
     // Antares (owner, 2026-11-13): the orbit's choice (mode 0) and the bombing result (mode 1) as a
     // native popup over the native galaxy, "duplicated as it is": the window's lines and the
     // buttons it would offer (Add_Colony_Combat_Fields), the same seed, and the bomb hits applied as
-    // the window's fast-forward applies them (Apply_Next_Bomb_Hit in state 2), so the outcome and
-    // the random sequence match. Returns what the window returns: -1 ignore, 1 stellar converter,
+    // the window applies them (Apply_Next_Bomb_Hit: one at a time, STOP / CONTINUE / ALL AT ONCE),
+    // so the outcome and the random sequence match. Returns what the window returns: -1 ignore, 1 stellar converter,
     // 2 bomb, 3 invade, 4 mind control.
     static int16_t Native_Colony_Combat_Popup(int16_t popup_mode) {
         s_colony_combat_popup_data* data = g_data_ptr;
@@ -1590,127 +1633,197 @@ namespace MAINPUPS {
         }
         game_random::Set_Random_Seed(data->random_seed);
         MAINPUPS::g_state = popup_mode;
-        if (popup_mode == 1) {
-            state = 2; // all the hits at once, as the window's fast-forward
-            for (int guard = 0; guard < 1000 && state != 3; ++guard) {
-                MAINPUPS::Apply_Next_Bomb_Hit(data->bomb, &state, &bomb_hits, &bio_hits);
-            }
-        }
 
-        const char* planet = HACCESS::Get_Planet_Name(MOX::colony[data->colony_idx].planet);
-        char line[300];
-        snprintf(line, sizeof(line), ESTRINGS::E_Strings(458), planet);
-        const std::string title = line;
-        std::string text;
-        std::string summary; // the bombing's result (mode 1), shown under the pictures
-        auto add = [&text](const char* l) {
-            text += (text.empty() ? "" : "\n") + std::string(l);
-        };
-        if (popup_mode == 1) {
-            int16_t buildings = 0;
-            for (const int8_t b : data->bomb->buildings_destroyed) {
-                buildings += b != 0 ? 1 : 0;
-            }
-            snprintf(line, sizeof(line), "Bombing killed %d population and %d troops, and destroyed %d buildings.",
-                (int)data->bomb->population_killed, (int)(data->bomb->infantry_killed + data->bomb->tanks_killed), (int)buildings);
-            summary = line;
-            add(line);
-            add("");
-        }
-        // The window's rows with their pictures (Draw_Colony_Combat_Popup): the defenders on the
-        // left (buildings, best shield, colonists, armor and marines), the attacker's marines and
-        // the bombardment on the right, around the planet's picture (CMBTPLNT.LBX).
-        std::string rows;
-        auto row = [&](const char* side, const char* lbx, int32_t entry, const char* l) {
-            add(l);
-            rows += std::string(rows.empty() ? "" : ",") + "{\"side\":\"" + side + "\",\"lbx\":\"" + lbx +
-                "\",\"entry\":" + std::to_string(entry) + ",\"text\":" + antares::native::Quote(l) + "}";
-        };
-        // RACEICON.LBX: race * 13 + 6 + variant (COLONY::Player_Troop_Anim, Military_Anims).
-        auto troop_entry = [](int16_t player, int16_t unit) {
-            const int32_t race = (uint8_t)MOX::player[player].race;
-            int32_t variant = 0;
-            if (unit == 0) {
-                variant = MOX::player[player].tech_applications[TECH_APP_BATTLEOIDS] == TECH_RESEARCH_STATUS_RESEARCHED ? 4 : 3;
-            } else if (unit == 1) {
-                variant = MOX::player[player].tech_applications[TECH_APP_POWERED_ARMOR] == TECH_RESEARCH_STATUS_RESEARCHED ? 2 : 1;
-            }
-            return race * 13 + 6 + variant;
-        };
-        if (data->n_bldgs > 0) {
-            snprintf(line, sizeof(line), ESTRINGS::E_Strings(19), data->n_bldgs);
-            row("left", "COLONY2.LBX", 47, line);
-        }
-        if (data->best_shield_bldg != -1) {
-            snprintf(line, sizeof(line), ESTRINGS::E_Strings(70), COLONY::CR_Building_Name(data->best_shield_bldg));
-            row("left", "COLONY2.LBX", 48, line);
-        }
-        if (data->n_pops > 0) {
-            snprintf(line, sizeof(line), ESTRINGS::E_Strings(20), data->n_pops);
-            const int32_t job = (int32_t)((MOX::colony[data->colony_idx].pop[0] >> 7) & 3);
-            row("left", "RACEICON.LBX", (int32_t)(uint8_t)MOX::player[data->defender_player_id].race * 13 + job * 2 + 1, line);
-        }
-        for (int16_t unit = 1; unit >= 0; --unit) {
-            if (data->defender_unit_counts[unit] > 0) {
-                const uint8_t race = MOX::player[data->defender_player_id].race;
-                snprintf(line, sizeof(line), ESTRINGS::E_Strings(14), data->defender_unit_counts[unit],
-                    COLONY::Player_Troop_Name(data->defender_player_id, unit, race));
-                row("left", "RACEICON.LBX", troop_entry(data->defender_player_id, unit), line);
-            }
-        }
-        if (data->attacker_unit_counts[1] > 0 || data->bombardment_result >= 0) {
-            add("");
-        }
-        if (data->attacker_unit_counts[1] > 0) {
-            const uint8_t race = MOX::player[data->attacker_player_id].race;
-            snprintf(line, sizeof(line), ESTRINGS::E_Strings(14), data->attacker_unit_counts[1],
-                COLONY::Player_Troop_Name(data->attacker_player_id, 1, race));
-            row("right", "RACEICON.LBX", troop_entry(data->attacker_player_id, 1), line);
-        }
-        if (data->bombardment_result >= 0) {
-            snprintf(line, sizeof(line), ESTRINGS::E_Strings(popup_mode == 0 ? 21 : 18), data->bombardment_result);
-            row("right", "COLONY2.LBX", 46, line);
-        }
-        const int16_t planet_idx = MOX::colony[data->colony_idx].planet;
-        const int32_t planet_picture = MOX::planet[planet_idx].size + MOX::planet[planet_idx].climate * 6;
-
-        // The buttons Add_Colony_Combat_Fields would add, with what each returns.
+        // The window as it stands (its lines, rows, picture and the buttons it offers, with what
+        // each returns); built again after each bomb hit.
         std::vector<std::pair<std::string, int16_t>> buttons;
-        if (popup_mode == 0 && data->bombardment_result >= 0) {
-            buttons.emplace_back("BOMB", 2);
-        }
-        if (data->attacker_unit_counts[UNIT_MARINES] > 0 && (data->n_pops > 0 || data->n_bldgs > 0)) {
-            buttons.emplace_back("INVADE", 3);
-        }
-        if (MOX::player[data->attacker_player_id].traits[TRAIT_TELEPATHIC] != 0 && data->n_pops > 0) {
-            buttons.emplace_back("MIND CONTROL", 4);
-        }
-        if (data->has_stellar_converter != 0 && data->n_pops > 0) {
-            buttons.emplace_back("STELLAR CONVERTER", 1);
-        }
-        buttons.emplace_back("IGNORE", -1);
-        std::string labels;
-        for (const auto& b : buttons) {
-            labels += std::string(labels.empty() ? "" : ",") + antares::native::Quote(b.first.c_str());
-        }
-        const std::string fields = "\"title\":" + antares::native::Quote(title.c_str()) + ",\"star\":" +
-            std::to_string(MOX::planet[MOX::colony[data->colony_idx].planet].star_index) +
-            ",\"colony\":" + std::to_string(data->colony_idx) + ",\"buttons\":[" + labels + "]" +
-            ",\"picture\":{\"lbx\":\"CMBTPLNT.LBX\",\"entry\":" + std::to_string(planet_picture) + "},\"rows\":[" + rows +
-            "],\"summary\":" + antares::native::Quote(summary.c_str());
+        std::string text;
+        std::string fields;
+        auto compose = [&]() {
+            buttons.clear();
+            text.clear();
+            const char* planet = HACCESS::Get_Planet_Name(MOX::colony[data->colony_idx].planet);
+            char line[300];
+            snprintf(line, sizeof(line), ESTRINGS::E_Strings(458), planet);
+            const std::string title = line;
+            std::string summary; // the bombing's result (mode 1), shown under the pictures
+            auto add = [&text](const char* l) {
+                text += (text.empty() ? "" : "\n") + std::string(l);
+            };
+            if (popup_mode == 1) {
+                int16_t buildings = 0;
+                for (const int8_t b : data->bomb->buildings_destroyed) {
+                    buildings += b != 0 ? 1 : 0;
+                }
+                snprintf(line, sizeof(line), "Bombing killed %d population and %d troops, and destroyed %d buildings.",
+                    (int)data->bomb->population_killed, (int)(data->bomb->infantry_killed + data->bomb->tanks_killed), (int)buildings);
+                summary = line;
+                add(line);
+                add("");
+            }
+            // The window's rows with their pictures (Draw_Colony_Combat_Popup): the defenders on the
+            // left (buildings, best shield, colonists, armor and marines), the attacker's marines and
+            // the bombardment on the right, around the planet's picture (CMBTPLNT.LBX).
+            std::string rows;
+            auto row = [&](const char* side, const char* lbx, int32_t entry, const char* l) {
+                add(l);
+                rows += std::string(rows.empty() ? "" : ",") + "{\"side\":\"" + side + "\",\"lbx\":\"" + lbx +
+                    "\",\"entry\":" + std::to_string(entry) + ",\"text\":" + antares::native::Quote(l) + "}";
+            };
+            // RACEICON.LBX: race * 13 + 6 + variant (COLONY::Player_Troop_Anim, Military_Anims).
+            auto troop_entry = [](int16_t player, int16_t unit) {
+                const int32_t race = (uint8_t)MOX::player[player].race;
+                int32_t variant = 0;
+                if (unit == 0) {
+                    variant = MOX::player[player].tech_applications[TECH_APP_BATTLEOIDS] == TECH_RESEARCH_STATUS_RESEARCHED ? 4 : 3;
+                } else if (unit == 1) {
+                    variant = MOX::player[player].tech_applications[TECH_APP_POWERED_ARMOR] == TECH_RESEARCH_STATUS_RESEARCHED ? 2 : 1;
+                }
+                return race * 13 + 6 + variant;
+            };
+            if (data->n_bldgs > 0) {
+                snprintf(line, sizeof(line), ESTRINGS::E_Strings(19), data->n_bldgs);
+                row("left", "COLONY2.LBX", 47, line);
+            }
+            if (data->best_shield_bldg != -1) {
+                snprintf(line, sizeof(line), ESTRINGS::E_Strings(70), COLONY::CR_Building_Name(data->best_shield_bldg));
+                row("left", "COLONY2.LBX", 48, line);
+            }
+            if (data->n_pops > 0) {
+                snprintf(line, sizeof(line), ESTRINGS::E_Strings(20), data->n_pops);
+                const int32_t job = (int32_t)((MOX::colony[data->colony_idx].pop[0] >> 7) & 3);
+                row("left", "RACEICON.LBX", (int32_t)(uint8_t)MOX::player[data->defender_player_id].race * 13 + job * 2 + 1, line);
+            }
+            for (int16_t unit = 1; unit >= 0; --unit) {
+                if (data->defender_unit_counts[unit] > 0) {
+                    const uint8_t race = MOX::player[data->defender_player_id].race;
+                    snprintf(line, sizeof(line), ESTRINGS::E_Strings(14), data->defender_unit_counts[unit],
+                        COLONY::Player_Troop_Name(data->defender_player_id, unit, race));
+                    row("left", "RACEICON.LBX", troop_entry(data->defender_player_id, unit), line);
+                }
+            }
+            if (data->attacker_unit_counts[1] > 0 || data->bombardment_result >= 0) {
+                add("");
+            }
+            if (data->attacker_unit_counts[1] > 0) {
+                const uint8_t race = MOX::player[data->attacker_player_id].race;
+                snprintf(line, sizeof(line), ESTRINGS::E_Strings(14), data->attacker_unit_counts[1],
+                    COLONY::Player_Troop_Name(data->attacker_player_id, 1, race));
+                row("right", "RACEICON.LBX", troop_entry(data->attacker_player_id, 1), line);
+            }
+            if (data->bombardment_result >= 0) {
+                snprintf(line, sizeof(line), ESTRINGS::E_Strings(popup_mode == 0 ? 21 : 18), data->bombardment_result);
+                row("right", "COLONY2.LBX", 46, line);
+            }
+            const int16_t planet_idx = MOX::colony[data->colony_idx].planet;
+            const int32_t planet_picture = MOX::planet[planet_idx].size + MOX::planet[planet_idx].climate * 6;
+
+            // The buttons Add_Colony_Combat_Fields would add, with what each returns. While bombs
+            // fall (mode 1): STOP (state 1) or CONTINUE (state 0), ALL AT ONCE (state 2) and CLOSE.
+            if (popup_mode == 1) {
+                // BOMB turns to STOP and back (owner, 2026-11-20); DROP ALL drops the rest at once.
+                if (state == 0) {
+                    buttons.emplace_back("STOP", k_bomb_stop);
+                } else if (state == 1) {
+                    buttons.emplace_back("BOMB", k_bomb_continue);
+                }
+                if (state == 0 || state == 1) {
+                    buttons.emplace_back("DROP ALL", k_bomb_all);
+                }
+                buttons.emplace_back("CLOSE", -1);
+            }
+            if (popup_mode != 1) {
+                if (popup_mode == 0 && data->bombardment_result >= 0) {
+                    buttons.emplace_back("BOMB", 2);
+                }
+                if (data->attacker_unit_counts[UNIT_MARINES] > 0 && (data->n_pops > 0 || data->n_bldgs > 0)) {
+                    buttons.emplace_back("INVADE", 3);
+                }
+                if (MOX::player[data->attacker_player_id].traits[TRAIT_TELEPATHIC] != 0 && data->n_pops > 0) {
+                    buttons.emplace_back("MIND CONTROL", 4);
+                }
+                if (data->has_stellar_converter != 0 && data->n_pops > 0) {
+                    buttons.emplace_back("DESTROY", 1); // the stellar converter
+                }
+                buttons.emplace_back("IGNORE", -1);
+            }
+            std::string labels;
+            for (const auto& b : buttons) {
+                labels += std::string(labels.empty() ? "" : ",") + antares::native::Quote(b.first.c_str());
+            }
+            fields = "\"title\":" + antares::native::Quote(title.c_str()) + ",\"star\":" +
+                std::to_string(MOX::planet[MOX::colony[data->colony_idx].planet].star_index) +
+                ",\"colony\":" + std::to_string(data->colony_idx) + ",\"buttons\":[" + labels + "]" +
+                ",\"picture\":{\"lbx\":\"CMBTPLNT.LBX\",\"entry\":" + std::to_string(planet_picture) + "},\"rows\":[" + rows +
+                "],\"summary\":" + antares::native::Quote(summary.c_str());
+            if (popup_mode == 1) {
+                std::string blasts;
+                for (const s_native_blast& b : g_native_blasts) {
+                    blasts += std::string(blasts.empty() ? "" : ",") + "{\"lbx\":\"MAINPUPS.LBX\",\"entry\":" + std::to_string(b.entry) +
+                        ",\"dx\":" + std::to_string(b.dx) + ",\"dy\":" + std::to_string(b.dy) + "}";
+                }
+                g_native_blasts.clear();
+                fields += ",\"blasts\":[" + blasts + "],\"planet_width\":" + std::to_string(animate::Get_Width(MOX::combat_planet_seg));
+            }
+        };
+
         int16_t result = -1;
-        while (true) {
-            int32_t answer = (int32_t)buttons.size() - 1;
-            antares::native::Popup(popup_mode == 0 ? "colony_combat" : "colony_bombing", text.c_str(), fields, &answer);
-            if (answer < 0 || answer >= (int32_t)buttons.size()) {
-                answer = (int32_t)buttons.size() - 1;
+        g_native_blasts.clear();
+        if (popup_mode == 1) {
+            // Owner, 2026-11-20: the bombs fall one at a time, as the window drops them (one hit
+            // every `bombardment_hit_frames` frames of 55 ms), and STOP keeps the rest: hits not
+            // applied when the window closes never are, as in the original. Same seed, same
+            // Apply_Next_Bomb_Hit, so the hits match it at any pace.
+            // At most a step every 0.6 s (owner, 2026-11-20: the original's 5 frames of 55 ms went
+            // by too fast to follow, or to stop in time); a slower configured pace is kept.
+            const int32_t step_ms = std::max<int32_t>(600, (bombardment_hit_frames > 0 ? bombardment_hit_frames : 1) * 55);
+            while (true) {
+                compose();
+                const bool falling = state == 0;
+                const std::string live = fields + ",\"live\":true" +
+                    (falling ? ",\"step_ms\":" + std::to_string(step_ms) + ",\"step_answer\":" + std::to_string((int)buttons.size()) : "");
+                int32_t answer = (int32_t)buttons.size() - 1;
+                antares::native::Popup("colony_bombing", text.c_str(), live, &answer);
+                if (answer == (int32_t)buttons.size() && falling) {
+                    // The next hit (the window's frame counter on a hit frame).
+                    COLGCBT::g_ctr = 0;
+                    MAINPUPS::Apply_Next_Bomb_Hit(data->bomb, &state, &bomb_hits, &bio_hits);
+                    if (bomb_hits + bio_hits <= 0) {
+                        MAINPUPS::Apply_Next_Bomb_Hit(data->bomb, &state, &bomb_hits, &bio_hits); // done: state 3
+                    }
+                    continue;
+                }
+                if (answer < 0 || answer >= (int32_t)buttons.size() || buttons[(size_t)answer].second == -1) {
+                    break; // CLOSE: what hasn't fallen stays unapplied
+                }
+                const int16_t pick = buttons[(size_t)answer].second;
+                if (pick == k_bomb_stop) {
+                    state = 1;
+                } else if (pick == k_bomb_continue) {
+                    state = 0;
+                } else if (pick == k_bomb_all) {
+                    state = 2; // all at once, as the window's fast-forward
+                    for (int guard = 0; guard < 1000 && state != 3; ++guard) {
+                        COLGCBT::g_ctr = 0;
+                        MAINPUPS::Apply_Next_Bomb_Hit(data->bomb, &state, &bomb_hits, &bio_hits);
+                    }
+                }
             }
-            result = buttons[(size_t)answer].second;
-            // Mind control the window refuses (it says why) keeps the window up.
-            if (result == 4 && !ERIC::Player_Can_Mind_Control_Colony_With_Help(data->attacker_player_id, data->colony_idx)) {
-                continue;
+        } else {
+            compose();
+            while (true) {
+                int32_t answer = (int32_t)buttons.size() - 1;
+                antares::native::Popup("colony_combat", text.c_str(), fields, &answer);
+                if (answer < 0 || answer >= (int32_t)buttons.size()) {
+                    answer = (int32_t)buttons.size() - 1;
+                }
+                result = buttons[(size_t)answer].second;
+                // Mind control the window refuses (it says why) keeps the window up.
+                if (result == 4 && !ERIC::Player_Can_Mind_Control_Colony_With_Help(data->attacker_player_id, data->colony_idx)) {
+                    continue;
+                }
+                break;
             }
-            break;
         }
         allocate::Pop_Block(MOX::screen_seg); // Load_Colony_Combat_Popup's block, as Do_Popup_Cleanup
         MOX::FULL_DRAW_SCREEN_FLAG = 1;
@@ -2007,6 +2120,7 @@ namespace MAINPUPS {
                             int rand_x = base_x + game_random::Random(abs_diff * 2) - abs_diff;
 
                             FLCQUEUE::Add_Flic_To_End_Of_Queue(rand_x, rand_y, anims[25], 1, 0);
+                            g_native_blasts.push_back({61, (int16_t)(rand_x - base_x), (int16_t)(rand_y - base_y)});
                             ERICNET::Mox_Play_Sound(24 /* 0x18 */);
                         }
                     }
@@ -2024,6 +2138,7 @@ namespace MAINPUPS {
                     int rand_x = base_x + game_random::Random(40) - 20;
 
                     FLCQUEUE::Add_Flic_To_End_Of_Queue(rand_x, rand_y, anims[26], 1, 0);
+                    g_native_blasts.push_back({73, (int16_t)(rand_x - base_x), (int16_t)(rand_y - base_y)});
                     ERICNET::Mox_Play_Sound(32 /* 0x20 */);
                 }
 

@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "user_paths.h"
+
 namespace {
     constexpr char k_native_path_separator =
 #if defined(_WIN32)
@@ -42,31 +44,6 @@ namespace {
         return mode[0] == 'w' || mode[0] == 'a';
     }
 
-    void Legacy_Qsort_Swap(uint8_t* first, uint8_t* second, size_t width) {
-        if (first == second) {
-            return;
-        }
-
-        while (width-- > 0) {
-            uint8_t value = *first;
-            *first++ = *second;
-            *second++ = value;
-        }
-    }
-
-    void Legacy_Qsort_Short(uint8_t* low, uint8_t* high, size_t width, legacy_qsort_compare compare) {
-        while (high > low) {
-            uint8_t* maximum = low;
-            for (uint8_t* current = low + width; current <= high; current += width) {
-                if (compare(current, maximum) > 0) {
-                    maximum = current;
-                }
-            }
-
-            Legacy_Qsort_Swap(maximum, high, width);
-            high -= width;
-        }
-    }
 
     struct s_case_insensitive_file_match {
         const char* requested_file_name;
@@ -91,88 +68,18 @@ namespace {
     }
 } // namespace
 
-void Legacy_Qsort(void* base, size_t count, size_t width, legacy_qsort_compare compare) {
-    if (count < 2 || width == 0) {
-        return;
-    }
-
-    uint8_t* low = (uint8_t*)base;
-    uint8_t* high = low + (count - 1) * width;
-    uint8_t* low_stack[30];
-    uint8_t* high_stack[30];
-    int stack_count = 0;
-
-    while (true) {
-        const size_t partition_count = (size_t)(high - low) / width + 1;
-        if (partition_count <= 8) {
-            Legacy_Qsort_Short(low, high, width, compare);
-        } else {
-            Legacy_Qsort_Swap(low + (partition_count / 2) * width, low, width);
-
-            uint8_t* low_scan = low;
-            uint8_t* high_scan = high + width;
-            while (true) {
-                do {
-                    low_scan += width;
-                } while (low_scan <= high && compare(low_scan, low) <= 0);
-
-                do {
-                    high_scan -= width;
-                } while (high_scan > low && compare(high_scan, low) >= 0);
-
-                if (high_scan < low_scan) {
-                    break;
-                }
-
-                Legacy_Qsort_Swap(low_scan, high_scan, width);
-            }
-
-            Legacy_Qsort_Swap(low, high_scan, width);
-
-            const ptrdiff_t left_span = high_scan - low - 1;
-            const ptrdiff_t right_span = high - low_scan;
-            if (left_span >= right_span) {
-                if (low_scan < high) {
-                    low_stack[stack_count] = low_scan;
-                    high_stack[stack_count] = high;
-                    ++stack_count;
-                }
-
-                if (low + width < high_scan) {
-                    high = high_scan - width;
-                    continue;
-                }
-            } else {
-                if (low + width < high_scan) {
-                    low_stack[stack_count] = low;
-                    high_stack[stack_count] = high_scan - width;
-                    ++stack_count;
-                }
-
-                if (low_scan < high) {
-                    low = low_scan;
-                    continue;
-                }
-            }
-        }
-
-        if (stack_count == 0) {
-            return;
-        }
-
-        --stack_count;
-        low = low_stack[stack_count];
-        high = high_stack[stack_count];
-    }
-}
 
 bool File_Exists(const char* path) {
     SDL_PathInfo path_info;
+    char user_path[1024];
 
     if (path == nullptr || path[0] == '\0') {
         return false;
     }
 
+    if (user_paths::Redirect_Legacy_Path(path, false, user_path, sizeof(user_path))) {
+        path = user_path;
+    }
     return SDL_GetPathInfo(path, &path_info) && path_info.type == SDL_PATHTYPE_FILE;
 }
 
@@ -317,6 +224,7 @@ bool Resolve_File_Path_Case(const char* path, char* resolved_path, size_t resolv
 }
 
 FILE* fopen_case(const char* path, const char* mode) {
+    char user_path[1024];
     char clean_path[512];
     char upper_path[512];
     char cwd[512];
@@ -329,6 +237,11 @@ FILE* fopen_case(const char* path, const char* mode) {
         errno = EINVAL;
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "fopen_case invalid args: path=%p mode=%p", (const void*)path, (const void*)mode);
         return nullptr;
+    }
+
+    if (user_paths::Redirect_Legacy_Path(path, Mode_Creates_File(mode) || strchr(mode, '+') != nullptr, user_path, sizeof(user_path))) {
+        if (user_path[0] == '\0') return nullptr;
+        path = user_path;
     }
 
     if (!Cleanup_Path(path, clean_path, sizeof(clean_path), false)) {

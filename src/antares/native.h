@@ -89,6 +89,12 @@ namespace antares::native {
     // than the turn's (a combat, the turn summary).
     void Set_Turn_Notice(const char* text);
     bool Take_Turn_Notice(std::string* text);
+    // A film that plays in a box over the screen (SMACK::Play_Cinematic without its fade: the
+    // dimensional portal, planet destruction, Orion taken, the Antarans' attack, the amoeba; WP3.11b,
+    // owner 2026-11-19): its 1x rectangle while it plays, an empty one when it ends. The frontend
+    // shows that part of the game's frames in a window sized to the film, over the native galaxy.
+    void Set_Film(int32_t x, int32_t y, int32_t width, int32_t height);
+    bool Take_Film(int32_t rect[4]);
     // The frontend's click on those turns: they stop at the next turn's input check, as a click
     // or Esc on the legacy galaxy stops them (MAINSCR's auto mode). Taken once (game thread).
     void Stop_Auto_Turns();
@@ -126,6 +132,41 @@ namespace antares::native {
     // The frontend shows the legacy screen's picture (or a question over its own view): the sounds
     // held since the game left the native view play now (sound::Hold_New_Sounds).
     void Release_Sounds();
+
+    // A legacy tactical combat is on screen (owner, 2026-11-20: a boarding's result box went to the
+    // native galaxy, which took the screen from the combat until its timeout): while one is, the
+    // frontend claims no requests and the game draws its own boxes over the combat, as the
+    // original. COMBINIT::Tactical_Combat holds one for its length.
+    struct Legacy_Combat_Scope {
+        Legacy_Combat_Scope();
+        ~Legacy_Combat_Scope();
+        Legacy_Combat_Scope(const Legacy_Combat_Scope&) = delete;
+        Legacy_Combat_Scope& operator=(const Legacy_Combat_Scope&) = delete;
+    };
+    bool In_Legacy_Combat();
+
+    // The select-combat window's sides at `star` (the combat_fleet query), as a request field
+    // ',"fleet":{...}': the game answers no queries while a popup waits, so it comes with it.
+    std::string Combat_Fleet_Field(int16_t star, const std::vector<int16_t>& sides);
+    // A colony's orbital and planetary defences, the planetary shield included (the select-combat
+    // window's targets and the player's own colonies in it), by building name.
+    std::vector<std::string> Colony_Defences(int16_t colony);
+    // An enemy's stellar converter destroyed the player's colony on `planet` after a combat
+    // (combfind.cpp): the destruction film and the lost-colony message at once, as the player's
+    // own destruction of a planet and the network path show it (owner, 2026-11-21: nothing showed).
+    void Planet_Destroyed_Notice(int16_t planet, uint8_t outpost);
+    // A colony emptied in a combat (its population and buildings all gone, combat.cpp and
+    // combat_lifecycle.cpp remove it silently; owner, 2026-11-21: "no popup or message"): when
+    // the player's own, its lost-colony message is kept and shown once the combat screen is gone
+    // (Show_Colony_Lost_Notices, after the combat in combfind.cpp).
+    void Note_Colony_Lost_In_Combat(int16_t colony);
+    // The Leaders panel's commands run the Leaders screen's code without its screen: its boxes
+    // must not redraw the screen behind them (OFFICER::Officer_Screen_User_Box; owner,
+    // 2026-11-21: assigning a ship officer crashed in Draw_Officer_Screen_To_Back, its art never
+    // loaded). Set while such a command runs.
+    void Set_Officer_Panel_Command(bool running);
+    bool Officer_Panel_Command();
+    void Show_Colony_Lost_Notices();
 
     // Requests from the game's generic dialogs (WP3.2b). Each returns true when the frontend
     // answered, so the legacy popup is skipped; false when no frontend claimed that kind.

@@ -35,6 +35,9 @@ namespace godot {
         bool is_running() const;
 
         void set_game_dir(const String& dir);
+        // WP3.11b: draw only this part of the frame (1x pixels), filling the control; empty: all.
+        void set_source_rect(const Rect2& rect);
+        Rect2 get_source_rect() const;
         String get_game_dir() const;
         void set_args(const PackedStringArray& args);
         PackedStringArray get_args() const;
@@ -99,6 +102,7 @@ namespace godot {
         bool cursor_custom_ = false;
 
         std::vector<uint32_t> frame_;
+        Rect2 source_rect_; // WP3.11b: the part of the frame drawn (1x pixels); empty: all of it
         int32_t width_ = 0;
         int32_t height_ = 0;
         uint64_t frame_generation_ = 0;

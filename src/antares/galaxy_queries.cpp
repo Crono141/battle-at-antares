@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "antares/fleet_orders.h"
 #include "yyjson.h"
 #include "game/string_overrides.h"
 
@@ -445,6 +446,22 @@ namespace antares::commands::internal {
             out.Int("star", star);
             out.Str("name", Star_Name(star));
             out.Int("class", data.spectral_class);
+            // Where the player's new ships built here go (owner, 2026-11-20: the system pane's
+            // menu sets it), and whether they may be relocated from here (FLT1::Okay_To_Set_Relocate_Star:
+            // a colony of the player's, no monster).
+            {
+                int16_t guard = 0;
+                const bool can = data.spectral_class != STAR_CLASS_BLACK_HOLE &&
+                    HACCESS::Player_Has_Colony_In_System(MOX::PLAYER_NUM, star) &&
+                    !HAROLD::Star_Guarded_By_Monster(star, &guard);
+                s_out relocation = out.Add_Object("relocation");
+                relocation.Bool("can", can);
+                const int16_t to = HACCESS::Star_Has_Relocation(star, MOX::PLAYER_NUM) ? HACCESS::Relocation(star, MOX::PLAYER_NUM) : -1;
+                relocation.Int("to", to);
+                if (to >= 0) {
+                    relocation.Str("name", Star_Name(to));
+                }
+            }
             out.Int("box_sprite", k_box_background);
             out.Int("sun_sprite", k_sun_pictures + data.spectral_class);
 
@@ -565,6 +582,13 @@ namespace antares::commands::internal {
                 item.Int("slot", slot);
                 item.Int("planet", planet_id);
                 item.Int("orbit", planet.orbit);
+                // A fleet of the player's here that can settle it (the planet's COLONIZE / OUTPOST).
+                if (const int16_t fleet = Settler_For(planet_id, false); fleet >= 0) {
+                    item.Int("colonize_fleet", fleet);
+                }
+                if (const int16_t fleet = Settler_For(planet_id, true); fleet >= 0) {
+                    item.Int("outpost_fleet", fleet);
+                }
                 item.Str("type", planet.planet_type == PLANET_TYPE_GAS_GIANT ? "gas_giant" : planet.planet_type == PLANET_TYPE_ASTEROID ? "asteroids"
                                                                                                                                         : "planet");
                 item.Int("size", planet.size);
@@ -722,9 +746,6 @@ namespace antares::commands::internal {
             // As the build list offers them (COLBLDG::Calculate_Military_Array): no designs until the
             // empire has a range and a speed (pre-warp: none), Titans and Doom Stars with their tech.
             const bool can_fly = player.ship_range > 0 && player.ship_speed != 0;
-            auto researched = [&](int16_t app) {
-                return player.tech_applications[app] == TECH_RESEARCH_STATUS_RESEARCHED;
-            };
             s_out list = out.Add_List("designs");
             for (int16_t slot = 0; slot < 6; ++slot) {
                 const s_ship_design& design = player.ship_designs[slot];
@@ -739,15 +760,14 @@ namespace antares::commands::internal {
                 // KEN::Do_Get_Ship_Picture_Seg: SHIPS.LBX, picture + the designer's colour * 50.
                 item.Int("picture", design.picture_num + player.color * 50);
                 item.Int("cost", design.cost);
-                bool buildable = can_fly;
-                if (buildable && MOX::settings.strategic_combat_flag != 0) {
-                    if (design.size == SHIP_SIZE_TITAN) {
-                        buildable = researched(TECH_APP_TITAN_CONSTRUCTION);
-                    } else if (design.size == SHIP_SIZE_DOOM_STAR) {
-                        buildable = researched(TECH_APP_DOOM_STAR_CONSTRUCTION);
-                    }
+                // Every slot shows (owner, 2026-11-20: a hidden Titan left its slot out of reach);
+                // a hull not researched yet marks it locked, with the tech it needs.
+                item.Bool("buildable", can_fly);
+                const bool locked = !Hull_Researched(MOX::PLAYER_NUM, design.size);
+                item.Bool("locked", locked);
+                if (locked) {
+                    item.Str("needs", design.size == SHIP_SIZE_TITAN ? "Titan Construction" : "Doom Star Construction");
                 }
-                item.Bool("buildable", buildable);
             }
             out.Int("color", player.color); // the player's flag colour (SHIPS.LBX: picture + color * 50)
         }

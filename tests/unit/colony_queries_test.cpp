@@ -15,6 +15,7 @@ namespace TEST_COLONY {
     extern int refuse_after;
     extern int sells;
     extern bool answer_sell;
+    extern bool captured_people;
     extern std::vector<std::string> build_calls;
 } // namespace TEST_COLONY
 
@@ -145,6 +146,44 @@ DOCTEST_TEST_CASE("the colony query reads the colony screen's values (WP3.4)") {
     DOCTEST_CHECK(Has_(c, "\"buildings\":[{\"building\":22,\"name\":\"B22\",\"sellable\":true,\"refund\":150,"));
 }
 
+DOCTEST_TEST_CASE("the occupation policy: shown for captured people, set by set_occupation (owner, 2026-11-19)") {
+    Set_Up_();
+    TEST_COLONY::captured_people = false;
+    DOCTEST_CHECK_FALSE(Has_(Run_("{\"verb\":\"query\",\"what\":\"colony\",\"colony\":0}"), "\"occupation\""));
+    TEST_COLONY::captured_people = true;
+    c_colonies_[0].occupation_policy = 3;
+    c_players_[0].traits[TRAIT_CURRENT_GOVERNMENT] = GOVERNMENT_DICTATORSHIP;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"colony\",\"colony\":0}"), "\"occupation\":{\"annihilate\":false,\"can_annihilate\":true}"));
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"set_occupation\",\"colony\":0,\"annihilate\":1}"), "\"annihilate\":true"));
+    DOCTEST_CHECK(c_colonies_[0].occupation_policy == 0);
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"set_occupation\",\"colony\":0,\"annihilate\":0}"), "\"annihilate\":false"));
+    DOCTEST_CHECK(c_colonies_[0].occupation_policy == 3);
+    // Democracies keep conquered people: annihilation is refused, and the pane greys it out.
+    c_players_[0].traits[TRAIT_CURRENT_GOVERNMENT] = GOVERNMENT_DEMOCRACY;
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"colony\",\"colony\":0}"), "\"can_annihilate\":false"));
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"set_occupation\",\"colony\":0,\"annihilate\":1}"), "refused"));
+    DOCTEST_CHECK(c_colonies_[0].occupation_policy == 3);
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"set_occupation\",\"colony\":0,\"annihilate\":2}"), "bad_args"));
+    TEST_COLONY::captured_people = false;
+}
+
+// VIEW COLONY natively (2026-11-20): the landscape's layers back to front, the screen's tables put
+// back afterwards.
+DOCTEST_TEST_CASE("colony_landscape lists the landscape view's layers and restores the screen's tables") {
+    Set_Up_();
+    c_planets_[0].climate_bg_type = 1;
+    c_colonies_[0].climate = 2; // the backdrop: PLANETS.LBX 1 + 2 * 3 = 7
+    memset(COLONY::colony_bldgs, 0, sizeof(COLONY::colony_bldgs));
+    const std::string land = Run_("{\"verb\":\"query\",\"what\":\"colony_landscape\",\"colony\":0}");
+    DOCTEST_CHECK(Has_(land, "\"layers\":[{\"lbx\":\"COLONY2.LBX\",\"entry\":49,\"x\":0,\"y\":0,\"anchor\":\"top_left\"},{\"lbx\":\"PLANETS.LBX\",\"entry\":7"));
+    DOCTEST_CHECK(Has_(land, "{\"lbx\":\"COLROADS.LBX@7\",\"entry\":7,\"x\":0,\"y\":0,\"anchor\":\"top_left\"}"));
+    DOCTEST_CHECK(Has_(land, "{\"lbx\":\"COLVEGGI.LBX@7\",\"entry\":3,\"x\":100,\"y\":200,\"anchor\":\"bottom\"}"));
+    // The Automated Factory (id 7): bldg0.lbx, cell (0, 0), its ten's seventh: 0 + 6 * 36.
+    DOCTEST_CHECK(Has_(land, "{\"lbx\":\"BLDG0.LBX@7\",\"entry\":216,"));
+    DOCTEST_CHECK(COLONY::colony_bldgs[0].buildings[0] == 0); // put back
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"colony_landscape\",\"colony\":1}"), "bad_args")); // not the player's
+}
+
 DOCTEST_TEST_CASE("the help query reads a help record by topic (the right click's help)") {
     Set_Up_();
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"help\"}"), "bad_args"));
@@ -208,8 +247,8 @@ DOCTEST_TEST_CASE("build_options lists what CHANGE offers; build_commit replays 
         std::vector<std::string>{"add 22 quiet", "add -50 repeat quiet", "move 1 0", "delete 2", "commit quiet"});
     DOCTEST_CHECK(TEST_NATIVE::seeds_set == std::vector<uint32_t>{0, 1234}); // the colony's number, then back
     DOCTEST_CHECK(TEST_NATIVE::random_seed == 1234);
-    DOCTEST_CHECK(c_colonies_[0].producing[0] == 22);
-    DOCTEST_CHECK(c_colonies_[0].producing[1] == BUILDING_STAR_BASE);
+    DOCTEST_CHECK(+c_colonies_[0].producing[0] == 22);
+    DOCTEST_CHECK(+c_colonies_[0].producing[1] == BUILDING_STAR_BASE);
     DOCTEST_CHECK(c_colonies_[0].auto_building == 1);
     DOCTEST_CHECK_FALSE(COLBLDG::quiet_ui);
     DOCTEST_CHECK(COLONY::colony_handle == -7);
@@ -249,7 +288,7 @@ DOCTEST_TEST_CASE("REFIT lists the warships in orbit and their designs; a refit 
     // A design of another size is refused, as the popup refuses it.
     commit = Run_("{\"verb\":\"build_commit\",\"colony\":0,\"edits\":[{\"refit\":3,\"design\":2},{\"refit\":3,\"design\":1}]}");
     DOCTEST_CHECK(Has_(commit, "\"applied\":1"));
-    DOCTEST_CHECK(c_colonies_[0].producing[1] == COLBLDG::Colony_Production_From_Ship_Index(3));
+    DOCTEST_CHECK(+c_colonies_[0].producing[1] == COLBLDG::Colony_Production_From_Ship_Index(3));
     DOCTEST_CHECK(ships[3].status == 4);
     DOCTEST_CHECK(std::string(ships[3].d.name) == "New Guard");
     // A refit taken off again in the same commit puts the ship back (the popup would scrap it).
@@ -260,7 +299,7 @@ DOCTEST_TEST_CASE("REFIT lists the warships in orbit and their designs; a refit 
     DOCTEST_CHECK(Has_(commit, "\"applied\":2"));
     DOCTEST_CHECK(ships[3].status == 0);
     DOCTEST_CHECK(std::string(ships[3].d.name) == "Old Guard");
-    DOCTEST_CHECK(c_colonies_[0].producing[1] == COLONY_PRODUCTION_NONE);
+    DOCTEST_CHECK(+c_colonies_[0].producing[1] == COLONY_PRODUCTION_NONE);
 }
 
 namespace TEST_NATIVE {
@@ -289,7 +328,7 @@ DOCTEST_TEST_CASE("a cluster of colonists moves together; buildings sell with th
     const int32_t bc = c_players_[0].bc;
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"sell_building\",\"colony\":0,\"building\":22}"), "\"sold\":true"));
     DOCTEST_CHECK(c_colonies_[0].buildings[BUILDING_MARINE_BARRACKS] == 0);
-    DOCTEST_CHECK(c_players_[0].bc == bc + 150);
+    DOCTEST_CHECK(+c_players_[0].bc == bc + 150);
     // Not standing, or one that can't be scrapped: refused before any question.
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"sell_building\",\"colony\":0,\"building\":22}"), "refused"));
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"sell_building\",\"colony\":0,\"building\":3}"), "refused"));

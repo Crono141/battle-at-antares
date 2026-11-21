@@ -13,6 +13,8 @@ extends PanelContainer
 signal command(dict: Dictionary)
 signal closed
 signal selection_changed
+## Colonize / Outpost: the fleet's system opens, its planets with the buttons (owner, 2026-11-19).
+signal settle_requested(star_id: int)
 
 const WARNING_COLOR := Color(1.0, 0.45, 0.3)
 const STATUS_COLOR := Color(0.45, 0.95, 0.45)
@@ -36,8 +38,8 @@ var _drag_from := Vector2.INF
 
 func _ready() -> void:
 	all_button.pressed.connect(_on_all)
-	$Box/Orders/Colonize.pressed.connect(func(): _choose_planet("colonize"))
-	$Box/Orders/Outpost.pressed.connect(func(): _choose_planet("outpost"))
+	$Box/Orders/Colonize.pressed.connect(func(): _settle_in_system("colonize"))
+	$Box/Orders/Outpost.pressed.connect(func(): _settle_in_system("outpost"))
 	$Box/Orders/LandTroops.pressed.connect(_on_land_troops)
 	$Box/Orders/Engage.pressed.connect(func():
 		command.emit({"verb": "engage", "fleet": int(fleet.ship), "_reply_to": "order_done"}))
@@ -181,6 +183,13 @@ func _on_all() -> void:
 	_on_selection()
 
 
+func _settle_in_system(order: String) -> void:
+	if int(fleet.get("star", -1)) >= 0:
+		settle_requested.emit(int(fleet.star))
+	else:
+		_choose_planet(order)
+
+
 func _choose_planet(order: String) -> void:
 	var targets: Array = fleet.get("targets", {}).get(order, [])
 	if targets.is_empty():
@@ -247,7 +256,23 @@ func _refresh_icons() -> void:
 		if button:
 			# A monster's picture under its own palette ("SHIPS.LBX@<palette entry>").
 			var lbx := "SHIPS.LBX@%d" % int(ship.palette) if ship.has("palette") else "SHIPS.LBX"
-			button.icon = art.texture(lbx, int(ship.picture))
+			# The whole ship frame at one scale, so a Frigate is small and a Titan large (owner,
+			# 2026-11-19: the cropped picture as the icon stretched every hull to the button).
+			var picture = button.get_node_or_null("Picture")
+			if picture == null:
+				picture = preload("sprite_rect.gd").new()
+				picture.name = "Picture"
+				picture.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+				picture.offset_left = 4
+				picture.offset_top = 4
+				picture.offset_right = -4
+				picture.offset_bottom = -4
+				picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				picture.whole_frame = true
+				picture.bind(art)
+				button.add_child(picture)
+			if picture.lbx != lbx or picture.entry != int(ship.picture):
+				picture.show_sprite(lbx, int(ship.picture))
 
 
 func _owner_color() -> Color:

@@ -288,8 +288,12 @@ namespace antares::combat {
         return json;
     }
 
+    bool Will_Be_Native() {
+        return native::Combat_Native() && MOX::net_flag == 0;
+    }
+
     void Begin(int16_t star_idx) {
-        if (!native::Combat_Native() || MOX::net_flag != 0) {
+        if (!Will_Be_Native()) {
             return;
         }
         s_active = true;

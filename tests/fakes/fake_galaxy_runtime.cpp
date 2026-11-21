@@ -309,6 +309,8 @@ namespace SYS {
 
 // preview_popup (popup_preview.cpp, WP3.4c): the legacy windows it shows answer nothing in tests.
 s_combfind_target COMBFIND::target{};
+uint8_t COMBFIND::messed_up_fleet_palette = 0;
+s_network NETMOX::net{}; // native Note_Colony_Lost_In_Combat
 namespace EVENTS {
     void Preview_Native_Gnn(int16_t, int16_t, int16_t) {}
 } // namespace EVENTS
@@ -331,6 +333,8 @@ namespace MAINPUPS {
     int16_t __cdecl Defense_Colony_Selection_Popup(int16_t, int16_t) { return -1; }
     int16_t __cdecl Dragon_New_Star_Popup(int16_t, int16_t) { return -1; }
     int16_t __cdecl Colony_Selection_Popup(s_invasion_side_info*, s_invasion_side_info*, int32_t, int16_t, int16_t, int8_t) { return -1; }
+    int16_t __cdecl Colony_Bombing_Popup(s_combat_bomb_result*, s_invasion_side_info*, s_invasion_side_info*, int32_t, int16_t, int16_t, int8_t) { return -1; }
+    void __cdecl Player_Attacked_Popup(int16_t, int16_t, int16_t, int16_t) {}
 } // namespace MAINPUPS
 namespace fields {
     int16_t __cdecl Get_List_Field(int16_t, int16_t, int16_t, const char*, const char*, int32_t, int8_t*, uint8_t*, int16_t, uint8_t*, int32_t, s_animation_header*, int32_t, const char*) { return -1; }
@@ -390,3 +394,20 @@ namespace MSG_ {
         }
     }
 } // namespace MSG_
+
+namespace ERIC {
+    void __cdecl Play_Amoeba_Flic() {} // popup_preview's "film" (WP3.11b)
+    void __cdecl Play_Planetary_Destruction_Flic() {} // native Planet_Destroyed_Notice
+} // namespace ERIC
+
+namespace ANTAROOM {
+    void __cdecl Main_Antaran_Room_Screen(int16_t) {} // popup_preview's "antarans" (WP3.11c)
+} // namespace ANTAROOM
+
+namespace OCPOLPUP {
+    void __cdecl Occupation_Policy_Popup() {} // popup_preview's "occupation"
+} // namespace OCPOLPUP
+
+namespace council {
+    void __cdecl Main_Council_Screen() {} // popup_preview's "council"
+} // namespace council

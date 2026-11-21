@@ -1,6 +1,8 @@
 #include "pch.h"
+#include "legacy_ids.h"
 
 #include "antares/cosmetic_random.h"
+#include "antares/native.h"
 #include "antares/rules_trace.h"
 
 namespace COMBFIND {
@@ -898,23 +900,6 @@ namespace COMBFIND {
         }
     }
 
-    void __cdecl Reset_One_Shot_System_Special(s_star_data* star) {
-        // System specials with value >= 50 (ASCII '2') are treated as one-shot/temporary events.
-        if (star->system_special >= 50) {
-            if (star->system_special < 90) {
-                for (int i = 0; i < 5; ++i) {
-                    int16_t planet_idx = star->planet_index[i];
-                    if (planet_idx != -1) {
-                        // Reset the special status on each planet belonging to this system.
-                        MOX::planet[planet_idx].planet_special = SYSTEM_SPECIAL_NO_SPECIAL;
-                    }
-                }
-            }
-            // Clear the system special flag
-            star->system_special = SYSTEM_SPECIAL_NO_SPECIAL;
-        }
-    }
-
     /**
  * Prompts a local human player to choose a combat target at a star.
  *
@@ -1695,6 +1680,7 @@ namespace COMBFIND {
 
         antares::rules_trace::Mark("combat-end"); // rules replay probe (WP0.5)
         MAINSCR::Update_Ship_Icons_In_Between_Turns();
+        antares::native::Show_Colony_Lost_Notices(); // Antares: a colony emptied in the combat
 
         if (combat_result_code < 0) {
             return -1;
@@ -1832,7 +1818,7 @@ namespace COMBFIND {
                         if (player_idx != p) {
                             if ((*star_has_player)[star_idx][p].has_player != 0 ||
                                 (*star_has_player)[star_idx][p].colony_count != 0) {
-                                player_strength[p] += AIPOWER::Ship_Strength_Vs_Ships(i, p);
+                                player_strength[p] += AIPOWER::Ship_Strength_Vs_Ships(&game::current, legacy_world::Ship_Id(i), legacy_world::Player_Id(p));
                             }
                         }
                     }
@@ -1840,18 +1826,18 @@ namespace COMBFIND {
                     for (int16_t np = MAX_PLAYERS; np < 15; ++np) {
                         if ((((*star_has_nonplayer)[star_idx] >> (np - MAX_PLAYERS)) & 1) != 0 &&
                             (((*player_needs_to_attack)[star_idx] >> np) & 1) == 0) {
-                            player_strength[np] += AIPOWER::Ship_Strength_Vs_Ships(i, np);
+                            player_strength[np] += AIPOWER::Ship_Strength_Vs_Ships(&game::current, legacy_world::Ship_Id(i), legacy_world::Player_Id(np));
                         }
                     }
 
                     uint16_t shield[4];
-                    AIPOWER::Ship_Strength_Vs_Planetary_Shield(i, shield);
+                    AIPOWER::Ship_Strength_Vs_Planetary_Shield(&game::current, legacy_world::Ship_Id(i), shield);
 
                     for (int j = 0; j < 4; ++j) {
                         shield_strength[j] += shield[j];
                     }
                 } else {
-                    enemy_strength[owner] += AIPOWER::Ship_Strength_Vs_Ships(i, player_idx);
+                    enemy_strength[owner] += AIPOWER::Ship_Strength_Vs_Ships(&game::current, legacy_world::Ship_Id(i), legacy_world::Player_Id(player_idx));
                 }
             }
         }
@@ -1894,10 +1880,10 @@ namespace COMBFIND {
                 uint32_t our_space_str = our_space_str_arr[owner];
                 uint32_t our_ground_str = our_ground_str_arr[shield_val];
 
-                uint32_t enemy_space_str_vs = AIPOWER::Colony_Space_Strength_Vs_Player(colony_idx, player_idx) & 0xFFFF;
+                uint32_t enemy_space_str_vs = AIPOWER::Colony_Space_Strength_Vs_Player(&game::current, legacy_world::Colony_Id(colony_idx), legacy_world::Player_Id(player_idx)) & 0xFFFF;
                 uint32_t enemy_space_str = enemy_fleet_space_str_arr[owner] + enemy_space_str_vs;
 
-                uint32_t enemy_ground_str_vs = AIPOWER::Colony_Ground_Strength_Vs_Player(colony_idx, player_idx) & 0xFFFF;
+                uint32_t enemy_ground_str_vs = AIPOWER::Colony_Ground_Strength_Vs_Player(&game::current, legacy_world::Colony_Id(colony_idx), legacy_world::Player_Id(player_idx)) & 0xFFFF;
                 uint32_t enemy_ground_str = enemy_ground_str_vs;
 
                 bool player_is_omni = false;
@@ -1928,7 +1914,7 @@ namespace COMBFIND {
                 }
 
                 if (is_valid) {
-                    uint32_t worth = (uint32_t)AIMOVE::Enemy_Colony_Worth_To_Player(colony_idx, player_idx);
+                    uint32_t worth = (uint32_t)AIMOVE::Enemy_Colony_Worth_To_Player(&AIDATA::state, &game::current, legacy_world::Colony_Id(colony_idx), legacy_world::Player_Id(player_idx));
 
                     if (enemy_space_str * 3 < our_space_str) {
                         our_space_str = 3;
@@ -2189,7 +2175,14 @@ namespace COMBFIND {
                             } else if (has_stellar) {
                                 results->info.planet_destroyed_flag = 1;
                                 terminal_destroyed = 1;
+                                const int16_t destroyed_planet = colony->planet;
+                                const uint8_t destroyed_outpost = (uint8_t)colony->outpost_flag;
                                 BOMB::Destroy_Colony(colony, 2);
+                                if (MOX::player[colony_owner].objectives == PLAYER_OBJECTIVE_HUMAN &&
+                                    (MOX::settings.strategic_combat_flag == 0 || (MOX::game_type != 2 && MOX::game_type != 3) ||
+                                        MOX::player[colony_owner].network_player_id == NETMOX::net.local_net_id)) {
+                                    antares::native::Planet_Destroyed_Notice(destroyed_planet, destroyed_outpost); // Antares: it showed nothing
+                                }
                             } else {
                                 BOMB::Apply_Bomb_Hits(&results->bomb);
                             }

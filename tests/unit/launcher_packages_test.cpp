@@ -340,12 +340,12 @@ DOCTEST_TEST_CASE("launcher check returns each setting's value and where it came
     const auto [pace, pace_from] = value_of(check, "combat.bombardment_hit_frames");
     DOCTEST_CHECK(pace.integer_value == 4);
     DOCTEST_CHECK(pace_from.package_id == "pace");
-    // The game applies packages after the config file, so a package's value wins over the
-    // profile's own line; the launcher shows this rather than hiding it.
+    // Config runs top to bottom (Redone 845cf6a): a line after `enable` overrides the package,
+    // and the launcher shows where the value came from.
     const antares::s_config_check mine = antares::Check_Config("profiles/mine.cfg");
     DOCTEST_REQUIRE(mine.ok);
-    DOCTEST_CHECK(value_of(mine, "combat.bombardment_hit_frames").first.integer_value == 4);
-    DOCTEST_CHECK(value_of(mine, "combat.bombardment_hit_frames").second.package_id == "pace");
+    DOCTEST_CHECK(value_of(mine, "combat.bombardment_hit_frames").first.integer_value == 7);
+    DOCTEST_CHECK(value_of(mine, "combat.bombardment_hit_frames").second.location.source == "profiles/mine.cfg");
 }
 
 DOCTEST_TEST_CASE("launcher package info: README, HD art, and what a package changes on its own") {

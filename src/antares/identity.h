@@ -11,11 +11,11 @@
 namespace antares {
     inline constexpr char PRODUCT_NAME[] = "Battle at Antares";
     inline constexpr uint32_t PRODUCT_VERSION_MAJOR = 0;
-    inline constexpr uint32_t PRODUCT_VERSION_MINOR = 1;
-    inline constexpr uint32_t PRODUCT_VERSION_PATCH = 0;
-    inline constexpr char PRODUCT_VERSION[] = "0.1.1";
+    inline constexpr uint32_t PRODUCT_VERSION_MINOR = 6;
+    inline constexpr uint32_t PRODUCT_VERSION_PATCH = 2;
+    inline constexpr char PRODUCT_VERSION[] = "0.6.2";
     /** Shown on the main menu where the original prints "Version 2.00". */
-    inline constexpr char PRODUCT_VERSION_LABEL[] = "Antares 0.1.1";
+    inline constexpr char PRODUCT_VERSION_LABEL[] = "Antares 0.6.2";
 
     inline constexpr char CONFIG_FILE[] = "antares.cfg";
     /** Read on first run when antares.cfg doesn't exist yet. */
@@ -24,6 +24,10 @@ namespace antares {
     /** Picks the startup config: an explicit -config path as given, otherwise antares.cfg, or
      *  orion2re.cfg when only that one exists. */
     std::string Resolve_Startup_Config_Path(const std::string& requested, bool selected, const std::function<bool(const char*)>& file_exists);
+
+    // The game folder (Redone cd117a3 uses the executable's folder). Hosted (the Godot build), the
+    // executable is the host's, which has already changed into the game folder: keep that.
+    bool Set_Game_Directory(std::string* directory, std::string* error);
 
     /** Reads ANTARES_<name>, falling back to the legacy ORION2RE_<name> for one release. */
     const char* Get_Env(const char* name);

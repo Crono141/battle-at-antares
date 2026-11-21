@@ -22,6 +22,10 @@
 
 namespace antares::combat {
 
+    // The battle about to start will be native: a frontend claims "combat" and it is single player.
+    // Tactical_Combat asks before it holds native::Legacy_Combat_Scope (which hides every claim, so
+    // a legacy battle draws its own boxes): a native battle holds no scope.
+    bool Will_Be_Native();
     // Tactical_Combat once the battle is set up, and before it returns.
     void Begin(int16_t star_idx);
     void End();

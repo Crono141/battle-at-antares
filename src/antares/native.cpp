@@ -56,6 +56,7 @@ namespace antares::native {
         struct s_watch {
             std::string what;
             std::string last; // the last posted answer
+            std::string args; // the watch command itself: the query's arguments ("star")
         };
         std::vector<s_watch> s_watches;
         uint64_t s_snapshot_seq = 0;
@@ -173,12 +174,13 @@ namespace antares::native {
                 const bool watch = strcmp(verb, "watch") == 0;
                 const std::string name = what != nullptr ? what : "";
                 const auto it = std::find_if(s_watches.begin(), s_watches.end(), [&](const s_watch& w) { return w.what == name; });
-                if (watch && commands::Run_Query(screen, name).empty()) {
+                if (watch && commands::Run_Query(screen, name, json).empty()) {
                     result = Bridge_Result(id, false, "unknown_query");
                 } else {
                     if (watch && it == s_watches.end()) {
-                        s_watches.push_back({name, {}});
+                        s_watches.push_back({name, {}, json});
                     } else if (watch) {
+                        it->args = json; // the same query with these arguments (another star)
                         it->last.clear(); // post the current answer again
                     } else if (it != s_watches.end()) {
                         s_watches.erase(it);
@@ -195,7 +197,7 @@ namespace antares::native {
         // Re-runs the watched queries and posts the ones whose answer changed.
         void Refresh_Snapshots(int16_t screen) {
             for (s_watch& watch : s_watches) {
-                std::string answer = commands::Run_Query(screen, watch.what);
+                std::string answer = watch.args.empty() ? commands::Run_Query(screen, watch.what) : commands::Run_Query(screen, watch.what, watch.args);
                 if (answer.empty() || answer == watch.last) {
                     continue;
                 }
@@ -241,6 +243,12 @@ namespace antares::native {
         std::function<std::string()> s_scene; // Set_Scene (game thread)
 
         int32_t Ask(const char* kind, const char* text, const std::string& fields) {
+            // The map as it is now behind the question (owner, 2026-11-20: a blockade's "select
+            // combat" came with the fleets still where they were last turn, as during the turn
+            // they are only refreshed with its notice).
+            if (!s_watches.empty()) {
+                Refresh_Snapshots(SCREEN_MAIN);
+            }
             uint64_t id = 0;
             const std::string scene = s_scene ? s_scene() : std::string();
             {
@@ -248,7 +256,16 @@ namespace antares::native {
                 id = s_next_id++;
                 s_waiting_request = id;
                 s_answered = false;
-                const std::string utf8 = Utf8(text);
+                std::string utf8 = Utf8(text);
+                // The game's line break is "\r" (owner, 2026-11-20: a bombing summary's lines ran
+                // together): a "\n" for the frontend, "\r\n" one break.
+                for (size_t at = utf8.find('\r'); at != std::string::npos; at = utf8.find('\r', at)) {
+                    if (at + 1 < utf8.size() && utf8[at + 1] == '\n') {
+                        utf8.erase(at, 1);
+                    } else {
+                        utf8[at] = '\n';
+                    }
+                }
                 // "screen": the game screen asking (WP3.3f): over the turn's legacy galaxy frames a
                 // frontend shows its own galaxy behind the question instead.
                 std::string json = "{\"id\":" + std::to_string(id) + ",\"kind\":\"" + kind + "\",\"text\":" +
@@ -274,8 +291,10 @@ namespace antares::native {
             return answer;
         }
 
+        std::atomic<int> s_legacy_combat{0};
+
         bool Claimed_Kind(uint32_t bit) {
-            return Frontend() && (s_claimed_kinds.load() & bit) != 0;
+            return Frontend() && s_legacy_combat.load() == 0 && (s_claimed_kinds.load() & bit) != 0;
         }
 
         // Main_Screen's first-turn question: the player names the home star (mainscr_main.cpp).
@@ -438,6 +457,35 @@ namespace antares::native {
         return s_stop_auto_turns.exchange(false);
     }
 
+    namespace {
+        int32_t s_film[4] = {0, 0, 0, 0}; // under s_mutex
+        bool s_film_changed = false;
+    } // namespace
+
+    void Set_Film(int32_t x, int32_t y, int32_t width, int32_t height) {
+        if (!Frontend()) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_film[0] = x;
+        s_film[1] = y;
+        s_film[2] = width;
+        s_film[3] = height;
+        s_film_changed = true;
+    }
+
+    bool Take_Film(int32_t rect[4]) {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_film_changed) {
+            return false;
+        }
+        s_film_changed = false;
+        for (int32_t i = 0; i < 4; ++i) {
+            rect[i] = s_film[i];
+        }
+        return true;
+    }
+
     void Set_Turn_Notice(const char* text) {
         if (!Frontend()) {
             return;
@@ -556,7 +604,9 @@ namespace antares::native {
 
     void Answer_Request_Text(uint64_t id, int32_t value, const std::string& text) {
         std::lock_guard<std::mutex> lock(s_mutex);
-        if (id == s_waiting_request) {
+        // The first answer counts: a live window's timed step must not overwrite a button
+        // pressed just before it (the bombing's STOP).
+        if (id == s_waiting_request && !s_answered) {
             s_answered = true;
             s_answer = value;
             s_answer_text = text;
@@ -751,6 +801,13 @@ namespace antares::native {
                     if (c[1] == '.') {
                         ++c;
                     }
+                } else if (*c == '\r') {
+                    // The game's line break (ESTRINGS' "%s destroyed\r", owner 2026-11-20: the
+                    // bombing summary ran its lines together); a "\r\n" is one break.
+                    out += '\n';
+                    if (c[1] == '\n') {
+                        ++c;
+                    }
                 } else if (*c == '\x1A') {
                     if (c[1] != '\0') {
                         if (c[1] != '0') {
@@ -765,6 +822,112 @@ namespace antares::native {
             return out;
         }
     } // namespace
+
+    Legacy_Combat_Scope::Legacy_Combat_Scope() {
+        s_legacy_combat.fetch_add(1);
+    }
+
+    Legacy_Combat_Scope::~Legacy_Combat_Scope() {
+        s_legacy_combat.fetch_sub(1);
+    }
+
+    bool In_Legacy_Combat() {
+        return s_legacy_combat.load() != 0;
+    }
+
+    std::string Combat_Fleet_Field(int16_t star, const std::vector<int16_t>& sides) {
+        std::string list;
+        for (const int16_t side : sides) {
+            list += (list.empty() ? "" : ",") + std::to_string(side);
+        }
+        return ",\"fleet\":" + Run_Command((int16_t)MOX::current_screen, 0,
+            "{\"verb\":\"query\",\"what\":\"combat_fleet\",\"star\":" + std::to_string(star) + ",\"sides\":[" + list + "]}");
+    }
+
+    std::vector<std::string> Colony_Defences(int16_t colony) {
+        std::vector<std::string> names;
+        if (colony < 0 || colony >= MOX::NUM_COLONIES) {
+            return names;
+        }
+        for (const int16_t building : {(int16_t)BUILDING_STAR_FORTRESS, (int16_t)BUILDING_STAR_BASE, (int16_t)BUILDING_BATTLESTATION,
+                 (int16_t)BUILDING_MISSILE_BASE, (int16_t)BUILDING_GROUND_BATTERIES, (int16_t)BUILDING_STELLAR_CONVERTER,
+                 (int16_t)BUILDING_FIGHTER_GARRISON, (int16_t)BUILDING_BARRIER_SHIELD, (int16_t)BUILDING_FLUX_SHIELD,
+                 (int16_t)BUILDING_RADIATION_SHIELD}) {
+            if (MOX::colony[colony].buildings[building] != 0) {
+                names.push_back(TECHDATA::buildings[building].name);
+            }
+        }
+        return names;
+    }
+
+    namespace {
+        void Show_Lost_Colony_Message(int16_t planet, uint8_t outpost, int16_t reason) {
+            s_MSG msg;
+            memset(&msg, 0, sizeof(s_MSG));
+            msg.msg_type = MSG_TYPE_LOST_COLONY;
+            msg.u.lost_colony.planet_idx = planet;
+            msg.u.lost_colony.reason = reason;
+            msg.u.lost_colony.leader_idx = -1;
+            msg.u.lost_colony.colony_or_outpost = outpost;
+            char text[600];
+            MSG_::sprintf_msg(text, sizeof(text), &msg);
+            GENDRAW::Message_Box(text);
+        }
+
+        struct s_lost_colony {
+            int16_t planet;
+            uint8_t outpost;
+        };
+        std::vector<s_lost_colony> s_lost_in_combat;
+    } // namespace
+
+    namespace {
+        bool s_officer_panel_command = false;
+    }
+
+    void Set_Officer_Panel_Command(bool running) {
+        s_officer_panel_command = running;
+    }
+
+    bool Officer_Panel_Command() {
+        return s_officer_panel_command;
+    }
+
+    void Note_Colony_Lost_In_Combat(int16_t colony) {
+        if (colony < 0 || colony >= MOX::NUM_COLONIES) {
+            return;
+        }
+        const s_colony& c = MOX::colony[colony];
+        const int16_t owner = c.owner;
+        if (owner < 0 || owner >= MAX_PLAYERS || MOX::player[owner].objectives != PLAYER_OBJECTIVE_HUMAN ||
+            (MOX::game_type >= 2 && MOX::player[owner].network_player_id != NETMOX::net.local_net_id)) {
+            return; // a computer player's, or another human's in a network game
+        }
+        s_lost_in_combat.push_back({c.planet, (uint8_t)c.outpost_flag});
+    }
+
+    void Show_Colony_Lost_Notices() {
+        std::vector<s_lost_colony> lost;
+        lost.swap(s_lost_in_combat);
+        for (const s_lost_colony& l : lost) {
+            Show_Lost_Colony_Message(l.planet, l.outpost, 1); // Destroy_Colony's reason after a combat
+        }
+    }
+
+    void Planet_Destroyed_Notice(int16_t planet, uint8_t outpost) {
+        ERIC::Play_Planetary_Destruction_Flic();
+        COMBFIND::messed_up_fleet_palette = 1;
+        s_MSG msg;
+        memset(&msg, 0, sizeof(s_MSG));
+        msg.msg_type = MSG_TYPE_LOST_COLONY;
+        msg.u.lost_colony.planet_idx = planet;
+        msg.u.lost_colony.reason = 2; // destroyed (Destroy_Colony's reason for a stellar converter)
+        msg.u.lost_colony.leader_idx = -1;
+        msg.u.lost_colony.colony_or_outpost = outpost;
+        char text[600];
+        MSG_::sprintf_msg(text, sizeof(text), &msg);
+        GENDRAW::Message_Box(text);
+    }
 
     bool Message(const char* title, const char* raw_text, uint16_t timeout_ticks) {
         if (!Claimed_Kind(KIND_MESSAGE)) {

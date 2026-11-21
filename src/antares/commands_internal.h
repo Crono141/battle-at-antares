@@ -24,6 +24,14 @@ namespace antares::commands::internal {
     bool Help_Record(uint16_t topic, s_help_record* record);
     // Fails `out` with "no_game" when no game is loaded.
     bool Have_Game(s_out& out);
+    // A Titan or Doom Star hull needs its construction tech (owner, 2026-11-20: the interface
+    // hides those designs and sizes until then; the original listed them and refused the build).
+    inline bool Hull_Researched(int16_t player, int16_t size) {
+        const int16_t app = size == SHIP_SIZE_TITAN ? TECH_APP_TITAN_CONSTRUCTION
+            : size == SHIP_SIZE_DOOM_STAR           ? TECH_APP_DOOM_STAR_CONSTRUCTION
+                                                    : -1;
+        return app < 0 || MOX::player[player].tech_applications[app] == TECH_RESEARCH_STATUS_RESEARCHED;
+    }
 
     // WP3.3a: the galaxy's queries and commands (galaxy_queries.cpp).
     void Add_Galaxy_Entries(std::vector<s_entry>* table);

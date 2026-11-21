@@ -41,6 +41,27 @@ namespace antares::sprites {
             auto* bitmap = reinterpret_cast<s_animation_header*>(storage.data());
             const int16_t saved_frame = anim->current_frame;
             const int32_t count = anim->frame_count > 0 ? anim->frame_count : 1;
+            // Glass (indices 0xF0-0xFF, remapped against what lies under them when drawn): while
+            // drawing here each level maps to itself, so its pixels stay recognisable and come out
+            // as the level's colour over transparency (owner, 2026-11-19: the colony landing's
+            // beams were solid magenta, the remap's colour over the bitmap's black).
+            const bool glassed = (anim->flags & ANIMATION_FLAG_GLASSED) != 0;
+            static uint8_t saved_remap[16][256];
+            if (glassed) {
+                memcpy(saved_remap, video::glass_remap_colors, sizeof(saved_remap));
+                for (int32_t g = 0; g < 16; ++g) {
+                    memset(video::glass_remap_colors[g], 0xF0 + g, 256);
+                }
+            }
+            // A full-store animation's frames are whole pictures, each drawn alone on the restored
+            // background (the colony landing's pods). Draw_Picture_To_Bitmap replays every frame
+            // from the last keyframe, and with no keyframe interval that is all of them: the pods
+            // smeared down the screen (owner, 2026-11-19). Every frame its own keyframe here.
+            const bool whole_frames = (anim->flags & ANIMATION_FLAG_FULL_STORE) != 0 && count > 1;
+            const auto saved_interval = anim->keyframe_interval;
+            if (whole_frames) {
+                anim->keyframe_interval = 1;
+            }
             for (int32_t f = 0; f < count; ++f) {
                 animate::Set_Animation_Frame(anim, f);
                 bitmap::Draw_Picture_To_Bitmap(bitmap, anim);
@@ -50,6 +71,14 @@ namespace antares::sprites {
                 frame.height = height;
                 frame.rgba.resize((size_t)width * height * 4);
                 for (size_t i = 0; i < (size_t)width * height; ++i) {
+                    if (glassed && pixels[i] >= 0xF0) {
+                        const auto& glass = video::glass_colors[pixels[i] - 0xF0];
+                        frame.rgba[i * 4] = (uint8_t)(glass.r << 2);
+                        frame.rgba[i * 4 + 1] = (uint8_t)(glass.g << 2);
+                        frame.rgba[i * 4 + 2] = (uint8_t)(glass.b << 2);
+                        frame.rgba[i * 4 + 3] = (uint8_t)(glass.intensity >= 100 ? 255 : glass.intensity * 255 / 100);
+                        continue;
+                    }
                     const uint32_t rgb = palette_rgb[pixels[i]];
                     frame.rgba[i * 4] = (uint8_t)(rgb >> 16);
                     frame.rgba[i * 4 + 1] = (uint8_t)(rgb >> 8);
@@ -58,6 +87,10 @@ namespace antares::sprites {
                 }
                 out->frames.push_back(std::move(frame));
             }
+            if (glassed) {
+                memcpy(video::glass_remap_colors, saved_remap, sizeof(saved_remap));
+            }
+            anim->keyframe_interval = saved_interval;
             anim->current_frame = saved_frame;
             // The scratch bitmap got a twin plane when it was created: drop it with the memory.
             render::Forget_Images(storage.data(), storage.data() + storage.size());
@@ -281,11 +314,63 @@ namespace antares::sprites {
                 }
             }
             Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx == "PLANETS.LBX" || lbx == "COLONY.LBX" || lbx == "COLONY2.LBX") {
+            // The colony screen's art (WP3.11a, the colony landing): its palette, FONTS.LBX palette
+            // 1 with the planet backdrop's colours (the pack's declaration, or the home palette),
+            // then the entry's own. Under the galaxy's palette the planet came out black.
+            if (!Declared_Palette_Rgb(lbx, entry, palette_rgb)) {
+                Game_Palette(1, palette_rgb);
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx.rfind("BLDG", 0) == 0 || lbx == "COLROADS.LBX" || lbx == "COLVEGGI.LBX") {
+            // The colony's landscape (owner, 2026-11-20: VIEW COLONY natively): the colony screen's
+            // palette as Update_Colony_Palette sets it, FONTS.LBX palette 1 under the planet
+            // picture's colours ("@N": PLANETS.LBX entry N, the colony's backdrop), then the
+            // entry's own.
+            if (!Declared_Palette_Rgb(lbx, entry, palette_rgb)) {
+                Game_Palette(1, palette_rgb);
+            }
+            if (palette_entry >= 0) {
+                std::vector<uint64_t> planet_palette;
+                size_t planet_size = 0;
+                if (Read_Entry("PLANETS.LBX", palette_entry, &planet_palette, &planet_size)) {
+                    Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(planet_palette.data()), planet_size, palette_rgb);
+                }
+                palette_entry = -1; // not an entry of this file
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
         } else if (lbx == "RACESEL.LBX") {
             // The race select screen's pictures (the Info panel's portrait): the declared palette,
             // then the entry's own colours over it, as animate::Draw applies them (without them the
             // portrait's 128-255 came out black).
             Declared_Palette_Rgb(lbx, entry, palette_rgb);
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx == "DIPLOMAT.LBX" && entry >= 13 && palette_entry < 0 && !Declared_Palette_Rgb(lbx, entry, palette_rgb)) {
+            // A diplomacy room (race * 2 + 13) or its ambassador (+ 14): the race's palette, the full
+            // 256 colours of entry `race`, which Diplomacy_Mouse_Init loads (Draw_Palette of the
+            // cursor picture); neither carries colours of its own. Without it the 1x frames came out
+            // grey with a speckled ambassador (0.5.0 without the HD packs, Reddit report).
+            palette_entry = (entry - 13) / 2;
+        } else if (lbx == "EVENTS.LBX" && entry >= 1 && palette_entry < 0 && !Declared_Palette_Rgb(lbx, entry, palette_rgb)) {
+            // The GNN room (entry 1) and its story pictures: EVENTS.LBX 0's full palette, which
+            // Event_Fade_In loads, then the picture's own colours (184-247) as it is drawn.
+            std::vector<uint64_t> gnn_palette;
+            size_t gnn_size = 0;
+            if (Read_Entry("EVENTS.LBX", 0, &gnn_palette, &gnn_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(gnn_palette.data()), gnn_size, palette_rgb);
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if ((lbx == "SCIENCE.LBX" || lbx.rfind("TANM_", 0) == 0) && !Declared_Palette_Rgb(lbx, entry, palette_rgb) &&
+            Game_Palette(0, palette_rgb)) {
+            // The research room's monitor, tube light and hologram: the galaxy's palette (Science_Room
+            // loads none) under SCIENCE.LBX 0's colours 192-255 (its Draw_Palette), then the
+            // picture's own (a hologram's 149-191, applied as it is drawn). Without them the monitor
+            // and the tube came out as green noise (same report).
+            std::vector<uint64_t> science_palette;
+            size_t science_size = 0;
+            if (Read_Entry("SCIENCE.LBX", 0, &science_palette, &science_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(science_palette.data()), science_size, palette_rgb);
+            }
             Apply_Embedded_Palette(bytes, size, palette_rgb);
         } else {
             // Other art its own, if declared.
@@ -313,7 +398,9 @@ namespace antares::sprites {
         // Ships' markings follow their colour set's palette (the masks say which pixels).
         const bool shade_masks = lbx == "SHIPS.LBX";
         bool still_decoding = false;
-        if (render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms, shade_masks, &still_decoding)) {
+        // "LBX:1": the original pixels, not the pack's art (the colony landing's pods, whose HD
+        // frames have the smear baked in).
+        if (max_scale != 1 && render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms, shade_masks, &still_decoding)) {
             const int32_t shrink = max_scale > 0 && max_scale < render::SCALE ? render::SCALE / max_scale : 1;
             for (render::s_exported_frame& frame : art) {
                 s_frame copy;

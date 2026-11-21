@@ -51,8 +51,28 @@ func _ready() -> void:
 	$Fit/Box/Entry.text_submitted.connect(func(_t: String): _answer(1))
 
 
+## A live window (the bombing, owner 2026-11-20: "live"): its buttons, all but the last, and its
+## timed step ("step_ms", answering "step_answer") answer without closing it; the game sends the
+## window again at once.
+var stepping := false
+
+
 func ask(id: int, kind: String, request: Dictionary) -> void:
 	request_id = id
+	var live: bool = request.get("live", false)
+	if request.has("step_ms"):
+		var step_value := int(request.get("step_answer", 0))
+		get_tree().create_timer(float(request.step_ms) / 1000.0).timeout.connect(func():
+			if request_id == id and visible:
+				_step(step_value))
+	# The bombing's next step (owner, 2026-11-20: rebuilt each bomb, the text and the buttons
+	# swapped places and the buttons moved): the same window, its numbers and buttons updated.
+	if live and kind == "popup" and String(request.get("popup", "")) == "colony_bombing" and visible and \
+			popup_name in ["colony_bombing", "colony_combat"] and is_instance_valid(_bombing):
+		popup_name = "colony_bombing"
+		_kind = kind
+		_update_bombing(request)
+		return
 	_apply_bare()
 	$Fit/Box/Text.text = request.get("text", "")
 	var title: String = request.get("title", "")
@@ -96,13 +116,35 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 		_card_holder = null
 		for planet: Dictionary in request.get("system", {}).get("planets", []):
 			_planets[int(planet.planet)] = planet
+		_planet_rows.clear()
+		_fleet_rows.clear()
+		if popup_name == "new_system" and not _planets.is_empty():
+			# The system's planets, the special's marked (owner, 2026-11-21: nothing said which
+			# planet had the gem deposits, nor listed the planets), each lit with its planet.
+			_extra.add_child(_system_planet_list(request.system.planets))
 		for option: Dictionary in request.get("options", []):
 			if option.has("potential") and option.has("planet"):
 				_potentials[int(option.planet)] = option.potential
 		if request.has("potential") and request.has("planet"):
 			_potentials[int(request.planet)] = request.potential
+		# The other sides' ships (the select-combat windows' `fleet`; owner, 2026-11-21: every enemy
+		# fleet and colony on this side, the player's own on the other): under the side's target
+		# row, or a block of their own.
+		var enemies: Array = request.get("fleet", {}).get("enemies", [])
+		var enemies_shown := {}
+		var option_items: Array = request.get("options", [])
+		if not enemies.is_empty() and request.has("options"):
+			option_items = option_items.duplicate(true)
+			for item: Dictionary in option_items:
+				var side := _enemy_side(enemies, int(item.get("fleet_owner", -1)))
+				if not side.is_empty():
+					item["details"] = (item.get("details", []) as Array) + _enemy_lines(side)
+					enemies_shown[int(side.player)] = true
 		if request.has("options"):
-			_extra.add_child(_option_list(request.options, 0 if choose else OPTION_ANSWER, int(request.get("selected", -1))))
+			_extra.add_child(_option_list(option_items, 0 if choose else OPTION_ANSWER, int(request.get("selected", -1))))
+		for side: Dictionary in enemies:
+			if not enemies_shown.has(int(side.get("player", -1))):
+				_extra.add_child(_enemy_fleet_block(side))
 		if not _potentials.is_empty():
 			# The planet card: the hovered planet's (a row, or the planet on the map), else the
 			# first that can be picked, or the one asked about.
@@ -120,7 +162,11 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 			request = request.merged({"buttons": []}, true) # Esc or a right click cancels
 		elif choose:
 			request = request.merged({"buttons": ["CANCEL"]}, true)
-		if request.has("rows"):
+		if request.has("rows") and popup_name in ["colony_bombing", "colony_combat"]:
+			_extra.add_child(_bombing_body(request))
+			$Fit/Box/Text.text = ""
+			request = request.merged({"buttons": []}, true) # its own, stacked on the right
+		elif request.has("rows"):
 			# The orbit's invade/bomb window (owner, 2026-11-13: pictures like the window's): only
 			# the bombing's result stays as text under them.
 			_extra.add_child(_combat_rows(request))
@@ -143,7 +189,10 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 				value = -1 if i == 1 else -2 # OK answers the slider's value
 			elif choose:
 				value = -1
-			b.pressed.connect(func(): _answer(_slider_value if value == -2 else value))
+			if live and i < buttons.size() - 1:
+				b.pressed.connect(func(): _step(value))
+			else:
+				b.pressed.connect(func(): _answer(_slider_value if value == -2 else value))
 			_popup_buttons.add_child(b)
 	$Fit/Box/Text.visible = $Fit/Box/Text.text != "" or kind != "popup"
 	show()
@@ -152,6 +201,20 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 		entry.select_all()
 	reset_size() # as tall as its text: OK as far from the bottom as the text from the top (owner)
 	_centre.call_deferred()
+
+
+## An answer that keeps the window up (a live window's step or button); once per request, so a
+## step timer can't follow a button pressed first.
+var _stepped_id := -1
+
+
+func _step(value: int) -> void:
+	if _stepped_id == request_id:
+		return
+	_stepped_id = request_id
+	stepping = true
+	answered.emit(request_id, value, "")
+	stepping = false
 
 
 func _answer(value: int) -> void:
@@ -294,6 +357,227 @@ func _combat_rows(request: Dictionary) -> Control:
 	return body
 
 
+## The orbit's window (owner, 2026-11-20: "a copy of the invade/bombard legacy window"): one
+## window from the choice to the last bomb. The planet with its defenders and the result on the
+## left, the attackers and the buttons stacked on the right: BOMB (STOP while bombs fall, BOMB
+## again to go on), DROP ALL, INVADE, MIND CONTROL, DESTROY and IGNORE (CLOSE once bombing), each
+## in its place throughout, greyed when not open. BOMB keeps the window for the bombing, which
+## updates it in place (_update_bombing), each hit's explosion on the planet.
+var _bombing: Control
+var _bombing_rows: VBoxContainer
+var _bombing_right: VBoxContainer
+var _bombing_summary: Label
+var _bombing_buttons: VBoxContainer
+var _bombing_planet: TextureRect
+var _bombing_picture := {}
+var _blast_layer: Control
+var _blasts: Array = [] # {lbx, entry, dx, dy, born}
+var _planet_width := 0.0
+var _offered: Array = [] # the choice's buttons (the orbit's), kept for the bombing's layout
+const BLAST_FPS := 15.0
+var blast_count := 0 # explosions shown (the smoke)
+signal released # a held window let go without an answer (BOMB with no bombing after it)
+const BUTTON_ORDER := ["BOMB", "DROP ALL", "INVADE", "MIND CONTROL", "DESTROY", "IGNORE"]
+
+
+func _bombing_body(request: Dictionary) -> Control:
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 24)
+	_bombing = body
+	_blasts.clear()
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 8)
+	left.custom_minimum_size.x = 320
+	body.add_child(left)
+	_bombing_picture = request.get("picture", {})
+	_bombing_planet = preload("sprite_rect.gd").new()
+	_bombing_planet.custom_minimum_size = Vector2(220, 220)
+	_bombing_planet.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_bombing_planet.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	if art:
+		_bombing_planet.bind(art)
+		_bombing_planet.show_sprite(String(_bombing_picture.get("lbx", "")), int(_bombing_picture.get("entry", -1)))
+	left.add_child(_bombing_planet)
+	_blast_layer = Control.new()
+	_blast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_blast_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_blast_layer.draw.connect(_draw_blasts)
+	_bombing_planet.add_child(_blast_layer)
+	_bombing_rows = VBoxContainer.new()
+	_bombing_rows.add_theme_constant_override("separation", 6)
+	_bombing_rows.custom_minimum_size.y = 5 * 30 + 4 * 6 # up to five defenders' rows: the window keeps its size
+	left.add_child(_bombing_rows)
+	_bombing_summary = Label.new()
+	_bombing_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_bombing_summary.custom_minimum_size = Vector2(320, 44)
+	_bombing_summary.add_theme_font_size_override("font_size", 14)
+	left.add_child(_bombing_summary)
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 10)
+	right.custom_minimum_size.x = 200
+	body.add_child(right)
+	var top_gap := Control.new()
+	top_gap.custom_minimum_size.y = 40
+	right.add_child(top_gap)
+	_bombing_right = VBoxContainer.new()
+	_bombing_right.add_theme_constant_override("separation", 6)
+	_bombing_right.custom_minimum_size.y = 2 * 30 + 6 # the marines and the bombs
+	right.add_child(_bombing_right)
+	_bombing_buttons = VBoxContainer.new()
+	_bombing_buttons.add_theme_constant_override("separation", 8)
+	right.add_child(_bombing_buttons)
+	if String(request.get("popup", "")) == "colony_combat":
+		_offered = (request.get("buttons", []) as Array).duplicate()
+	_update_bombing(request)
+	return body
+
+
+## Rows of icon and text, rebuilt when their count changes, else only their text.
+func _fill_rows(box: VBoxContainer, rows: Array, right_side: bool) -> void:
+	if box.get_child_count() != rows.size():
+		for child in box.get_children():
+			box.remove_child(child)
+			child.queue_free()
+		for r: Dictionary in rows:
+			var line := HBoxContainer.new()
+			line.add_theme_constant_override("separation", 8)
+			line.alignment = BoxContainer.ALIGNMENT_END if right_side else BoxContainer.ALIGNMENT_BEGIN
+			var icon: TextureRect = preload("sprite_rect.gd").new()
+			icon.name = "Icon"
+			icon.custom_minimum_size = Vector2(30, 30)
+			icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			if art:
+				icon.bind(art)
+				icon.show_sprite(String(r.lbx), int(r.entry))
+			var label := Label.new()
+			label.name = "Text"
+			label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			if right_side:
+				line.add_child(label)
+				line.add_child(icon)
+			else:
+				line.add_child(icon)
+				line.add_child(label)
+			box.add_child(line)
+	for i in rows.size():
+		(box.get_child(i).get_node("Text") as Label).text = String(rows[i].text).strip_edges()
+
+
+func _update_bombing(request: Dictionary) -> void:
+	var all_rows: Array = request.get("rows", [])
+	_fill_rows(_bombing_rows, all_rows.filter(func(r: Dictionary) -> bool: return String(r.get("side", "left")) == "left"), false)
+	_fill_rows(_bombing_right, all_rows.filter(func(r: Dictionary) -> bool: return String(r.get("side", "")) == "right"), true)
+	_bombing_summary.text = String(request.get("summary", ""))
+	# This step's explosions on the planet.
+	_planet_width = float(request.get("planet_width", _planet_width))
+	var now := Time.get_ticks_msec() / 1000.0
+	for b: Dictionary in request.get("blasts", []):
+		blast_count += 1
+		_blasts.append(b.merged({"born": now}))
+		if art:
+			art.sprite(String(b.lbx), int(b.entry))
+	# The buttons, each in its place: the engine's (with what each answers) by label; the others
+	# of the window's set greyed.
+	var bombing := String(request.get("popup", "")) == "colony_bombing"
+	var labels: Array = request.get("buttons", [])
+	var answer_of := {}
+	for i in labels.size():
+		answer_of[String(labels[i])] = i
+	var shown: Array = []
+	for name: String in BUTTON_ORDER:
+		var live_name := name
+		if name == "BOMB" and answer_of.has("STOP"):
+			live_name = "STOP"
+		if name == "IGNORE" and bombing:
+			live_name = "CLOSE"
+		var offered: bool = _offered.has(name) or answer_of.has(live_name) or (name == "DROP ALL" and _offered.has("BOMB")) \
+				or name == "IGNORE"
+		if offered:
+			shown.append([live_name, int(answer_of.get(live_name, -1))])
+	var current: Array = _bombing_buttons.get_children().map(func(b: Node) -> String: return (b as Button).text)
+	if current.size() != shown.size():
+		for child in _bombing_buttons.get_children():
+			_bombing_buttons.remove_child(child)
+			child.queue_free()
+		for k in shown.size():
+			var b := Button.new()
+			b.focus_mode = Control.FOCUS_NONE
+			b.custom_minimum_size = Vector2(200, 36)
+			b.pressed.connect(_bombing_pressed.bind(b))
+			_bombing_buttons.add_child(b)
+	for k in shown.size():
+		var b := _bombing_buttons.get_child(k) as Button
+		b.text = String(shown[k][0])
+		b.set_meta("answer", int(shown[k][1]))
+		b.disabled = int(shown[k][1]) < 0
+	_bombing_buttons.set_meta("bombing", bombing)
+	_bombing_buttons.set_meta("count", labels.size())
+
+
+func _bombing_pressed(b: Button) -> void:
+	var value := int(b.get_meta("answer", -1))
+	if value < 0:
+		return
+	var bombing: bool = _bombing_buttons.get_meta("bombing", false)
+	var last: bool = value == int(_bombing_buttons.get_meta("count", 0)) - 1
+	if bombing:
+		if last:
+			_answer(value) # CLOSE
+		else:
+			_step(value) # STOP / BOMB / DROP ALL: the window stays
+	elif b.text == "BOMB":
+		_hold_for_bombing(value)
+	else:
+		_answer(value)
+
+
+## BOMB from the orbit's choice: the window stays for the bombing the game sends next (the same
+## window, updated); if none comes, it goes.
+func _hold_for_bombing(value: int) -> void:
+	var id := request_id
+	for b in _bombing_buttons.get_children():
+		(b as Button).disabled = true
+	_step(value)
+	get_tree().create_timer(2.5).timeout.connect(func():
+		if request_id == id and visible:
+			hide()
+			released.emit())
+
+
+func _draw_blasts() -> void:
+	if art == null or _bombing_planet == null:
+		return
+	var planet: Dictionary = art.sprite(String(_bombing_picture.get("lbx", "")), int(_bombing_picture.get("entry", -1)))
+	if planet.is_empty():
+		return
+	var area := _blast_layer.size
+	var planet_size: Vector2 = planet.size
+	var k := minf(area.x / planet_size.x, area.y / planet_size.y)
+	if _planet_width > 0.0:
+		k = minf(area.x, area.y * planet_size.x / planet_size.y) / _planet_width
+	var centre := area * 0.5
+	var now := Time.get_ticks_msec() / 1000.0
+	for b: Dictionary in _blasts:
+		var s: Dictionary = art.sprite(String(b.lbx), int(b.entry))
+		if s.is_empty():
+			continue
+		var frame := int((now - float(b.born)) * BLAST_FPS)
+		if frame >= (s.frames as Array).size():
+			continue
+		art.draw(_blast_layer, String(b.lbx), int(b.entry), frame, centre + Vector2(float(b.dx), float(b.dy)) * k, k)
+
+
+func _process(_delta: float) -> void:
+	if _blasts.is_empty() or not is_instance_valid(_blast_layer):
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	_blasts = _blasts.filter(func(b: Dictionary) -> bool:
+		var s: Dictionary = art.sprite(String(b.lbx), int(b.entry)) if art else {}
+		return s.is_empty() or (now - float(b.born)) * BLAST_FPS < (s.frames as Array).size())
+	_blast_layer.queue_redraw()
+
+
 ## Shows a planet's card in the popup (a hovered row or map planet); -1 keeps the current one.
 func _show_card(planet_id: int) -> void:
 	if _card_holder == null or planet_id < 0 or planet_id == _card_planet or not _potentials.has(planet_id):
@@ -317,6 +601,25 @@ func hover_planet(planet_id: int) -> void:
 var _planet_rows := {}
 ## A row of a planet hovered: the frontend lights the planet on the map (-1: none).
 signal planet_row_hovered(planet_id: int)
+## A row of a side's ships hovered (select combat): the frontend frames its fleets (-1: none).
+signal fleet_row_hovered(owner: int)
+## The option rows of a side's ships, by owner.
+var _fleet_rows := {}
+
+
+## A fleet of the zoomed system hovered on the map: its side's row lit (-1: none).
+func hover_fleet_owner(owner: int) -> void:
+	var lit := get_theme_color("font_pressed_color", "ListItem")
+	for id: int in _fleet_rows:
+		var row: Button = _fleet_rows[id]
+		if not is_instance_valid(row):
+			continue
+		if id == owner:
+			row.add_theme_color_override("font_color", lit)
+		elif row.has_meta("color"):
+			row.add_theme_color_override("font_color", row.get_meta("color"))
+		else:
+			row.remove_theme_color_override("font_color")
 
 
 func _light_row(planet_id: int) -> void:
@@ -346,6 +649,7 @@ func show_planet_card(planet_id: int, at: Rect2) -> bool:
 func _option_list(items: Array, base: int, selected: int) -> Control:
 	options = items
 	_planet_rows.clear()
+	_fleet_rows.clear()
 	var list := VBoxContainer.new()
 	list.add_theme_constant_override("separation", 2)
 	for i in items.size():
@@ -367,6 +671,11 @@ func _option_list(items: Array, base: int, selected: int) -> Control:
 			row.add_theme_color_override("font_color", Color(1.0, 0.8, 0.35))
 		var value := base + i
 		row.pressed.connect(func(): _answer(value))
+		var fleet_owner := int(item.get("fleet_owner", -1))
+		if fleet_owner >= 0:
+			_fleet_rows[fleet_owner] = row
+			row.mouse_entered.connect(func(): fleet_row_hovered.emit(fleet_owner))
+			row.mouse_exited.connect(func(): fleet_row_hovered.emit(-1))
 		var planet_id := int(item.get("planet", -1))
 		if planet_id >= 0:
 			# Hovering a planet's row shows its card and lights the planet on the map; a right
@@ -384,10 +693,13 @@ func _option_list(items: Array, base: int, selected: int) -> Control:
 		list.add_child(row)
 		# Lines under the choice (an attack target's planet and defences, as the original's
 		# planet box shows them).
-		for line: String in item.get("details", []):
+		for line in item.get("details", []):
 			var detail := Label.new()
 			detail.theme_type_variation = &"Dim"
-			detail.text = "    " + line
+			if line is Dictionary: # a coloured line (the Battle Scanner's rating)
+				detail.add_theme_color_override("font_color", line.get("color", Color.WHITE))
+				line = String(line.get("text", ""))
+			detail.text = "    " + String(line)
 			detail.add_theme_font_size_override("font_size", 13)
 			detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			detail.custom_minimum_size.x = row.custom_minimum_size.x
@@ -424,7 +736,7 @@ func _special_box(special: Dictionary) -> Control:
 	var picture: Dictionary = special.get("picture", {})
 	if not picture.is_empty() and art:
 		var rect: TextureRect = preload("sprite_rect.gd").new()
-		rect.custom_minimum_size = Vector2(380, 150)
+		rect.custom_minimum_size = Vector2(380, 120)
 		rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -444,6 +756,121 @@ func _special_box(special: Dictionary) -> Control:
 	return box
 
 
+const STRENGTH_TEXT := {"outmatched": "We are outmatched", "even": "An even fight", "superior": "We are superior"}
+const STRENGTH_COLOR := {"outmatched": Color(0.95, 0.4, 0.35), "even": Color(0.95, 0.85, 0.45), "superior": Color(0.5, 0.9, 0.5)}
+
+
+func _enemy_side(enemies: Array, owner: int) -> Dictionary:
+	if owner < 0:
+		return {}
+	for side: Dictionary in enemies:
+		if int(side.get("player", -1)) == owner:
+			return side
+	return {}
+
+
+## A side's ships as the player sees them from orbit: by hull size, and with Battle Scanner a
+## rough rating (ships only).
+func _enemy_lines(side: Dictionary) -> Array:
+	var parts: Array = []
+	for hull: Dictionary in side.get("hulls", []):
+		parts.append("%d %s" % [int(hull.count), String(hull.name)])
+	var count := int(side.get("ships", 0))
+	var lines: Array = ["%d %s in orbit: %s" % [count, "ship" if count == 1 else "ships", ", ".join(parts)] if not parts.is_empty() else "No ships in orbit"]
+	var strength := String(side.get("strength", ""))
+	if strength != "":
+		lines.append({"text": "Battle Scanner, ships only: %s" % STRENGTH_TEXT.get(strength, strength),
+			"color": STRENGTH_COLOR.get(strength, Color.WHITE)})
+	return lines
+
+
+## An enemy side's fleet with no target row of its own (its colony's rows, or an attacker's): its
+## name in its colour and its ships; hovering it frames its fleets on the map, and back.
+func _enemy_fleet_block(side: Dictionary) -> Control:
+	var block := VBoxContainer.new()
+	block.add_theme_constant_override("separation", 2)
+	var owner := int(side.get("player", -1))
+	var head := Button.new()
+	head.theme_type_variation = &"ListItem"
+	head.focus_mode = Control.FOCUS_NONE
+	head.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	head.text = "%s fleet" % String(side.get("name", ""))
+	head.custom_minimum_size = Vector2(bare_width if bare_width > 0.0 else 320.0, 28)
+	head.flat = bare_width > 0.0
+	if bare_width > 0.0:
+		_outline(head)
+	var color := int(side.get("color", -1))
+	if color >= 0:
+		head.add_theme_color_override("font_color", preload("../galaxy.gd").PLAYER_COLORS[color % 8])
+		head.set_meta("color", preload("../galaxy.gd").PLAYER_COLORS[color % 8])
+	if owner >= 0:
+		_fleet_rows[owner] = head
+		head.mouse_entered.connect(func(): fleet_row_hovered.emit(owner))
+		head.mouse_exited.connect(func(): fleet_row_hovered.emit(-1))
+	block.add_child(head)
+	for line in _enemy_lines(side):
+		var label := Label.new()
+		label.theme_type_variation = &"Dim"
+		if line is Dictionary:
+			label.add_theme_color_override("font_color", line.get("color", Color.WHITE))
+			line = String(line.get("text", ""))
+		label.text = "    " + String(line)
+		label.add_theme_font_size_override("font_size", 13)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.custom_minimum_size.x = head.custom_minimum_size.x
+		if bare_width > 0.0:
+			_outline(label)
+		block.add_child(label)
+	return block
+
+
+## A just-visited system's planets (the scouts' window): name, size, climate and minerals, a
+## planet's special in gold. Hovering a row lights its planet on the map, and the map's planet
+## lights its row.
+func _system_planet_list(planets: Array) -> Control:
+	var box := PanelContainer.new()
+	box.theme_type_variation = &"Pane"
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 2)
+	var heading := Label.new()
+	heading.theme_type_variation = &"Name"
+	heading.text = "Planets"
+	list.add_child(heading)
+	for planet: Dictionary in planets:
+		var planet_id := int(planet.get("planet", -1))
+		var row := Button.new()
+		row.theme_type_variation = &"ListItem"
+		row.focus_mode = Control.FOCUS_NONE
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.custom_minimum_size = Vector2(380, 0)
+		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var parts: Array = []
+		for key in ["size_name", "climate_name", "minerals_name"]:
+			var part := String(planet.get(key, ""))
+			if part != "":
+				parts.append(part)
+		row.text = String(planet.get("name", "")) + ("  -  " + ", ".join(parts) if not parts.is_empty() else "")
+		list.add_child(row)
+		var special_name := String(planet.get("special_name", ""))
+		if int(planet.get("special", 0)) > 0 and special_name != "":
+			var special := Label.new()
+			special.text = "    \u2605 " + special_name
+			special.add_theme_color_override("font_color", Color(1.0, 0.8, 0.35))
+			special.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			list.add_child(special)
+		if planet_id >= 0:
+			_planet_rows[planet_id] = row
+			row.mouse_entered.connect(func(): planet_row_hovered.emit(planet_id))
+			row.mouse_exited.connect(func(): planet_row_hovered.emit(-1))
+			row.gui_input.connect(func(event: InputEvent):
+				var mb := event as InputEventMouseButton
+				if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
+					if show_planet_card(planet_id, row.get_global_rect()):
+						row.accept_event())
+	box.add_child(list)
+	return box
+
+
 ## Centred on the screen once sized: a tall one (the turn summary) grew down from the middle.
 func _centre() -> void:
 	var area := get_parent_area_size()
@@ -451,6 +878,9 @@ func _centre() -> void:
 	match placement:
 		"left": # beside a system the camera flew into, where the system pane sits
 			position.x = 24.0
+		"beside": # just left of a system the camera flew into: its right edge at placement_at.x
+			position.x = placement_at.x - size.x
+			position.y = placement_at.y - size.y * 0.5
 		"top": # over the map while a star is picked on it
 			position.y = 56.0
 		"at": # a scene's list (diplomacy), where the legacy screen had it, kept on the screen
@@ -458,8 +888,8 @@ func _centre() -> void:
 	position = position.clamp(Vector2.ZERO, (area - size).max(Vector2.ZERO)).floor() # always on the screen
 
 
-## Where the next popup sits: "" centred, "left", "top" or "at" `placement_at` (set by the
-## frontend before `ask`).
+## Where the next popup sits: "" centred, "left", "top", "at" `placement_at`, or "beside" (its right
+## edge at `placement_at.x`, centred on its y) (set by the frontend before `ask`).
 var placement := ""
 var placement_at := Vector2.ZERO
 ## A scene's list (diplomacy; owner, 2026-11-14): no frame and no backdrop, just outlined text

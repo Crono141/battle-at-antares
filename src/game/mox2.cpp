@@ -3,9 +3,9 @@
 #include "antares/identity.h"
 #include "antares/native.h"
 
-#include <exception>
 #include "config/config_loader.h"
 #include "game/config_refresh.h"
+#include "game/turn_oracle.h"
 
 namespace ALLOC = allocate;
 
@@ -14,6 +14,7 @@ namespace MOX2 {
     uint8_t pan_main_menu_panel;
     uint8_t skip_intro;
     uint8_t quick_start;
+    bool use_explicit_game_directory;
     char leave_game_message[100];
 
     const char s_language_ini[13] = "language.ini";
@@ -42,6 +43,7 @@ namespace MOX2 {
 
     void __cdecl Screen_Control() {
         while (true) {
+            fields::Reset_Mouse_Wheel_Input();
             MOX::global_esc = 0;
             int16_t current_screen = MOX::current_screen;
 
@@ -58,6 +60,13 @@ namespace MOX2 {
             // Antares (WP3.1b, G5): a frontend may run this screen natively.
             if (current_screen != SCREEN_EXIT) {
                 antares::native::Update_Packages();
+                if (current_screen == SCREEN_MAIN && antares::native::Wants_Screen(SCREEN_MAIN)) {
+                    // Main_Screen's one lasting setting, which the native galaxy in its place would
+                    // otherwise never make (owner, 2026-11-20: right clicks never turned ships in a
+                    // combat): a right click goes to the field under it, not "cancel" (-1). The
+                    // original set it on the first galaxy screen and nothing clears it.
+                    fields::Disable_Cancel();
+                }
                 if (antares::native::Run_Screen(current_screen)) {
                     MOX::previous_screen = current_screen;
                     continue;
@@ -390,6 +399,13 @@ namespace MOX2 {
         MOX::temp_string[0] = 0;
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "mox2: assets and strings loaded");
 
+#if defined(ORION2RE_DEBUG_BUILD)
+        if (turn_oracle::Is_Enabled()) {
+            turn_oracle::Run();
+            return;
+        }
+#endif
+
         if (MOX2::quick_start != 0) {
             s_player* player = &MOX::player[MOX::PLAYER_NUM];
             if (FILEDEF::Read_Moo_Custom_Player_Data(player)) {
@@ -489,13 +505,32 @@ namespace MOX2 {
         }
     }
 
+    static void Append_Missing_Data_File_Hint_(std::string* message, const char* missing_file) {
+        message->append("\nRequired original game file: ");
+        message->append(missing_file);
+        message->append("\nOriginal Master of Orion II data directories:");
+        for (const std::string& directory : vfs::Get_Data_Search_Paths()) {
+            message->append("\n  ");
+            message->append(directory);
+        }
+    }
+
     void __cdecl Set_Mox_Alt_Path() {
         char alternate_path[61] = {};
-        char error_message[100] = "Unable to read ORIONCD.INI.";
+        std::string error_message = "Unable to read ORIONCD.INI.";
         FILE* config_file;
         const char* error_text = nullptr;
 
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "mox2: Set_Mox_Alt_Path start");
+
+        if (use_explicit_game_directory) {
+            if (vfs::File_Exists("diplomat.lbx") == 0) {
+                error_message = "Cannot locate original game assets in game-dir.";
+                Append_Missing_Data_File_Hint_(&error_message, "diplomat.lbx");
+                exitm::Exit_With_Message(error_message.c_str());
+            }
+            return;
+        }
 
         if (!dos::DIR("orioncd.ini", alternate_path, sizeof(alternate_path))) {
             if (MOX::settings.language == 0) {
@@ -511,10 +546,11 @@ namespace MOX2 {
             }
 
             if (error_text != nullptr) {
-                strlcpy(error_message, error_text, sizeof(error_message));
+                error_message = error_text;
             }
 
-            exitm::Exit_With_Message(error_message);
+            Append_Missing_Data_File_Hint_(&error_message, "ORIONCD.INI");
+            exitm::Exit_With_Message(error_message.c_str());
             return;
         }
 
@@ -524,13 +560,17 @@ namespace MOX2 {
             if (config_file != nullptr) {
                 fclose(config_file);
             }
-            exitm::Exit_With_Message(error_message);
+            Append_Missing_Data_File_Hint_(&error_message, "ORIONCD.INI");
+            exitm::Exit_With_Message(error_message.c_str());
+            return;
         }
         fclose(config_file);
 
         alternate_path[strcspn(alternate_path, "\r\n")] = '\0';
         if (alternate_path[0] == '\0') {
-            exitm::Exit_With_Message(error_message);
+            Append_Missing_Data_File_Hint_(&error_message, "ORIONCD.INI");
+            exitm::Exit_With_Message(error_message.c_str());
+            return;
         }
 
         farload::Set_Alternate_Path(alternate_path);
@@ -561,10 +601,11 @@ namespace MOX2 {
         }
 
         if (error_text != nullptr) {
-            strlcpy(error_message, error_text, sizeof(error_message));
+            error_message = error_text;
         }
 
-        exitm::Exit_With_Message(error_message);
+        Append_Missing_Data_File_Hint_(&error_message, "diplomat.lbx");
+        exitm::Exit_With_Message(error_message.c_str());
     }
 
 } // namespace MOX2

@@ -14,6 +14,8 @@ signal fleet_chosen(ship_id: int)
 signal planet_selected(planet_id: int)
 ## One of the player's colonies was picked (WP3.4: the colony pane opens beside), or -1.
 signal colony_chosen(colony_id: int)
+## The menu's RELOCATE NEW SHIPS: the frontend picks the target on the whole map.
+signal relocate_requested(star_id: int)
 
 const SLIDE_TIME := 0.3
 ## COLSYSDI.LBX: the colony screen's planet pictures (COLSYSDI::Planet_Anims).
@@ -22,16 +24,16 @@ const PLANET_SIZE_COUNT := 5
 const GAS_GIANT_ICON := 0x3E
 const ASTEROIDS_ICON := 0x3F
 
-@onready var fleets_row: HBoxContainer = $Box/Fleets
+@onready var fleets_row: HFlowContainer = $Box/Scroll/Margin/Content/Fleets
 @onready var star_name: Label = $Box/Header/Names/Name
 @onready var star_title: Label = $Box/Header/Names/Title
-@onready var governor: PanelContainer = $Box/Governor
-@onready var portrait: TextureRect = $Box/Governor/Row/Frame/Portrait
-@onready var governor_name: Label = $Box/Governor/Row/Names/Name
-@onready var governor_title: Label = $Box/Governor/Row/Names/Title
-@onready var governor_skills: VBoxContainer = $Box/Governor/Row/Names/Skills
-@onready var planets_box: VBoxContainer = $Box/Scroll/Margin/Planets
-@onready var description: Label = $Box/Description
+@onready var governor: PanelContainer = $Box/Scroll/Margin/Content/Governor
+@onready var portrait: TextureRect = $Box/Scroll/Margin/Content/Governor/Row/Frame/Portrait
+@onready var governor_name: Label = $Box/Scroll/Margin/Content/Governor/Row/Names/Name
+@onready var governor_title: Label = $Box/Scroll/Margin/Content/Governor/Row/Names/Title
+@onready var governor_skills: VBoxContainer = $Box/Scroll/Margin/Content/Governor/Row/Names/Skills
+@onready var planets_box: VBoxContainer = $Box/Scroll/Margin/Content/Planets
+@onready var description: Label = $Box/Scroll/Margin/Content/Description
 
 var art: Node:
 	set(value):
@@ -49,7 +51,31 @@ var _tween: Tween
 var _shown_left := 0.0
 
 
+var _menu_button: Button
+var _menu: PanelContainer
+var _relocation_line: Label
+
+
 func _ready() -> void:
+	preload("../themes.gd").scroll_gap($Box/Scroll)
+	# The system's menu (owner, 2026-11-20): system-level actions beside the X; relocation first.
+	_menu_button = Button.new()
+	_menu_button.text = "≡"
+	_menu_button.custom_minimum_size = Vector2(34, 30)
+	_menu_button.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	_menu_button.focus_mode = Control.FOCUS_NONE
+	_menu_button.tooltip_text = "System actions"
+	_menu_button.visible = false
+	_menu_button.pressed.connect(_toggle_menu)
+	$Box/Header.add_child(_menu_button)
+	$Box/Header.move_child(_menu_button, $Box/Header/Close.get_index())
+	_relocation_line = Label.new()
+	_relocation_line.theme_type_variation = &"Dim"
+	_relocation_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_relocation_line.visible = false
+	var content: Control = $Box/Scroll/Margin/Content
+	content.add_child(_relocation_line)
+	content.move_child(_relocation_line, $Box/Scroll/Margin/Content/Fleets.get_index() + 1)
 	$Box/Header/Close.pressed.connect(close)
 	_restyle()
 	$Box/Back.pressed.connect(close)
@@ -99,6 +125,7 @@ func show_system(result: Dictionary, name_text: String, star_id: int) -> void:
 	description.visible = result.get("view", "full") != "full" and result.has("description")
 	description.text = result.get("description", "")
 	_show_fleets()
+	_show_relocation()
 	_show_governor()
 	_show_planets()
 	if not visible:
@@ -254,6 +281,7 @@ func refresh_system(result: Dictionary) -> void:
 
 func close() -> void:
 	close_leaders()
+	_close_menu()
 	if not visible:
 		return
 	_slide(false)
@@ -264,6 +292,7 @@ func close() -> void:
 
 ## Hides the pane without telling the game (opening a fleet closed the system box itself).
 func dismiss() -> void:
+	_close_menu()
 	if visible:
 		_slide(false)
 		system = {}
@@ -291,7 +320,13 @@ func _glowing(row: Control, planet_id: int) -> Control:
 	var style := StyleBoxFlat.new()
 	style.draw_center = false
 	style.bg_color = Color(0, 0, 0, 0)
-	style.shadow_color = Color(get_theme_color("font_pressed_color", "Button"), 0.7)
+	# The themes' amber: a list item's pressed colour where a theme sets one (Glass and Chrome
+	# leave the button's pale, owner 2026-11-19: no highlight on Glass), else the button's.
+	var glow := get_theme_color("font_pressed_color", "ListItem") if has_theme_color("font_pressed_color", "ListItem") \
+		else get_theme_color("font_pressed_color", "Button")
+	style.shadow_color = Color(glow, 0.7)
+	style.border_color = Color(glow, 0.8) # and a thin ring, for themes whose rows are see-through
+	style.set_border_width_all(1)
 	style.shadow_size = 11
 	style.set_corner_radius_all(6) # (the list has a margin all round, so the glow isn't clipped)
 	wrapper.add_theme_stylebox_override("panel", style)
@@ -333,6 +368,20 @@ func planet_row_rect(planet_id: int) -> Rect2:
 
 
 ## The colony id of a planet that is one of the player's colonies (not an outpost), or -1.
+## The open colony's planet, selected and glowing without opening anything (owner, 2026-11-19: a
+## colony opened from the to-do list or a landing left its row unmarked).
+func mark_colony(colony_id: int) -> void:
+	for planet: Dictionary in system.get("planets", []):
+		var colony: Dictionary = planet.get("colony", {})
+		if colony.has("id") and int(colony.id) == colony_id:
+			if selected_planet != int(planet.planet):
+				selected_planet = int(planet.planet)
+				_expanded[selected_planet] = true
+				_ask_potential(selected_planet)
+				_show_planets()
+			return
+
+
 func _player_colony(planet_id: int) -> int:
 	for planet: Dictionary in system.get("planets", []):
 		if int(planet.planet) == planet_id:
@@ -340,6 +389,81 @@ func _player_colony(planet_id: int) -> int:
 			if colony.get("mine", false) and not colony.get("outpost", false):
 				return int(colony.id)
 	return -1
+
+
+# ---- The system's menu and its relocation (owner, 2026-11-20) ----
+
+func _show_relocation() -> void:
+	var relocation: Dictionary = system.get("relocation", {})
+	var to := int(relocation.get("to", -1))
+	_menu_button.visible = relocation.get("can", false) or to >= 0
+	_relocation_line.visible = to >= 0
+	_relocation_line.text = "New ships go to %s" % String(relocation.get("name", "")) if to >= 0 else ""
+	if _menu and _menu.visible:
+		_open_menu() # its items follow
+
+
+func _toggle_menu() -> void:
+	if _menu and _menu.visible:
+		_close_menu()
+	else:
+		_open_menu()
+
+
+func _open_menu() -> void:
+	if _menu == null:
+		_menu = PanelContainer.new()
+		_menu.theme_type_variation = &"Pane"
+		_menu.name = "SystemMenu"
+		_menu.top_level = true
+		add_child(_menu)
+	for child in _menu.get_children():
+		_menu.remove_child(child)
+		child.queue_free()
+	var items := VBoxContainer.new()
+	items.add_theme_constant_override("separation", 4)
+	_menu.add_child(items)
+	var relocation: Dictionary = system.get("relocation", {})
+	var to := int(relocation.get("to", -1))
+	if relocation.get("can", false):
+		var relocate := _menu_item("RELOCATE NEW SHIPS…" if to < 0 else "CHANGE RELOCATION…",
+			"Pick on the map where the ships built in this system go")
+		relocate.pressed.connect(func():
+			_close_menu()
+			relocate_requested.emit(star))
+		items.add_child(relocate)
+	if to >= 0:
+		var stop := _menu_item("STOP RELOCATING TO %s" % String(relocation.get("name", "")).to_upper(),
+			"Ships built in this system stay here")
+		stop.pressed.connect(func():
+			_close_menu()
+			command.emit({"verb": "relocation_clear", "from": star, "_reply_to": "_after_relocation"}))
+		items.add_child(stop)
+	_menu.reset_size()
+	var under := _menu_button.get_global_rect()
+	_menu.global_position = Vector2(under.end.x - _menu.size.x, under.end.y + 4.0)
+	_menu.show()
+	_menu.move_to_front()
+
+
+func _menu_item(text: String, tip: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.tooltip_text = tip
+	b.focus_mode = Control.FOCUS_NONE
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.custom_minimum_size = Vector2(240, 32)
+	return b
+
+
+func _close_menu() -> void:
+	if _menu:
+		_menu.hide()
+
+
+## After a relocation changed: the system again.
+func _after_relocation(_result: Dictionary) -> void:
+	command.emit({"verb": "query", "what": "system", "star": star, "_reply_to": "refresh_system"})
 
 
 func _show_fleets() -> void:
@@ -383,6 +507,28 @@ func _on_art_loaded(_key: String) -> void:
 ## A right click's help beside `at` (info_popup.gd: one at a time, a left click closes it).
 func _show_help(title: String, text: String, at: Control) -> void:
 	preload("info_popup.gd").open(self, at, title, text)
+
+
+var _help_at: Control
+
+
+func _help_on_right_click(control: Control, topic: int) -> void:
+	control.mouse_filter = Control.MOUSE_FILTER_STOP
+	control.gui_input.connect(func(event: InputEvent):
+		var click := event as InputEventMouseButton
+		if click and click.pressed and click.button_index == MOUSE_BUTTON_RIGHT:
+			_help_at = control
+			command.emit({"verb": "query", "what": "help", "topic": topic, "_reply_to": "help_record"})
+			control.accept_event())
+
+
+## A help record's answer (the `help` query), beside what was right-clicked.
+func help_record(result: Dictionary) -> void:
+	if result.get("ok", false) and is_instance_valid(_help_at) and visible:
+		# The help file's markup: "Cost[n]:" (a race pick's cost) and "^" (a new line).
+		var text := RegEx.create_from_string("^Cost\\[-?\\d+\\]:\\s*").sub(String(result.text).strip_edges(), "")
+		text = text.replace("^", "\n").strip_edges()
+		_show_help(String(result.title).strip_edges(), text, _help_at)
 
 
 func _show_governor() -> void:
@@ -510,9 +656,36 @@ func _planet_row(planet: Dictionary) -> Control:
 		var arrow := _label("▾" if _expanded.has(id) else "▸", 14)
 		arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		right.add_child(arrow)
+	if planet.has("colonize_fleet") or planet.has("outpost_fleet"):
+		# A colony or outpost ship of the player's in orbit can settle it (owner, 2026-11-19: no way
+		# to settle from the system view): COLONIZE asks the game's question, then the landing.
+		var settle := HBoxContainer.new()
+		settle.add_theme_constant_override("separation", 6)
+		for order: String in ["colonize", "outpost"]:
+			if not planet.has(order + "_fleet"):
+				continue
+			var b := Button.new()
+			b.text = order.to_upper()
+			b.focus_mode = Control.FOCUS_NONE
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var fleet := int(planet[order + "_fleet"])
+			b.pressed.connect(func(): _settle(order, fleet, id))
+			settle.add_child(b)
+		rows.add_child(settle)
 	if _expanded.has(id) and planet.type != "gas_giant":
 		rows.add_child(_details(planet, colony))
 	return panel
+
+
+func _settle(order: String, fleet: int, planet_id: int) -> void:
+	var cmd := {"verb": order, "fleet": fleet, "planet": planet_id, "_reply_to": "_settled"}
+	if order == "colonize":
+		cmd["confirm"] = 1
+	command.emit(cmd)
+
+
+func _settled(_result: Dictionary) -> void:
+	command.emit({"verb": "query", "what": "system", "star": star, "_reply_to": "refresh_system"})
 
 
 ## The expanded part: potential as icons and numbers, then the colony's morale and its button.
@@ -549,7 +722,13 @@ func _details(planet: Dictionary, colony: Dictionary) -> Control:
 		var morale := HBoxContainer.new()
 		morale.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		morale.add_theme_constant_override("separation", 2)
-		morale.add_child(_icon("COLONY2.LBX", int(colony.government_sprite), Vector2(22, 22), "Government"))
+		# A right click on the government or the masks shows its help, as the colony screen and the
+		# race statistics do (owner, 2026-11-19); the row's own right click (the planet card) is
+		# for the rest of it. Help records: government / 2 + 474 (Race_Statistics_Specials_Help),
+		# morale 490 (colony_screen_help_list's morale box).
+		var government := _icon("COLONY2.LBX", int(colony.government_sprite), Vector2(22, 22), "Government")
+		_help_on_right_click(government, int(colony.government) / 2 + 474)
+		morale.add_child(government)
 		morale.add_child(_gap())
 		var masks := absi(int(colony.morale_icons))
 		# The masks overlap, as the colony screen stacks its icons (owner).
@@ -558,7 +737,9 @@ func _details(planet: Dictionary, colony: Dictionary) -> Control:
 		stack.add_theme_constant_override("separation", -6)
 		morale.add_child(stack)
 		for i in mini(masks, 10):
-			stack.add_child(_icon("COLONY2.LBX", int(colony.morale_sprite), Vector2(18, 18), "Morale"))
+			var mask := _icon("COLONY2.LBX", int(colony.morale_sprite), Vector2(18, 18), "Morale")
+			_help_on_right_click(mask, 490)
+			stack.add_child(mask)
 		box.add_child(morale)
 	return box
 
@@ -686,15 +867,28 @@ func _slide(opening: bool) -> void:
 	var hidden_x := -size.x - 8.0
 	if opening:
 		show()
-		position.x = hidden_x
+		preload("../themes.gd").move_x(self, hidden_x)
 	_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_property(self, "position:x", _shown_left if opening else hidden_x, SLIDE_TIME)
+	_tween.tween_method(func(x: float): preload("../themes.gd").move_x(self, x), position.x, _shown_left if opening else hidden_x, SLIDE_TIME)
 	if not opening:
 		_tween.tween_callback(hide)
 
 
+## The menu closes on a click anywhere but on it or its button (the click still goes through).
+func _input(event: InputEvent) -> void:
+	var click := event as InputEventMouseButton
+	if click and click.pressed and _menu != null and _menu.visible and \
+			not _menu.get_global_rect().has_point(click.global_position) and \
+			not _menu_button.get_global_rect().has_point(click.global_position):
+		_close_menu()
+
+
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
+	if _menu != null and _menu.visible and key and key.pressed and key.keycode == KEY_ESCAPE:
+		_close_menu() # the menu first
+		get_viewport().set_input_as_handled()
+		return
 	var colony_pane := get_parent().get_node_or_null("ColonyPane")
 	if colony_pane != null and colony_pane.visible:
 		return # Esc closes the colony pane first

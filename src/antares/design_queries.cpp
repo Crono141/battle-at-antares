@@ -2,6 +2,7 @@
 
 #include "antares/commands_internal.h"
 #include "antares/native.h"
+#include "game/legacy_ids.h"
 
 #include <algorithm>
 #include <cstring>
@@ -209,6 +210,7 @@ namespace antares::commands::internal {
                 size.Int("size", i);
                 size.Str("name", Utf8(TECHDATA::hull_data[i].name, 40));
                 size.Int("space", DESIGN::Total_Design_Space());
+                size.Bool("available", Hull_Researched(MOX::PLAYER_NUM, i));
             }
             d.ship_size = size_now;
             s_out drive = out.Add_Object("drive");
@@ -249,7 +251,7 @@ namespace antares::commands::internal {
                 }
                 weapon_space += d.weapon_space[i];
                 s_out item = weapons.Append_Object();
-                const int16_t count = std::max<int16_t>(d.weapon_count[i], 1);
+                const int16_t count = std::max<int16_t>(int16_t(d.weapon_count[i]), 1);
                 item.Int("slot", i);
                 item.Int("weapon", w);
                 item.Str("name", Utf8(count < 2 ? TECHDATA::weapons[w].name : TECHDATA::weapons[w].name_plural, 40));
@@ -348,6 +350,10 @@ namespace antares::commands::internal {
             if (args.Int("size", &size)) {
                 if (size < 0 || size >= SHIP_SIZE_COUNT) {
                     out.Fail("bad_args", "size: 0-5");
+                    return;
+                }
+                if (!Hull_Researched(MOX::PLAYER_NUM, (int16_t)size)) {
+                    out.Fail("refused", "that hull's construction isn't researched");
                     return;
                 }
                 if (s_work.ship_size != size) {
@@ -618,6 +624,81 @@ namespace antares::commands::internal {
             native::Hold_Music(-1);
         }
 
+        // auto_design (owner, 2026-11-20): every design slot redone by the automatic designer
+        // for the player's technology, each at its own hull, so the slots keep their sizes (the
+        // build screen's Alt+A, D, Init_Ship_Designs, gives each slot a fixed hull instead, a
+        // Titan even without Titan Construction). A slot on a hull not yet researched gets the
+        // largest one that is, so no design comes out unbuildable. Under strategic combat the
+        // strategic designer, as Init_Ship_Designs uses there.
+        void Auto_Design(int16_t, const s_args&, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            if (s_open) {
+                out.Fail("busy", "a design is open in the design panel");
+                return;
+            }
+            const int16_t player_idx = MOX::PLAYER_NUM;
+            const int16_t largest = Hull_Researched(player_idx, SHIP_SIZE_DOOM_STAR) ? SHIP_SIZE_DOOM_STAR
+                : Hull_Researched(player_idx, SHIP_SIZE_TITAN)                    ? SHIP_SIZE_TITAN
+                                                                                    : SHIP_SIZE_HUGE;
+            s_out slots = out.Add_List("hulls");
+            for (int16_t slot = 0; slot < SHIP_SIZE_COUNT; ++slot) {
+                s_ship_design& design = MOX::player[player_idx].ship_designs[slot];
+                int16_t hull = design.size >= 0 && design.size < SHIP_SIZE_COUNT ? design.size : SHIP_SIZE_SMALL;
+                if (!Hull_Researched(player_idx, hull)) {
+                    hull = largest;
+                }
+                if (MOX::settings.strategic_combat_flag == 1) {
+                    struct_::Clear_Structure(&design, sizeof(design));
+                    INITSHIP::Auto_Strategic_Design_Ship(player_idx, hull, &design);
+                } else {
+                    // The first slot is the scout, as Init_Ship_Designs makes it (cur_combat_x -1000
+                    // asks the designer for one).
+                    if (slot == 0) {
+                        MOX::cur_combat_x = -1000;
+                    }
+                    aidesign::Auto_Design_Ship(&game::current, legacy_world::Player_Id(player_idx), &design, hull);
+                    MOX::cur_combat_x = 0;
+                }
+                slots.Append_Int(hull);
+            }
+            out.Bool("designed", true);
+        }
+
+        // design_auto: the open design redone by the automatic designer for its hull (owner,
+        // 2026-11-20: Auto Design per ship, to tweak, build or cancel). The game's designer writes
+        // a saved design, so it designs into a copy, which the slot holds just long enough for
+        // Build_Initial_Design_Template to load it as the working copy; nothing is saved until
+        // BUILD. The picture stays, and the name if the player gave it one.
+        void Design_Auto(int16_t, const s_args&, s_out& out) {
+            if (!Have_Session(out)) {
+                return;
+            }
+            s_scope scope;
+            s_ship_design& slot_design = MOX::player[MOX::PLAYER_NUM].ship_designs[s_slot];
+            const s_ship_design saved = slot_design;
+            char name[sizeof(s_work.name)];
+            std::memcpy(name, s_work.name, sizeof(name));
+            const int16_t picture = s_work.picture_type;
+            const int16_t size = s_work.ship_size;
+            s_ship_design made = saved;
+            made.size = (uint8_t)size;
+            aidesign::Auto_Design_Ship(&game::current, legacy_world::Player_Id(MOX::PLAYER_NUM), &made, size);
+            slot_design = made;
+            DESIGN::Build_Initial_Design_Template(MOX::PLAYER_NUM, s_slot);
+            slot_design = saved;
+            s_work.ship_size = size;
+            s_work.picture_type = picture;
+            if (s_name_changed) {
+                std::memcpy(s_work.name, name, sizeof(name));
+            } else {
+                Rename_From_Picture();
+            }
+            Recalculate();
+            Design_Out(out);
+        }
+
         // design_cancel: CANCEL (the working copy dropped).
         void Design_Cancel(int16_t, const s_args&, s_out& out) {
             s_open = false;
@@ -842,6 +923,8 @@ namespace antares::commands::internal {
         table->push_back({"design_clear", e_kind::command, galaxy, 0, "", Design_Clear});
         table->push_back({"design_build", e_kind::command, galaxy, 0, "", Design_Build});
         table->push_back({"design_cancel", e_kind::command, galaxy, 0, "", Design_Cancel});
+        table->push_back({"design_auto", e_kind::command, galaxy, 0, "", Design_Auto});
+        table->push_back({"auto_design", e_kind::command, galaxy, 0, "", Auto_Design});
         table->push_back({"design_weapons", e_kind::query, ANY_SCREEN, 1, "", Query_Design_Weapons});
         table->push_back({"design_weapon_preview", e_kind::query, ANY_SCREEN, 1, "weapon, arc, rack, mods", Query_Design_Weapon_Preview});
         table->push_back({"design_specials", e_kind::query, ANY_SCREEN, 1, "", Query_Design_Specials});

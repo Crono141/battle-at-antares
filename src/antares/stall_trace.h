@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <ctime>
 #include <string>
+#include <atomic>
 #include <thread>
 
 // Logs long gaps between published frames on the game thread, with what the thread did in the
@@ -23,6 +24,7 @@ namespace antares::stall_trace {
     inline uint64_t g_last_cpu_ns = 0;
     inline uint64_t g_io_ns = 0;
     inline uint32_t g_io_calls = 0;
+    inline std::atomic<uint64_t> g_io_calls_total{0}; // every timed call since start (the smoke)
     inline uint64_t g_slowest_io_ns = 0;
     inline std::string g_slowest_io;
     inline std::string g_last_opened;
@@ -61,6 +63,7 @@ namespace antares::stall_trace {
             }
             g_io_ns += spent;
             g_io_calls++;
+            g_io_calls_total.fetch_add(1, std::memory_order_relaxed);
             if (spent > g_slowest_io_ns) {
                 g_slowest_io_ns = spent;
                 g_slowest_io = g_last_opened;

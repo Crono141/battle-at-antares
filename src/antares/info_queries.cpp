@@ -222,11 +222,21 @@ namespace antares::commands::internal {
         // The Tech Review's four lists (INFO::review_list: achievements, colony, weapons,
         // equipment), as Init_Tech_Review_List builds them: each group (billtex2) with the
         // applications the player has researched; empty groups are left out.
-        void Query_Tech_Review(int16_t, const s_args&, s_out& out) {
+        // With `player`: another empire's, as its Races report shows it (Race_Report_Screen runs the
+        // same subscreen for that player).
+        void Query_Tech_Review(int16_t, const s_args& args, s_out& out) {
             if (!Have_Game(out)) {
                 return;
             }
-            const s_player& player = MOX::player[MOX::PLAYER_NUM];
+            int64_t who = MOX::PLAYER_NUM;
+            args.Int("player", &who);
+            if (who < 0 || who >= MOX::NUM_PLAYERS) {
+                out.Fail("bad_args", "player: a player id");
+                return;
+            }
+            const int16_t owner = (int16_t)who;
+            out.Int("player", owner);
+            const s_player& player = MOX::player[owner];
             out.Str("title", Billtext("billtext.lbx", 6));
             static const char* const k_list_names[4] = {"Achievements", "Colony", "Weapons", "Equipment"};
             s_out lists = out.Add_List("lists");
@@ -246,7 +256,7 @@ namespace antares::commands::internal {
                         for (int16_t app : apps) {
                             s_out item = items.Append_Object();
                             item.Int("app", app);
-                            item.Str("name", Utf8(TECH::Technology_Applications_Name(app, MOX::PLAYER_NUM), 80));
+                            item.Str("name", Utf8(TECH::Technology_Applications_Name(app, owner), 80));
                         }
                     }
                     apps.clear();
@@ -265,6 +275,64 @@ namespace antares::commands::internal {
                     }
                 }
                 flush();
+            }
+        }
+
+        // race_report {player} (owner, 2026-11-20: the Races report natively): the left of
+        // RACERPRT::Race_Report_Screen: the ruler, the personality (and a computer player's
+        // objective), that empire's spies in the player's empire, and its alliances and wars, with
+        // the screen's own words (billtext.lbx). Its Tech Review is `tech_review` with `player`.
+        void Query_Race_Report(int16_t, const s_args& args, s_out& out) {
+            if (!Have_Game(out)) {
+                return;
+            }
+            int64_t who = -1;
+            if (!args.Int("player", &who) || who < 0 || who >= MOX::NUM_PLAYERS || who == MOX::PLAYER_NUM) {
+                out.Fail("bad_args", "player: another player's id");
+                return;
+            }
+            const int16_t p = (int16_t)who;
+            const s_player& plr = MOX::player[p];
+            out.Int("player", p);
+            out.Str("name", Utf8(plr.name, sizeof(plr.name)));
+            out.Str("race", Utf8(plr.race_name, sizeof(plr.race_name)));
+            out.Int("color", plr.color);
+            s_out portrait = out.Add_Object("portrait");
+            portrait.Str("lbx", "RACESEL.LBX:2");
+            portrait.Int("entry", k_race_select_portraits + (uint8_t)plr.race);
+            out.Str("personality", Utf8(MOX::personality_labels[(uint8_t)plr.personality], 60));
+            if (plr.objectives != PLAYER_OBJECTIVE_HUMAN) {
+                out.Str("objective", Utf8(MOX::objective_labels[plr.objectives], 60));
+            }
+            const int16_t spies = BILL::Get_Their_Spy_Number(p, MOX::PLAYER_NUM);
+            out.Int("spies", spies);
+            out.Int("spy_icon", (uint8_t)plr.race + 0x2E); // races.lbx
+            char text[64] = {};
+            if (spies == 0) {
+                JIM::Get_Text_Message("billtext.lbx", 0x1C, text, sizeof(text));
+            } else if (spies == 1) {
+                JIM::Get_Text_Message("billtext.lbx", 0x4B, text, sizeof(text));
+            } else {
+                JIM::Get_Text_Message("billtext.lbx", 0x4A, text, sizeof(text));
+                JIM::Decode_Text_Stat(text, spies, sizeof(text));
+            }
+            out.Str("spies_text", Utf8(text, sizeof(text)));
+            out.Str("alliances_label", Billtext("billtext.lbx", 0x1F));
+            out.Str("wars_label", Billtext("billtext.lbx", 0x20));
+            out.Str("none_allied", Billtext("billtext.lbx", 0x1D));
+            out.Str("none_at_war", Billtext("billtext.lbx", 0x1E));
+            s_out alliances = out.Add_List("alliances");
+            s_out wars = out.Add_List("wars");
+            for (int16_t other = 0; other < MOX::NUM_PLAYERS; ++other) {
+                if (other == p) {
+                    continue;
+                }
+                const std::string other_race = Utf8(MOX::player[other].race_name, sizeof(MOX::player[other].race_name));
+                if (plr.treaty[other] == 2) {
+                    alliances.Append_Object().Str("name", other_race);
+                } else if (plr.treaty[other] >= 4) {
+                    wars.Append_Object().Str("name", other_race);
+                }
             }
         }
 
@@ -446,7 +514,8 @@ namespace antares::commands::internal {
         const uint64_t galaxy = Screen_Bit(SCREEN_MAIN);
         table->push_back({"info", e_kind::query, ANY_SCREEN, 1, "", Query_Info});
         table->push_back({"history", e_kind::query, ANY_SCREEN, 1, "", Query_History});
-        table->push_back({"tech_review", e_kind::query, ANY_SCREEN, 1, "", Query_Tech_Review});
+        table->push_back({"tech_review", e_kind::query, ANY_SCREEN, 1, "player (optional): another empire's", Query_Tech_Review});
+        table->push_back({"race_report", e_kind::query, ANY_SCREEN, 1, "player: another empire", Query_Race_Report});
         table->push_back({"race_stats", e_kind::query, ANY_SCREEN, 1, "", Query_Race_Stats});
         table->push_back({"reference", e_kind::query, ANY_SCREEN, 1, "", Query_Reference});
         table->push_back({"reference_category", e_kind::query, ANY_SCREEN, 1, "category: 1-16", Query_Reference_Category});

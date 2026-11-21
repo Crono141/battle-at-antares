@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://packages/antares-ui/views/colony_landscape.gd" id="1"]
+
+[node name="ColonyLandscape" type="PanelContainer"]
+offset_right = 640.0
+offset_bottom = 480.0
+theme_type_variation = &"Pane"
+script = ExtResource("1")

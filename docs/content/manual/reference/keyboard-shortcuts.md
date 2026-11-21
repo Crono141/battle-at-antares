@@ -66,7 +66,7 @@ F10 shows or hides the [internal debugger](../advanced-tools/debugger.md) instea
 | `,` / `.` | Go to the previous / next colony. |
 | Space or Esc | Return to the main screen. |
 
-Queue presets are configuration entries. Version 2.00 does not load the old `BUILD.CFG` or `BUILD0.CFG` through `BUILD9.CFG` files.
+Queue presets are configuration entries. Orion2 Redone does not load the old `BUILD.CFG` or `BUILD0.CFG` through `BUILD9.CFG` files.
 
 ## Fleets Screen
 
@@ -104,7 +104,7 @@ Queue presets are configuration entries. Version 2.00 does not load the old `BUI
 | `,` / `.` | Go to the previous / next colony. |
 | Space | Accept the queue. |
 | Esc | Return without saving queue changes. |
-| Alt+A, Alt+D | Run Auto Design and update all ship designs. |
+| Alt+A, Alt+D | Run Auto Design and update all ship designs (also the AUTO DESIGN button on the Ship Design list; AUTO in the designer does the open design only). |
 
 ## Design Dock Lists
 
@@ -170,4 +170,4 @@ These are the original game's cheat codes. Hold Alt and type the letters in orde
 
 Alt+C immediately and permanently replaces the recorded Hall of Fame scores with the default entries. Back up your Hall of Fame data before using this shortcut if you want to preserve the current scores.
 
-The numbered `MAIN0.LUA` through `MAIN9.LUA` script-launch shortcuts from 1.50 are not supported in version 2.00.
+The numbered `MAIN0.LUA` through `MAIN9.LUA` script-launch shortcuts from 1.50 are not supported in Orion2 Redone.

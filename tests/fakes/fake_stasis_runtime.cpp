@@ -14,6 +14,7 @@ namespace {
     int16_t last_retargeted_missile;
     int16_t retargeted_ship_status;
     bool has_high_energy_focus;
+    bool has_rangemaster;
     bool has_transporters;
     int16_t ship_center_offsets[4];
     int16_t destroy_fx_type;
@@ -168,6 +169,7 @@ namespace TEST_CRYSTAL_FLEET {
 namespace TEST_BEAM_MODIFIERS {
     void Reset_() {
         has_high_energy_focus = false;
+        has_rangemaster = false;
         memset(MOX::ranged_to_hit_penalty, 0,
                sizeof(MOX::ranged_to_hit_penalty));
         memset(MOX::ranged_damage_penalty, 0,
@@ -181,6 +183,10 @@ namespace TEST_BEAM_MODIFIERS {
 
     void Set_Has_HEF_(bool has_hef) {
         has_high_energy_focus = has_hef;
+    }
+
+    void Set_Has_Rangemaster_(bool value) {
+        has_rangemaster = value;
     }
 }
 
@@ -228,6 +234,7 @@ namespace TEST_FIGHTER_ORDNANCE {
         memset(MOX::ordnance_bonus, 0, sizeof(MOX::ordnance_bonus));
         memset(MOX::fighter_beam_type, 0,
                sizeof(MOX::fighter_beam_type));
+        memset(MOX::fighter_bomb_type, 0, sizeof(MOX::fighter_bomb_type));
         missile_hits = 20;
     }
 }
@@ -239,6 +246,7 @@ namespace MOX {
     s_player* player = players;
     int16_t ordnance_bonus[15];
     int16_t fighter_beam_type[9];
+    int16_t fighter_bomb_type[9];
     int16_t combat_attacker_player;
     int16_t combat_defender_player;
     int16_t combat_total_ship_count;
@@ -273,6 +281,7 @@ namespace COMBINIT {
         if (special_id == SPECIAL_TRANSPORTERS) {
             return has_transporters;
         }
+        if (special_id == SPECIAL_RANGEMASTER_UNIT) return has_rangemaster;
         if (special_id == SPECIAL_DISPLACEMENT_DEVICE) {
             const s_combat_data& ship = MOX::combat_data[ship_idx];
             return (ship.special_device_flags[special_id / 8] &
@@ -377,7 +386,7 @@ namespace CMBTAI {
 
 namespace CMBTFIR2 {
     s_combat_bonus combat_bonus = {
-        50, 20, 0, 10, 20, 50, 100, 0, 80, 80, 10, 30, 15,
+        50, 20, 0, 10, 20, 50, 100, 0, 80, 80, 10, 30, 0, 15,
     };
 
     int16_t __cdecl Damage_From_Ship_Exploding(int16_t ship_idx) {
@@ -420,15 +429,6 @@ namespace BOMB {
 
 namespace ERICNET {
     void __cdecl Remove_Building(int16_t, int16_t) {
-    }
-}
-
-namespace struct_ {
-    void __cdecl Clear_Structure(void* dest, uint32_t size) {
-        memset(dest, 0, size);
-    }
-
-    void __cdecl Clear_Bit_Field(void*, uint16_t) {
     }
 }
 
