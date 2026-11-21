@@ -133,6 +133,18 @@ namespace antares::native {
     // held since the game left the native view play now (sound::Hold_New_Sounds).
     void Release_Sounds();
 
+    // A legacy tactical combat is on screen (owner, 2026-11-20: a boarding's result box went to the
+    // native galaxy, which took the screen from the combat until its timeout): while one is, the
+    // frontend claims no requests and the game draws its own boxes over the combat, as the
+    // original. COMBINIT::Tactical_Combat holds one for its length.
+    struct Legacy_Combat_Scope {
+        Legacy_Combat_Scope();
+        ~Legacy_Combat_Scope();
+        Legacy_Combat_Scope(const Legacy_Combat_Scope&) = delete;
+        Legacy_Combat_Scope& operator=(const Legacy_Combat_Scope&) = delete;
+    };
+    bool In_Legacy_Combat();
+
     // Requests from the game's generic dialogs (WP3.2b). Each returns true when the frontend
     // answered, so the legacy popup is skipped; false when no frontend claimed that kind.
     // TEXTBOX::Do_Text_Box (GENDRAW::Message_Box, Text_Box, Timed_Text_Box, User_Box 0, 2, 4, 5):

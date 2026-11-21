@@ -278,8 +278,10 @@ namespace antares::native {
             return answer;
         }
 
+        std::atomic<int> s_legacy_combat{0};
+
         bool Claimed_Kind(uint32_t bit) {
-            return Frontend() && (s_claimed_kinds.load() & bit) != 0;
+            return Frontend() && s_legacy_combat.load() == 0 && (s_claimed_kinds.load() & bit) != 0;
         }
 
         // Main_Screen's first-turn question: the player names the home star (mainscr_main.cpp).
@@ -800,6 +802,18 @@ namespace antares::native {
             return out;
         }
     } // namespace
+
+    Legacy_Combat_Scope::Legacy_Combat_Scope() {
+        s_legacy_combat.fetch_add(1);
+    }
+
+    Legacy_Combat_Scope::~Legacy_Combat_Scope() {
+        s_legacy_combat.fetch_sub(1);
+    }
+
+    bool In_Legacy_Combat() {
+        return s_legacy_combat.load() != 0;
+    }
 
     bool Message(const char* title, const char* raw_text, uint16_t timeout_ticks) {
         if (!Claimed_Kind(KIND_MESSAGE)) {
