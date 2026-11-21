@@ -195,9 +195,47 @@ namespace antares::commands::internal {
                 out.Fail("refused", "leader: a hired ship officer");
                 return;
             }
+            // OFFICER::Assign_Captain's ship tab, its questions in plain confirmation boxes: its own
+            // (Officer_Screen_User_Box) redraw the legacy officer screen after each answer, which
+            // isn't open here (a crash on confirming).
             s_officer_tab tab(LEADER_TYPE_SHIP);
-            OFFICER::Assign_Captain((int16_t)leader, (int16_t)ship);
-            out.Bool("assigned", MOX::ship[ship].officer_index == leader);
+            const int16_t l = (int16_t)leader;
+            const int16_t sh = (int16_t)ship;
+            s_ship_data* target = &MOX::ship[sh];
+            const int8_t eta = OFFICER::Get_Ship_Leader_ETA(MOX::PLAYER_NUM, l, sh);
+            char format[200];
+            char text[200];
+            if (eta == 0) {
+                strlcpy(format, HAROLD::H_Message(HESTR_119_ASSIGN_S_TO_S), sizeof(format));
+                snprintf(text, sizeof(text), format, OFFICER::Leader_Name(l, 0), target->d.name);
+            } else {
+                strlcpy(format, HAROLD::H_Message(HESTR_118_IT_WILL_TAKE_D_TURNS_F), sizeof(format));
+                if (MOX::settings.language == 4) {
+                    snprintf(text, sizeof(text), format, OFFICER::Leader_Name(l, 0), (int)eta, target->d.name);
+                } else {
+                    snprintf(text, sizeof(text), format, (int)eta, OFFICER::Leader_Name(l, 0), target->d.name);
+                }
+            }
+            bool assigned = false;
+            if (GENDRAW::Confirmation_Box(text) != 0) {
+                const int16_t existing = target->officer_index;
+                bool proceed = true;
+                if (existing != -1) {
+                    const int16_t msg = MOX::leaders[existing].eta < 1 ? HESTR_11B_S_CURRENTLY_ON_S_WILL_ : HESTR_11A_S_IN_ROUTE_TO_S_WILL_B;
+                    strlcpy(format, HAROLD::H_Message(msg), sizeof(format));
+                    snprintf(text, sizeof(text), format, OFFICER::Leader_Name(existing, 1), target->d.name);
+                    proceed = GENDRAW::Confirmation_Box(text) != 0;
+                }
+                const int16_t source = MOX::leaders[l].location;
+                if (proceed && SHIPMOVE::Confirm_Officer_Change(l, sh, eta)) {
+                    OFFICER::Assign_Leader_To_Ship(&MOX::player[MOX::PLAYER_NUM], &MOX::leaders[l], target, eta);
+                    SHIPMOVE::Recalculate_Moving_Fleet(source);
+                    SHIPMOVE::Recalculate_Moving_Fleet(sh);
+                    assigned = true;
+                }
+            }
+            MOX::FULL_DRAW_SCREEN_FLAG = 1; // as Confirmation_Box leaves it
+            out.Bool("assigned", assigned && MOX::ship[ship].officer_index == leader);
         }
 
         // ---- Races ----
