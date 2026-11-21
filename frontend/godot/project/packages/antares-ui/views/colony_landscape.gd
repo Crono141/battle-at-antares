@@ -5,6 +5,9 @@ extends PanelContainer
 ## screen, scaled to the frame; animated buildings cycle. The frontend places it (after the colony
 ## pane, or the build pane when that is out) and opens it with the colony pane on screens wide
 ## enough for it; VIEW COLONY shows or hides it; a right click on it hides it.
+## It is shown whole (owner, 2026-11-20: it filled in a picture at a time for seconds): a colony's
+## layers load out of sight and it slides in, or swaps to the next colony, once all have come;
+## prefetch() starts that when the colony pane opens, so VIEW COLONY usually finds it ready.
 
 signal command(dict: Dictionary)
 signal closed
@@ -13,6 +16,7 @@ const SCREEN := Vector2(640, 480)
 const FPS := 15.0 # the colony screen's animation pace, about a frame a tick
 const SLIDE_TIME := 0.25 # as the colony and build panes
 const SLIDE_FROM := 60.0
+const WAIT_LIMIT := 8.0 # seconds: shown with what has come by then
 
 var art: Node
 var colony_id := -1
@@ -22,6 +26,10 @@ var _time := 0.0
 var _animated := false
 var _opening := false # shown, not yet slid in (the frontend places it, then slide_in)
 var _tween: Tween
+var _next := {} # the asked-for colony's layers while their art loads
+var _next_since := 0.0
+var _target_x := 0.0
+var _reveal_waiting := false # placed, waiting for the art to slide in
 
 
 func _ready() -> void:
@@ -32,20 +40,32 @@ func _ready() -> void:
 	_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.draw.connect(_draw_stage)
 	add_child(_stage)
+	mouse_filter = Control.MOUSE_FILTER_IGNORE # until it is in
 	gui_input.connect(func(event: InputEvent):
 		var click := event as InputEventMouseButton
 		if click and click.pressed and click.button_index == MOUSE_BUTTON_RIGHT:
 			close()
 			accept_event())
 	if art:
-		art.loaded.connect(func(_key: String): _stage.queue_redraw())
+		art.loaded.connect(func(_key: String):
+			if not _next.is_empty():
+				_check_next())
+
+
+## Loads `colony`'s landscape art out of sight (the colony pane opened on it).
+func prefetch(colony: int) -> void:
+	command.emit({"verb": "query", "what": "colony_landscape", "colony": colony, "_reply_to": "_take_prefetch"})
+
+
+func _take_prefetch(result: Dictionary) -> void:
+	if not result.get("ok", false):
+		return
+	for layer: Dictionary in result.layers:
+		art.sprite(String(layer.lbx), int(layer.entry))
 
 
 ## Shows `colony`'s landscape (asked again when it is another colony's).
 func open(colony: int) -> void:
-	if colony != colony_id:
-		landscape = {}
-		_stage.queue_redraw()
 	colony_id = colony
 	command.emit({"verb": "query", "what": "colony_landscape", "colony": colony, "_reply_to": "show_landscape"})
 	if not visible or (_tween != null and _tween.is_running() and modulate.a < 1.0 and not _opening):
@@ -53,24 +73,50 @@ func open(colony: int) -> void:
 		if _tween:
 			_tween.kill()
 		modulate.a = 0.0
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		show()
 
 
 func show_landscape(result: Dictionary) -> void:
 	if not result.get("ok", false) or int(result.get("colony", -1)) != colony_id:
 		return
-	landscape = result
+	_next = result
+	_next_since = Time.get_ticks_msec() / 1000.0
+	_check_next()
+
+
+## The asked-for layers all here (or the wait over): they replace the shown ones at once.
+func _check_next() -> void:
+	if _next.is_empty():
+		return
+	var waited := Time.get_ticks_msec() / 1000.0 - _next_since
+	if waited < WAIT_LIMIT:
+		for layer: Dictionary in _next.layers:
+			art.sprite(String(layer.lbx), int(layer.entry)) # asked for (again, after a failure)
+			if not art.settled(String(layer.lbx), int(layer.entry)):
+				return
+	landscape = _next
+	_next = {}
 	_animated = false
-	for layer: Dictionary in result.layers:
-		var s: Dictionary = art.sprite(String(layer.lbx), int(layer.entry)) # asked for now, drawn when here
+	for layer: Dictionary in landscape.layers:
+		var s: Dictionary = art.sprite(String(layer.lbx), int(layer.entry))
 		if not s.is_empty() and (s.frames as Array).size() > 1:
 			_animated = true
 	_stage.queue_redraw()
+	if _reveal_waiting:
+		_reveal()
+
+
+## Ready to be seen: this colony's layers are in.
+func is_complete() -> bool:
+	return _next.is_empty() and not landscape.is_empty() and int(landscape.get("colony", -1)) == colony_id
 
 
 func close() -> void:
 	if visible and not _closing():
 		_opening = false
+		_reveal_waiting = false
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		if _tween:
 			_tween.kill()
 		_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
@@ -91,20 +137,38 @@ func shown() -> bool:
 	return visible and not _closing()
 
 
-## Moves to `x`: slides in from behind (fading in) when just opened, else glides there.
+## Moves to `x`: slides in from behind (fading in) when just opened and its art is in, else
+## glides there.
 func move_to(x: float) -> void:
+	_target_x = x
 	if _tween:
 		_tween.kill()
 	if has_meta("_closing"):
 		remove_meta("_closing")
-	_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	if _opening:
 		_opening = false
 		position.x = x - SLIDE_FROM
-		_tween.tween_property(self, "modulate:a", 1.0, SLIDE_TIME)
-	elif modulate.a < 1.0:
+		_reveal_waiting = true
+		if is_complete():
+			_reveal()
+		return
+	if _reveal_waiting:
+		position.x = x - SLIDE_FROM
+		return
+	_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if modulate.a < 1.0:
 		_tween.tween_property(self, "modulate:a", 1.0, SLIDE_TIME)
 	_tween.tween_property(self, "position:x", x, SLIDE_TIME)
+
+
+func _reveal() -> void:
+	_reveal_waiting = false
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	if _tween:
+		_tween.kill()
+	_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tween.tween_property(self, "modulate:a", 1.0, SLIDE_TIME)
+	_tween.tween_property(self, "position:x", _target_x, SLIDE_TIME)
 
 
 ## The frame's size for a picture `height` tall inside it (4:3, the theme's margins round it).
@@ -127,6 +191,8 @@ func _margins() -> Vector2:
 
 
 func _process(delta: float) -> void:
+	if not _next.is_empty() and Time.get_ticks_msec() / 1000.0 - _next_since >= WAIT_LIMIT:
+		_check_next() # the wait is over: what has come
 	if not visible or landscape.is_empty():
 		return
 	_time += delta

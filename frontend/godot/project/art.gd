@@ -16,6 +16,7 @@ var _pending := {} # request id -> key
 var _failures := {} # key -> failed exports so far (asked again up to RETRIES times)
 const RETRIES := 2
 var _hd_retries := {} # key -> asks for HD art that was still decoding
+var _hd_waiting := {} # key -> true while its 1x stands in for HD art still decoding
 const HD_RETRIES := 4
 
 
@@ -33,6 +34,18 @@ func sprite(lbx: String, entry: int) -> Dictionary:
 		_sprites[key] = {}
 		_pending[game.request_sprite(lbx, entry)] = key
 	return _sprites[key]
+
+
+## The sprite is as it will stay: arrived (in HD when that was decoding), or given up on.
+func settled(lbx: String, entry: int) -> bool:
+	if entry < 0:
+		return true
+	var key := "%s/%d" % [lbx, entry]
+	if _hd_waiting.has(key):
+		return false
+	if not (_sprites.get(key, {}) as Dictionary).is_empty():
+		return true
+	return int(_failures.get(key, 0)) > RETRIES
 
 
 ## One frame's texture (frames past the last repeat it), or null until loaded.
@@ -77,6 +90,7 @@ func _ask_again(key: String) -> void:
 
 func clear() -> void:
 	_hd_retries.clear()
+	_hd_waiting.clear()
 	_sprites.clear()
 	_pending.clear()
 	_failures.clear()
@@ -95,6 +109,8 @@ func _on_sprite_ready(id: int, data: Dictionary) -> void:
 		_failures[key] = int(_failures.get(key, 0)) + 1
 		if int(_failures[key]) <= RETRIES:
 			_sprites.erase(key)
+		_hd_waiting.erase(key)
+		loaded.emit(key) # settled for whoever waits on it (as given up on)
 		return
 	var frames: Array = []
 	var origins: Array = []
@@ -110,7 +126,10 @@ func _on_sprite_ready(id: int, data: Dictionary) -> void:
 		# The 1x pixels for now; the HD art was still decoding (a slow disk): ask again shortly and
 		# swap it in (owner, 2026-11-15: the Info panel's portrait came out muddy).
 		_hd_retries[key] = int(_hd_retries.get(key, 0)) + 1
+		_hd_waiting[key] = true
 		get_tree().create_timer(1.5).timeout.connect(func(): _ask_again(key), CONNECT_ONE_SHOT)
+	else:
+		_hd_waiting.erase(key)
 	_sprites[key] = {
 		"frames": frames,
 		"origins": origins,

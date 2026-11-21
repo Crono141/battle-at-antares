@@ -3472,6 +3472,8 @@ func _on_colony_shown(colony_id: int) -> void:
 		_place_landscape.call_deferred()
 	elif colony_id != _landscape_hidden_for and _landscape_fits_beside():
 		_show_landscape(colony_id)
+	else:
+		_view("colony_landscape").prefetch(colony_id) # VIEW COLONY finds it ready
 
 
 func _show_landscape(colony_id: int) -> void:
@@ -3927,15 +3929,38 @@ func _smoke_native() -> void:
 				if data.get("ok", false) and not data.get("outpost", false) and (data.get("buildings", []) as Array).size() > best:
 					best = (data.get("buildings", []) as Array).size()
 					source = data
+			art.clear() # cold: every picture asked for anew
 			_open_colony_at(int(source.star), int(source.colony), false)
-			await get_tree().create_timer(2.5).timeout
+			# Never seen half built (owner, 2026-11-20): when it first shows, every layer is in.
+			var t_open := Time.get_ticks_msec()
+			var seen_partial := false
+			var seen_after := -1
+			while Time.get_ticks_msec() - t_open < 9000:
+				await get_tree().process_frame
+				var watching: Control = _views.get("colony_landscape")
+				if watching != null and watching.visible and watching.modulate.a > 0.0:
+					seen_partial = not watching.is_complete()
+					seen_after = Time.get_ticks_msec() - t_open
+					break
+				if watching != null and not watching.visible and Time.get_ticks_msec() - t_open > 1500:
+					break # a screen without room: VIEW COLONY below
+			await get_tree().create_timer(1.0).timeout
+			print("smoke: landscape first seen after %d ms, complete then %s" % [seen_after, not seen_partial])
+			if seen_partial:
+				await host.smoke_fail("the colony landscape showed before its pictures were in")
+				return
 			var land: Control = _views.get("colony_landscape")
 			var pane := _view("colony_pane")
 			var shown_by_itself: bool = land != null and land.visible
 			var narrow := not shown_by_itself and not _landscape_fits_beside() # a screen without room: VIEW COLONY opens it
 			if narrow:
+				# Prefetched with the colony pane: VIEW COLONY shows it at once.
+				var t_view := Time.get_ticks_msec()
 				pane.landscape_toggled.emit(int(source.colony))
-				await get_tree().create_timer(1.5).timeout
+				while not land.is_complete() and Time.get_ticks_msec() - t_view < 9000:
+					await get_tree().process_frame
+				print("smoke: landscape by VIEW COLONY, prefetched: complete after %d ms" % (Time.get_ticks_msec() - t_view))
+				await get_tree().create_timer(1.0).timeout
 				land = _views.get("colony_landscape")
 				shown_by_itself = land != null and land.visible
 			var layers: int = (land.landscape.get("layers", []) as Array).size() if land else 0
