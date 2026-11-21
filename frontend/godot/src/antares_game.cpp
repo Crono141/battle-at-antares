@@ -3,6 +3,7 @@
 #include "antares/host.h"
 #include "antares/native.h"
 #include "antares/stall_trace.h"
+#include "pch.h"
 #include "command_line.h"
 
 #include <godot_cpp/classes/global_constants.hpp>
@@ -785,6 +786,13 @@ namespace godot {
         d["input_polls"] = (int64_t)antares::native::Polls();
         d["legacy_combat"] = antares::native::In_Legacy_Combat(); // a tactical combat is on (the smoke)
         d["io_calls"] = (int64_t)antares::stall_trace::g_io_calls_total.load(); // the game's file calls so far (the smoke)
+        // The combat's current ship (the smoke: a right click turns it).
+        if (antares::native::In_Legacy_Combat() && MOX::cur_ship >= 0 && MOX::cur_ship < MOX::combat_total_ship_count) {
+            d["combat_ship"] = (int64_t)MOX::cur_ship;
+            d["combat_facing"] = (int64_t)MOX::combat_data[MOX::cur_ship].facing_dir;
+            d["combat_owner"] = (int64_t)MOX::combat_data[MOX::cur_ship].owner;
+            d["player"] = (int64_t)MOX::PLAYER_NUM;
+        }
         return d;
     }
 

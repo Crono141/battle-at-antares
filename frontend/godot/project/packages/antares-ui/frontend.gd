@@ -4040,6 +4040,74 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--combat-turn":
+			# Owner, 2026-11-20: right clicks did not turn ships in a combat. Turns are played until
+			# one of the player's ships has the turn in a tactical combat; a right click on empty
+			# space beside it must turn it (combat1.cpp: -space_field, Turn_To_Face).
+			var turns := 0
+			var mine := false
+			while turns < 6 and not mine:
+				await _smoke_clear_todo()
+				_send({"verb": "end_turn"})
+				turns += 1
+				var waited := 0.0
+				while waited < 90.0:
+					var st: Dictionary = game.get_stats()
+					if bool(st.get("legacy_combat", false)) and st.has("combat_owner") and int(st.combat_owner) == int(st.player):
+						# Its orders are being waited for: polls go on, frames stop.
+						var polls := int(st.get("input_polls", 0))
+						await get_tree().create_timer(1.0).timeout
+						if int(game.get_stats().get("input_polls", 0)) > polls + 5 and int(game.get_stats().get("combat_owner", -1)) == int(st.player):
+							mine = true
+							break
+					if not bool(st.get("legacy_combat", false)) and native_screen == Screens.MAIN and waited > 5.0 and not _turn_over_galaxy:
+						break # the turn is over without a combat for us
+					if overlay.visible and String(_views["dialog"].popup_name) == "attack_target":
+						_views["dialog"]._answer(_views["dialog"].OPTION_ANSWER) # attack the first target (fight with our ships)
+					else:
+						_smoke_answer()
+					if bool(st.get("legacy_combat", false)) and st.has("combat_owner") and int(st.combat_owner) != int(st.player):
+						game.send_key(KEY_ENTER, false, false, false) # boxes in the AI's turns
+					await get_tree().create_timer(0.25).timeout
+					waited += 0.25
+			print("smoke: combat turn: one of the player's ships has the turn %s after %d turns" % [mine, turns])
+			if not mine:
+				await host.smoke_fail("no combat with a ship of the player's came")
+				return
+			var rect := legacy.get_global_rect()
+			var before: Dictionary = game.get_stats()
+			if shots != "":
+				await host.shot(shots + "/combat-turn-before.png")
+			var tried := []
+			for spot: Vector2 in [Vector2(120, 60), Vector2(520, 60), Vector2(120, 300), Vector2(520, 300)]:
+				var at := (rect.position + spot * rect.size / Vector2(640.0, 480.0)) * get_window().content_scale_factor
+				var rc := InputEventMouseButton.new()
+				rc.button_index = MOUSE_BUTTON_RIGHT
+				rc.position = at
+				rc.pressed = true
+				rc.button_mask = MOUSE_BUTTON_MASK_RIGHT
+				Input.parse_input_event(rc)
+				if OS.get_environment("RC_HOLD") != "":
+					await get_tree().create_timer(float(OS.get_environment("RC_HOLD"))).timeout
+				var rc_up := rc.duplicate()
+				rc_up.pressed = false
+				rc_up.button_mask = 0
+				Input.parse_input_event(rc_up) # a quick click
+				await get_tree().create_timer(1.2).timeout
+				var now: Dictionary = game.get_stats()
+				tried.append([spot, int(now.get("combat_ship", -1)), int(now.get("combat_facing", -1))])
+			if shots != "":
+				await host.shot(shots + "/combat-turn-after.png")
+			print("smoke: combat turn: ship %d facing %d; after right clicks %s" % [int(before.combat_ship), int(before.combat_facing), tried])
+			var turned := false
+			for t: Array in tried:
+				if int(t[1]) == int(before.combat_ship) and int(t[2]) != int(before.combat_facing):
+					turned = true
+			if not turned:
+				await host.smoke_fail("right clicks did not turn the player's ship")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--selfdestruct":
 			# Owner, 2026-11-20: SELF DESTRUCT in a combat froze, then crashed. The turn's end into
 			# the combat (questions answered), then the button (combat1.cpp: 283,348) and Enter.
@@ -4078,6 +4146,8 @@ func _smoke_native() -> void:
 				if mb and mb.button_index == MOUSE_BUTTON_RIGHT:
 					got.append(mb.pressed)
 			game.gui_input.connect(hear)
+			var st0: Dictionary = game.get_stats()
+			print("smoke: before the right click: ship %s owner %s (player %s) facing %s" % [st0.get("combat_ship"), st0.get("combat_owner"), st0.get("player"), st0.get("combat_facing")])
 			var r_at := (rect.position + Vector2(OS.get_environment("RC_X").to_float() if OS.get_environment("RC_X") != "" else 300.0,
 				OS.get_environment("RC_Y").to_float() if OS.get_environment("RC_Y") != "" else 120.0) * rect.size / Vector2(640.0, 480.0)) * get_window().content_scale_factor
 			var rc := InputEventMouseButton.new()
@@ -4092,7 +4162,11 @@ func _smoke_native() -> void:
 			Input.parse_input_event(rc_up)
 			await get_tree().create_timer(0.3).timeout
 			game.gui_input.disconnect(hear)
-			await get_tree().create_timer(0.5).timeout
+			await get_tree().create_timer(1.0).timeout
+			var st1: Dictionary = game.get_stats()
+			print("smoke: after the right click: ship %s owner %s facing %s" % [st1.get("combat_ship"), st1.get("combat_owner"), st1.get("combat_facing")])
+			if shots != "":
+				await host.shot(shots + "/combat-right-click.png")
 			print("smoke: right click in combat reached the game: %s; hovered %s; mouse filter of game %d, legacy %d" % [got,
 				get_viewport().gui_get_hovered_control(), game.mouse_filter, legacy.mouse_filter])
 			var at := (rect.position + Vector2(290.0, 352.0) * rect.size / Vector2(640.0, 480.0)) * get_window().content_scale_factor

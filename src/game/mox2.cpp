@@ -60,6 +60,13 @@ namespace MOX2 {
             // Antares (WP3.1b, G5): a frontend may run this screen natively.
             if (current_screen != SCREEN_EXIT) {
                 antares::native::Update_Packages();
+                if (current_screen == SCREEN_MAIN && antares::native::Wants_Screen(SCREEN_MAIN)) {
+                    // Main_Screen's one lasting setting, which the native galaxy in its place would
+                    // otherwise never make (owner, 2026-11-20: right clicks never turned ships in a
+                    // combat): a right click goes to the field under it, not "cancel" (-1). The
+                    // original set it on the first galaxy screen and nothing clears it.
+                    fields::Disable_Cancel();
+                }
                 if (antares::native::Run_Screen(current_screen)) {
                     MOX::previous_screen = current_screen;
                     continue;
