@@ -87,7 +87,9 @@ func open(colony: int) -> void:
 	if not visible or (_tween != null and _tween.is_running() and modulate.a < 1.0 and not _opening):
 		_opening = true
 		if _tween:
-			_tween.kill()
+			_tween.kill() # a close's slide too: its end would have cleared _closing
+		if has_meta("_closing"):
+			remove_meta("_closing") # else shown() stays false: never placed, never revealed again
 		modulate.a = 0.0
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		show()
