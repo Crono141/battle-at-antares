@@ -147,6 +147,32 @@ func show_options(result: Dictionary) -> void:
 		_slide(true)
 
 
+## The ship designs changed (a design built in the Ship Design panel): the choices are asked for
+## again; the working queue and its edits stay, its ships under their new names.
+func refresh_choices() -> void:
+	if visible and colony_id >= 0:
+		command.emit({"verb": "query", "what": "build_options", "colony": colony_id, "_reply_to": "_show_new_choices"})
+
+
+func _show_new_choices(result: Dictionary) -> void:
+	if not result.get("ok", false) or int(result.get("colony", colony_id)) != colony_id or options.is_empty():
+		return
+	options.buildings = result.buildings
+	options.units = result.units
+	_names.clear()
+	for list in [result.buildings, result.units]:
+		for item: Dictionary in list:
+			if item.has("id"):
+				_names[int(item.id)] = item
+	for q: Dictionary in _queue:
+		var entry: Dictionary = _names.get(int(q.get("id", -1)), {})
+		if not entry.is_empty():
+			q.name = entry.get("name", q.get("name", "?"))
+			q.picture = entry.get("picture", q.get("picture", {}))
+	_show_items()
+	_show_queue()
+
+
 func cancel() -> void:
 	_close_refit_popup()
 	if visible:
