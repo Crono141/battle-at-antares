@@ -4133,6 +4133,56 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--assign-officer":
+			# Owner, 2026-11-21: assigning a ship officer to a warship elsewhere (the transit
+			# question answered yes) froze the game and crashed it 5-10 s later.
+			_on_view_action("leaders")
+			await get_tree().create_timer(0.8).timeout
+			var lp := _view("leaders_panel")
+			lp._set_tab("ship")
+			await get_tree().create_timer(1.0).timeout
+			var officer := -1
+			var officer_ship := -2
+			for l: Dictionary in lp.leaders:
+				if int(l.get("status", -1)) != 4:
+					officer = int(l.leader)
+					officer_ship = int(l.get("ship", -1))
+					break
+			var target := -1
+			for pl: Dictionary in lp.places:
+				for s: Dictionary in pl.get("ships", []):
+					if int(s.id) != officer_ship and target < 0 and (officer_ship < 0 or not (pl.get("ships", []) as Array).any(func(x: Dictionary) -> bool: return int(x.id) == officer_ship)):
+						target = int(s.id)
+			print("smoke: assign officer %d (on ship %d) to ship %d" % [officer, officer_ship, target])
+			if officer < 0 or target < 0:
+				await host.smoke_fail("no officer or ship to assign")
+				return
+			lp.picked = officer
+			lp.picked_ship = target
+			lp._act("assign")
+			for i in 30:
+				await get_tree().create_timer(0.2).timeout
+				_smoke_answer()
+			var pings := 0
+			for i in 15:
+				var got := {}
+				_send({"verb": "query", "what": "leaders", "type": "ship"}, func(r: Dictionary): got["r"] = r)
+				for k in 20:
+					await get_tree().create_timer(0.05).timeout
+					if got.has("r"):
+						break
+				if got.has("r"):
+					pings += 1
+				await get_tree().create_timer(1.0).timeout
+				_smoke_answer()
+			var after: Dictionary = lp._leader(officer)
+			print("smoke: after the assignment the game answered %d of 15 queries over 15 s; officer status %d, '%s'" % [pings,
+				int(after.get("status", -1)), after.get("state", "")])
+			if pings < 15 or int(after.get("status", -1)) != 1:
+				await host.smoke_fail("the game stopped answering after the officer assignment")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--select-combat":
 			await _smoke_window_setting()
 			# The select-combat window (WP, owner 2026-11-20): an attack_target preview at a star

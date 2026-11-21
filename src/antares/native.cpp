@@ -877,6 +877,18 @@ namespace antares::native {
         std::vector<s_lost_colony> s_lost_in_combat;
     } // namespace
 
+    namespace {
+        bool s_officer_panel_command = false;
+    }
+
+    void Set_Officer_Panel_Command(bool running) {
+        s_officer_panel_command = running;
+    }
+
+    bool Officer_Panel_Command() {
+        return s_officer_panel_command;
+    }
+
     void Note_Colony_Lost_In_Combat(int16_t colony) {
         if (colony < 0 || colony >= MOX::NUM_COLONIES) {
             return;

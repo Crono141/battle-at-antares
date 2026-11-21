@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/commands_internal.h"
+#include "antares/native.h"
 
 #include <cstring>
 
@@ -27,8 +28,15 @@ namespace antares::commands::internal {
         // The officer screen's tab (OFFICER::Is_Fleet_Officer_Screen), set for one command.
         struct s_officer_tab {
             int8_t saved = MOX::officer_scrn_type;
-            explicit s_officer_tab(uint8_t type) { MOX::officer_scrn_type = (int8_t)type; }
-            ~s_officer_tab() { MOX::officer_scrn_type = saved; }
+            bool saved_command = antares::native::Officer_Panel_Command();
+            explicit s_officer_tab(uint8_t type) {
+                MOX::officer_scrn_type = (int8_t)type;
+                antares::native::Set_Officer_Panel_Command(true); // no Leaders screen behind its boxes
+            }
+            ~s_officer_tab() {
+                MOX::officer_scrn_type = saved;
+                antares::native::Set_Officer_Panel_Command(saved_command);
+            }
         };
 
         // leaders {type: colony | ship}: the player's leaders of that kind as the Leaders screen

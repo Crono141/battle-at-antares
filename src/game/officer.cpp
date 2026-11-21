@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/native.h"
 #include "antares/todo.h"
 #include "officer_roster.h"
 #include "string_overrides.h"
@@ -1604,6 +1605,9 @@ namespace OFFICER {
             GENDRAW::Message_Box(message);
         }
 
+        if (antares::native::Officer_Panel_Command()) {
+            return result; // Antares: the Leaders panel's command, no Leaders screen to redraw
+        }
         video::Set_Page_Off();
         MOX::draw_officer_to_back = 1;
         OFFICER::Draw_Officer_Screen();

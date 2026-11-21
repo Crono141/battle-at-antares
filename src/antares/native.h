@@ -160,6 +160,12 @@ namespace antares::native {
     // the player's own, its lost-colony message is kept and shown once the combat screen is gone
     // (Show_Colony_Lost_Notices, after the combat in combfind.cpp).
     void Note_Colony_Lost_In_Combat(int16_t colony);
+    // The Leaders panel's commands run the Leaders screen's code without its screen: its boxes
+    // must not redraw the screen behind them (OFFICER::Officer_Screen_User_Box; owner,
+    // 2026-11-21: assigning a ship officer crashed in Draw_Officer_Screen_To_Back, its art never
+    // loaded). Set while such a command runs.
+    void Set_Officer_Panel_Command(bool running);
+    bool Officer_Panel_Command();
     void Show_Colony_Lost_Notices();
 
     // Requests from the game's generic dialogs (WP3.2b). Each returns true when the frontend
