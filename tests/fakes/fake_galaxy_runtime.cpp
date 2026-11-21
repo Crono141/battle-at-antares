@@ -332,6 +332,7 @@ namespace MAINPUPS {
     int16_t __cdecl Dragon_New_Star_Popup(int16_t, int16_t) { return -1; }
     int16_t __cdecl Colony_Selection_Popup(s_invasion_side_info*, s_invasion_side_info*, int32_t, int16_t, int16_t, int8_t) { return -1; }
     int16_t __cdecl Colony_Bombing_Popup(s_combat_bomb_result*, s_invasion_side_info*, s_invasion_side_info*, int32_t, int16_t, int16_t, int8_t) { return -1; }
+    void __cdecl Player_Attacked_Popup(int16_t, int16_t, int16_t, int16_t) {}
 } // namespace MAINPUPS
 namespace fields {
     int16_t __cdecl Get_List_Field(int16_t, int16_t, int16_t, const char*, const char*, int32_t, int8_t*, uint8_t*, int16_t, uint8_t*, int32_t, s_animation_header*, int32_t, const char*) { return -1; }

@@ -123,6 +123,7 @@ namespace MAINPUPS {
             int32_t value = -1;
             bool enabled = true;
             int16_t planet = -1;
+            int16_t fleet_owner = -1; // a side's ships (select combat): its fleets light on the map
             bool potential = false; // carries the planet's potential (the window's hover card)
             std::vector<std::string> details; // lines under the choice (a target's planet and defences)
         };
@@ -132,7 +133,8 @@ namespace MAINPUPS {
             for (const s_native_option& o : options) {
                 json += std::string(json.empty() ? "" : ",") + "{\"text\":" + antares::native::Quote(o.text.c_str()) +
                     ",\"enabled\":" + (o.enabled ? "true" : "false") +
-                    (o.planet >= 0 ? ",\"planet\":" + std::to_string(o.planet) : std::string());
+                    (o.planet >= 0 ? ",\"planet\":" + std::to_string(o.planet) : std::string()) +
+                    (o.fleet_owner >= 0 ? ",\"fleet_owner\":" + std::to_string(o.fleet_owner) : std::string());
                 const std::string potential = o.potential && o.planet >= 0 ? antares::native::Potential_Json(o.planet) : std::string();
                 if (!potential.empty()) {
                     json += ",\"potential\":" + potential;
@@ -727,6 +729,17 @@ namespace MAINPUPS {
             snprintf(formatted_msg, sizeof(formatted_msg), ESTRINGS::E_Strings(format_id), attacker_name, defender_name, location_name);
         }
 
+        // Antares (owner, 2026-11-20): natively, the camera flies into the system, the message
+        // beside it and the player's fleet there on its other side, as in the select-combat window.
+        if (antares::native::Popups_Native() && star_idx >= 0 && star_idx < MOX::NUM_STARS) {
+            const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," + Native_Zoom_Json(star_idx) +
+                ",\"buttons\":[\"OK\"]" + antares::native::Combat_Fleet_Field(star_idx);
+            int32_t answer = 0;
+            if (antares::native::Popup("player_attacked", formatted_msg, fields, &answer)) {
+                MOX2::Put_Auto_Function(&eric_saved_autofunction);
+                return;
+            }
+        }
         ERICHELP::Set_Player_Attacked_Popup_Help_List();
         GENDRAW::Message_Box_Exploding_Star(formatted_msg, star_idx);
         fields::Deactivate_Help_List();
@@ -784,9 +797,11 @@ namespace MAINPUPS {
                     MOX::planet_climate_string[(uint8_t)target.climate], (int)(uint8_t)target.n_pops);
                 o.details.push_back(detail);
                 std::string defences;
+                // The planetary shield too (owner, 2026-11-20: the defences, always shown in orbit).
                 for (const int16_t building : {(int16_t)BUILDING_STAR_FORTRESS, (int16_t)BUILDING_STAR_BASE, (int16_t)BUILDING_BATTLESTATION,
                          (int16_t)BUILDING_MISSILE_BASE, (int16_t)BUILDING_GROUND_BATTERIES, (int16_t)BUILDING_STELLAR_CONVERTER,
-                         (int16_t)BUILDING_FIGHTER_GARRISON}) {
+                         (int16_t)BUILDING_FIGHTER_GARRISON, (int16_t)BUILDING_BARRIER_SHIELD, (int16_t)BUILDING_FLUX_SHIELD,
+                         (int16_t)BUILDING_RADIATION_SHIELD}) {
                     if (target.buildings[building] != 0) {
                         defences += std::string(defences.empty() ? "" : ", ") + TECHDATA::buildings[building].name;
                     }
@@ -803,10 +818,12 @@ namespace MAINPUPS {
                 s_native_option o;
                 o.text = std::string(MOX::player[owner].race_name) + " ships";
                 o.value = owner;
+                o.fleet_owner = owner;
                 options.push_back(o);
             }
             const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," +
-                Native_Zoom_Json(star_idx) + "," + Native_Options_Json(options) + ",\"buttons\":[\"CANCEL\"]";
+                Native_Zoom_Json(star_idx) + "," + Native_Options_Json(options) + ",\"buttons\":[\"CANCEL\"]" +
+                antares::native::Combat_Fleet_Field(star_idx); // the player's fleet window
             int32_t answer = 0;
             if (antares::native::Popup("attack_target", line, fields, &answer)) {
                 const int32_t pick = answer - k_option_answer;

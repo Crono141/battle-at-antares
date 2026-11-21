@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "game/legacy_ids.h"
 
 // Stand-ins for what src/antares/fleet_panel_queries.cpp calls in the game (WP3.5c), for
 // tests/unit/fleet_panel_queries_test.cpp.
@@ -37,7 +38,27 @@ namespace INITSHIP {
         *missile_defense = 50;
         *attack = 40;
     }
+    // The select-combat window's ships (combat_fleet, 2026-11-20).
+    int16_t __cdecl Get_Ship_Armor_Hits(int16_t) {
+        return 100;
+    }
+    int16_t __cdecl Get_Ship_Structure(int16_t) {
+        return 60;
+    }
 } // namespace INITSHIP
+
+namespace DESIGN {
+    void __cdecl Weapon_Arc_String(uint16_t, char* dest_str, int32_t dest_str_size) {
+        strlcpy(dest_str, "F", (size_t)dest_str_size);
+    }
+} // namespace DESIGN
+
+// The strength bands: each of our ships rates 30 against a side, each of theirs 10 against us.
+namespace AIPOWER {
+    uint16_t Ship_Strength_Vs_Ships(const game::s_view*, game::id_ship attacker_idx, game::id_player) {
+        return MOX::ship[legacy_world::Slot(attacker_idx)].owner == MOX::PLAYER_NUM ? 30 : 10;
+    }
+} // namespace AIPOWER
 
 // The system pane's relocation (relocation_targets / _set / _clear, 2026-11-20).
 namespace TEST_FLEET_PANEL {

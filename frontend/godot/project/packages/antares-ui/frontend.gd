@@ -118,6 +118,9 @@ func _ready() -> void:
 	galaxy.right_clicked.connect(func(): _end_relocation_pick())
 	galaxy.planet_clicked.connect(_on_planet_clicked)
 	galaxy.planet_hovered.connect(_on_planet_hovered)
+	galaxy.fleet_owner_hovered.connect(func(owner: int):
+		if overlay.visible and _views.has("dialog") and _views.dialog.visible:
+			_views.dialog.hover_fleet_owner(owner))
 	galaxy.empty_clicked.connect(_on_empty_clicked)
 	galaxy.planet_right_clicked.connect(_on_planet_right_clicked)
 	galaxy.system_panned.connect(func(away: bool):
@@ -1535,6 +1538,7 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		dialog.art = art
 		dialog.answered.connect(_on_answered)
 		dialog.released.connect(_popup_closed)
+		dialog.fleet_row_hovered.connect(func(owner: int): galaxy.lit_owner = owner)
 		dialog.planet_row_hovered.connect(func(planet_id: int):
 			galaxy.hovered_planet = planet_id
 			galaxy.redraw())
@@ -2975,7 +2979,7 @@ func _start_popup_map(dialog: Control, request: Dictionary) -> void:
 		_popup_zoom = -1 # over a scene (the landing's occupation question): the map stays
 	_popup_pick_star = bool(request.get("pick_star", false))
 	var on_map: bool = (_popup_zoom >= 0 or _popup_pick_star) and galaxy.visible and not galaxy.stars.is_empty()
-	dialog.placement = ("left" if _popup_zoom >= 0 else "top") if on_map else ""
+	dialog.placement = ("beside" if _popup_zoom >= 0 else "top") if on_map else ""
 	dialog.bare_width = 0.0
 	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE if on_map else Control.MOUSE_FILTER_STOP
 	overlay.color.a = 0.0 if on_map else 0.45
@@ -2983,17 +2987,26 @@ func _start_popup_map(dialog: Control, request: Dictionary) -> void:
 		_popup_zoom = -1
 		_popup_pick_star = false
 		return
-	if _popup_zoom >= 0 and galaxy.system_star != _popup_zoom:
-		# Another system's pane goes first (owner, 2026-11-14: a to-do item's window flew to its
-		# system with the old system's pane still up); the camera flies on from where it is.
+	if _popup_zoom >= 0:
+		# The system in the middle of the map, the window just left of it (owner, 2026-11-20: it
+		# sat at the screen's far left); the select-combat window's fleet on its right. A system
+		# pane goes first (owner, 2026-11-14: a to-do item's window flew to its system with the old
+		# system's pane still up); the camera flies on from where it is.
 		var system_pane: Control = _views.get("system_pane")
 		if system_pane != null and system_pane.visible:
 			_keep_camera = true # no flight back to the galaxy on its closing
 			system_pane.dismiss()
 			_keep_camera = false
 		galaxy.selected = _popup_zoom
-		_frame_system(_popup_zoom)
-		galaxy.show_system(_popup_zoom, request.get("system", {}))
+		var framed := _frame_system_centred(_popup_zoom)
+		dialog.placement_at = Vector2(framed.centre.x - framed.radius - POPUP_BESIDE_GAP, framed.centre.y)
+		_popup_system_frame = framed
+		# The select-combat window: the player's fleet on the system's other side.
+		if request.has("fleet"):
+			var band := _pane_band()
+			_combat_fleet_view().open(request.fleet, framed.centre.x + framed.radius + POPUP_BESIDE_GAP, framed.centre.y, band.y)
+		if galaxy.system_star != _popup_zoom:
+			galaxy.show_system(_popup_zoom, request.get("system", {}))
 		galaxy.redraw()
 
 
@@ -3090,8 +3103,27 @@ func _on_answered(id: int, value: int, text := "") -> void:
 		game.answer_request(id, value)
 
 
+## The select-combat window's fleet side (views/combat_fleet.gd), in the overlay over the shade.
+var _combat_fleet: Control
+
+
+func _combat_fleet_view() -> Control:
+	if _combat_fleet == null:
+		_combat_fleet = preload("views/combat_fleet.gd").new()
+		_combat_fleet.name = "CombatFleet"
+		_combat_fleet.art = art
+		_combat_fleet.theme = native_layer.theme
+		_combat_fleet.hide()
+		$Overlay.add_child(_combat_fleet)
+	_combat_fleet.move_to_front()
+	return _combat_fleet
+
+
 ## The question's window gone: the overlay down, the galaxy or the legacy view back.
 func _popup_closed() -> void:
+	if _combat_fleet != null and _combat_fleet.visible:
+		_combat_fleet.close()
+	galaxy.lit_owner = -1
 	overlay.hide()
 	_end_popup_map()
 	if _question_over_galaxy:
@@ -3325,6 +3357,30 @@ func _show_system_result(star_id: int, result: Dictionary, fly: bool) -> void:
 ## system pane, and the colony pane when it is open: WP3.4).
 const SYSTEM_ZOOM_CLOSER := 1.2 * 1.2 # two wheel notches (galaxy.gd's 1.2 a notch)
 const SYSTEM_ROOM_PER_HEIGHT := 1.15
+
+
+## A system-zoom popup's system: centred in the map's free width (the screen less the side tabs),
+## sized so a window fits on each side of it. Its centre and on-screen radius once the flight ends.
+const POPUP_BESIDE_GAP := 18.0
+const POPUP_SIDE_WIDTH := 470.0 # a window beside the system (the dialog's 460, the fleet's)
+var _popup_system_frame := {}
+
+
+func _frame_system_centred(star_id: int) -> Dictionary:
+	var view := get_viewport().get_visible_rect().size
+	var left := 8.0
+	var right := view.x - 48.0
+	var tabs: Control = _views.get("side_tabs")
+	if tabs != null and tabs.visible:
+		for b in tabs.find_children("*", "Button", true, false):
+			if (b as Control).is_visible_in_tree():
+				right = minf(right, (b as Control).get_global_rect().position.x - 8.0)
+	var room := clampf(right - left - 2.0 * (POPUP_SIDE_WIDTH + POPUP_BESIDE_GAP), view.x * 0.22, view.y * SYSTEM_ROOM_PER_HEIGHT)
+	var zoom: float = galaxy.zoom_for_scale(SYSTEM_VIEW_SCALE)
+	galaxy.system_scale = room / (288.0 * zoom) # the system box fills the room between the windows
+	var centre := Vector2((left + right) * 0.5, view.y * 0.5)
+	galaxy.fly_to(galaxy.star_position(star_id), zoom, centre)
+	return {"centre": centre, "radius": 0.5 * 288.0 * galaxy.system_scale * zoom}
 
 
 func _frame_system(star_id: int) -> void:
@@ -4040,6 +4096,90 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--select-combat":
+			# The select-combat window (WP, owner 2026-11-20): an attack_target preview at a star
+			# with another empire's colony; can the game answer a query while it waits?
+			var sc_star := -1
+			for st: Dictionary in galaxy.stars:
+				var sys: Dictionary = await _query_args({"what": "system", "star": int(st.id)})
+				for planet: Dictionary in sys.get("planets", []):
+					var colony: Dictionary = planet.get("colony", {})
+					if not colony.is_empty() and not colony.get("mine", false) and sc_star < 0:
+						sc_star = int(st.id)
+				if sc_star >= 0:
+					break
+			# The query on its own, at every star with ships of ours and someone else's.
+			for st2: Dictionary in galaxy.stars:
+				var cf: Dictionary = await _query_args({"what": "combat_fleet", "star": int(st2.id)})
+				if cf.get("ok", false) and not (cf.ships as Array).is_empty():
+					print("smoke: combat_fleet at %d: %d ships of ours, first %s; enemies %s; scanner %s" % [int(st2.id), (cf.ships as Array).size(),
+						JSON.stringify(cf.ships[0]).left(700), JSON.stringify(cf.enemies), cf.scanner])
+					break
+			var sc_box := {}
+			_send({"verb": "preview_popup", "popup": "attack_target", "star": sc_star}, func(r: Dictionary): sc_box["r"] = r)
+			for i in 40:
+				await get_tree().create_timer(0.1).timeout
+				if _views.has("dialog") and _views.dialog.visible:
+					break
+			var t_ask := Time.get_ticks_msec()
+			var sc_mine := -1
+			for f: Dictionary in galaxy.fleets:
+				if int(f.owner) == int(galaxy.data.get("player", -1)):
+					sc_mine = int(f.ship)
+					break
+			var answered := {}
+			_send({"verb": "query", "what": "ship_detail", "ship": sc_mine}, func(r: Dictionary): answered["r"] = r)
+			while not answered.has("r") and Time.get_ticks_msec() - t_ask < 3000:
+				await get_tree().process_frame
+			print("smoke: select combat at star %d: popup up %s; a query during it answered %s after %d ms (%s)" % [sc_star, _views.dialog.visible,
+				answered.has("r"), Time.get_ticks_msec() - t_ask, str(answered.get("r", {})).left(120)])
+			if shots != "":
+				await host.shot(shots + "/select-combat.png")
+			# A side's ships row and its fleets on the map light each other (owner, 2026-11-20).
+			_views.dialog.fleet_row_hovered.emit(1)
+			var map_lit: bool = galaxy.lit_owner == 1
+			var probe := Button.new()
+			_views.dialog._fleet_rows[1] = probe
+			galaxy.fleet_owner_hovered.emit(1)
+			var row_lit: bool = probe.has_theme_color_override("font_color")
+			_views.dialog._fleet_rows.erase(1)
+			probe.free()
+			print("smoke: select combat links: a ships row frames its fleets %s, a fleet lights its row %s" % [map_lit, row_lit])
+			_views.dialog._answer(-1)
+			await get_tree().create_timer(0.3).timeout
+			if not map_lit or not row_lit or galaxy.lit_owner != -1:
+				await host.smoke_fail("the select-combat window's ships rows and the map's fleets did not light each other")
+				return
+			# The message before an attack on the player (owner, 2026-11-20): the same layout.
+			var home := -1
+			for st3: Dictionary in galaxy.stars:
+				var cf3: Dictionary = await _query_args({"what": "combat_fleet", "star": int(st3.id)})
+				if cf3.get("ok", false) and not (cf3.ships as Array).is_empty():
+					home = int(st3.id)
+					break
+			var pa := {}
+			_send({"verb": "preview_popup", "popup": "player_attacked", "star": home}, func(r: Dictionary): pa["r"] = r)
+			for i in 40:
+				await get_tree().create_timer(0.1).timeout
+				if _views.dialog.visible and String(_views.dialog.popup_name) == "player_attacked":
+					break
+			await get_tree().create_timer(1.5).timeout
+			var pa_fleet: bool = _combat_fleet != null and _combat_fleet.visible
+			var pa_beside: bool = _views.dialog.placement == "beside" and galaxy.system_star == home
+			print("smoke: attacked message at %d: shown %s, beside its system %s, fleet window %s, text '%s'" % [home, _views.dialog.visible, pa_beside,
+				pa_fleet, _views.dialog.get_node("Fit/Box/Text").text.left(80)])
+			if shots != "":
+				await host.shot(shots + "/player-attacked.png")
+			_views.dialog._answer(0)
+			for i in 20:
+				await get_tree().create_timer(0.1).timeout
+				if pa.has("r"):
+					break
+			if not pa_fleet or not pa_beside or not pa.has("r"):
+				await host.smoke_fail("the attacked message did not show beside its system with the fleet")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--combat-turn":
 			# Owner, 2026-11-20: right clicks did not turn ships in a combat. Turns are played until
 			# one of the player's ships has the turn in a tactical combat; a right click on empty
@@ -4063,7 +4203,19 @@ func _smoke_native() -> void:
 					if not bool(st.get("legacy_combat", false)) and native_screen == Screens.MAIN and waited > 5.0 and not _turn_over_galaxy:
 						break # the turn is over without a combat for us
 					if overlay.visible and String(_views["dialog"].popup_name) == "attack_target":
+						# The select-combat window (WP): the fleet side beside the system.
+						await get_tree().create_timer(2.0).timeout
+						var fv: Control = _combat_fleet
+						var dlg: Control = _views["dialog"]
+						print("smoke: select combat: dialog %s, fleet view %s at %s with %d ships, %d enemies; system centre %s radius %.0f" % [
+							dlg.get_global_rect(), fv != null and fv.visible, fv.get_global_rect() if fv else Rect2(),
+							(fv.fleet.get("ships", []) as Array).size() if fv else 0, (fv.fleet.get("enemies", []) as Array).size() if fv else 0,
+							_popup_system_frame.get("centre", Vector2.ZERO), float(_popup_system_frame.get("radius", 0.0))])
+						if shots != "":
+							await host.shot(shots + "/select-combat-real.png")
 						_views["dialog"]._answer(_views["dialog"].OPTION_ANSWER) # attack the first target (fight with our ships)
+						await get_tree().create_timer(0.3).timeout
+						print("smoke: select combat answered: fleet view hidden %s" % [fv == null or not fv.visible])
 					else:
 						_smoke_answer()
 					if bool(st.get("legacy_combat", false)) and st.has("combat_owner") and int(st.combat_owner) != int(st.player):

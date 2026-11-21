@@ -48,6 +48,12 @@ func _draw() -> void:
 			var rect: Rect2 = placed[i]
 			Links.dashed_line(self, rect.get_center(), galaxy.star_position(int(fleet.destination)),
 				OWN_LINE if fleet.line == "own" else ENEMY_LINE, px, _time)
+	# An empire's fleets in the open system, its row hovered in the select-combat window.
+	if galaxy.lit_owner >= 0:
+		for i in galaxy.fleets.size():
+			var lit: Dictionary = galaxy.fleets[i]
+			if int(lit.owner) == galaxy.lit_owner and int(lit.get("star", -1)) == galaxy.system_star and galaxy.fleet_alpha(lit) > 0.01:
+				draw_rect((placed[i] as Rect2).grow(3.0 * px), SELECTED_FRAME, false, 2.0 * px)
 	for i in galaxy.fleets.size():
 		var fleet: Dictionary = galaxy.fleets[i]
 		if int(fleet.ship) != galaxy.selected_fleet or galaxy.fleet_alpha(fleet) <= 0.01:

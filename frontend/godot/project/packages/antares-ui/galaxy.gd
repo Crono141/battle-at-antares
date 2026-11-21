@@ -27,6 +27,15 @@ signal system_panned(away: bool)
 ## The pointer moved onto a planet of the open system, or off them (-1): the system pane lights
 ## its row, a colony ship's window shows it (owner, 2026-11-13).
 signal planet_hovered(planet_id: int)
+## A fleet of the open system hovered: its owner (-1: none) (the select-combat window lights its row).
+signal fleet_owner_hovered(owner: int)
+## An empire's fleets framed in the open system (the select-combat window's hovered row; -1: none).
+var lit_owner := -1:
+	set(value):
+		if value != lit_owner:
+			lit_owner = value
+			$Fleets.queue_redraw()
+var _hovered_owner := -1
 
 ## Banner colours by the game's player colour index (s_player.color).
 const PLAYER_COLORS := [
@@ -364,6 +373,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		if star != _hovered_star:
 			_hovered_star = star
 			star_hovered.emit(star)
+		if not system.is_empty():
+			var ship := _pick_fleet(motion.position)
+			var owner := -1
+			for fleet: Dictionary in fleets:
+				if int(fleet.ship) == ship and int(fleet.get("star", -1)) == system_star:
+					owner = int(fleet.owner)
+			if owner != _hovered_owner:
+				_hovered_owner = owner
+				fleet_owner_hovered.emit(owner)
 		var planet: int = $Orbits.pick(_screen_to_world(motion.position)) if not system.is_empty() else -1
 		if planet != hovered_planet:
 			hovered_planet = planet
