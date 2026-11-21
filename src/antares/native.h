@@ -147,7 +147,7 @@ namespace antares::native {
 
     // The select-combat window's sides at `star` (the combat_fleet query), as a request field
     // ',"fleet":{...}': the game answers no queries while a popup waits, so it comes with it.
-    std::string Combat_Fleet_Field(int16_t star);
+    std::string Combat_Fleet_Field(int16_t star, const std::vector<int16_t>& sides);
 
     // Requests from the game's generic dialogs (WP3.2b). Each returns true when the frontend
     // answered, so the legacy popup is skipped; false when no frontend claimed that kind.

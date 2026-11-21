@@ -669,6 +669,26 @@ func _smoke_tips_and_outside_clicks(options: Control, shots: String) -> bool:
 	return true
 
 
+## A point of the legacy 640x480 screen in window pixels: the game draws it 4:3, centred in its
+## control (AntaresGame::Frame_Rect), so on a wide window the sides are bars.
+func _smoke_legacy_point(spot: Vector2) -> Vector2:
+	var rect := legacy.get_global_rect()
+	var frame_size := Vector2(minf(rect.size.x, rect.size.y * 4.0 / 3.0), minf(rect.size.y, rect.size.x * 3.0 / 4.0))
+	var origin := rect.position + (rect.size - frame_size) * 0.5
+	return (origin + spot * frame_size / Vector2(640.0, 480.0)) * get_window().content_scale_factor
+
+
+## SMOKE_WINDOW ("2556x1369") and SMOKE_SCALE ("1.3"): a player's screen and interface scale.
+func _smoke_window_setting() -> void:
+	var wide := OS.get_environment("SMOKE_WINDOW").split("x")
+	if wide.size() == 2:
+		get_window().size = Vector2i(int(wide[0]), int(wide[1]))
+	if OS.get_environment("SMOKE_SCALE") != "":
+		get_window().content_scale_factor = float(OS.get_environment("SMOKE_SCALE"))
+	if wide.size() == 2 or OS.get_environment("SMOKE_SCALE") != "":
+		await get_tree().create_timer(0.6).timeout
+
+
 func _smoke_mouse(pressed: bool, at: Vector2) -> void:
 	var click := InputEventMouseButton.new()
 	click.button_index = MOUSE_BUTTON_LEFT
@@ -2993,18 +3013,24 @@ func _start_popup_map(dialog: Control, request: Dictionary) -> void:
 		# pane goes first (owner, 2026-11-14: a to-do item's window flew to its system with the old
 		# system's pane still up); the camera flies on from where it is.
 		var system_pane: Control = _views.get("system_pane")
-		if system_pane != null and system_pane.visible:
-			_keep_camera = true # no flight back to the galaxy on its closing
-			system_pane.dismiss()
-			_keep_camera = false
-		galaxy.selected = _popup_zoom
-		var framed := _frame_system_centred(_popup_zoom)
+		var framed := {}
+		if galaxy.system_star == _popup_zoom and system_pane != null and system_pane.visible:
+			# Its own system already open (COLONIZE in its pane, the confirm after a pick): the
+			# pane and the framing stay; the window beside the system where it is.
+			framed = _system_screen_frame(_popup_zoom)
+		else:
+			if system_pane != null and system_pane.visible:
+				_keep_camera = true # no flight back to the galaxy on its closing
+				system_pane.dismiss()
+				_keep_camera = false
+			galaxy.selected = _popup_zoom
+			framed = _frame_system_centred(_popup_zoom)
 		dialog.placement_at = Vector2(framed.centre.x - framed.radius - POPUP_BESIDE_GAP, framed.centre.y)
 		_popup_system_frame = framed
 		# The select-combat window: the player's fleet on the system's other side.
 		if request.has("fleet"):
 			var band := _pane_band()
-			_combat_fleet_view().open(request.fleet, framed.centre.x + framed.radius + POPUP_BESIDE_GAP, framed.centre.y, band.y)
+			_combat_fleet_view().open(request.fleet, framed.centre.x + framed.radius + POPUP_BESIDE_GAP, band.x, band.y, _landscape_right_limit())
 		if galaxy.system_star != _popup_zoom:
 			galaxy.show_system(_popup_zoom, request.get("system", {}))
 		galaxy.redraw()
@@ -3375,11 +3401,21 @@ func _frame_system_centred(star_id: int) -> Dictionary:
 		for b in tabs.find_children("*", "Button", true, false):
 			if (b as Control).is_visible_in_tree():
 				right = minf(right, (b as Control).get_global_rect().position.x - 8.0)
-	var room := clampf(right - left - 2.0 * (POPUP_SIDE_WIDTH + POPUP_BESIDE_GAP), view.x * 0.22, view.y * SYSTEM_ROOM_PER_HEIGHT)
+	# The box no bigger than the system view draws it (owner, 2026-11-14: larger came out muddy).
+	var largest := view.y * SYSTEM_ROOM_PER_HEIGHT * SYSTEM_VIEW_SHARE * SYSTEM_ZOOM_CLOSER
+	var room := clampf(right - left - 2.0 * (POPUP_SIDE_WIDTH + POPUP_BESIDE_GAP), minf(view.x * 0.22, largest), largest)
 	var zoom: float = galaxy.zoom_for_scale(SYSTEM_VIEW_SCALE)
 	galaxy.system_scale = room / (288.0 * zoom) # the system box fills the room between the windows
 	var centre := Vector2((left + right) * 0.5, view.y * 0.5)
 	galaxy.fly_to(galaxy.star_position(star_id), zoom, centre)
+	return {"centre": centre, "radius": 0.5 * 288.0 * galaxy.system_scale * zoom}
+
+
+## Where an open system is on the screen now: its centre and the radius of its box.
+func _system_screen_frame(star_id: int) -> Dictionary:
+	var view := get_viewport().get_visible_rect().size
+	var zoom: float = galaxy.camera.zoom.x
+	var centre: Vector2 = (galaxy.star_position(star_id) - galaxy.camera.position) * zoom + view * 0.5
 	return {"centre": centre, "radius": 0.5 * 288.0 * galaxy.system_scale * zoom}
 
 
@@ -3500,7 +3536,8 @@ func _pane_band() -> Vector2:
 	var bottom := view_height - float(bar.get_theme_constant("inset", "Screen")) - gap
 	var controls: Control = _views.get("map_controls")
 	if controls != null and controls.is_visible_in_tree():
-		bottom = controls.get_global_rect().position.y - gap
+		# On the screen only (they slide away during the turn: a 7000 px band, 2026-11-21).
+		bottom = minf(bottom, controls.get_global_rect().position.y - gap)
 	return Vector2(top, maxf(bottom - top, 200.0))
 
 
@@ -4097,6 +4134,7 @@ func _smoke_native() -> void:
 			game.request_game_quit()
 			return
 		if arg == "--select-combat":
+			await _smoke_window_setting()
 			# The select-combat window (WP, owner 2026-11-20): an attack_target preview at a star
 			# with another empire's colony; can the game answer a query while it waits?
 			var sc_star := -1
@@ -4181,6 +4219,7 @@ func _smoke_native() -> void:
 			game.request_game_quit()
 			return
 		if arg == "--combat-turn":
+			await _smoke_window_setting()
 			# Owner, 2026-11-20: right clicks did not turn ships in a combat. Turns are played until
 			# one of the player's ships has the turn in a tactical combat; a right click on empty
 			# space beside it must turn it (combat1.cpp: -space_field, Turn_To_Face).
@@ -4227,12 +4266,14 @@ func _smoke_native() -> void:
 				await host.smoke_fail("no combat with a ship of the player's came")
 				return
 			var rect := legacy.get_global_rect()
+			print("smoke: combat turn: legacy rect %s, game rect %s, window %s, scale %.2f" % [rect, game.get_global_rect(), get_window().size,
+				get_window().content_scale_factor])
 			var before: Dictionary = game.get_stats()
 			if shots != "":
 				await host.shot(shots + "/combat-turn-before.png")
 			var tried := []
 			for spot: Vector2 in [Vector2(120, 60), Vector2(520, 60), Vector2(120, 300), Vector2(520, 300)]:
-				var at := (rect.position + spot * rect.size / Vector2(640.0, 480.0)) * get_window().content_scale_factor
+				var at := _smoke_legacy_point(spot)
 				var rc := InputEventMouseButton.new()
 				rc.button_index = MOUSE_BUTTON_RIGHT
 				rc.position = at
@@ -6846,10 +6887,12 @@ func _smoke_settle(shots: String) -> void:
 	if button == null:
 		await host.smoke_fail("the system pane has no COLONIZE button")
 		return
+	var scale_before: float = galaxy.system_scale
 	button.pressed.emit()
 	var waited := 0.0
 	var asked: Array = []
 	var landing_seen := false
+	var kept_checked := false
 	while waited < 60.0:
 		await get_tree().create_timer(0.4).timeout
 		waited += 0.4
@@ -6865,6 +6908,19 @@ func _smoke_settle(shots: String) -> void:
 			continue
 		var dialog: Control = _views.get("dialog")
 		if overlay.visible and dialog != null and dialog.visible:
+			if not kept_checked:
+				# Its own system open (owner, 2026-11-21 review): the question leaves the pane and
+				# the system's scale as they were, the window beside the system.
+				kept_checked = true
+				await get_tree().create_timer(0.8).timeout
+				var kept: bool = _view("system_pane").visible and absf(galaxy.system_scale - scale_before) < 0.0001
+				print("smoke: settle question over its open system: pane and scale kept %s, placement '%s' at %s" % [kept, dialog.placement,
+					dialog.get_global_rect()])
+				if shots != "":
+					await host.shot(shots + "/native-settle-question.png")
+				if not kept:
+					await host.smoke_fail("COLONIZE's question closed the open system's pane or rescaled the system")
+					return
 			asked.append("%s/%s" % [dialog._kind, dialog.popup_name])
 			if dialog._kind == "text":
 				dialog._answer(0)

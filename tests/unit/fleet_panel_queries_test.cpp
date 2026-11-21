@@ -129,6 +129,9 @@ DOCTEST_TEST_CASE("combat_fleet lists our ships in orbit with damage, and the ot
     DOCTEST_CHECK(Has_(fleet, "\"player\":1,\"name\":\"Silicoid\""));
     DOCTEST_CHECK(Has_(fleet, "\"ships\":1"));
     DOCTEST_CHECK_FALSE(Has_(fleet, "\"strength\""));
+    // Only the sides in the fight: another side not asked for is left out.
+    DOCTEST_CHECK_FALSE(Has_(Run_("{\"verb\":\"query\",\"what\":\"combat_fleet\",\"star\":1,\"sides\":[5]}"), "Silicoid"));
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"combat_fleet\",\"star\":1,\"sides\":[1]}"), "Silicoid"));
     f_players_[0].tech_applications[TECH_APP_BATTLE_SCANNER] = TECH_RESEARCH_STATUS_RESEARCHED;
     DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"combat_fleet\",\"star\":1}"), "\"strength\":\"superior\"")); // 30 vs 10
 }
