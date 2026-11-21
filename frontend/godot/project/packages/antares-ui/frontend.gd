@@ -261,7 +261,9 @@ func _process(delta: float) -> void:
 		# the next one without polling, and the hand-back showed the legacy screen for seconds
 		# (owner, 2026-11-20, over the share).
 		var waiting := int(game.get_stats().get("input_polls", 0)) >= _turn_clearing_polls + 2
-		if native_screen == Screens.MAIN or overlay.visible \
+		# A native battle waits for the player in its own scene (WP3.9; it never polls the legacy
+		# screen): the turn's galaxy ends at once, or it took the battle's clicks for 10 s.
+		if native_screen == Screens.MAIN or overlay.visible or _in_battle() \
 				or (_turn_clearing >= TURN_HANDBACK_DELAY and waiting) or _turn_clearing >= TURN_HANDBACK_LIMIT:
 			_end_turn_notice()
 	if _turn_stopping:
@@ -5407,7 +5409,8 @@ func _smoke_native() -> void:
 		return
 	if "--combat" in OS.get_cmdline_user_args():
 		# WP3.9b: end the turn into a battle (SAVE10: Fortuna) and play it in the native scene.
-		if await _smoke_combat(shots):
+		var start: Dictionary = await _query("empire")
+		if await _smoke_combat(shots) and await _smoke_after_battle(int(start.get("stardate", 0)), shots):
 			print("smoke: combat OK")
 			game.request_game_quit()
 			print("smoke: asked the game to quit")
@@ -7307,6 +7310,27 @@ func _smoke_selfdestruct_native() -> bool:
 		waited += 0.5
 	print("smoke: selfdestruct: battle over after %.0f s (shown %s)" % [waited, view.visible])
 	return not view.visible
+
+
+## After the battle (2026-11-21, main's rewritten aftermath: the orbit and bombing window, the
+## emptied colony's message, the to-do list): the turn's questions answered until the native galaxy
+## is back on the next stardate.
+func _smoke_after_battle(stardate_before: int, shots: String) -> bool:
+	var waited := 0.0
+	var stardate := stardate_before
+	while waited < 120.0:
+		_smoke_answer()
+		await get_tree().create_timer(0.5).timeout
+		waited += 0.5
+		if native_screen == Screens.MAIN and not overlay.visible and not _in_battle():
+			var empire: Dictionary = await _query("empire")
+			stardate = int(empire.get("stardate", stardate_before))
+			if stardate > stardate_before:
+				break
+	print("smoke: after the battle: galaxy %s, stardate %d (was %d) after %.0f s" % [native_screen == Screens.MAIN, stardate, stardate_before, waited])
+	if shots != "":
+		await host.shot(shots + "/combat-after.png")
+	return native_screen == Screens.MAIN and stardate > stardate_before
 
 
 func _smoke_click(at: Vector2) -> void:
