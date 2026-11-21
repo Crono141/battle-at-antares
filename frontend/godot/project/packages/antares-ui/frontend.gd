@@ -4148,6 +4148,58 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--scouts-special":
+			# Owner, 2026-11-21: the scouts' window didn't say which planet had the special, nor
+			# list the planets. A system with a planet's special, previewed.
+			var found_star := -1
+			var found_planet := -1
+			var found_special := 0
+			for st: Dictionary in galaxy.stars:
+				var sq: Dictionary = await _query_args({"what": "system", "star": int(st.id)})
+				for pl: Dictionary in sq.get("planets", []):
+					if int(pl.get("special", 0)) > 0 and String(pl.get("special_name", "")) != "":
+						found_star = int(st.id)
+						found_planet = int(pl.planet)
+						found_special = int(pl.special)
+						break
+				if found_star >= 0:
+					break
+			print("smoke: scouts special: star %d, planet %d, special %d" % [found_star, found_planet, found_special])
+			if found_star < 0:
+				await host.smoke_fail("no planet with a special in this save")
+				return
+			var ns := {}
+			_send({"verb": "preview_popup", "popup": "new_system", "star": found_star, "special": found_special}, func(r: Dictionary): ns["r"] = r)
+			for i in 40:
+				await get_tree().create_timer(0.1).timeout
+				if _views.dialog.visible and String(_views.dialog.popup_name) == "new_system":
+					break
+			await get_tree().create_timer(1.5).timeout
+			var rows: Dictionary = _views.dialog._planet_rows
+			var marked := false
+			for label in _views.dialog.find_children("*", "Label", true, false):
+				if (label as Label).text.contains("\u2605"):
+					marked = true
+			print("smoke: scouts window: %d planet rows, the special's planet listed %s, marked %s, size %s" % [rows.size(), rows.has(found_planet), marked, _views.dialog.size])
+			if shots != "":
+				await host.shot(shots + "/scouts-special.png")
+			var row: Button = rows.get(found_planet)
+			if row != null:
+				_views.dialog.planet_row_hovered.emit(found_planet)
+				await get_tree().create_timer(0.5).timeout
+				if shots != "":
+					await host.shot(shots + "/scouts-special-hover.png")
+				_views.dialog.planet_row_hovered.emit(-1)
+			_views.dialog._answer(0)
+			for i in 20:
+				await get_tree().create_timer(0.1).timeout
+				if ns.has("r"):
+					break
+			if rows.is_empty() or not rows.has(found_planet) or not marked:
+				await host.smoke_fail("the scouts' window did not list the planets with the special's marked")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--system-side":
 			# Owner, 2026-11-21: a system open, a right side panel opened and closed: the stars
 			# stayed dimmed as in a system, zoomed out, with no way back to the galaxy.

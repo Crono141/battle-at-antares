@@ -116,6 +116,11 @@ func ask(id: int, kind: String, request: Dictionary) -> void:
 		_card_holder = null
 		for planet: Dictionary in request.get("system", {}).get("planets", []):
 			_planets[int(planet.planet)] = planet
+		_planet_rows.clear()
+		if popup_name == "new_system" and not _planets.is_empty():
+			# The system's planets, the special's marked (owner, 2026-11-21: nothing said which
+			# planet had the gem deposits, nor listed the planets), each lit with its planet.
+			_extra.add_child(_system_planet_list(request.system.planets))
 		for option: Dictionary in request.get("options", []):
 			if option.has("potential") and option.has("planet"):
 				_potentials[int(option.planet)] = option.potential
@@ -709,7 +714,7 @@ func _special_box(special: Dictionary) -> Control:
 	var picture: Dictionary = special.get("picture", {})
 	if not picture.is_empty() and art:
 		var rect: TextureRect = preload("sprite_rect.gd").new()
-		rect.custom_minimum_size = Vector2(380, 150)
+		rect.custom_minimum_size = Vector2(380, 120)
 		rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -726,6 +731,53 @@ func _special_box(special: Dictionary) -> Control:
 	text.custom_minimum_size.x = 380
 	column.add_child(text)
 	box.add_child(column)
+	return box
+
+
+## A just-visited system's planets (the scouts' window): name, size, climate and minerals, a
+## planet's special in gold. Hovering a row lights its planet on the map, and the map's planet
+## lights its row.
+func _system_planet_list(planets: Array) -> Control:
+	var box := PanelContainer.new()
+	box.theme_type_variation = &"Pane"
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 2)
+	var heading := Label.new()
+	heading.theme_type_variation = &"Name"
+	heading.text = "Planets"
+	list.add_child(heading)
+	for planet: Dictionary in planets:
+		var planet_id := int(planet.get("planet", -1))
+		var row := Button.new()
+		row.theme_type_variation = &"ListItem"
+		row.focus_mode = Control.FOCUS_NONE
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		row.custom_minimum_size = Vector2(380, 0)
+		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var parts: Array = []
+		for key in ["size_name", "climate_name", "minerals_name"]:
+			var part := String(planet.get(key, ""))
+			if part != "":
+				parts.append(part)
+		row.text = String(planet.get("name", "")) + ("  -  " + ", ".join(parts) if not parts.is_empty() else "")
+		list.add_child(row)
+		var special_name := String(planet.get("special_name", ""))
+		if int(planet.get("special", 0)) > 0 and special_name != "":
+			var special := Label.new()
+			special.text = "    \u2605 " + special_name
+			special.add_theme_color_override("font_color", Color(1.0, 0.8, 0.35))
+			special.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			list.add_child(special)
+		if planet_id >= 0:
+			_planet_rows[planet_id] = row
+			row.mouse_entered.connect(func(): planet_row_hovered.emit(planet_id))
+			row.mouse_exited.connect(func(): planet_row_hovered.emit(-1))
+			row.gui_input.connect(func(event: InputEvent):
+				var mb := event as InputEventMouseButton
+				if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
+					if show_planet_card(planet_id, row.get_global_rect()):
+						row.accept_event())
+	box.add_child(list)
 	return box
 
 
