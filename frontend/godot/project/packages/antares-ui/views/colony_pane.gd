@@ -59,6 +59,8 @@ var art: Node
 var colony := {}
 var colony_id := -1
 var _tween: Tween
+## Sliding out: still visible until the slide ends, but new contents slide it back in.
+var _sliding_out := false
 var _shown_left := 0.0
 ## Room kept free under the pane: the map controls' previous/next buttons (owner, 2026-11-14).
 var bottom_clear := 0.0
@@ -205,6 +207,8 @@ func dismiss() -> void:
 
 
 func show_colony(result: Dictionary) -> void:
+	if int(result.get("colony", colony_id)) != colony_id:
+		return # an answer for a colony asked for before this one
 	if not result.get("ok", false):
 		if visible:
 			close()
@@ -225,7 +229,7 @@ func show_colony(result: Dictionary) -> void:
 	$Scroll/Box/DefencesTitle.visible = any_defence
 	_fill($Scroll/Box/Garrison, _garrison_row())
 	_fill($Scroll/Box/Buildings, _buildings_list())
-	if not visible:
+	if not visible or _sliding_out:
 		_slide(true)
 	if not bool(result.get("outpost", false)):
 		colony_shown.emit(colony_id)
@@ -817,6 +821,7 @@ func _slide(opening: bool) -> void:
 	if _tween:
 		_tween.kill()
 	var hidden_x := _shown_left - 60.0
+	_sliding_out = not opening
 	if opening:
 		show()
 		modulate.a = 0.0
@@ -825,7 +830,9 @@ func _slide(opening: bool) -> void:
 	_tween.tween_method(func(x: float): preload("../themes.gd").move_x(self, x), position.x, _shown_left if opening else hidden_x, SLIDE_TIME)
 	_tween.tween_property(self, "modulate:a", 1.0 if opening else 0.0, SLIDE_TIME)
 	if not opening:
-		_tween.chain().tween_callback(hide)
+		_tween.chain().tween_callback(func():
+			hide()
+			_sliding_out = false)
 
 
 func _unhandled_key_input(event: InputEvent) -> void:

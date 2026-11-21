@@ -50,6 +50,8 @@ var _queue: Array = [] # [{id, name, picture}], REPEAT entries included
 var _edits: Array = []
 var _names := {} # item id -> {name, picture} (the lists' items)
 var _tween: Tween
+## Sliding out: still visible until the slide ends, but new contents slide it back in.
+var _sliding_out := false
 var _shown_left := 0.0
 var _drop_gap := -1 # where a drag over the list would land (-1: no drag)
 var _marker: Control
@@ -125,6 +127,8 @@ func open(id: int, is_bought: bool) -> void:
 
 
 func show_options(result: Dictionary) -> void:
+	if int(result.get("colony", colony_id)) != colony_id:
+		return # an answer for a colony asked for before this one
 	if not result.get("ok", false):
 		return
 	options = result
@@ -143,7 +147,7 @@ func show_options(result: Dictionary) -> void:
 	_show_items()
 	_show_queue()
 	_show_detail(_queue[0] if not _queue.is_empty() else {})
-	if not visible:
+	if not visible or _sliding_out:
 		_slide(true)
 
 
@@ -890,6 +894,7 @@ func _slide(opening: bool) -> void:
 	if _tween:
 		_tween.kill()
 	var hidden_x := _shown_left - 80.0
+	_sliding_out = not opening
 	if opening:
 		show()
 		modulate.a = 0.0
@@ -898,7 +903,9 @@ func _slide(opening: bool) -> void:
 	_tween.tween_method(func(x: float): preload("../themes.gd").move_x(self, x), position.x, _shown_left if opening else hidden_x, SLIDE_TIME)
 	_tween.tween_property(self, "modulate:a", 1.0 if opening else 0.0, SLIDE_TIME)
 	if not opening:
-		_tween.chain().tween_callback(hide)
+		_tween.chain().tween_callback(func():
+			hide()
+			_sliding_out = false)
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
