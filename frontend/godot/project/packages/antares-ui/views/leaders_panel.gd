@@ -276,7 +276,10 @@ func _show_place() -> void:
 			tile.custom_minimum_size = SHIP_TILE
 			tile.expand_icon = true
 			tile.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			tile.tooltip_text = String(ship.name) + ("" if int(ship.officer) < 0 else "\n(has an officer)")
+			var officer := int(ship.officer)
+			var aboard := _leader(officer) if officer >= 0 else {}
+			tile.tooltip_text = String(ship.name) + ("" if officer < 0 else "\nOfficer: %s %s" % [String(aboard.get("card", {}).get("title", "")),
+				String(aboard.get("card", {}).get("name", "an officer"))])
 			tile.set_meta("art", ["SHIPS.LBX", int(ship.picture)])
 			if art != null:
 				tile.icon = art.texture("SHIPS.LBX", int(ship.picture))
@@ -286,6 +289,35 @@ func _show_place() -> void:
 			tile.add_theme_stylebox_override("hover", preload("fleets_panel.gd")._tile_style(false, true))
 			tile.add_theme_stylebox_override("pressed", preload("fleets_panel.gd")._tile_style(true, false))
 			tile.add_theme_stylebox_override("hover_pressed", preload("fleets_panel.gd")._tile_style(true, true))
+			if officer >= 0:
+				# The officer aboard: their portrait in the tile's corner; the picked leader's ship
+				# ringed in gold.
+				var badge: TextureRect = preload("sprite_rect.gd").new()
+				badge.custom_minimum_size = Vector2(26, 26)
+				badge.size = Vector2(26, 26)
+				badge.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+				badge.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+				badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+				badge.offset_left = -28.0
+				badge.offset_right = -2.0
+				badge.offset_top = 2.0
+				badge.offset_bottom = 28.0
+				if art != null:
+					badge.bind(art)
+					badge.show_sprite("OFFICER.LBX", int(aboard.get("card", {}).get("portrait", -1)))
+				tile.add_child(badge)
+				if officer == picked:
+					var ring := Panel.new()
+					ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+					ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+					var ring_style := StyleBoxFlat.new()
+					ring_style.draw_center = false
+					ring_style.set_border_width_all(3)
+					ring_style.border_color = Color(1.0, 0.8, 0.3)
+					ring_style.set_corner_radius_all(4)
+					ring.add_theme_stylebox_override("panel", ring_style)
+					tile.add_child(ring)
 			var id := int(ship.id)
 			tile.set_pressed_no_signal(id == picked_ship)
 			tile.toggled.connect(func(on: bool):
@@ -338,6 +370,15 @@ func _card(leader: Dictionary) -> Control:
 		var mb := event as InputEventMouseButton
 		if mb and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
 			picked = -1 if picked == id else id
+			# A ship officer picked: the panel goes to the fleet with the officer's ship, ringed
+			# (owner, 2026-11-21: with a dozen ships of one name, nothing said which one).
+			if tab == "ship" and picked == id and leader.has("ship"):
+				var at := _fleet_place(int(leader.ship))
+				if at >= 0 and at != place:
+					place = at
+					picked_ship = -1
+			if tab == "ship":
+				_show_place()
 			_show_cards())
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)

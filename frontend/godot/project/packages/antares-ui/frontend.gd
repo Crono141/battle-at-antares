@@ -4447,6 +4447,38 @@ func _smoke_native() -> void:
 			var after: Dictionary = lp._leader(officer)
 			print("smoke: after the assignment the game answered %d of 15 queries over 15 s; officer status %d, '%s'" % [pings,
 				int(after.get("status", -1)), after.get("state", "")])
+			# The leader picked (owner, 2026-11-21): the panel shows the fleet with their ship, its tile
+			# ringed, the officer's portrait on it.
+			lp.picked = -1
+			lp.place = 0
+			lp._show_place()
+			lp.refresh()
+			await get_tree().create_timer(1.0).timeout
+			var card_index := -1
+			for i in lp.leaders.size():
+				if int(lp.leaders[i].leader) == officer:
+					card_index = i
+			var click := InputEventMouseButton.new()
+			click.button_index = MOUSE_BUTTON_LEFT
+			click.pressed = true
+			if card_index >= 0:
+				(lp._cards.get_child(card_index) as Control).gui_input.emit(click)
+			await get_tree().create_timer(0.8).timeout
+			var shown_ships: Array = (lp.places[lp.place].get("ships", []) as Array).map(func(s: Dictionary) -> int: return int(s.id))
+			var ringed := 0
+			var badged := 0
+			for tile in lp._ships.get_children():
+				for child in tile.get_children():
+					if child is Panel:
+						ringed += 1
+					elif child is TextureRect:
+						badged += 1
+			print("smoke: leader %d picked: place shows ship %d %s, tiles ringed %d, officer badges %d" % [officer, target, target in shown_ships, ringed, badged])
+			if shots != "":
+				await host.shot(shots + "/leader-ship-marked.png")
+			if not target in shown_ships or ringed != 1 or badged < 1:
+				await host.smoke_fail("picking the officer did not show and mark their ship")
+				return
 			if pings < 15 or int(after.get("status", -1)) != 1:
 				await host.smoke_fail("the game stopped answering after the officer assignment")
 				return
