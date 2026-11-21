@@ -73,6 +73,10 @@ namespace antares::todo {
             }
         }
 
+        bool Blocking(const s_item& item) {
+            return item.kind == e_kind::colonize || item.kind == e_kind::hire;
+        }
+
         // An auto-building colony isn't asking: the turn fills its queue (COLCALC's production step,
         // AIBUILD::Player_Colony_Autobuild; owner, 2026-11-14: AUTO BUILD left the item open).
         bool Empty_Queue(const s_colony& colony) {
@@ -121,6 +125,8 @@ namespace antares::todo {
         Add(item);
     }
 
+    // Only what asks for a choice holds the turn (owner, 2026-11-21): news (systems explored, a
+    // leader's level, the summary's messages) is listed but doesn't block.
     int32_t Open_Count() {
         if (!Active() || MOX::colony == nullptr) {
             return 0;
@@ -131,7 +137,7 @@ namespace antares::todo {
             open += Empty_Queue(MOX::colony[c]) ? 1 : 0;
         }
         for (const s_item& item : s_items) {
-            open += Resolved(item) ? 0 : 1;
+            open += Blocking(item) && !Resolved(item) ? 1 : 0;
         }
         return open;
     }
@@ -163,9 +169,11 @@ namespace antares::todo {
             item.Int("star", star);
             item.Bool("news", news);
             item.Bool("done", resolved);
-            *open += resolved ? 0 : 1;
+            *open += resolved || news ? 0 : 1; // news doesn't hold the turn (counted as unread)
             *item_out = item;
         }
+
+        void Write_Summary_Items(s_out list, int32_t* unread);
 
         // todo: the items, oldest first after the live build queues; "open" counts those not done
         // (news not read), "builds" the colonies with nothing to build.
@@ -225,7 +233,7 @@ namespace antares::todo {
                         Write_Item(list, "leader_level", line, (int32_t)i, it.star, true, resolved, &open, &item);
                         commands::internal::Leader_Card(it.leader, MOX::PLAYER_NUM, item.Add_Object("leader"));
                         break;
-                    case e_kind::summary: Write_Item(list, "summary", "Turn summary", (int32_t)i, -1, true, resolved, &open, &item); break;
+                    case e_kind::summary: break; // its messages are listed one by one (Write_Summary_Items)
                     case e_kind::colonize:
                         Write_Item(list, "colonize", std::string(Colony_Base_At(it.star) ? "Colony base" : Ship_Of_Type_At(it.star, SHIP_TYPE_COLONY) ? "Colony ship"
                                                                                                                                                       : "Outpost ship") +
@@ -244,7 +252,13 @@ namespace antares::todo {
                         break;
                 }
             }
-            out.Int("open", open);
+            int32_t unread = 0;
+            for (const s_item& it : s_items) {
+                unread += !Blocking(it) && it.kind != e_kind::summary && !Resolved(it) ? 1 : 0;
+            }
+            Write_Summary_Items(list, &unread);
+            out.Int("open", open); // what holds the turn
+            out.Int("unread", unread); // news not yet read: listed, not holding the turn
             out.Int("builds", builds);
             out.Int("stardate", (int64_t)MOX::stardate); // a new turn's list (the frontend opens it)
         }
@@ -259,8 +273,27 @@ namespace antares::todo {
             return &s_items[(size_t)index];
         }
 
+        std::vector<std::string> s_read_reports; // this turn's summary messages read (by key)
+        int32_t s_read_stardate = -1;
+
+        bool Report_Read(const std::string& key) {
+            if (s_read_stardate != (int32_t)MOX::stardate) {
+                s_read_reports.clear();
+                s_read_stardate = (int32_t)MOX::stardate;
+            }
+            return std::find(s_read_reports.begin(), s_read_reports.end(), key) != s_read_reports.end();
+        }
+
         void Todo_Read(int16_t, const s_args& args, s_out& out) {
             if (!commands::internal::Have_Game(out)) {
+                return;
+            }
+            std::string report;
+            if (args.Str("report", &report)) { // a summary message (its `report` key)
+                if (!Report_Read(report)) {
+                    s_read_reports.push_back(report);
+                }
+                out.Bool("read", true);
                 return;
             }
             if (s_item* item = Item_Arg(args, out)) {
@@ -332,6 +365,57 @@ namespace antares::todo {
                     }
                 }
                 item.Int("colony", colony);
+            }
+        }
+
+        // The turn summary's messages as news in the to-do list (owner, 2026-11-21: one list, the
+        // SUMMARY pane gone): the reports first, then TURNSUM's messages in its order, each with
+        // the colony a click opens; read ones are marked done.
+        void Write_Summary_Items(s_out list, int32_t* unread) {
+            Forget_Old_Reports();
+            auto write = [&](const std::string& key, const std::string& text, bool serious, int16_t colony, int16_t star) {
+                const bool read = Report_Read(key);
+                s_out item = list.Append_Object();
+                item.Int("item", -1);
+                item.Str("kind", "report");
+                item.Str("report", key);
+                item.Str("text", commands::internal::Utf8(text.c_str(), text.size() + 1));
+                item.Int("star", star);
+                item.Int("colony", colony);
+                item.Bool("serious", serious);
+                item.Bool("news", true);
+                item.Bool("done", read);
+                *unread += read ? 0 : 1;
+            };
+            for (size_t i = 0; i < s_reports.size(); ++i) {
+                write("note:" + std::to_string(i), s_reports[i].text, s_reports[i].serious, -1, -1);
+            }
+            if (MOX::settings.end_of_turn_summary == 0) {
+                return; // the End of Turn Summary option off: its messages aren't listed
+            }
+            const int16_t count = MSG_::N_Msgs_For_Player(MOX::PLAYER_NUM);
+            if (count <= 0) {
+                return;
+            }
+            uint8_t order[MAX_MESSAGES];
+            REPORT::Order_Turn_Summary_Messages(order, MSG_::First_Msg_For_Player(MOX::PLAYER_NUM), count, REPORT::sort_serious_turn_summary_first);
+            for (int16_t pos = 0; pos < count; ++pos) {
+                s_MSG& msg = MSG_::msgs[order[pos]];
+                char text[256];
+                MSG_::sprintf_msg(text, sizeof(text), &msg);
+                int16_t colony = -1;
+                int16_t star = -1;
+                if (msg.msg_type == MSG_TYPE_COLONY) {
+                    const int16_t planet = msg.u.colony.planet_idx;
+                    if (planet >= 0 && planet < MOX::planet_count) {
+                        const int16_t c = MOX::planet[planet].colony_index;
+                        if (c >= 0 && MOX::colony[c].owner == MOX::PLAYER_NUM) {
+                            colony = c;
+                            star = MOX::planet[planet].star_index;
+                        }
+                    }
+                }
+                write("msg:" + std::to_string(order[pos]), text, REPORT::Is_Serious_Msg(msg), colony, star);
             }
         }
 

@@ -423,7 +423,7 @@ func _on_native_screen(screen: int) -> void:
 		var todo_back: Control = _views.get("todo_panel")
 		if todo_back != null and todo_back.get_meta("was_open", false):
 			todo_back.set_meta("was_open", false)
-			if int(_todo.get("open", 0)) > 0:
+			if _todo_total() > 0:
 				todo_back.show()
 	else:
 		system_pane.hide() # hidden, not closed: it comes back with the galaxy
@@ -1033,7 +1033,10 @@ func _open_todo() -> void:
 	var todo := _view("todo_panel")
 	if not todo.item_chosen.is_connected(_on_todo_item):
 		todo.item_chosen.connect(_on_todo_item)
-	_todo_seen = int(_todo.get("open", 0))
+		todo.end_turn_requested.connect(func():
+			todo.close()
+			_send({"verb": "end_turn"}))
+	_todo_seen = _todo_total()
 	_todo_pending = false
 	_bring_up(todo)
 	todo.show_todo(_todo)
@@ -1073,7 +1076,7 @@ func _auto_todo_step() -> void:
 			return
 	for item: Dictionary in _todo.get("items", []):
 		var key := "%s:%s:%s:%s" % [item.get("kind", ""), item.get("item", -1), item.get("colony", -1), item.get("star", -1)]
-		if item.get("done", false) or _todo_auto_opened.has(key):
+		if item.get("done", false) or _todo_auto_opened.has(key) or String(item.get("kind", "")) == "report":
 			continue
 		_todo_auto_opened[key] = true
 		_todo_auto_last = {"item": item, "at": now, "open": int(_todo.get("open", 0))}
@@ -1095,15 +1098,22 @@ func _todo_may_open() -> bool:
 		var other: Control = _views.get(scene_name)
 		if other != null and other.visible:
 			return false
-	return int(_todo.get("open", 0)) > 0
+	return _todo_total() > 0
+
+
+## What the to-do list shows (owner, 2026-11-21): the choices that hold the turn and the news
+## not yet read. TURN reads TO DO (n) while it isn't 0.
+func _todo_total() -> int:
+	return int(_todo.get("open", 0)) + int(_todo.get("unread", 0))
 
 
 ## The turn summary's notification area (owner, 2026-11-14): asked again each turn and when the
 ## options change.
 func _refresh_summary() -> void:
-	_send({"verb": "query", "what": "turn_summary"}, func(result: Dictionary):
-		if result.get("ok", false):
-			_view("summary_panel").show_summary(result))
+	# Owner, 2026-11-21: the summary's messages are in the to-do list; the pane stays hidden.
+	var pane: Control = _views.get("summary_panel")
+	if pane != null:
+		pane.hide()
 
 
 ## A summary message picked: its colony opens (the colony pane, as a to-do build item).
@@ -1163,6 +1173,11 @@ func _on_todo_item(item: Dictionary) -> void:
 		"summary":
 			_send({"verb": "todo_read", "item": int(item.item)})
 			_send({"verb": "open", "screen": Screens.TURN_SUMMARY})
+		"report":
+			# A turn summary message (owner, 2026-11-21: in this list): read, and its colony opens.
+			_send({"verb": "todo_read", "report": String(item.get("report", ""))}, func(_r: Dictionary):
+				_send({"verb": "query", "what": "todo"}, func(r: Dictionary): _on_snapshot("todo", r)))
+			_on_summary_item(item)
 		"leader_level":
 			# The level-up window (marks it read), over the leader's system when it has one.
 			if star >= 0:
@@ -1300,11 +1315,11 @@ func _on_view_action(action_name: String) -> void:
 			# WP3.4d: with items waiting the to-do list drops down (END TURN is in it); otherwise
 			# the turn ends, as before.
 			var todo := _view("todo_panel")
-			_todo_seen = int(_todo.get("open", 0)) # opened or closed by hand: no reopening for it
+			_todo_seen = _todo_total() # opened or closed by hand: no reopening for it
 			if todo.visible:
 				todo.close()
-			elif int(_todo.get("open", 0)) > 0:
-				_open_todo()
+			elif _todo_total() > 0:
+				_open_todo() # END TURN is at its bottom
 			else:
 				_send({"verb": "end_turn"})
 		"tax_rate":
@@ -1483,7 +1498,7 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 				_todo_auto_listed = false
 				_refresh_summary() # and its summary
 			_todo = result
-			var open := int(result.get("open", 0))
+			var open := _todo_total()
 			_view("galaxy_bar").show_todo(open)
 			var todo_view: Control = _views.get("todo_panel")
 			if todo_view != null and todo_view.visible:
@@ -4659,7 +4674,8 @@ func _smoke_native() -> void:
 			todo_auto = true
 			if not await _smoke_turns():
 				return
-			var open_items: Array = (_todo.get("items", []) as Array).filter(func(i: Dictionary) -> bool: return not i.get("done", false))
+			# The summary's messages are listed, not stepped through (owner, 2026-11-21).
+			var open_items: Array = (_todo.get("items", []) as Array).filter(func(i: Dictionary) -> bool: return not i.get("done", false) and String(i.get("kind", "")) != "report")
 			var seen: Array = []
 			var held := false
 			var waited := 0.0
@@ -6509,15 +6525,14 @@ func _smoke_todo(shots: String) -> bool:
 		await _query("options")
 		await get_tree().create_timer(0.5).timeout
 		summary = await _query("turn_summary")
-	print("smoke: turn summary: option %s, %d messages, panel shown %s ('%s')" % [summary.get("on", "?"), summary.get("items", []).size(),
-		summary_panel.visible, summary_panel.button.text])
-	if summary_panel.visible:
-		summary_panel.button.pressed.emit()
-		await get_tree().create_timer(0.6).timeout
-		if shots != "":
-			await host.shot(shots + "/native-summary.png")
-		summary_panel.button.pressed.emit()
+	# Owner, 2026-11-21: the summary's messages are in the to-do list, the SUMMARY pane gone.
 	var todo: Dictionary = await _query("todo")
+	var reports := (todo.get("items", []) as Array).filter(func(i: Dictionary) -> bool: return String(i.kind) == "report").size()
+	print("smoke: turn summary: option %s, %d messages, %d listed in the to-do list, SUMMARY pane shown %s" % [summary.get("on", "?"),
+		summary.get("items", []).size(), reports, summary_panel.visible])
+	if summary_panel.visible or reports < summary.get("items", []).size():
+		await host.smoke_fail("the summary's messages are not all in the to-do list, or the SUMMARY pane still shows")
+		return false
 	var kinds := {}
 	for item: Dictionary in todo.get("items", []):
 		kinds[String(item.kind)] = int(kinds.get(String(item.kind), 0)) + 1
@@ -6525,10 +6540,11 @@ func _smoke_todo(shots: String) -> bool:
 	print("smoke: to-do after the turns: %d open, %d builds, kinds %s, bar '%s'" % [int(todo.get("open", 0)), int(todo.get("builds", 0)), kinds, bar_text])
 	for item: Dictionary in todo.get("items", []):
 		print("smoke: to-do item: %s '%s' done %s" % [item.kind, item.text, item.done])
-	if int(todo.get("open", 0)) > 0 and not bar_text.begins_with("TO DO"):
+	var total := int(todo.get("open", 0)) + int(todo.get("unread", 0))
+	if total > 0 and not bar_text.begins_with("TO DO"):
 		await host.smoke_fail("TURN did not read TO DO (n)")
 		return false
-	if int(todo.get("open", 0)) == 0:
+	if total == 0:
 		return true
 	# The list opens by itself (owner, 2026-11-14); TO DO closes and reopens it.
 	var panel := _view("todo_panel")
@@ -6549,7 +6565,16 @@ func _smoke_todo(shots: String) -> bool:
 	if not opened_itself or not closed_by_bar or not panel.visible:
 		await host.smoke_fail("the to-do list did not open by itself, or TO DO did not toggle it")
 		return false
-	# Nothing may be ignored: the game refuses the turn while items are open.
+	# END TURN under the list (owner, 2026-11-21): disabled while choices hold the turn.
+	var end_button: Button = panel._end_turn
+	print("smoke: to-do END TURN shown %s, disabled %s with %d holding the turn, %d unread news" % [end_button != null and end_button.visible,
+		end_button.disabled if end_button else "?", int(todo.get("open", 0)), int(todo.get("unread", 0))])
+	if end_button == null or end_button.disabled != (int(todo.get("open", 0)) > 0):
+		await host.smoke_fail("END TURN under the list is not disabled exactly while choices hold the turn")
+		return false
+	if int(todo.get("open", 0)) == 0:
+		return await _smoke_clear_todo() # only news: nothing to refuse
+	# Nothing may be ignored: the game refuses the turn while choices are open.
 	var refused := {}
 	_send({"verb": "end_turn"}, func(result: Dictionary): refused["r"] = result)
 	var waited_refusal := 0.0
@@ -6563,7 +6588,7 @@ func _smoke_todo(shots: String) -> bool:
 		return false
 	# A news item: read once (it drops off), its system opened.
 	for item: Dictionary in todo.get("items", []):
-		if bool(item.news) and not bool(item.done) and String(item.kind) != "summary":
+		if bool(item.news) and not bool(item.done) and not String(item.kind) in ["summary", "report"]:
 			_on_todo_item(item)
 			await get_tree().create_timer(1.5).timeout
 			# A discovery with a special or a leader asks its window first (shot, then OK).
@@ -6763,7 +6788,7 @@ func _smoke_todo(shots: String) -> bool:
 func _smoke_clear_todo() -> bool:
 	for attempt in 40:
 		var todo: Dictionary = await _query("todo")
-		if int(todo.get("open", 0)) == 0:
+		if int(todo.get("open", 0)) == 0 and int(todo.get("unread", 0)) == 0:
 			if attempt > 0:
 				print("smoke: to-do list worked through in %d steps" % attempt)
 			return true
@@ -6796,6 +6821,8 @@ func _smoke_clear_todo() -> bool:
 					elif answered > 0 and native_screen == Screens.MAIN:
 						break
 				print("smoke: to-do %s '%s' answered no (%d prompts)" % [item.kind, item.text, answered])
+			"report":
+				_send({"verb": "todo_read", "report": String(item.report)})
 			_:
 				_send({"verb": "todo_read", "item": int(item.item)})
 		await get_tree().create_timer(0.3).timeout
