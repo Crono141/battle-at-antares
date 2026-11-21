@@ -831,9 +831,13 @@ namespace antares::native {
         return s_legacy_combat.load() != 0;
     }
 
-    std::string Combat_Fleet_Field(int16_t star) {
+    std::string Combat_Fleet_Field(int16_t star, const std::vector<int16_t>& sides) {
+        std::string list;
+        for (const int16_t side : sides) {
+            list += (list.empty() ? "" : ",") + std::to_string(side);
+        }
         return ",\"fleet\":" + Run_Command((int16_t)MOX::current_screen, 0,
-            "{\"verb\":\"query\",\"what\":\"combat_fleet\",\"star\":" + std::to_string(star) + "}");
+            "{\"verb\":\"query\",\"what\":\"combat_fleet\",\"star\":" + std::to_string(star) + ",\"sides\":[" + list + "]}");
     }
 
     bool Message(const char* title, const char* raw_text, uint16_t timeout_ticks) {

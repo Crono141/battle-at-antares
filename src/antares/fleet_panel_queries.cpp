@@ -2,6 +2,7 @@
 
 #include "antares/commands_internal.h"
 #include "game/legacy_ids.h"
+#include "yyjson.h"
 
 // WP3.5c: the Fleets panel (notes/antares/screens/04-fleet.md). The fleet's ships come from the
 // `fleet` query (the galaxy's fleet box); this adds what the Fleets screen shows beside them, a
@@ -82,6 +83,22 @@ namespace antares::commands::internal {
             }
             const int16_t player = MOX::PLAYER_NUM;
             out.Int("star", star);
+            // `sides` (optional): only these others, the ones in the fight (an ally or a bystander
+            // in orbit is not an opposing force).
+            bool only[15] = {};
+            bool filtered = false;
+            if (yyjson_val* list = args.Get("sides"); list != nullptr && yyjson_is_arr(list)) {
+                filtered = true;
+                size_t at = 0;
+                size_t count = 0;
+                yyjson_val* side = nullptr;
+                yyjson_arr_foreach(list, at, count, side) {
+                    const int64_t p = yyjson_get_int(side);
+                    if (p >= 0 && p < 15) {
+                        only[p] = true;
+                    }
+                }
+            }
             const bool scanner = MOX::player[player].tech_applications[TECH_APP_BATTLE_SCANNER] == TECH_RESEARCH_STATUS_RESEARCHED;
             out.Bool("scanner", scanner);
             uint32_t ours[15] = {};
@@ -96,6 +113,9 @@ namespace antares::commands::internal {
                 }
                 const int16_t owner = ship.owner;
                 if (owner != player) {
+                    if (filtered && !only[owner]) {
+                        continue;
+                    }
                     present[owner] = true;
                     if (ship.d.size >= 0 && ship.d.size < 6) {
                         ++hulls[owner][ship.d.size];

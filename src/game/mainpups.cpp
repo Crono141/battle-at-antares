@@ -151,6 +151,19 @@ namespace MAINPUPS {
             return "\"options\":[" + json + "]";
         }
 
+        // The sides a select-combat window's targets belong to (a colony's owner, or a side's ships).
+        std::vector<int16_t> Target_Sides(const std::vector<s_native_option>& options) {
+            std::vector<int16_t> sides;
+            for (const s_native_option& o : options) {
+                const int16_t side = o.fleet_owner >= 0 ? o.fleet_owner
+                    : (o.value >= 15 && o.value - 15 < MOX::NUM_COLONIES ? (int16_t)MOX::colony[o.value - 15].owner : (int16_t)-1);
+                if (side >= 0) {
+                    sides.push_back(side);
+                }
+            }
+            return sides;
+        }
+
         std::string Native_Zoom_Json(int16_t star_idx) {
             return "\"zoom\":" + std::to_string(star_idx) + ",\"system\":" + antares::native::System_Json(star_idx);
         }
@@ -733,7 +746,7 @@ namespace MAINPUPS {
         // beside it and the player's fleet there on its other side, as in the select-combat window.
         if (antares::native::Popups_Native() && star_idx >= 0 && star_idx < MOX::NUM_STARS) {
             const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," + Native_Zoom_Json(star_idx) +
-                ",\"buttons\":[\"OK\"]" + antares::native::Combat_Fleet_Field(star_idx);
+                ",\"buttons\":[\"OK\"]" + antares::native::Combat_Fleet_Field(star_idx, {attacker_idx});
             int32_t answer = 0;
             if (antares::native::Popup("player_attacked", formatted_msg, fields, &answer)) {
                 MOX2::Put_Auto_Function(&eric_saved_autofunction);
@@ -823,7 +836,7 @@ namespace MAINPUPS {
             }
             const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," +
                 Native_Zoom_Json(star_idx) + "," + Native_Options_Json(options) + ",\"buttons\":[\"CANCEL\"]" +
-                antares::native::Combat_Fleet_Field(star_idx); // the player's fleet window
+                antares::native::Combat_Fleet_Field(star_idx, Target_Sides(options)); // the player's fleet window
             int32_t answer = 0;
             if (antares::native::Popup("attack_target", line, fields, &answer)) {
                 const int32_t pick = answer - k_option_answer;

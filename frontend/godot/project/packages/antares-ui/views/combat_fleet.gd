@@ -9,6 +9,7 @@ extends PanelContainer
 ##   - the hovered (or clicked) ship: its officer, weapons with mods and arcs, specials and systems.
 
 const WIDTH := 470.0
+const TEXT_WIDTH := 370.0 # wrapped lines' width (measured before layout, a wrapped label is one word wide)
 const STRENGTH_TEXT := {"outmatched": "We are outmatched", "even": "An even fight", "superior": "We are superior"}
 const STRENGTH_COLOR := {"outmatched": Color(0.95, 0.4, 0.35), "even": Color(0.95, 0.85, 0.45), "superior": Color(0.5, 0.9, 0.5)}
 
@@ -37,7 +38,7 @@ func _ready() -> void:
 	box.add_child(title)
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size.y = 230
+	scroll.custom_minimum_size.y = 70
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	preload("../themes.gd").scroll_gap(scroll)
 	box.add_child(scroll)
@@ -47,29 +48,34 @@ func _ready() -> void:
 	scroll.add_child(_rows)
 	var detail_frame := PanelContainer.new()
 	detail_frame.theme_type_variation = &"Row"
+	detail_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail_frame.size_flags_stretch_ratio = 1.2 # the ship's details a little more room than the list
 	box.add_child(detail_frame)
+	var detail_scroll := ScrollContainer.new() # short screens (200%): the details scroll too
+	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	detail_scroll.custom_minimum_size.y = 90
+	preload("../themes.gd").scroll_gap(detail_scroll)
+	detail_frame.add_child(detail_scroll)
 	_detail = VBoxContainer.new()
+	_detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_detail.add_theme_constant_override("separation", 4)
-	_detail.custom_minimum_size.y = 220
-	detail_frame.add_child(_detail)
+	detail_scroll.add_child(_detail)
 
 
-## Shows `data` (the combat_fleet query's answer), its left edge at `left`, centred on `centre_y`.
-func open(data: Dictionary, left: float, centre_y: float, max_height: float) -> void:
+## Shows `data` (the combat_fleet query's answer), its left edge at `left`, filling the panes'
+## band from `top`, `height` tall (the ship list scrolls in what is left).
+func open(data: Dictionary, left: float, top: float, height: float, right_limit := INF) -> void:
 	fleet = data
 	_picked = -1
 	_fill_enemies()
 	_fill_rows()
 	var ships: Array = data.get("ships", [])
 	_show_ship(ships[0] if not ships.is_empty() else {})
-	custom_minimum_size.y = 0
-	size = Vector2(WIDTH, 0)
 	show()
-	await get_tree().process_frame
-	var height := minf(get_combined_minimum_size().y, max_height)
-	size = Vector2(WIDTH, height)
 	var area := get_parent_area_size()
-	position = Vector2(clampf(left, 0.0, maxf(area.x - WIDTH, 0.0)), clampf(centre_y - height * 0.5, 0.0, maxf(area.y - height, 0.0))).floor()
+	position = Vector2(clampf(left, 0.0, maxf(minf(area.x, right_limit) - WIDTH, 0.0)), top).floor() # clear of the side tabs
+	await get_tree().process_frame # laid out at its width first
+	size = Vector2(WIDTH, height) # the band's height; the ship list scrolls in what is left
 
 
 func close() -> void:
@@ -101,13 +107,14 @@ func _fill_enemies() -> void:
 		var ships_line := Label.new()
 		ships_line.theme_type_variation = &"Dim"
 		ships_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		ships_line.custom_minimum_size.x = TEXT_WIDTH
 		var count := int(side.get("ships", 0))
 		ships_line.text = "%d %s in orbit: %s" % [count, "ship" if count == 1 else "ships", ", ".join(parts)] if not parts.is_empty() else "No ships in orbit"
 		_enemies.add_child(ships_line)
 		var strength := String(side.get("strength", ""))
 		if strength != "":
 			var band := Label.new()
-			band.text = "Battle Scanner: %s" % STRENGTH_TEXT.get(strength, strength)
+			band.text = "Battle Scanner, ships only: %s" % STRENGTH_TEXT.get(strength, strength) # not the planet's defences
 			band.add_theme_color_override("font_color", STRENGTH_COLOR.get(strength, Color.WHITE))
 			_enemies.add_child(band)
 	if not (fleet.get("enemies", []) as Array).is_empty():
@@ -257,6 +264,7 @@ func _show_ship(ship: Dictionary) -> void:
 		w.text = "%d %s (%s)" % [int(weapon.get("count", 0)), String(weapon.get("text", "")).strip_edges(), String(weapon.get("arc", ""))]
 		w.add_theme_font_size_override("font_size", 13)
 		w.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		w.custom_minimum_size.x = TEXT_WIDTH
 		_detail.add_child(w)
 	var design: Dictionary = ship.get("design", {})
 	var specials: Array = (design.get("specials", []) as Array).map(func(s: Dictionary) -> String: return String(s.text))
@@ -268,11 +276,13 @@ func _show_ship(ship: Dictionary) -> void:
 		var sp := Label.new()
 		sp.text = ", ".join(specials)
 		sp.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		sp.custom_minimum_size.x = TEXT_WIDTH
 		sp.add_theme_font_size_override("font_size", 13)
 		_detail.add_child(sp)
 	var systems := Label.new()
 	systems.theme_type_variation = &"Dim"
 	systems.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	systems.custom_minimum_size.x = TEXT_WIDTH
 	systems.add_theme_font_size_override("font_size", 13)
 	systems.text = "%s · %s · %s · %s" % [String(design.get("shield", "")), String(design.get("computer", "")), String(design.get("armor", "")),
 		String(design.get("drive", ""))]
