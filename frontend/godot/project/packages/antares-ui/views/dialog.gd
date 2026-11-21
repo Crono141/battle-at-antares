@@ -579,6 +579,23 @@ func hover_planet(planet_id: int) -> void:
 var _planet_rows := {}
 ## A row of a planet hovered: the frontend lights the planet on the map (-1: none).
 signal planet_row_hovered(planet_id: int)
+## A row of a side's ships hovered (select combat): the frontend frames its fleets (-1: none).
+signal fleet_row_hovered(owner: int)
+## The option rows of a side's ships, by owner.
+var _fleet_rows := {}
+
+
+## A fleet of the zoomed system hovered on the map: its side's row lit (-1: none).
+func hover_fleet_owner(owner: int) -> void:
+	var lit := get_theme_color("font_pressed_color", "ListItem")
+	for id: int in _fleet_rows:
+		var row: Button = _fleet_rows[id]
+		if not is_instance_valid(row):
+			continue
+		if id == owner:
+			row.add_theme_color_override("font_color", lit)
+		else:
+			row.remove_theme_color_override("font_color")
 
 
 func _light_row(planet_id: int) -> void:
@@ -608,6 +625,7 @@ func show_planet_card(planet_id: int, at: Rect2) -> bool:
 func _option_list(items: Array, base: int, selected: int) -> Control:
 	options = items
 	_planet_rows.clear()
+	_fleet_rows.clear()
 	var list := VBoxContainer.new()
 	list.add_theme_constant_override("separation", 2)
 	for i in items.size():
@@ -629,6 +647,11 @@ func _option_list(items: Array, base: int, selected: int) -> Control:
 			row.add_theme_color_override("font_color", Color(1.0, 0.8, 0.35))
 		var value := base + i
 		row.pressed.connect(func(): _answer(value))
+		var fleet_owner := int(item.get("fleet_owner", -1))
+		if fleet_owner >= 0:
+			_fleet_rows[fleet_owner] = row
+			row.mouse_entered.connect(func(): fleet_row_hovered.emit(fleet_owner))
+			row.mouse_exited.connect(func(): fleet_row_hovered.emit(-1))
 		var planet_id := int(item.get("planet", -1))
 		if planet_id >= 0:
 			# Hovering a planet's row shows its card and lights the planet on the map; a right

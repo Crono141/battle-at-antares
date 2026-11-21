@@ -123,6 +123,7 @@ namespace MAINPUPS {
             int32_t value = -1;
             bool enabled = true;
             int16_t planet = -1;
+            int16_t fleet_owner = -1; // a side's ships (select combat): its fleets light on the map
             bool potential = false; // carries the planet's potential (the window's hover card)
             std::vector<std::string> details; // lines under the choice (a target's planet and defences)
         };
@@ -132,7 +133,8 @@ namespace MAINPUPS {
             for (const s_native_option& o : options) {
                 json += std::string(json.empty() ? "" : ",") + "{\"text\":" + antares::native::Quote(o.text.c_str()) +
                     ",\"enabled\":" + (o.enabled ? "true" : "false") +
-                    (o.planet >= 0 ? ",\"planet\":" + std::to_string(o.planet) : std::string());
+                    (o.planet >= 0 ? ",\"planet\":" + std::to_string(o.planet) : std::string()) +
+                    (o.fleet_owner >= 0 ? ",\"fleet_owner\":" + std::to_string(o.fleet_owner) : std::string());
                 const std::string potential = o.potential && o.planet >= 0 ? antares::native::Potential_Json(o.planet) : std::string();
                 if (!potential.empty()) {
                     json += ",\"potential\":" + potential;
@@ -803,6 +805,7 @@ namespace MAINPUPS {
                 s_native_option o;
                 o.text = std::string(MOX::player[owner].race_name) + " ships";
                 o.value = owner;
+                o.fleet_owner = owner;
                 options.push_back(o);
             }
             const std::string fields = "\"title\":" + antares::native::Quote(MOX::star[star_idx].name) + "," +

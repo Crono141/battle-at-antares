@@ -118,6 +118,9 @@ func _ready() -> void:
 	galaxy.right_clicked.connect(func(): _end_relocation_pick())
 	galaxy.planet_clicked.connect(_on_planet_clicked)
 	galaxy.planet_hovered.connect(_on_planet_hovered)
+	galaxy.fleet_owner_hovered.connect(func(owner: int):
+		if overlay.visible and _views.has("dialog") and _views.dialog.visible:
+			_views.dialog.hover_fleet_owner(owner))
 	galaxy.empty_clicked.connect(_on_empty_clicked)
 	galaxy.planet_right_clicked.connect(_on_planet_right_clicked)
 	galaxy.system_panned.connect(func(away: bool):
@@ -1535,6 +1538,7 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		dialog.art = art
 		dialog.answered.connect(_on_answered)
 		dialog.released.connect(_popup_closed)
+		dialog.fleet_row_hovered.connect(func(owner: int): galaxy.lit_owner = owner)
 		dialog.planet_row_hovered.connect(func(planet_id: int):
 			galaxy.hovered_planet = planet_id
 			galaxy.redraw())
@@ -3119,6 +3123,7 @@ func _combat_fleet_view() -> Control:
 func _popup_closed() -> void:
 	if _combat_fleet != null and _combat_fleet.visible:
 		_combat_fleet.close()
+	galaxy.lit_owner = -1
 	overlay.hide()
 	_end_popup_map()
 	if _question_over_galaxy:
@@ -4130,7 +4135,21 @@ func _smoke_native() -> void:
 				answered.has("r"), Time.get_ticks_msec() - t_ask, str(answered.get("r", {})).left(120)])
 			if shots != "":
 				await host.shot(shots + "/select-combat.png")
+			# A side's ships row and its fleets on the map light each other (owner, 2026-11-20).
+			_views.dialog.fleet_row_hovered.emit(1)
+			var map_lit: bool = galaxy.lit_owner == 1
+			var probe := Button.new()
+			_views.dialog._fleet_rows[1] = probe
+			galaxy.fleet_owner_hovered.emit(1)
+			var row_lit: bool = probe.has_theme_color_override("font_color")
+			_views.dialog._fleet_rows.erase(1)
+			probe.free()
+			print("smoke: select combat links: a ships row frames its fleets %s, a fleet lights its row %s" % [map_lit, row_lit])
 			_views.dialog._answer(-1)
+			await get_tree().create_timer(0.3).timeout
+			if not map_lit or not row_lit or galaxy.lit_owner != -1:
+				await host.smoke_fail("the select-combat window's ships rows and the map's fleets did not light each other")
+				return
 			game.request_game_quit()
 			return
 		if arg == "--combat-turn":
