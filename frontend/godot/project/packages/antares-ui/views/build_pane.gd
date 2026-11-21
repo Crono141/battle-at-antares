@@ -220,6 +220,13 @@ func _refit(ship: Dictionary, target: Dictionary, gap := -1) -> void:
 	_show_queue()
 
 
+## Where "first" is: the top, or after a bought front item (it stays first) and its repeat.
+func _first_gap() -> int:
+	if bought and not _queue.is_empty():
+		return _pair(0).y
+	return 0
+
+
 ## The item just added at the end goes to `gap` (between items; -1 or the end: stays).
 func _place_last(gap: int) -> void:
 	var last := _pair(_queue.size() - 1).x
@@ -341,7 +348,9 @@ func _fill(box: VBoxContainer, list: Array) -> void:
 		b.add_theme_font_size_override("font_size", 19)
 		var id := int(item.id)
 		b.mouse_entered.connect(func(): _show_detail(item))
-		b.pressed.connect(func(): _add(id))
+		b.tooltip_text = "Click: add at the end\nShift+click: add first"
+		# Shift: first in the list (a new tech built at once, ahead of a queue or Trade Goods).
+		b.pressed.connect(func(): _add(id, _first_gap() if Input.is_key_pressed(KEY_SHIFT) else -1))
 		_arm_drag(b, {"kind": "item", "id": id, "item": item})
 		box.add_child(b)
 
