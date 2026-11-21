@@ -882,7 +882,10 @@ namespace COMBINIT {
 
             Deploy_Ships();
             RUSS::Mox_Update();
-            render::End_Preload(20000);
+            // At most 2 s for the HD ships (owner, 2026-11-20: over a network share the combat took
+            // 5-8 s to appear, its music already playing); what hasn't come shows in 1x and is
+            // swapped in as it arrives.
+            render::End_Preload(2000);
 
             MOX::auto_combat_flag[0] = 0;
             MOX::auto_combat_flag[1] = 0;
