@@ -46,9 +46,13 @@ func _ready() -> void:
 	_close_button.focus_mode = Control.FOCUS_NONE
 	_close_button.tooltip_text = "Close (VIEW COLONY shows it again)"
 	_close_button.custom_minimum_size = Vector2(34, 30)
-	_close_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	_close_button.position += Vector2(-8.0, 8.0)
-	_close_button.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	# Clear of the frame's bevel in every theme (owner, 2026-11-20: on Chrome it sat against it).
+	_close_button.anchor_left = 1.0
+	_close_button.anchor_right = 1.0
+	_close_button.offset_right = -16.0
+	_close_button.offset_left = -16.0 - 34.0
+	_close_button.offset_top = 14.0
+	_close_button.offset_bottom = 14.0 + 30.0
 	_close_button.pressed.connect(close)
 	_close_button.hide()
 	_stage.add_child(_close_button)

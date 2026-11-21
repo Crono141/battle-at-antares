@@ -3553,9 +3553,7 @@ func _place_landscape() -> void:
 	land.position.y = band.x
 	land.move_to(x) # slides in when just opened, as the other panes
 	if popped:
-		land.move_to_front() # over the panes; a build pane opened after it over it
-		if build.visible:
-			build.move_to_front()
+		land.move_to_front() # over the panes, the build pane too (owner, 2026-11-20)
 	else:
 		land.move_to_front()
 		if build.visible:
@@ -4006,6 +4004,9 @@ func _smoke_native() -> void:
 			var rect_build: Rect2 = land.get_global_rect()
 			var pushed: bool = rect_build.position.x > rect_alone.position.x + 1.0
 			var over_tabs: bool = rect_build.end.x > _landscape_right_limit() + 1.0
+			# Popped up (narrow screens): over the build pane (owner, 2026-11-20).
+			var over_build: bool = not narrow or land.get_index() > build.get_index()
+			print("smoke: landscape over the build pane when popped up: %s" % over_build)
 			# One band for the three (owner, 2026-11-20): the same top and height, at any zoom.
 			var band := _pane_band()
 			var in_band := true
@@ -4034,7 +4035,7 @@ func _smoke_native() -> void:
 			get_window().size = window_before
 			await get_tree().create_timer(0.5).timeout
 			if not shown_by_itself or layers < 3 or not beside or (not pushed and not narrow) or not back or not hidden_now or not stays_hidden or not shown_again \
-					or over_tabs or not in_band:
+					or over_tabs or not in_band or not over_build:
 				await host.smoke_fail("the colony landscape did not open, move or toggle as it should")
 				return
 			game.request_game_quit()

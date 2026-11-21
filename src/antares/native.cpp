@@ -252,7 +252,16 @@ namespace antares::native {
                 id = s_next_id++;
                 s_waiting_request = id;
                 s_answered = false;
-                const std::string utf8 = Utf8(text);
+                std::string utf8 = Utf8(text);
+                // The game's line break is "\r" (owner, 2026-11-20: a bombing summary's lines ran
+                // together): a "\n" for the frontend, "\r\n" one break.
+                for (size_t at = utf8.find('\r'); at != std::string::npos; at = utf8.find('\r', at)) {
+                    if (at + 1 < utf8.size() && utf8[at + 1] == '\n') {
+                        utf8.erase(at, 1);
+                    } else {
+                        utf8[at] = '\n';
+                    }
+                }
                 // "screen": the game screen asking (WP3.3f): over the turn's legacy galaxy frames a
                 // frontend shows its own galaxy behind the question instead.
                 std::string json = "{\"id\":" + std::to_string(id) + ",\"kind\":\"" + kind + "\",\"text\":" +
@@ -786,6 +795,13 @@ namespace antares::native {
                         ++c;
                     }
                     if (c[1] == '.') {
+                        ++c;
+                    }
+                } else if (*c == '\r') {
+                    // The game's line break (ESTRINGS' "%s destroyed\r", owner 2026-11-20: the
+                    // bombing summary ran its lines together); a "\r\n" is one break.
+                    out += '\n';
+                    if (c[1] == '\n') {
                         ++c;
                     }
                 } else if (*c == '\x1A') {

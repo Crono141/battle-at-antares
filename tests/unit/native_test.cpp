@@ -264,6 +264,26 @@ DOCTEST_TEST_CASE("during a legacy tactical combat every request stays the game'
     antares::native::Claim_Requests({});
 }
 
+// The bombing summary's lines ran together (owner, 2026-11-20): the game breaks lines with "\r".
+DOCTEST_TEST_CASE("a request's text has the game's line breaks as newlines") {
+    antares::native::Claim_Requests({"message"});
+    antares::native::Attach_Control(true);
+    std::string text;
+    std::thread frontend([&text] {
+        antares::native::s_request request;
+        while (!antares::native::Take_Request(&request)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        text = request.text;
+        antares::native::Answer_Request(request.id, 0);
+    });
+    DOCTEST_CHECK(antares::native::Message("Summary", "Ovillus bombed\r7 million people killed\r\nAutolab destroyed\r", 0));
+    frontend.join();
+    DOCTEST_CHECK(text == "Ovillus bombed\n7 million people killed\nAutolab destroyed\n");
+    antares::native::Attach_Control(false);
+    antares::native::Claim_Requests({});
+}
+
 DOCTEST_TEST_CASE("a text request offers the current text and takes back the typed one (WP3.4)") {
     antares::native::Claim_Requests({"text"});
     antares::native::Attach_Control(true);
