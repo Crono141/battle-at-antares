@@ -756,6 +756,7 @@ orion2re_add_unit_test(test_orbital_defense
         src/game/angle.cpp
         src/game/system_summary.cpp
     FAKE_SOURCES
+        tests/fakes/fake_combat_native_draws.cpp
         tests/fakes/fake_ericnet_runtime.cpp
         tests/fakes/fake_orbital_defense_runtime.cpp
 )
@@ -1097,6 +1098,7 @@ orion2re_add_unit_test(test_ericnet
         src/game/ericnet.cpp
         src/game/ericnet_config.cpp
     FAKE_SOURCES
+        tests/fakes/fake_combat_native_draws.cpp
         tests/fakes/fake_ericnet_runtime.cpp
 )
 
