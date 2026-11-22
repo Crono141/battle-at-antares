@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/combat_native.h"
 
 namespace bolt {
     int16_t head_wide_bolts[192] = {
@@ -600,6 +601,7 @@ namespace bolt {
             }
         }
 
+        antares::combat::Record_Strand(x1, y1, x2, y2, replace::graphics_buffer, len + 2); // spike 3.9
         line::Plasma_Line(x1, y1, x2, y2, replace::graphics_buffer, 0);
     }
 

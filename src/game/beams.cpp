@@ -2568,6 +2568,7 @@ namespace BEAMS {
             fx.b2,
             fx.thickness);
         palette::Refresh_Palette();
+        antares::combat::Record_Beam2(start_x, start_y, end_x, end_y, x1, y1, x2, y2, frame_index, palette_base_index, fx.anim_style, fx.sfx_sprite_id, fx.wide_bolt_size_bonus); // spike 3.9
     }
 
     /** Return whether the point falls within the target shield hit radius. */

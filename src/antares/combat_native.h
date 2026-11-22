@@ -101,6 +101,11 @@ namespace antares::combat {
         struct s_impl;
         s_impl* impl_;
     };
+    // BEAMS::Draw_Beam2 during a capture (spike 3.9, native beams test): the call recorded with
+    // its frame, in world pixels, and the weapon's 16-colour ramp as the palette holds it now.
+    void Record_Beam2(int32_t start_x, int32_t start_y, int32_t end_x, int32_t end_y, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t frame_index, int32_t palette_base, int32_t style, int32_t sfx_sprite_id, int32_t wide_bolt_size_bonus);
+    // BOLT::Bolt_Segment during a capture: the strand it is about to draw (spike 3.9).
+    void Record_Strand(int32_t x1, int32_t y1, int32_t x2, int32_t y2, const uint8_t* colors, int32_t count);
     // ERICNET::Mox_Play_Sound during a capture: recorded at its frame instead of played (true).
     bool Capture_Sound(int16_t sound_id);
     // sprites::Export for lbx "capture": the frames of capture `entry`.

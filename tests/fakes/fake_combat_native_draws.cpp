@@ -17,6 +17,8 @@ namespace antares::combat {
     void Destroyed(int16_t, int16_t, int16_t) {}
     void Missile_Launch(int16_t, int16_t, int16_t, bool, int16_t, int16_t) {}
     void Missile_Arrive(int16_t, int16_t, int16_t) {}
+    void Record_Beam2(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t) {}
+    void Record_Strand(int32_t, int32_t, int32_t, int32_t, const uint8_t*, int32_t) {}
     bool Capture_Sound(int16_t) {
         return false; // spike 3.9: no capture in unit tests
     }

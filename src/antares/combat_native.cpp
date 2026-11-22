@@ -776,6 +776,11 @@ namespace antares::combat {
         int32_t s_sound_frame = 0;
         std::vector<std::pair<int32_t, int32_t>> s_sounds;
 
+        // Draw_Beam2 calls of the first capturing pass (spike 3.9, native beams test), as JSON
+        // objects, and the window that pass used.
+        std::vector<std::string> s_beam_records;
+        int16_t s_record_cx = 0, s_record_cy = 0;
+
         enum e_pass { PASS_REFERENCE,
             PASS_COMPARE,
             PASS_TILE,
@@ -908,6 +913,54 @@ namespace antares::combat {
             return value != nullptr && strcmp(value, "0") == 0;
         }();
         return !off && Animating() && render::capture::Available();
+    }
+
+    void Record_Beam2(int32_t start_x, int32_t start_y, int32_t end_x, int32_t end_y, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t frame_index, int32_t palette_base, int32_t style, int32_t sfx_sprite_id, int32_t wide_bolt_size_bonus) {
+        if (!s_sound_collect) {
+            return;
+        }
+        const int32_t ox = s_record_cx * 20, oy = s_record_cy * 20;
+        std::string ramp = "[";
+        for (int32_t i = 0; i < 16; ++i) {
+            const auto& c = video::current_palette[(palette_base + i) & 0xFF];
+            char rgb[24];
+            snprintf(rgb, sizeof(rgb), "%s[%d,%d,%d]", i ? "," : "", c.r * 255 / 63, c.g * 255 / 63, c.b * 255 / 63);
+            ramp += rgb;
+        }
+        ramp += "]";
+        char json[512];
+        snprintf(json, sizeof(json), "{\"frame\":%d,\"frame_index\":%d,\"style\":%d,\"start\":[%d,%d],\"end\":[%d,%d],\"from\":[%d,%d],\"to\":[%d,%d],\"palette_base\":%d,"
+                                     "\"sfx_sprite_id\":%d,\"wide_bolt_size_bonus\":%d,\"ramp\":",
+            s_sound_frame,
+            frame_index,
+            style,
+            start_x + ox,
+            start_y + oy,
+            end_x + ox,
+            end_y + oy,
+            x1 + ox,
+            y1 + oy,
+            x2 + ox,
+            y2 + oy,
+            palette_base,
+            sfx_sprite_id,
+            wide_bolt_size_bonus);
+        s_beam_records.push_back(std::string(json) + ramp + "}");
+    }
+
+    void Record_Strand(int32_t x1, int32_t y1, int32_t x2, int32_t y2, const uint8_t* colors, int32_t count) {
+        if (!s_sound_collect || s_beam_records.empty() && false) {
+            return;
+        }
+        const int32_t ox = s_record_cx * 20, oy = s_record_cy * 20;
+        std::string list = "[";
+        for (int32_t i = 0; i < count; ++i) {
+            list += (i ? "," : "") + std::to_string(colors[i]);
+        }
+        list += "]";
+        char head[160];
+        snprintf(head, sizeof(head), "{\"strand\":1,\"frame\":%d,\"a\":[%d,%d],\"b\":[%d,%d],\"colors\":", s_sound_frame, x1 + ox, y1 + oy, x2 + ox, y2 + oy);
+        s_beam_records.push_back(std::string(head) + list + "}");
     }
 
     bool Capture_Sound(int16_t sound_id) {
@@ -1060,6 +1113,11 @@ namespace antares::combat {
             first_capture = first_capture && m.passes[i].kind == PASS_REFERENCE;
         }
         s_sound_collect = first_capture;
+        if (first_capture) {
+            s_beam_records.clear();
+            s_record_cx = p.cx;
+            s_record_cy = p.cy;
+        }
         if (p.kind == PASS_REFERENCE) {
             video::Set_Page_Off();
             CMBTDRW1::Draw_Main_Combat_Screen();
@@ -1291,9 +1349,42 @@ namespace antares::combat {
             }
         }
 
+        std::string weapons;
+        for (int32_t e = 0; e < 10 && m.entries[e].weapon_id != 0; ++e) {
+            weapons += (weapons.empty() ? "" : ",") + std::to_string(m.entries[e].weapon_id);
+        }
+        // ANTARES_CAPTURE_DUMP_WEAPONS=7,10: volleys firing those weapons, every stitched frame
+        // (PNG named with its world position) and the Draw_Beam2 calls (JSON).
+        if (const char* want = antares::Get_Env("CAPTURE_DUMP_WEAPONS")) {
+            bool match = false;
+            for (int32_t e = 0; e < 10 && m.entries[e].weapon_id != 0; ++e) {
+                match = match || ("," + std::string(want) + ",").find("," + std::to_string(m.entries[e].weapon_id) + ",") != std::string::npos;
+            }
+            const char* dir = antares::Get_Env("CAPTURE_DUMP");
+            if (match && dir != nullptr) {
+                for (size_t k = 0; k < set.frames.size(); ++k) {
+                    const s_world_frame& f = set.frames[k];
+                    if (f.width != 0) {
+                        char name[96];
+                        snprintf(name, sizeof(name), "w_volley%d_frame%02zu_at_%d_%d", m.volley, k, f.x, f.y);
+                        Dump_Png(name, f.rgba.data(), f.width, f.height);
+                    }
+                }
+                const std::string path = std::string(dir) + "/w_volley" + std::to_string(m.volley) + "_beams.json";
+                if (FILE* out = fopen(path.c_str(), "w")) {
+                    fprintf(out, "{\"volley\":%d,\"weapons\":[%s],\"scale\":%d,\"calls\":[\n", m.volley, weapons.c_str(), S);
+                    for (size_t i = 0; i < s_beam_records.size(); ++i) {
+                        fprintf(out, "%s%s\n", s_beam_records[i].c_str(), i + 1 < s_beam_records.size() ? "," : "");
+                    }
+                    fprintf(out, "]}\n");
+                    fclose(out);
+                }
+            }
+        }
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-            "capture: volley %d ship %d -> %d%s: span %dx%d squares, %d tile(s), %zu frames%s, %.1f ms, %llu KB, glass px %llu, tables %zu, sounds %zu; ops %s; unported %s;%s",
+            "capture: volley %d weapons %s ship %d -> %d%s: span %dx%d squares, %d tile(s), %zu frames%s, %.1f ms, %llu KB, glass px %llu, tables %zu, sounds %zu; ops %s; unported %s;%s",
             m.volley,
+            weapons.c_str(),
             (int)m.from,
             (int)m.to,
             m.non_ship != 0 ? " (missile)" : "",
