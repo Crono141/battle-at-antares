@@ -125,7 +125,17 @@ var _bottom: Control # the actions row (Wait, Done, End turn, Auto), framed with
 var _strip_row: Control # the acting ship and its weapons (hidden when the acting ship isn't the player's)
 var _round_number: Label
 var _tl_scroll: ScrollContainer
-var _tl_dragging := false
+var _scroll_goal := {} # ScrollContainer -> the horizontal scroll it eases to (smooth scrolling)
+var _wp_scroll: ScrollContainer # the acting ship's weapons (scrolls when more than fit)
+var _wp_press := Vector2.INF # where a press on the weapons began (a drag scrolls, a click toggles)
+var _wp_dragged := false
+var _chip_hover := -1 # the ship whose initiative chip is under the pointer (hovers it as on the field)
+var _options_tab: PanelContainer # the Options button, framed under the initiative bar
+var _options_panel: PanelContainer # its flyout
+var _show_grid := false
+var _always_moves := false
+var _starfield: Control
+var _scan_scroll: ScrollContainer
 var _tl_acting := -2 # the acting ship the bar was last scrolled for
 ## The theme's screen frame and its joints (frontend.gd sets them, as for the galaxy).
 var frame_style: StyleBox
@@ -158,9 +168,21 @@ func _ready() -> void:
 	base.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	base.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(base)
+	# The galaxy's parallax starfield behind the battle's cloud art (owner 2026-11-22).
+	_starfield = Control.new()
+	_starfield.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_starfield.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_starfield.draw.connect(_draw_starfield)
+	add_child(_starfield)
+	_show_grid = bool(_load_setting("show_grid", false))
+	_always_moves = bool(_load_setting("always_show_moves", false))
 	_world = Node2D.new()
 	add_child(_world)
 	_backdrop = Node2D.new()
+	# The cloud art adds onto the starfield, so the stars show through its dark parts.
+	var add := CanvasItemMaterial.new()
+	add.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	_backdrop.material = add
 	_backdrop.draw.connect(_draw_backdrop)
 	_world.add_child(_backdrop)
 	_ship_layer = Node2D.new()
@@ -554,6 +576,7 @@ func _process(delta: float) -> void:
 			art.forget("capture", int(effect.entry))
 	_effects = _effects.filter(func(effect: Dictionary) -> bool: return effect.t < effect.life)
 	_place_world()
+	_ease_scrolls(delta)
 	_layout()
 	_update_hover()
 	if _toast_time > 0.0:
@@ -570,6 +593,34 @@ func _place_world() -> void:
 	_world.scale = Vector2(_zoom, _zoom)
 	_world.position = size / 2.0 - _cam * _zoom
 	_backdrop.queue_redraw()
+	if _starfield != null:
+		_starfield.queue_redraw()
+
+
+## STARBG.LBX 0-2 (far to near) tiled across the window, sliding slower than the field as the
+## camera moves (galaxy/backdrop.gd's speeds, a little faster: the battle's camera moves less).
+const STAR_SPEEDS := [0.06, 0.12, 0.24]
+
+
+func _draw_starfield() -> void:
+	if art == null:
+		return
+	var legacy := maxf(size.y / 480.0, 1.0)
+	var camera_screen := _cam * _zoom
+	for layer in 3:
+		var tex: Texture2D = art.texture("STARBG.LBX", layer)
+		if tex == null:
+			continue
+		var tile := Vector2(640.0, 480.0) * legacy
+		var offset: Vector2 = -camera_screen * float(STAR_SPEEDS[layer])
+		offset = Vector2(fposmod(offset.x, tile.x), fposmod(offset.y, tile.y)) - tile
+		var y: float = offset.y
+		while y < size.y:
+			var x: float = offset.x
+			while x < size.x:
+				_starfield.draw_texture_rect(tex, Rect2(Vector2(x, y), tile), false)
+				x += tile.x
+			y += tile.y
 
 
 func _to_world(screen: Vector2) -> Vector2:
@@ -629,9 +680,7 @@ func _draw_backdrop() -> void:
 	var tex: Texture2D = art.texture("combat.lbx", 46, 0)
 	var top_left := _to_world(Vector2.ZERO)
 	var bottom_right := _to_world(size)
-	if tex == null:
-		_backdrop.draw_rect(Rect2(top_left, bottom_right - top_left), Color(0.02, 0.03, 0.06))
-	else:
+	if tex != null:
 		var tile := Vector2(640, 480)
 		var start := Vector2(floorf(top_left.x / tile.x) * tile.x, floorf(top_left.y / tile.y) * tile.y)
 		var y := start.y
@@ -643,6 +692,17 @@ func _draw_backdrop() -> void:
 			y += tile.y
 	# The field's edge: legacy ships can't leave it.
 	_backdrop.draw_rect(Rect2(Vector2.ZERO, _field_size()), Color(0.55, 0.65, 0.8, 0.18), false, 2.0 / _zoom)
+	if _show_grid: # Options: the field's squares, faint
+		var field := _field_size()
+		var line := Color(0.55, 0.65, 0.8, 0.10)
+		var x := SQUARE
+		while x < field.x:
+			_backdrop.draw_line(Vector2(x, 0), Vector2(x, field.y), line, 1.0 / _zoom)
+			x += SQUARE
+		var y := SQUARE
+		while y < field.y:
+			_backdrop.draw_line(Vector2(0, y), Vector2(field.x, y), line, 1.0 / _zoom)
+			y += SQUARE
 
 
 func _draw_marks() -> void:
@@ -651,12 +711,17 @@ func _draw_marks() -> void:
 	var acting := int(state.get("ship", -1))
 	var acting_ship := _ship(acting)
 	var width := 1.0 / _zoom
-	# The acting ship's legal squares, while it is the player's to move.
-	if _my_turn() and _alive(acting_ship):
+	# The acting ship's legal squares lit as the original lights its grid (owner 2026-11-22), each
+	# where the ship would stand (its centre), not the square's own centre: the dots drew a big
+	# ship's squares half a ship off. Shown always (Options) or while the pointer is on the field.
+	if _my_turn() and _alive(acting_ship) and (_always_moves or _pointer_on_field()):
+		var half := Vector2(SQUARE, SQUARE) / 2.0
 		for code in state.get("legal", []):
-			var sx := int(code) / 1000
-			var sy := int(code) % 1000
-			_marks.draw_circle((Vector2(sx, sy) + Vector2(0.5, 0.5)) * SQUARE, 1.6 * maxf(1.0, 1.0 / _zoom), Color(AMBER, 0.45))
+			var square := Vector2i(int(code) / 1000, int(code) % 1000)
+			var at := _square_center(square, acting_ship)
+			var lit := square == _hover_square and _hover_ship < 0
+			_marks.draw_rect(Rect2(at - half + Vector2(1, 1), half * 2.0 - Vector2(2, 2)), Color(AMBER, 0.30 if lit else 0.10))
+			_marks.draw_rect(Rect2(at - half + Vector2(1, 1), half * 2.0 - Vector2(2, 2)), Color(AMBER, 0.55 if lit else 0.28), false, width)
 	# The acting ship's ring.
 	if _alive(acting_ship) and _ships.has(acting):
 		var e: Dictionary = _ships[acting]
@@ -892,6 +957,8 @@ func _update_hover() -> void:
 		if d < _radius(index) * 0.85 and d < best_d:
 			best = index
 			best_d = d
+	if _chip_hover >= 0 and _ships.has(_chip_hover):
+		best = _chip_hover # its initiative chip is under the pointer
 	if _menu_ship >= 0:
 		_menu_hover = _menu_index_at(mouse)
 	if best != _hover_ship:
@@ -910,6 +977,11 @@ func _square_at(world: Vector2) -> Vector2i:
 	var offset := _center(acting) - Vector2(float(acting.x), float(acting.y)) * SQUARE
 	var sq := ((world - offset) / SQUARE).round()
 	return Vector2i(int(sq.x), int(sq.y))
+
+
+## The pointer is over the battlefield, not over a panel of the HUD.
+func _pointer_on_field() -> bool:
+	return get_viewport().gui_get_hovered_control() == self
 
 
 func _square_center(square: Vector2i, ship: Dictionary) -> Vector2:
@@ -992,11 +1064,6 @@ func _right_click(at: Vector2) -> void:
 		_close_menu()
 		return
 	var acting := int(state.get("ship", -1))
-	# Any other ship: its scan (read-only, so also while the enemy moves).
-	if _hover_ship >= 0 and _hover_ship != acting and _alive(_ship(_hover_ship)):
-		_scan_mode = false
-		_show_scan(_hover_ship)
-		return
 	if not _my_turn():
 		return
 	if _hover_ship == acting and acting >= 0:
@@ -1027,6 +1094,8 @@ func _input(event: InputEvent) -> void:
 	match key.keycode:
 		KEY_ESCAPE:
 			_close_menu()
+			if _options_panel != null:
+				_options_panel.hide()
 			_scan_mode = false
 			_hide_scan()
 		KEY_S:
@@ -1122,8 +1191,6 @@ func _flat_button(text: String, key: String, pressed: Callable, primary := false
 	if key != "":
 		b.tooltip_text = "Key: " + key
 	b.focus_mode = Control.FOCUS_NONE
-	if primary:
-		b.add_theme_color_override("font_color", b.get_theme_color("font_pressed_color", "Button"))
 	b.pressed.connect(pressed)
 	return b
 
@@ -1158,75 +1225,47 @@ func _build_hud() -> void:
 	_strength_theirs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(_strength_theirs)
 
-	# Initiative: the top edge, scrolled by its arrows, the wheel or a drag.
+	# Under the initiative bar: the Options button in its own framed tab (added first, so the bar's
+	# pocket draws over the tab's top and the tab reads as hanging from it).
+	_options_tab = _panel(&"Pocket")
+	add_child(_options_tab)
+	_top_right = _options_tab
+	var options_button := _flat_button("Options", "", func(): _options_panel.visible = not _options_panel.visible)
+	options_button.tooltip_text = "Battle options: health, grid, move squares, ship speed, layout"
+	_options_tab.add_child(options_button)
+
+	# Initiative: the top edge, half the screen wide, centred; its arrows and the wheel scroll it
+	# smoothly (owner 2026-11-22: no drag).
 	_timeline = _panel(&"Pocket")
 	add_child(_timeline)
 	var trow := HBoxContainer.new()
 	trow.add_theme_constant_override("separation", 4)
 	_timeline.add_child(trow)
-	var left: Button = preload("arrow_button.gd").new()
-	left.points_left = true
-	left.focus_mode = Control.FOCUS_NONE
-	left.tooltip_text = "Earlier in the order"
-	left.pressed.connect(func(): _tl_scroll.scroll_horizontal -= 200)
-	trow.add_child(left)
+	trow.add_child(_arrow(true, "Earlier in the order", func(): _scroll_by(_tl_scroll, -240)))
 	_tl_scroll = ScrollContainer.new()
 	_tl_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_tl_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	_tl_scroll.gui_input.connect(_on_timeline_input)
+	_tl_scroll.gui_input.connect(func(event: InputEvent): _wheel_scroll(_tl_scroll, event))
 	trow.add_child(_tl_scroll)
+	# A margin inside the scroller: the run's gold bracket was cut at its top.
+	var tl_margin := MarginContainer.new()
+	for side in ["margin_top", "margin_bottom", "margin_left", "margin_right"]:
+		tl_margin.add_theme_constant_override(side, 3)
+	_tl_scroll.add_child(tl_margin)
 	_timeline_row = HBoxContainer.new()
 	_timeline_row.add_theme_constant_override("separation", 6)
-	_tl_scroll.add_child(_timeline_row)
-	var right: Button = preload("arrow_button.gd").new()
-	right.points_left = false
-	right.focus_mode = Control.FOCUS_NONE
-	right.tooltip_text = "Later in the order"
-	right.pressed.connect(func(): _tl_scroll.scroll_horizontal += 200)
-	trow.add_child(right)
+	tl_margin.add_child(_timeline_row)
+	trow.add_child(_arrow(false, "Later in the order", func(): _scroll_by(_tl_scroll, 240)))
 
-	# Under it: Show Health and the move speed (bare buttons hanging under the bar: a second
-	# pocket's frame would reach up over it).
-	_top_right = _panel()
-	_top_right.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
-	_top_right.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_top_right)
-	var tr := HBoxContainer.new()
-	tr.add_theme_constant_override("separation", 6)
-	_top_right.add_child(tr)
-	_health_toggle = _flat_button("Show Health", "Alt", func(): pass)
-	_health_toggle.theme_type_variation = &"Toggle"
-	_health_toggle.toggle_mode = true
-	_health_toggle.button_pressed = _always_health
-	_health_toggle.tooltip_text = "Shields and hull on every ship (hold Alt to see them for a moment)"
-	Themes.glowing(_health_toggle)
-	_health_toggle.toggled.connect(func(on: bool):
-		_always_health = on
-		_save_setting("always_show_health", on)
-		for index in _ships.keys():
-			_apply_shield(index, _ship(index)))
-	tr.add_child(_health_toggle)
-	_move_speed = clampi(int(_load_setting("move_speed", 1)), 0, MOVE_SPEEDS.size() - 1)
-	_speed_button = _flat_button(String(MOVE_SPEEDS[_move_speed][0]), "", func():
-		_move_speed = (_move_speed + 1) % MOVE_SPEEDS.size()
-		_save_setting("move_speed", _move_speed)
-		_speed_button.text = String(MOVE_SPEEDS[_move_speed][0]))
-	_speed_button.tooltip_text = "How fast ships move and turn (click to change; weapons keep the original's pace)"
-	_speed_button.custom_minimum_size = Vector2(90, 0)
-	tr.add_child(_speed_button)
+	_build_options()
 
-	# The bottom edge: one pocket, Wait / Done / End turn / Auto framed above the acting ship and
-	# its weapons (two stacked pockets' frames would overlap).
-	_strip = _panel(&"BottomPocket")
-	add_child(_strip)
-	var stack := VBoxContainer.new()
-	stack.add_theme_constant_override("separation", 6)
-	_strip.add_child(stack)
+	# The bottom: Wait / Done / End turn / Auto in their own framed tab, stepping up from the
+	# weapons pocket (added first: the pocket draws over the tab's lower edge).
+	_bottom = _panel(&"BottomPocket")
+	add_child(_bottom)
 	_actions = HBoxContainer.new()
 	_actions.add_theme_constant_override("separation", 6)
-	_actions.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	stack.add_child(_actions)
-	_bottom = _actions
+	_bottom.add_child(_actions)
 	_wait_button = _flat_button("Wait", "W", func(): _act({"action": "wait"}))
 	_actions.add_child(_wait_button)
 	_done_button = _flat_button("Done", "D", func(): _act({"action": "done"}))
@@ -1241,10 +1280,13 @@ func _build_hud() -> void:
 	_actions.add_child(_auto_button)
 	for b: Button in [_wait_button, _done_button, _end_button, _auto_button]:
 		b.custom_minimum_size = Vector2(96, 0)
+
+	# The weapons pocket on the bottom edge, about half the screen wide; its weapons scroll.
+	_strip = _panel(&"BottomPocket")
+	add_child(_strip)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	stack.add_child(row)
+	row.add_theme_constant_override("separation", 6)
+	_strip.add_child(row)
 	_strip_row = row
 	var pad_left := Control.new()
 	pad_left.custom_minimum_size = Vector2(6, 0)
@@ -1260,9 +1302,16 @@ func _build_hud() -> void:
 	_strip_bars = _bars_control(Vector2(130, 8))
 	who.add_child(_strip_bars)
 	row.add_child(VSeparator.new())
+	row.add_child(_arrow(true, "More weapons", func(): _scroll_by(_wp_scroll, -200)))
+	_wp_scroll = ScrollContainer.new()
+	_wp_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_wp_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	_wp_scroll.gui_input.connect(func(event: InputEvent): _weapons_input(event, -1))
+	row.add_child(_wp_scroll)
 	_strip_weapons = HBoxContainer.new()
 	_strip_weapons.add_theme_constant_override("separation", 4)
-	row.add_child(_strip_weapons)
+	_wp_scroll.add_child(_strip_weapons)
+	row.add_child(_arrow(false, "More weapons", func(): _scroll_by(_wp_scroll, 200)))
 	var pad_right := Control.new()
 	pad_right.custom_minimum_size = Vector2(6, 0)
 	row.add_child(pad_right)
@@ -1323,31 +1372,55 @@ func _layout() -> void:
 		if pocket.theme_type_variation != variation:
 			pocket.theme_type_variation = variation
 	var edge := _edge()
-	# Initiative: as wide as its ships, at most the screen less the corners.
-	var arrows := 2.0 * 60.0
-	var pane_w := 0.0
-	var box := _timeline.get_theme_stylebox("panel")
-	if box != null:
-		pane_w = box.get_minimum_size().x
-	var room := size.x - 2.0 * (edge + 40.0) - arrows - pane_w
-	var want := _timeline_row.get_combined_minimum_size().x
-	_tl_scroll.custom_minimum_size = Vector2(clampf(want, 60.0, maxf(room, 60.0)), _timeline_row.get_combined_minimum_size().y)
+	var half_screen := size.x * 0.5
+	# Initiative: at most half the screen, centred (owner 2026-11-22).
+	var tl_chrome := _timeline.get_combined_minimum_size().x - _tl_scroll.get_combined_minimum_size().x
+	var tl_room := maxf(half_screen - tl_chrome, 120.0)
+	var tl_content: Vector2 = (_tl_scroll.get_child(0) as Control).get_combined_minimum_size()
+	_tl_scroll.custom_minimum_size = Vector2(minf(tl_content.x, tl_room), tl_content.y)
 	_timeline.reset_size()
 	_timeline.position = Vector2(roundf((size.x - _timeline.size.x) / 2.0), edge)
-	_top_right.reset_size()
-	_top_right.position = Vector2(roundf((size.x - _top_right.size.x) / 2.0), _timeline.position.y + _timeline.size.y)
-	# The bottom: one pocket on the edge.
+	# The Options tab hangs from it (drawn under it); the flyout below the tab.
+	_options_tab.reset_size()
+	_options_tab.position = Vector2(roundf((size.x - _options_tab.size.x) / 2.0), _timeline.position.y + _timeline.size.y + _grow(_timeline, 3) - 4.0)
+	_options_panel.reset_size()
+	_options_panel.position = Vector2(roundf((size.x - _options_panel.size.x) / 2.0), _options_tab.position.y + _options_tab.size.y + 4.0)
+	# The weapons pocket: at most half the screen, centred, on the bottom edge.
+	var wp_chrome := _strip.get_combined_minimum_size().x - _wp_scroll.get_combined_minimum_size().x
+	var wp_room := maxf(half_screen - wp_chrome, 120.0)
+	var wp_content := _strip_weapons.get_combined_minimum_size()
+	_wp_scroll.custom_minimum_size = Vector2(minf(wp_content.x, wp_room), wp_content.y)
 	_strip.reset_size()
 	_strip.position = Vector2(roundf((size.x - _strip.size.x) / 2.0), size.y - edge - _strip.size.y)
-	# The round box: a pane in the player's corner, inside the frame by the theme's pane gap.
+	# The buttons' tab steps up from it (drawn under it).
+	_bottom.reset_size()
+	_bottom.position = Vector2(roundf((size.x - _bottom.size.x) / 2.0), _strip.position.y - _grow(_strip, 1) - _bottom.size.y + 4.0)
+	# The round box: in the frame's corner on the player's side (attacking: right; defending: left).
 	_top_left.reset_size()
 	var inset := float(get_theme_constant("inset", "Screen"))
-	var gap := inset + float(maxi(get_theme_constant("pane_gap", "Screen"), 6))
+	var corner := inset if inset > 0.0 else 6.0
 	var attacking := int(state.get("player", -1)) == int(state.get("attacker", -2))
-	var x := size.x - gap - _top_left.size.x if attacking else gap
-	_top_left.position = Vector2(x, size.y - gap - _top_left.size.y)
-	_toast.position = Vector2(roundf((size.x - _toast.size.x) / 2.0), _top_right.position.y + _top_right.size.y + 12.0)
+	var x := size.x - corner - _top_left.size.x if attacking else corner
+	_top_left.position = Vector2(x, size.y - corner - _top_left.size.y)
+	_toast.position = Vector2(roundf((size.x - _toast.size.x) / 2.0), _options_tab.position.y + _options_tab.size.y + 12.0)
+	# The scan panel: on the right, its height capped to the screen inside the frame.
+	if _scan_panel.visible:
+		var frame_room := size.y - 2.0 * corner - 16.0
+		var head := _scan_panel.get_combined_minimum_size().y - _scan_scroll.get_combined_minimum_size().y
+		var body := _scan_body.get_combined_minimum_size()
+		_scan_scroll.custom_minimum_size = Vector2(body.x, clampf(body.y, 60.0, maxf(frame_room - head, 60.0)))
+		_scan_panel.reset_size()
+		_scan_panel.position = Vector2(size.x - corner - 8.0 - _scan_panel.size.x, clampf((size.y - _scan_panel.size.y) / 2.0, corner + 8.0, maxf(corner + 8.0, size.y - corner - 8.0 - _scan_panel.size.y)))
 	_frame_overlay.queue_redraw()
+
+
+## How far a pocket's art reaches past its box on one side (Chrome's metal.gd `grow`: left, top,
+## right, bottom), so a tab docked on it shows.
+func _grow(pocket: Control, side: int) -> float:
+	var box := pocket.get_theme_stylebox("panel")
+	if box != null and "grow" in box:
+		return float(box.grow[side])
+	return 0.0
 
 
 func _draw_frame() -> void:
@@ -1379,24 +1452,143 @@ func _draw_frame() -> void:
 				_frame_overlay.draw_texture_rect(tex, Rect2(Vector2(x - anchor.x, _frame_overlay.size.y - c - anchor.y), tsize), false)
 
 
-## The initiative bar scrolls with the wheel and a drag (and its arrows).
-func _on_timeline_input(event: InputEvent) -> void:
+# ---- Scrolling bars and the Options flyout (owner 2026-11-22) ----
+
+## A galaxy arrow (arrow_button.gd) that scrolls a bar.
+func _arrow(points_left: bool, tip: String, pressed: Callable) -> Button:
+	var b: Button = preload("arrow_button.gd").new()
+	b.points_left = points_left
+	b.focus_mode = Control.FOCUS_NONE
+	b.tooltip_text = tip
+	b.pressed.connect(pressed)
+	return b
+
+
+func _scroll_max(sc: ScrollContainer) -> float:
+	return maxf(0.0, sc.get_h_scroll_bar().max_value - sc.size.x)
+
+
+## Smooth scrolling: the bar eases toward a goal (_process), so a long list shows which way it goes.
+func _scroll_by(sc: ScrollContainer, pixels: float) -> void:
+	var goal: float = _scroll_goal.get(sc, float(sc.scroll_horizontal))
+	_scroll_goal[sc] = clampf(goal + pixels, 0.0, _scroll_max(sc))
+
+
+func _ease_scrolls(delta: float) -> void:
+	for sc: ScrollContainer in _scroll_goal.keys():
+		var goal: float = clampf(_scroll_goal[sc], 0.0, _scroll_max(sc))
+		var now := float(sc.scroll_horizontal)
+		var next := lerpf(now, goal, minf(1.0, delta * 10.0))
+		if absf(goal - next) < 1.0:
+			next = goal
+		sc.scroll_horizontal = int(roundf(next))
+
+
+func _wheel_scroll(sc: ScrollContainer, event: InputEvent) -> bool:
 	var button := event as InputEventMouseButton
-	if button != null:
-		if button.pressed and button.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_LEFT]:
-			_tl_scroll.scroll_horizontal -= 80
-			_tl_scroll.accept_event()
-		elif button.pressed and button.button_index in [MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_RIGHT]:
-			_tl_scroll.scroll_horizontal += 80
-			_tl_scroll.accept_event()
-		elif button.button_index == MOUSE_BUTTON_LEFT:
-			_tl_dragging = button.pressed
-			_tl_scroll.accept_event()
+	if button == null or not button.pressed:
+		return false
+	if button.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_LEFT]:
+		_scroll_by(sc, -120)
+	elif button.button_index in [MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_RIGHT]:
+		_scroll_by(sc, 120)
+	else:
+		return false
+	sc.accept_event()
+	return true
+
+
+## The weapons: the wheel scrolls, a drag scrolls, a click (no drag) on a chip cycles that weapon.
+func _weapons_input(event: InputEvent, slot: int) -> void:
+	if _wheel_scroll(_wp_scroll, event):
+		return
+	var button := event as InputEventMouseButton
+	if button != null and button.button_index == MOUSE_BUTTON_LEFT:
+		if button.pressed:
+			_wp_press = button.global_position
+			_wp_dragged = false
+		else:
+			if not _wp_dragged and slot >= 0 and _wp_press != Vector2.INF:
+				_act({"action": "toggle_weapon", "slot": slot})
+			_wp_press = Vector2.INF
+		accept_event()
 		return
 	var motion := event as InputEventMouseMotion
-	if motion != null and _tl_dragging:
-		_tl_scroll.scroll_horizontal -= int(motion.relative.x)
-		_tl_scroll.accept_event()
+	if motion != null and _wp_press != Vector2.INF:
+		if _wp_dragged or motion.global_position.distance_to(_wp_press) > 6.0:
+			_wp_dragged = true
+			_scroll_goal.erase(_wp_scroll)
+			_wp_scroll.scroll_horizontal -= int(motion.relative.x)
+		accept_event()
+
+
+## The flyout under the Options tab: every battle option (owner: "all the options we have/haven't
+## discovered"), and the layout, as themes are for the galaxy.
+func _build_options() -> void:
+	_options_panel = _panel()
+	_options_panel.hide()
+	add_child(_options_panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.custom_minimum_size = Vector2(260, 0)
+	_options_panel.add_child(v)
+	var section := func(text: String):
+		var l := _label(text)
+		l.theme_type_variation = &"Section"
+		v.add_child(l)
+	var toggle := func(text: String, tip: String, on: bool, changed: Callable) -> Button:
+		var b := _flat_button(text, "", func(): pass)
+		b.theme_type_variation = &"Toggle"
+		b.toggle_mode = true
+		b.button_pressed = on
+		b.tooltip_text = tip
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		Themes.glowing(b)
+		b.toggled.connect(changed)
+		v.add_child(b)
+		return b
+	section.call("SHOW")
+	_health_toggle = toggle.call("Health on every ship", "Shields and hull on every ship (hold Alt to see them for a moment)", _always_health,
+		func(on: bool):
+			_always_health = on
+			_save_setting("always_show_health", on)
+			for index in _ships.keys():
+				_apply_shield(index, _ship(index)))
+	toggle.call("Grid", "The battlefield's squares", _show_grid, func(on: bool):
+		_show_grid = on
+		_save_setting("show_grid", on)
+		_backdrop.queue_redraw())
+	toggle.call("Moves always", "The acting ship's squares lit all the time, not only while the pointer is on the field", _always_moves,
+		func(on: bool):
+			_always_moves = on
+			_save_setting("always_show_moves", on))
+	section.call("SHIP SPEED")
+	var speeds := HBoxContainer.new()
+	speeds.add_theme_constant_override("separation", 4)
+	v.add_child(speeds)
+	_move_speed = clampi(int(_load_setting("move_speed", 1)), 0, MOVE_SPEEDS.size() - 1)
+	var group := ButtonGroup.new()
+	for i in MOVE_SPEEDS.size():
+		var b := _flat_button(String(MOVE_SPEEDS[i][0]), "", func():
+			_move_speed = i
+			_save_setting("move_speed", i))
+		b.theme_type_variation = &"Toggle"
+		b.toggle_mode = true
+		b.button_group = group
+		b.button_pressed = i == _move_speed
+		b.tooltip_text = "How fast ships move and turn (weapons keep the original's pace)"
+		Themes.glowing(b)
+		speeds.add_child(b)
+		if i == _move_speed:
+			_speed_button = b
+	section.call("LAYOUT")
+	var layout := _flat_button("Clear Field", "", func(): pass)
+	layout.theme_type_variation = &"Toggle"
+	layout.toggle_mode = true
+	layout.button_pressed = true
+	layout.tooltip_text = "The battle's layout. Bridge and Command Console come next."
+	Themes.glowing(layout)
+	v.add_child(layout)
 
 
 ## Straight bars (the timeline, the strip, the card): armour on top, shrinking to the centre;
@@ -1555,11 +1747,7 @@ func _refresh_strip() -> void:
 		v.add_child(status_label)
 		if count == 0 or active == -1 or not ready or (targeted and not lit):
 			chip.modulate = Color(1, 1, 1, 0.5)
-		chip.gui_input.connect(func(event: InputEvent):
-			var click := event as InputEventMouseButton
-			if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT and count > 0:
-				_act({"action": "toggle_weapon", "slot": slot})
-				accept_event())
+		chip.gui_input.connect(func(event: InputEvent): _weapons_input(event, slot if count > 0 else -1))
 		_strip_weapons.add_child(chip)
 		_weapon_chips[slot] = chip
 
@@ -1637,6 +1825,16 @@ func _chip(index: int, acting: bool) -> Control:
 	var bars := _bars_control(Vector2(46, 6))
 	_set_bars(bars, ship)
 	box.add_child(bars)
+	# The chip hovers its ship as the field does (owner 2026-11-22); a click centres the camera on it.
+	box.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.mouse_entered.connect(func(): _chip_hover = index)
+	box.mouse_exited.connect(func():
+		if _chip_hover == index:
+			_chip_hover = -1)
+	box.gui_input.connect(func(event: InputEvent):
+		var click := event as InputEventMouseButton
+		if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT and _ships.has(index):
+			_cam_goal = _ships[index].shown)
 	return box
 
 
@@ -1685,10 +1883,10 @@ func _place_card() -> void:
 	# Docked in the bottom corner opposite the round box (owner 2026-11-22: beside the ship it
 	# covered a large part of the battlefield).
 	var inset := float(get_theme_constant("inset", "Screen"))
-	var gap := inset + float(maxi(get_theme_constant("pane_gap", "Screen"), 6))
+	var corner := inset if inset > 0.0 else 6.0
 	var attacking := int(state.get("player", -1)) == int(state.get("attacker", -2))
-	var x := gap if attacking else size.x - gap - _card.size.x
-	_card.position = Vector2(x, size.y - gap - _card.size.y)
+	var x := corner if attacking else size.x - corner - _card.size.x
+	_card.position = Vector2(x, size.y - corner - _card.size.y)
 
 
 func _show_toast(text: String, seconds := 3.0) -> void:
@@ -1727,10 +1925,14 @@ func _build_scan() -> void:
 	v.add_child(_scan_sub)
 	_scan_bars = _bars_control(Vector2(330, 12))
 	v.add_child(_scan_bars)
+	# The body scrolls: the panel never grows past the screen inside its frame (owner 2026-11-22:
+	# a tall ship's scan ran off the screen with its Close button).
+	_scan_scroll = ScrollContainer.new()
+	_scan_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(_scan_scroll)
 	_scan_body = VBoxContainer.new()
 	_scan_body.add_theme_constant_override("separation", 3)
-	v.add_child(_scan_body)
-	_scan_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
+	_scan_scroll.add_child(_scan_body)
 
 
 func _hide_scan() -> void:
@@ -1812,8 +2014,6 @@ func _show_scan(index: int) -> void:
 			var damaged := bool(special.get("damaged", false))
 			add.call(String(special.get("name", "")) + ("   damaged" if damaged else ""), SYSTEMS_COLOR if damaged else TEXT)
 	_scan_panel.show()
-	_scan_panel.reset_size()
-	_scan_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
 
 
 # ---- Effects (WP3.9c) ----

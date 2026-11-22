@@ -7251,10 +7251,11 @@ func _smoke_combat(shots: String) -> bool:
 			await get_tree().create_timer(0.4).timeout
 			if shots != "":
 				await host.shot(shots + "/combat-target.png")
-			# Scan (owner 2026-11-21): a right click on an enemy opens its scan, as a player does it.
+			# Scan (owner 2026-11-22: from the ring): armed, then a click on an enemy opens its scan.
+			view._arm_scan()
 			for pressed in [true, false]:
 				var right := InputEventMouseButton.new()
-				right.button_index = MOUSE_BUTTON_RIGHT
+				right.button_index = MOUSE_BUTTON_LEFT
 				right.pressed = pressed
 				right.position = on_enemy
 				right.global_position = on_enemy
