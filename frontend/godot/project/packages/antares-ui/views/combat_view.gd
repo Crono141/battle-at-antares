@@ -52,6 +52,9 @@ var _zoom_goal := -1.0 # the zoom the camera eases to (-1: none)
 const FRAMED_KINDS := ["beam", "stasis", "tractor", "plasma_web", "stellar", "black_hole", "absorber", "gyro"]
 const FRAME_MARGIN := 90.0 # world pixels round shooter and target
 const FRAME_WAIT_MAX := 1.0 # seconds the effect waits for the camera at most
+var _art_hold := 0.0 # > 0: a volley waits for its flashes' art (seconds waited + a tiny bit)
+var _art_wait: Array = [] # [name, entry] the waiting volley needs
+const ART_WAIT_MAX := 1.0
 var _cam_hold := 0.0 # > 0: the effect waits for the camera (seconds waited so far + a tiny bit)
 var _hover_ship := -1
 var _hover_square := Vector2i(-1, -1)
@@ -78,6 +81,12 @@ var _animating_waits_capture := -1 # the capture the current animation waits for
 var _capture_asked_at := 0
 var animated := {} # effects played, by kind (the smoke reports them)
 var framed := 0 # enemy fire the camera framed (the smoke reports it)
+var art_late := {} # volley art ("name/entry") not there when a tick first wanted it (the smoke reports it)
+var art_drawn := {} # volley art drawn at least once
+var _native_volleys := false # volleys play natively: shield hits are theirs, not the 3.9c arcs
+const SHIELD_BASE_ROT := [0, 1, 2, 3, 4, 3, 2, 1, 0, 1, 2, 3, 4, 3, 2, 1] # BEAMS::Rot_To_Base_Rot
+const SHIELD_ROT_METHOD := [0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3] # BEAMS::Rot_To_Rot_Method
+const SHIELD_ART := "beams.lbx!shield" # glass kept as the shield's tint (sprites.cpp)
 var _warned_fragments := false # a volley's non-recipe colours were missing (warned once)
 var smoke_hold := false # the smoke freezes effects and the awaited animation to shoot chosen ticks
 # Spike 3.9: volleys arrive captured from the legacy drawing (sprite "capture", entry); they carry
@@ -624,6 +633,16 @@ func _process(delta: float) -> void:
 		if absf(_zoom - _zoom_goal) < 0.005:
 			_zoom = _zoom_goal
 			_zoom_goal = -1.0
+	if _art_hold > 0.0:
+		_art_hold += delta
+		_art_wait = _art_wait.filter(func(key: Array) -> bool:
+			return art.sprite(String(key[0]), int(key[1])).is_empty() and not art.settled(String(key[0]), int(key[1])))
+		if _art_wait.is_empty() or _art_hold > ART_WAIT_MAX:
+			_art_hold = 0.0
+		else:
+			_place_world()
+			_layout()
+			return # the volley starts once its art is here
 	if _cam_hold > 0.0:
 		_cam_hold += delta
 		var arrived := _cam_goal == Vector2.INF and _zoom_goal < 0.0
@@ -2168,7 +2187,7 @@ func _diff_effects(before: Dictionary, after: Dictionary) -> void:
 		var arcs_old: Array = (old.get("shield", {}) as Dictionary).get("arcs", [])
 		var arcs_new: Array = (ship.get("shield", {}) as Dictionary).get("arcs", [])
 		for a in mini(arcs_old.size(), arcs_new.size()):
-			if float(arcs_new[a]) < float(arcs_old[a]) and not _captures_seen:
+			if float(arcs_new[a]) < float(arcs_old[a]) and not _captures_seen and not _native_volleys:
 				_effects.append({"kind": "shield", "t": 0.0, "life": 0.45, "ship": index, "arc": a})
 
 
@@ -2274,25 +2293,35 @@ func _play_volley(event: Dictionary) -> float:
 		fragments.append(BeamVolley.to_colors(f))
 	var target_center: Array = event.target.get("center", [0, 0])
 	var effect := {"kind": "volley", "t": 0.0, "life": float(ticks.size()) * BeamVolley.TICK, "ticks": ticks, "fragments": fragments,
-		"tick": -1, "strands": [], "at": Vector2(float(target_center[0]), float(target_center[1]))}
+		"tick": -1, "strands": [], "at": Vector2(float(target_center[0]), float(target_center[1])), "target_size": int(event.target.get("size", 0))}
+	_native_volleys = true # the original's shield hits now: no 3.9c arc flashes
 	_effects.append(effect)
 	_request_volley_art(effect)
 	return float(ticks.size()) * BeamVolley.TICK
 
 
-## Asks for the volley's flashes and flares in their colours now, so they are here (or on their
-## way) by the tick that draws them: each is a new export the first time a weapon fires.
+## Asks for the volley's flashes and flares in their colours now; the volley waits (at most
+## ART_WAIT_MAX) until they are here: each is a new export the first time a weapon fires in a
+## direction, and a flash missing on its tick is lost (measured: 6 of 19 late locally).
 func _request_volley_art(effect: Dictionary) -> void:
+	var wanted := {}
 	for ops: Array in effect.ticks:
 		for op: Dictionary in ops:
 			var slot := int(op.get("slot", 0))
 			match String(op.op):
 				"burst":
-					art.sprite(_slot_sprite(_first_ramp(effect, slot), slot), 1 + int(op.variant) * 32 + slot * 16 + int(op.dir))
+					wanted[[_slot_sprite(_first_ramp(effect, slot), slot), 1 + int(op.variant) * 32 + slot * 16 + int(op.dir)]] = true
 				"explosion":
-					art.sprite(_slot_sprite(_first_ramp(effect, slot), slot), 65 + slot)
+					wanted[[_slot_sprite(_first_ramp(effect, slot), slot), 65 + slot]] = true
 				"ball":
-					art.sprite(_slot_sprite(_first_ramp(effect, 0), 0), 88)
+					wanted[[_slot_sprite(_first_ramp(effect, 0), 0), 88]] = true
+				"shield":
+					wanted[[SHIELD_ART, _shield_entry(op, int(effect.get("target_size", 0)))]] = true
+	_art_wait = []
+	for key: Array in wanted.keys():
+		if art.sprite(String(key[0]), int(key[1])).is_empty():
+			_art_wait.append(key)
+	_art_hold = 0.0001 if not _art_wait.is_empty() else 0.0
 
 
 ## The 16 colours a segment op draws with (Color, 8-bit) and the palette slot's base index.
@@ -2347,6 +2376,8 @@ func _slot_sprite(op_ramp: Array, slot: int) -> String:
 
 
 func _draw_beams() -> void:
+	if _art_hold > 0.0:
+		return # the volley waits for its art
 	for effect: Dictionary in _effects:
 		if String(effect.kind) != "volley" or effect.t < 0.0:
 			continue
@@ -2364,6 +2395,8 @@ func _draw_beams() -> void:
 
 ## A volley's muzzle flashes, hit flares and the Mauler's ball on this tick (over the strands).
 func _draw_volley_sprites(effect: Dictionary) -> void:
+	if _art_hold > 0.0:
+		return # the volley waits for its art
 	var ticks: Array = effect.ticks
 	var tick := mini(int(effect.t / BeamVolley.TICK), ticks.size() - 1)
 	var ops: Array = ticks[tick]
@@ -2386,6 +2419,7 @@ func _draw_volley_sprites(effect: Dictionary) -> void:
 					ramps[slot] = _first_ramp(effect, slot)
 				var name := _slot_sprite(ramps[slot], slot)
 				var s: Dictionary = art.sprite(name, 65 + slot)
+				_note_art(name, 65 + slot, s)
 				if not s.is_empty():
 					var count: int = s.frames.size()
 					var frame := int(op.frame) % maxi(count - 1, 1)
@@ -2394,6 +2428,8 @@ func _draw_volley_sprites(effect: Dictionary) -> void:
 				if not ramps.has(0):
 					ramps[0] = _first_ramp(effect, 0)
 				_draw_centered(_slot_sprite(ramps[0], 0), 88, 0, op.at)
+			"shield":
+				_draw_shield_hit(op, effect)
 
 
 ## The colours of the first segment in `slot` anywhere in the volley (a burst on frame 0 comes
@@ -2406,9 +2442,54 @@ func _first_ramp(effect: Dictionary, slot: int) -> Array:
 	return _volley_ramp({"params": {"frag": 0}}, effect.fragments)
 
 
+## BEAMS::Shield_Anims: the shield hit's entry for its size, direction, special and heavy.
+func _shield_entry(op: Dictionary, target_size: int) -> int:
+	var size_idx := BeamVolley.shield_size(target_size)
+	var base_rot: int = SHIELD_BASE_ROT[int(op.rotation) & 15]
+	if size_idx >= 4:
+		return 113 + size_idx * 5 + base_rot
+	if int(op.get("heavy", 0)) != 0:
+		return 129 + size_idx
+	if int(op.get("special", 0)) != 0:
+		return 109 + size_idx * 5 + base_rot
+	return 67 + size_idx * 5 + base_rot
+
+
+## BEAMS::Draw_Shield_Hit: the frame in a box the shield's diameter wide round the target's
+## centre, mirrored for the other directions, drawn as glass (the export's tint and strength,
+## blended over the ship). Not yet: the ship brightened under it (Mask_Brighten_Bitmap).
+func _draw_shield_hit(op: Dictionary, effect: Dictionary) -> void:
+	var target_size := int(effect.get("target_size", 0))
+	var entry := _shield_entry(op, target_size)
+	var s: Dictionary = art.sprite(SHIELD_ART, entry)
+	_note_art(SHIELD_ART, entry, s)
+	if s.is_empty():
+		return
+	var diam: float = BeamVolley.SHIELD_DIAMETERS[BeamVolley.shield_size(target_size)]
+	var method: int = SHIELD_ROT_METHOD[int(op.rotation) & 15]
+	var flip := Vector2(-1.0 if method == 1 or method == 2 else 1.0, -1.0 if method == 2 or method == 3 else 1.0)
+	var frame := int(op.frame) % maxi(s.frames.size(), 1)
+	_marks.draw_set_transform(effect.at, 0.0, flip)
+	art.draw(_marks, SHIELD_ART, entry, frame, Vector2(-diam / 2.0, -diam / 2.0), 1.0)
+	_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## Whether a volley's art was there the first time a tick drew it (measured, WP3.9: the owner plays
+## from a network share).
+func _note_art(name: String, entry: int, s: Dictionary) -> void:
+	var key := "%s/%d" % [name.get_slice("~", 0), entry]
+	if art_drawn.has(key):
+		return
+	if s.is_empty():
+		art_late[key] = true
+	else:
+		art_drawn[key] = true
+
+
 ## ERIC::Draw_Centered: the frame's 1x box centred on `at`.
 func _draw_centered(name: String, entry: int, frame: int, at: Vector2i) -> void:
 	var s: Dictionary = art.sprite(name, entry)
+	_note_art(name, entry, s)
 	if s.is_empty():
 		return
 	var box: Vector2 = s.size

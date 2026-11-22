@@ -7360,6 +7360,7 @@ func _smoke_combat(shots: String) -> bool:
 	print("smoke: effects seen %s" % [counts])
 	print("smoke: effects played for the engine %s" % [view.animated]) # WP3.9d
 	print("smoke: enemy fire framed by the camera: %d" % view.framed)
+	print("smoke: volley art late on its first tick: %d of %d %s" % [view.art_late.size(), view.art_late.size() + view.art_drawn.size(), view.art_late.keys()])
 	print("smoke: battle over after %.0f s (scene shown: %s)" % [waited, view.visible])
 	return not view.visible
 
@@ -8152,7 +8153,12 @@ func _smoke_volley_ticks(view: Control, effect: Dictionary, shots: String) -> vo
 				first_seg = t
 			if String(op.op) == "explosion" and first_flare < 0:
 				first_flare = t
-	var picks := {"start": maxi(first_seg, 0), "middle": ticks.size() / 2, "flare": first_flare,
+	var first_shield := -1
+	for t in ticks.size():
+		for op: Dictionary in ticks[t]:
+			if String(op.op) == "shield" and int(op.get("status", 0)) == 2 and first_shield < 0:
+				first_shield = t
+	var picks := {"start": maxi(first_seg, 0), "middle": ticks.size() / 2, "flare": first_flare, "shield": first_shield,
 		"flare-later": first_flare + 2 if first_flare >= 0 and first_flare + 2 < ticks.size() else -1}
 	view.smoke_hold = true
 	var keep_zoom: float = view._zoom
@@ -8170,6 +8176,8 @@ func _smoke_volley_ticks(view: Control, effect: Dictionary, shots: String) -> vo
 		if not seg.is_empty():
 			# The flare: the target up and left of centre, clear of the hover card.
 			view._cam = (Vector2(seg.from) + Vector2(seg.to)) / 2.0 if not name.begins_with("flare") else Vector2(seg.end) + Vector2(110, 60)
+		elif name == "shield":
+			view._cam = effect.at + Vector2(110, 60)
 		effect.t = (float(t) + 0.5) * 0.055
 		for i in 3:
 			await get_tree().process_frame

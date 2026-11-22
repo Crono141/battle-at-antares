@@ -276,6 +276,19 @@ namespace antares::sprites {
             }
             lbx.erase(tilde);
         }
+        // "LBX!shield": glass pixels kept as the combat shield's glass (COMBINIT: level L tints
+        // toward (2L+13, 2L+30, 63) six-bit by 20+3L percent), for the frontend's shield hits.
+        uint32_t glass_argb[16] = {};
+        bool glass = false;
+        if (const size_t bang = lbx.find("!shield"); bang != std::string::npos) {
+            glass = true;
+            for (int32_t level = 1; level < 16; ++level) {
+                const uint32_t r = (uint32_t)(2 * level + 13) * 255 / 63, g = (uint32_t)(2 * level + 30) * 255 / 63, b = 255;
+                const uint32_t a = (uint32_t)(20 + 3 * level) * 255 / 100;
+                glass_argb[level] = (a << 24) | (r << 16) | (g << 8) | b;
+            }
+            lbx.erase(bang, 7);
+        }
         // "LBX:N": HD art at most N times the 1x size (the scene windows' full-screen
         // animations: 30-odd frames at 4x are 600 MB and more as textures).
         int32_t max_scale = 0;
@@ -429,7 +442,7 @@ namespace antares::sprites {
         bool still_decoding = false;
         // "LBX:1": the original pixels, not the pack's art (the colony landing's pods, whose HD
         // frames have the smear baked in).
-        if (max_scale != 1 && render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms, shade_masks, &still_decoding)) {
+        if (max_scale != 1 && render::Export_Art(lbx.c_str(), entry, anim, palette_rgb, &art, k_decode_wait_ms, shade_masks, &still_decoding, glass ? glass_argb : nullptr)) {
             const int32_t shrink = max_scale > 0 && max_scale < render::SCALE ? render::SCALE / max_scale : 1;
             for (render::s_exported_frame& frame : art) {
                 s_frame copy;

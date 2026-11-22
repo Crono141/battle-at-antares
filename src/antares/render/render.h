@@ -299,7 +299,11 @@ namespace render {
     // index's colour from `palette_rgb`, keeping their brightness (as the twin planes draw them:
     // ships' player markings); otherwise the art's own colours.
     bool Export_Art(const char* lbx_name, int32_t entry, const s_animation_header* loaded_entry, const uint32_t* palette_rgb,
-        std::vector<s_exported_frame>* frames, uint32_t max_ms, bool shade_masks = false, bool* still_decoding = nullptr);
+        std::vector<s_exported_frame>* frames, uint32_t max_ms, bool shade_masks = false, bool* still_decoding = nullptr,
+        const uint32_t* glass_argb = nullptr);
+    // `glass_argb` (16 entries, 0xAARRGGBB): glass pixels of level L come out as that colour at that
+    // alpha (a glass remap's tint and strength: the frontend draws them blended over what is
+    // under them, as the game's glass does); without it they are left out.
 
     // The palette an art pack's sprite was made under (its sprite.json "palette", from the art
     // index): FONTS.LBX palettes and LBX entries' embedded palettes, applied in order. False when

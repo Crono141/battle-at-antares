@@ -10,7 +10,7 @@
 
 namespace render {
 
-    bool Export_Art(const char* lbx_name, int32_t entry, const s_animation_header* loaded_entry, const uint32_t* palette_rgb, std::vector<s_exported_frame>* frames, uint32_t max_ms, bool shade_masks, bool* still_decoding) {
+    bool Export_Art(const char* lbx_name, int32_t entry, const s_animation_header* loaded_entry, const uint32_t* palette_rgb, std::vector<s_exported_frame>* frames, uint32_t max_ms, bool shade_masks, bool* still_decoding, const uint32_t* glass_argb) {
         frames->clear();
         if (still_decoding != nullptr) {
             *still_decoding = false;
@@ -83,7 +83,21 @@ namespace render {
                 const bool glass = asset->glassed &&
                     ((frame->mask != nullptr && art::Mask_Meaning(frame->mask[i], true).kind == art::MASK_GLASS) ||
                         (frame->rgb == nullptr && frame->index != nullptr && frame->index[i] >= 0xF0)); // indexed art
-                if (glass) {
+                if (glass && glass_argb != nullptr) {
+                    // WP3.9: the tint and strength of its level, for the frontend to blend over
+                    // what is under it (the shield hit).
+                    int32_t level = 0;
+                    if (frame->mask != nullptr && art::Mask_Meaning(frame->mask[i], true).kind == art::MASK_GLASS) {
+                        level = frame->mask[i] - 240;
+                    } else if (frame->index != nullptr) {
+                        level = frame->index[i] - 0xF0;
+                    }
+                    const uint32_t c = glass_argb[SDL_clamp(level, 0, 15)];
+                    out.rgba[i * 4] = (uint8_t)(c >> 16);
+                    out.rgba[i * 4 + 1] = (uint8_t)(c >> 8);
+                    out.rgba[i * 4 + 2] = (uint8_t)c;
+                    alpha = (uint8_t)((uint32_t)alpha * (c >> 24) / 255u);
+                } else if (glass) {
                     // Glass tints what is under it, which an exported picture can't: left out, as
                     // the colony screen's build box masks 240-255 out (owner, 2026-11-13: housing
                     // showed its shadow in solid magenta).

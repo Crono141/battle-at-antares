@@ -97,6 +97,10 @@ namespace antares::beam_bench {
             return;
         }
         timer::Handle_Animation_Speed_Key(key::KEY_PAGE_UP); // no waiting between ticks
+        // ANTARES_BEAM_BENCH_X2=1: the x2 speed (the scheduler steps two frames a tick).
+        if (const char* x2 = antares::Get_Env("BEAM_BENCH_X2"); x2 != nullptr && strcmp(x2, "1") == 0) {
+            MOX::speedx2_flag = 1;
+        }
 
         // The non-recipe weapons' 16-colour fragments (BEAMS.LBX entry 0's palette animation;
         // Fire_Weapon copies fragment N into the slot's 16 colours), 6-bit as the game keeps them.
