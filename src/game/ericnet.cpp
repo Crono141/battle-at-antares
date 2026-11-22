@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/combat_native.h"
 
 namespace {
     bool Building_Forces_Combat_Reengagement(int16_t building_id) {
@@ -224,6 +225,9 @@ namespace ERICNET {
     }
 
     int __cdecl Mox_Play_Sound(int16_t sound_id) {
+        if (antares::combat::Capture_Sound(sound_id)) {
+            return 0; // spike 3.9: a captured effect's sound, recorded at its frame
+        }
         if (MOX::settings.sound_fx_on != 0 && MOX::super_fast_flag == 0) {
             return sound::Play_Sound(sound_id);
         }

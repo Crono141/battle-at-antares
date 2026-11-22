@@ -20,6 +20,10 @@
 #include <utility>
 #include <string>
 
+namespace antares::sprites {
+    struct s_sprite;
+}
+
 namespace antares::combat {
 
     // The battle about to start will be native: a frontend claims "combat" and it is single player.
@@ -68,6 +72,39 @@ namespace antares::combat {
     void Missile_Launch(int16_t stack, int16_t from, int16_t to, bool at_missile, int16_t tx, int16_t ty);
     // Resolve_Missile: stack `stack` reached its target at (x, y) pixels; hits follow in the state.
     void Missile_Arrive(int16_t stack, int16_t x, int16_t y);
+
+    // Spike 3.9 (notes/antares/combat-capture-spike.md): a beam volley painted by the legacy code,
+    // frame by frame, onto the hidden page cleared to transparent (render/capture.h), and handed
+    // to the frontend as the sprite ("capture", id) with an "animate" event "beam" carrying
+    // "capture": {entry, x, y, frames, sounds}. Legacy's 32 x 18-square window is moved over the
+    // shooter and target in tiles, one pass of the loop per tile, stitched by world position.
+    // ANTARES_COMBAT_CAPTURE=0 turns it off; ANTARES_CAPTURE_COMPARE=N also runs, for the first N
+    // volleys, a legacy reference pass, a comparison and a forced-seam test (logged, with PNGs in
+    // ANTARES_CAPTURE_DUMP).
+    bool Capturing();
+    class Beam_Capture {
+      public:
+        Beam_Capture(int16_t from, int16_t ax, int16_t ay, int16_t to, int16_t tx, int16_t ty, const struct s_beam_fx_entry* entries, int16_t non_ship_target);
+        ~Beam_Capture();
+        Beam_Capture(const Beam_Capture&) = delete;
+        Beam_Capture& operator=(const Beam_Capture&) = delete;
+        bool Active() const;
+        // This pass draws as legacy does (the comparison's reference): background, ships, waits.
+        bool Reference_Pass() const;
+        // Before each pass: legacy's window for it, the screen positions recomputed, the volley's
+        // entries restored (the loop uses them up).
+        void Start_Pass(int16_t* ax, int16_t* ay, int16_t* tx, int16_t* ty, struct s_beam_fx_entry* entries);
+        void End_Frame(); // after each frame of the loop
+        bool Next_Pass(); // true: run the loop again
+        void Finish();    // posts the volley and waits until the frontend has played it
+      private:
+        struct s_impl;
+        s_impl* impl_;
+    };
+    // ERICNET::Mox_Play_Sound during a capture: recorded at its frame instead of played (true).
+    bool Capture_Sound(int16_t sound_id);
+    // sprites::Export for lbx "capture": the frames of capture `entry`.
+    bool Export_Capture(int32_t entry, sprites::s_sprite* out);
 
     // The human player's input for MOX::cur_ship. False when the battle isn't native (the legacy
     // fields then read input); true once one action was applied (*next_ship_flag as the turn loop

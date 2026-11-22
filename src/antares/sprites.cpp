@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/combat_native.h"
 
 #include "antares/sprites.h"
 
@@ -245,6 +246,9 @@ namespace antares::sprites {
     }
 
     bool Export(const std::string& requested, int32_t entry, s_sprite* out) {
+        if (requested == "capture") {
+            return antares::combat::Export_Capture(entry, out); // spike 3.9: a captured beam volley
+        }
         *out = s_sprite{};
         out->lbx = requested;
         out->entry = entry;

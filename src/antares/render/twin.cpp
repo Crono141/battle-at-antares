@@ -367,6 +367,9 @@ namespace render {
             s_scoped_timer timer(TIMER_SCOPE_CLOSE);
             depth = slot_;
             const s_open& entry = open_scopes[(size_t)slot_];
+            if (capture_active) {
+                capture_ops[entry.op]++; // spike 3.9: the operations a captured effect used
+            }
             slot_ = -1;
             const uint8_t* pixels = nullptr;
             int32_t width = 0;

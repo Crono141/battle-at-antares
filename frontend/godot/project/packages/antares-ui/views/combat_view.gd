@@ -65,7 +65,12 @@ var _order := {} # ships still to act this round (int)
 var _effects: Array = []
 # WP3.9d: the effect the engine is waiting for ("animate" request): {id, t, dur}; empty when none.
 var _animating := {}
+var _animating_waits_capture := -1 # the capture the current animation waits for (not loaded yet)
 var animated := {} # effects played, by kind (the smoke reports them)
+# Spike 3.9: volleys arrive captured from the legacy drawing (sprite "capture", entry); they carry
+# legacy's own damage numbers and shield hits, so the state-diff ones are left out.
+var _captures_seen := false
+const CAPTURE_FRAME_TIME := 0.06 # legacy's measured pace (ms per frame of the beam loop: ~60)
 const MOVE_STEP_TIME := 0.012 # seconds per legacy move step (2 px); tuned with the ships (3.9f)
 const TURN_STEP_TIME := 0.05 # seconds per 22.5 degree facing step
 
@@ -213,7 +218,18 @@ func on_animate(id: int, request: Dictionary) -> void:
 			"turn":
 				dur = float(event.get("steps", 1)) * TURN_STEP_TIME
 			"beam":
-				dur = play_event(event)
+				if event.has("capture"):
+					_captures_seen = true
+					var cap: Dictionary = event.capture
+					var entry := int(cap.get("entry", 0))
+					art.sprite("capture", entry) # asked now; played once it has arrived
+					_effects.append({"kind": "capture", "t": 0.0, "life": float(cap.get("frames", 1)) * CAPTURE_FRAME_TIME,
+						"entry": entry, "at": Vector2(float(cap.get("x", 0)), float(cap.get("y", 0))), "frames": int(cap.get("frames", 1)),
+						"waiting": true})
+					dur = float(cap.get("frames", 1)) * CAPTURE_FRAME_TIME
+					_animating_waits_capture = entry
+				else:
+					dur = play_event(event)
 			"destroyed":
 				dur = 1.0 # the explosion (from the state's change, _diff_effects)
 			"teleport":
@@ -469,12 +485,20 @@ func _process(delta: float) -> void:
 		_cam = _cam.lerp(_cam_goal, minf(1.0, delta * 6.0))
 		if _cam.distance_to(_cam_goal) < 1.0:
 			_cam_goal = Vector2.INF
-	if not _animating.is_empty():
+	if _animating_waits_capture >= 0 and not art.sprite("capture", _animating_waits_capture).is_empty():
+		_animating_waits_capture = -1
+	if not _animating.is_empty() and _animating_waits_capture < 0:
 		_animating.t += delta
 		if _animating.t >= _animating.dur:
 			_finish_animation()
 	for effect: Dictionary in _effects:
+		if effect.get("waiting", false):
+			if art.sprite("capture", int(effect.entry)).is_empty():
+				continue
+			effect.waiting = false
 		effect.t += delta
+		if String(effect.kind) == "capture" and effect.t >= effect.life:
+			art.forget("capture", int(effect.entry))
 	_effects = _effects.filter(func(effect: Dictionary) -> bool: return effect.t < effect.life)
 	_place_world()
 	_update_hover()
@@ -1504,12 +1528,12 @@ func _diff_effects(before: Dictionary, after: Dictionary) -> void:
 			continue
 		var hp_old := float((old.get("armor", {}) as Dictionary).get("now", 0)) + float((old.get("structure", {}) as Dictionary).get("now", 0))
 		var hp_new := float((ship.get("armor", {}) as Dictionary).get("now", 0)) + float((ship.get("structure", {}) as Dictionary).get("now", 0))
-		if hp_new < hp_old:
+		if hp_new < hp_old and not _captures_seen:
 			_effects.append({"kind": "damage", "t": 0.0, "life": 1.3, "ship": index, "at": at, "text": "-%d" % int(hp_old - hp_new)})
 		var arcs_old: Array = (old.get("shield", {}) as Dictionary).get("arcs", [])
 		var arcs_new: Array = (ship.get("shield", {}) as Dictionary).get("arcs", [])
 		for a in mini(arcs_old.size(), arcs_new.size()):
-			if float(arcs_new[a]) < float(arcs_old[a]):
+			if float(arcs_new[a]) < float(arcs_old[a]) and not _captures_seen:
 				_effects.append({"kind": "shield", "t": 0.0, "life": 0.45, "ship": index, "arc": a})
 
 
@@ -1547,6 +1571,11 @@ func _draw_effects(width: float) -> void:
 					_marks.draw_line(from, to, Color(color, 0.28 * fade), 7.0 * width)
 					_marks.draw_line(from, to, Color(color.lightened(0.35), 0.95 * fade), 2.2 * width)
 					_spark(to, k, width)
+			"capture":
+				if effect.get("waiting", false):
+					continue
+				var frame := mini(int(t / CAPTURE_FRAME_TIME), int(effect.frames) - 1)
+				art.draw(_marks, "capture", int(effect.entry), frame, effect.at, 1.0)
 			"explosion":
 				var s: Dictionary = art.sprite("cmbtsfx.lbx", int(effect.entry))
 				if not s.is_empty():

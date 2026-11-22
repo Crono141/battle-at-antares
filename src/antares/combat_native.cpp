@@ -4,8 +4,16 @@
 
 #include "antares/commands.h"
 #include "antares/commands_internal.h"
+#include "antares/identity.h"
 #include "antares/native.h"
+#include "antares/render/capture.h"
+#include "antares/sprites.h"
+#define STB_IMAGE_WRITE_STATIC // spike 3.9: a private copy for the capture dumps
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 #include "yyjson.h"
+
+#include <map>
 
 // WP3.9a: the battle as a native scene (combat_native.h). Everything here reads the battle globals
 // the legacy screen reads, or applies an action through COMBAT1::Apply_Tactical_Action.
@@ -527,6 +535,11 @@ namespace antares::combat {
         Post_Effect(doc);
     }
 
+    namespace {
+        // Spike 3.9: the capture to name in the next Beam event ("capture": {...}), or empty.
+        std::string s_beam_capture_json;
+    } // namespace
+
     void Beam(int16_t from, int16_t to, int16_t non_ship_target, const s_beam_fx_entry* entries) {
         if (!s_active || entries == nullptr) {
             return;
@@ -555,7 +568,12 @@ namespace antares::combat {
             shot.Int("count", e.shot_count);
             shot.Int("flags", e.result_flags);
         }
-        Post_Event(Write(doc));
+        std::string json = Write(doc);
+        if (!s_beam_capture_json.empty() && json.size() > 1) {
+            json.insert(json.size() - 1, ",\"capture\":" + s_beam_capture_json);
+            s_beam_capture_json.clear();
+        }
+        Post_Event(json);
     }
 
     std::string Apply_Action(const std::string& json, int16_t active_player_id, int16_t* next_ship_flag) {
@@ -729,6 +747,584 @@ namespace antares::combat {
                 return true;
             }
         }
+    }
+
+    // ---- Spike 3.9: beam volleys captured from the legacy drawing (combat_native.h) ----
+
+    namespace {
+        struct s_world_frame {
+            int32_t x = 0; // world position (combat pixels, 1x) of the crop's top-left
+            int32_t y = 0;
+            int32_t width = 0; // plane pixels
+            int32_t height = 0;
+            std::vector<uint8_t> rgba;
+            std::vector<uint8_t> glass;
+        };
+
+        struct s_capture_set {
+            std::vector<s_world_frame> frames;      // empty entries: nothing painted that frame
+            int32_t x0 = 0, y0 = 0, x1 = 0, y1 = 0; // world bounds, 1x
+        };
+
+        std::map<int32_t, s_capture_set> s_captures;
+        int32_t s_capture_next = 1;
+        int32_t s_volleys = 0;
+
+        // Sounds asked for during a capture: (frame, sound) instead of played.
+        bool s_sound_recording = false; // a capture pass runs: sounds aren't played
+        bool s_sound_collect = false;   // ...and this pass's are kept (the first capturing pass)
+        int32_t s_sound_frame = 0;
+        std::vector<std::pair<int32_t, int32_t>> s_sounds;
+
+        enum e_pass { PASS_REFERENCE,
+            PASS_COMPARE,
+            PASS_TILE,
+            PASS_SEAM };
+
+        int32_t Env_Int(const char* name, int32_t fallback) {
+            const char* value = antares::Get_Env(name);
+            return value != nullptr ? atoi(value) : fallback;
+        }
+
+        // A page frame placed in the world (the window was at cx, cy squares).
+        s_world_frame To_World(const render::capture::s_frame& f, int32_t cx, int32_t cy) {
+            s_world_frame w;
+            w.x = f.x + cx * 20;
+            w.y = f.y + cy * 20;
+            w.width = f.width;
+            w.height = f.height;
+            w.rgba = f.rgba;
+            w.glass = f.glass;
+            return w;
+        }
+
+        // Frames laid over each other by world position (later over earlier where both painted).
+        s_world_frame Stitch(const std::vector<const s_world_frame*>& parts) {
+            const int32_t S = render::capture::Scale();
+            s_world_frame out;
+            int32_t x0 = INT32_MAX, y0 = INT32_MAX, x1 = INT32_MIN, y1 = INT32_MIN;
+            for (const s_world_frame* p : parts) {
+                if (p == nullptr || p->width == 0) {
+                    continue;
+                }
+                x0 = SDL_min(x0, p->x);
+                y0 = SDL_min(y0, p->y);
+                x1 = SDL_max(x1, p->x + p->width / S);
+                y1 = SDL_max(y1, p->y + p->height / S);
+            }
+            if (x1 <= x0) {
+                return out;
+            }
+            out.x = x0;
+            out.y = y0;
+            out.width = (x1 - x0) * S;
+            out.height = (y1 - y0) * S;
+            out.rgba.assign((size_t)out.width * out.height * 4, 0);
+            out.glass.assign((size_t)out.width * out.height, 0);
+            for (const s_world_frame* p : parts) {
+                if (p == nullptr || p->width == 0) {
+                    continue;
+                }
+                const int32_t ox = (p->x - x0) * S;
+                const int32_t oy = (p->y - y0) * S;
+                for (int32_t y = 0; y < p->height; ++y) {
+                    for (int32_t x = 0; x < p->width; ++x) {
+                        const size_t si = (size_t)y * p->width + x;
+                        const size_t di = (size_t)(oy + y) * out.width + (ox + x);
+                        if (p->rgba[si * 4 + 3] != 0) {
+                            memcpy(&out.rgba[di * 4], &p->rgba[si * 4], 4);
+                        }
+                        if (p->glass[si] != 0) {
+                            out.glass[di] = p->glass[si];
+                        }
+                    }
+                }
+            }
+            return out;
+        }
+
+        // Pixels (plane scale) that differ by more than `tolerance` in any channel between two world
+        // frames, over the pixels either one paints; also the painted count.
+        void World_Diff(const s_world_frame& a, const s_world_frame& b, uint64_t* differ, uint64_t* painted) {
+            std::vector<const s_world_frame*> both = {&a, &b};
+            const int32_t S = render::capture::Scale();
+            int32_t x0 = INT32_MAX, y0 = INT32_MAX, x1 = INT32_MIN, y1 = INT32_MIN;
+            for (const s_world_frame* p : both) {
+                if (p->width == 0) {
+                    continue;
+                }
+                x0 = SDL_min(x0, p->x);
+                y0 = SDL_min(y0, p->y);
+                x1 = SDL_max(x1, p->x + p->width / S);
+                y1 = SDL_max(y1, p->y + p->height / S);
+            }
+            if (x1 <= x0) {
+                return;
+            }
+            auto at = [&](const s_world_frame& f, int32_t wx, int32_t wy, uint8_t* out) {
+                const int32_t lx = wx - f.x * S;
+                const int32_t ly = wy - f.y * S;
+                if (f.width == 0 || lx < 0 || ly < 0 || lx >= f.width || ly >= f.height) {
+                    memset(out, 0, 5);
+                    return;
+                }
+                const size_t i = (size_t)ly * f.width + lx;
+                memcpy(out, &f.rgba[i * 4], 4);
+                out[4] = f.glass[i];
+            };
+            uint8_t pa[5], pb[5];
+            for (int32_t y = y0 * S; y < y1 * S; ++y) {
+                for (int32_t x = x0 * S; x < x1 * S; ++x) {
+                    at(a, x, y, pa);
+                    at(b, x, y, pb);
+                    if (pa[3] == 0 && pb[3] == 0 && pa[4] == 0 && pb[4] == 0) {
+                        continue;
+                    }
+                    ++*painted;
+                    bool same = pa[4] == pb[4] && abs((int)pa[3] - (int)pb[3]) <= 32;
+                    for (int32_t c = 0; c < 3 && same; ++c) {
+                        same = abs((int)pa[c] * pa[3] / 255 - (int)pb[c] * pb[3] / 255) <= 32;
+                    }
+                    if (!same) {
+                        ++*differ;
+                    }
+                }
+            }
+        }
+
+        void Dump_Png(const std::string& name, const uint8_t* rgba, int32_t width, int32_t height) {
+            const char* dir = antares::Get_Env("CAPTURE_DUMP");
+            if (dir == nullptr || width <= 0 || height <= 0) {
+                return;
+            }
+            const std::string path = std::string(dir) + "/" + name + ".png";
+            stbi_write_png(path.c_str(), width, height, 4, rgba, width * 4);
+        }
+    } // namespace
+
+    bool Capturing() {
+        static const bool off = [] {
+            const char* value = antares::Get_Env("COMBAT_CAPTURE");
+            return value != nullptr && strcmp(value, "0") == 0;
+        }();
+        return !off && Animating() && render::capture::Available();
+    }
+
+    bool Capture_Sound(int16_t sound_id) {
+        if (!s_sound_recording) {
+            return false;
+        }
+        if (s_sound_collect) {
+            s_sounds.emplace_back(s_sound_frame, sound_id);
+        }
+        return true;
+    }
+
+    struct Beam_Capture::s_impl {
+        bool active = false;
+        int16_t from = 0, to = 0, non_ship = 0;
+        int32_t wax = 0, way = 0, wtx = 0, wty = 0; // world positions (1x) the loop was given
+        s_beam_fx_entry entries[16] = {};
+        int16_t saved_cur_x = 0, saved_cur_y = 0;
+        int16_t saved_near_x = 0, saved_near_y = 0, saved_mid_x = 0, saved_mid_y = 0, saved_far_x = 0, saved_far_y = 0;
+        struct s_pass {
+            e_pass kind;
+            int16_t cx, cy;
+        };
+        std::vector<s_pass> passes;
+        size_t pass = 0;
+        int32_t frame = 0;
+        std::vector<std::vector<s_world_frame>> pass_frames;
+        // Comparison: legacy's own frames (window RGBA) and the background without the effect.
+        std::vector<std::vector<uint8_t>> reference;
+        std::vector<uint8_t> background;
+        int32_t window_w = 0, window_h = 0;
+        uint64_t reference_start = 0, reference_ms = 0;
+        uint64_t capture_ns = 0, pass_start = 0;
+        std::string ops, unported;
+        int32_t tiles = 0;
+        int32_t span_w = 0, span_h = 0;
+        int32_t volley = 0;
+        bool compare = false;
+    };
+
+    Beam_Capture::Beam_Capture(int16_t from, int16_t ax, int16_t ay, int16_t to, int16_t tx, int16_t ty, const s_beam_fx_entry* entries, int16_t non_ship_target)
+        : impl_(new s_impl) {
+        s_impl& m = *impl_;
+        if (!Capturing() || entries == nullptr) {
+            return;
+        }
+        m.active = true;
+        m.from = from;
+        m.to = to;
+        m.non_ship = non_ship_target;
+        m.wax = ax + MOX::cur_combat_x * 20;
+        m.way = ay + MOX::cur_combat_y * 20;
+        m.wtx = tx + MOX::cur_combat_x * 20;
+        m.wty = ty + MOX::cur_combat_y * 20;
+        memcpy(m.entries, entries, sizeof(m.entries));
+        m.saved_cur_x = MOX::cur_combat_x;
+        m.saved_cur_y = MOX::cur_combat_y;
+        m.saved_near_x = MOX::combat_near_x;
+        m.saved_near_y = MOX::combat_near_y;
+        m.saved_mid_x = MOX::combat_mid_x;
+        m.saved_mid_y = MOX::combat_mid_y;
+        m.saved_far_x = MOX::combat_far_x;
+        m.saved_far_y = MOX::combat_far_y;
+        m.volley = ++s_volleys;
+        m.compare = m.volley <= Env_Int("CAPTURE_COMPARE", 0);
+
+        // The shooter's and target's centres, with 3 squares around them for the ships' size,
+        // shields and impacts.
+        int16_t ox = 0, oy = 0;
+        COMBINIT::Ship_Center_Offsets(from, &ox, &oy);
+        const int32_t acx = m.wax + ox, acy = m.way + oy;
+        int32_t tcx = m.wtx, tcy = m.wty;
+        if (non_ship_target == 0) {
+            COMBINIT::Ship_Center_Offsets(to, &ox, &oy);
+            tcx += ox;
+            tcy += oy;
+        }
+        const int32_t sx0 = SDL_max(0, (SDL_min(acx, tcx) - 60) / 20);
+        const int32_t sy0 = SDL_max(0, (SDL_min(acy, tcy) - 60) / 20);
+        const int32_t sx1 = (SDL_max(acx, tcx) + 60) / 20 + 1;
+        const int32_t sy1 = (SDL_max(acy, tcy) + 60) / 20 + 1;
+        m.span_w = abs(acx - tcx) / 20;
+        m.span_h = abs(acy - tcy) / 20;
+        const int32_t max_x = SDL_max(0, MOX::combat_grid_width - COMBAT_GRID_VIEW_WIDTH);
+        const int32_t max_y = SDL_max(0, MOX::combat_grid_height - COMBAT_GRID_VIEW_HEIGHT);
+        // Tiles of 32 x 17 squares (the window's 351 rows hold 17 whole squares).
+        for (int32_t y = sy0; y < sy1; y += 17) {
+            for (int32_t x = sx0; x < sx1; x += 32) {
+                m.passes.push_back({PASS_TILE, (int16_t)SDL_min(x, max_x), (int16_t)SDL_min(y, max_y)});
+                ++m.tiles;
+            }
+        }
+        m.compare = m.compare && m.tiles == 1;
+        if (m.compare) {
+            // Legacy's own frames at the tile's window (what legacy shows once it has snapped to
+            // the volley), and the capture at the same window, before the tile pass.
+            const s_impl::s_pass tile = m.passes.back();
+            m.passes.insert(m.passes.begin(), {PASS_COMPARE, tile.cx, tile.cy});
+            m.passes.insert(m.passes.begin(), {PASS_REFERENCE, tile.cx, tile.cy});
+        }
+        if (m.compare) {
+            // The seam test: the same volley split at the middle between shooter and target.
+            const int32_t mid = (acx + tcx) / 2 / 20;
+            const int16_t cy = m.passes.back().cy;
+            m.passes.push_back({PASS_SEAM, (int16_t)SDL_max(0, mid - 32), cy});
+            m.passes.push_back({PASS_SEAM, (int16_t)SDL_min(mid, max_x), cy});
+        }
+        m.pass_frames.resize(m.passes.size());
+    }
+
+    Beam_Capture::~Beam_Capture() {
+        if (impl_->active) {
+            render::capture::End();
+            s_sound_recording = false;
+            MOX::cur_combat_x = impl_->saved_cur_x;
+            MOX::cur_combat_y = impl_->saved_cur_y;
+        }
+        delete impl_;
+    }
+
+    bool Beam_Capture::Active() const {
+        return impl_->active;
+    }
+
+    bool Beam_Capture::Reference_Pass() const {
+        return impl_->active && impl_->passes[impl_->pass].kind == PASS_REFERENCE;
+    }
+
+    void Beam_Capture::Start_Pass(int16_t* ax, int16_t* ay, int16_t* tx, int16_t* ty, s_beam_fx_entry* entries) {
+        s_impl& m = *impl_;
+        if (!m.active) {
+            return;
+        }
+        const s_impl::s_pass& p = m.passes[m.pass];
+        MOX::cur_combat_x = p.cx;
+        MOX::cur_combat_y = p.cy;
+        *ax = (int16_t)(m.wax - p.cx * 20);
+        *ay = (int16_t)(m.way - p.cy * 20);
+        *tx = (int16_t)(m.wtx - p.cx * 20);
+        *ty = (int16_t)(m.wty - p.cy * 20);
+        memcpy(entries, m.entries, sizeof(m.entries));
+        m.frame = 0;
+        s_sound_frame = 0;
+        s_sound_recording = true; // silent: the frontend plays the recorded sounds
+        if (m.pass == 0) {
+            s_sounds.clear();
+        }
+        bool first_capture = p.kind != PASS_REFERENCE;
+        for (size_t i = 0; i < m.pass; ++i) {
+            first_capture = first_capture && m.passes[i].kind == PASS_REFERENCE;
+        }
+        s_sound_collect = first_capture;
+        if (p.kind == PASS_REFERENCE) {
+            video::Set_Page_Off();
+            CMBTDRW1::Draw_Main_Combat_Screen();
+            render::capture::Resolve_Window(&m.background, &m.window_w, &m.window_h);
+            m.reference_start = SDL_GetTicks();
+        } else {
+            m.pass_start = SDL_GetTicksNS();
+            render::capture::Begin(640, 351);
+        }
+    }
+
+    void Beam_Capture::End_Frame() {
+        s_impl& m = *impl_;
+        if (!m.active) {
+            return;
+        }
+        const s_impl::s_pass& p = m.passes[m.pass];
+        if (p.kind == PASS_REFERENCE) {
+            std::vector<uint8_t> window;
+            int32_t w = 0, h = 0;
+            render::capture::Resolve_Window(&window, &w, &h);
+            m.reference.push_back(std::move(window));
+        } else {
+            render::capture::s_frame f;
+            if (render::capture::Frame(&f)) {
+                m.pass_frames[m.pass].push_back(To_World(f, p.cx, p.cy));
+            } else {
+                m.pass_frames[m.pass].emplace_back();
+            }
+        }
+        ++m.frame;
+        s_sound_frame = m.frame;
+    }
+
+    bool Beam_Capture::Next_Pass() {
+        s_impl& m = *impl_;
+        if (!m.active) {
+            return false;
+        }
+        if (m.passes[m.pass].kind == PASS_REFERENCE) {
+            m.reference_ms = SDL_GetTicks() - m.reference_start;
+        } else {
+            m.ops = render::capture::Ops();
+            m.unported = render::capture::Unported();
+            render::capture::End();
+            m.capture_ns += SDL_GetTicksNS() - m.pass_start;
+        }
+        s_sound_recording = false;
+        s_sound_collect = false;
+        ++m.pass;
+        if (m.pass >= m.passes.size()) {
+            m.pass = m.passes.size() - 1;
+            return false;
+        }
+        return true;
+    }
+
+    void Beam_Capture::Finish() {
+        s_impl& m = *impl_;
+        if (!m.active) {
+            return;
+        }
+        s_sound_recording = false;
+        MOX::cur_combat_x = m.saved_cur_x;
+        MOX::cur_combat_y = m.saved_cur_y;
+        MOX::combat_near_x = m.saved_near_x;
+        MOX::combat_near_y = m.saved_near_y;
+        MOX::combat_mid_x = m.saved_mid_x;
+        MOX::combat_mid_y = m.saved_mid_y;
+        MOX::combat_far_x = m.saved_far_x;
+        MOX::combat_far_y = m.saved_far_y;
+        const int32_t S = render::capture::Scale();
+
+        // The tiles stitched frame by frame.
+        std::vector<size_t> tiles, seams;
+        size_t compare_pass = SIZE_MAX;
+        for (size_t i = 0; i < m.passes.size(); ++i) {
+            if (m.passes[i].kind == PASS_TILE) {
+                tiles.push_back(i);
+            } else if (m.passes[i].kind == PASS_SEAM) {
+                seams.push_back(i);
+            } else if (m.passes[i].kind == PASS_COMPARE) {
+                compare_pass = i;
+            }
+        }
+        size_t frames = 0;
+        bool counts_agree = true;
+        for (size_t t : tiles) {
+            frames = SDL_max(frames, m.pass_frames[t].size());
+            counts_agree = counts_agree && m.pass_frames[t].size() == m.pass_frames[tiles[0]].size();
+        }
+        auto stitch = [&](const std::vector<size_t>& from, size_t k) {
+            std::vector<const s_world_frame*> parts;
+            for (size_t t : from) {
+                parts.push_back(k < m.pass_frames[t].size() ? &m.pass_frames[t][k] : nullptr);
+            }
+            return Stitch(parts);
+        };
+        s_capture_set set;
+        set.x0 = INT32_MAX;
+        set.y0 = INT32_MAX;
+        set.x1 = INT32_MIN;
+        set.y1 = INT32_MIN;
+        uint64_t bytes = 0, glass_px = 0;
+        for (size_t k = 0; k < frames; ++k) {
+            s_world_frame f = stitch(tiles, k);
+            if (f.width != 0) {
+                set.x0 = SDL_min(set.x0, f.x);
+                set.y0 = SDL_min(set.y0, f.y);
+                set.x1 = SDL_max(set.x1, f.x + f.width / S);
+                set.y1 = SDL_max(set.y1, f.y + f.height / S);
+                bytes += f.rgba.size() + f.glass.size();
+                for (uint8_t g : f.glass) {
+                    glass_px += g != 0;
+                }
+            }
+            set.frames.push_back(std::move(f));
+        }
+        if (set.x1 < set.x0) {
+            set.x0 = set.y0 = set.x1 = set.y1 = 0;
+        }
+
+        // The comparison (ANTARES_CAPTURE_COMPARE): capture over the background against legacy's
+        // own frames at the same window; the forced seam against the single-window capture.
+        std::string compare_text;
+        if (m.compare && compare_pass != SIZE_MAX) {
+            const std::vector<s_world_frame>& cap = m.pass_frames[compare_pass];
+            uint64_t differ = 0, effect = 0;
+            const size_t n = SDL_min(cap.size(), m.reference.size());
+            for (size_t k = 0; k < n; ++k) {
+                std::vector<uint8_t> composite = m.background;
+                if (cap[k].width != 0) {
+                    render::capture::s_frame page;
+                    page.x = cap[k].x - m.passes[compare_pass].cx * 20;
+                    page.y = cap[k].y - m.passes[compare_pass].cy * 20;
+                    page.width = cap[k].width;
+                    page.height = cap[k].height;
+                    page.rgba = cap[k].rgba;
+                    page.glass = cap[k].glass;
+                    render::capture::Composite(page, &composite, m.window_w);
+                }
+                const std::vector<uint8_t>& ref = m.reference[k];
+                for (size_t i = 0; i + 3 < ref.size() && i + 3 < composite.size(); i += 4) {
+                    const bool in_effect = memcmp(&ref[i], &m.background[i], 3) != 0 || memcmp(&composite[i], &m.background[i], 3) != 0;
+                    if (!in_effect) {
+                        continue;
+                    }
+                    ++effect;
+                    if (abs((int)ref[i] - (int)composite[i]) > 24 || abs((int)ref[i + 1] - (int)composite[i + 1]) > 24 ||
+                        abs((int)ref[i + 2] - (int)composite[i + 2]) > 24) {
+                        ++differ;
+                    }
+                }
+                // ANTARES_CAPTURE_DUMP_ALL=v1,v2: every frame of those volleys, else the middle one.
+                const char* all = antares::Get_Env("CAPTURE_DUMP_ALL");
+                const std::string tag = "," + std::to_string(m.volley) + ",";
+                const bool every = all != nullptr && ("," + std::string(all) + ",").find(tag) != std::string::npos;
+                if (k == n / 2 || every) {
+                    char num[16];
+                    snprintf(num, sizeof(num), "%02zu", k);
+                    const std::string base = "volley" + std::to_string(m.volley) + "_frame" + num;
+                    Dump_Png(base + "_legacy", ref.data(), m.window_w, m.window_h);
+                    Dump_Png(base + "_capture_over_bg", composite.data(), m.window_w, m.window_h);
+                    Dump_Png(base + "_background", m.background.data(), m.window_w, m.window_h);
+                    if (cap[k].width != 0) {
+                        Dump_Png(base + "_capture", cap[k].rgba.data(), cap[k].width, cap[k].height);
+                    }
+                }
+            }
+            char text[256];
+            snprintf(text, sizeof(text), " compare: frames legacy %zu capture %zu, effect px %llu, differ %.2f%%, legacy %llu ms (%.1f ms/frame)", m.reference.size(), cap.size(), (unsigned long long)effect, effect != 0 ? 100.0 * differ / effect : 0.0, (unsigned long long)m.reference_ms, m.reference.empty() ? 0.0 : (double)m.reference_ms / m.reference.size());
+            compare_text = text;
+            if (seams.size() == 2 && !tiles.empty()) {
+                uint64_t seam_differ = 0, seam_painted = 0;
+                for (size_t k = 0; k < frames; ++k) {
+                    const s_world_frame one = stitch(tiles, k);
+                    const s_world_frame split = stitch(seams, k);
+                    uint64_t frame_differ = 0, frame_painted = 0;
+                    World_Diff(one, split, &frame_differ, &frame_painted);
+                    seam_differ += frame_differ;
+                    seam_painted += frame_painted;
+                    const char* all = antares::Get_Env("CAPTURE_DUMP_ALL");
+                    const bool every = all != nullptr && ("," + std::string(all) + ",").find("," + std::to_string(m.volley) + ",") != std::string::npos;
+                    if ((k == frames / 2 || every) && split.width != 0) {
+                        char num[16];
+                        snprintf(num, sizeof(num), "%02zu", k);
+                        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "capture: volley %d seam frame %zu: differ %llu of %llu px (one at %d,%d %dx%d, split at %d,%d %dx%d)", m.volley, k, (unsigned long long)frame_differ, (unsigned long long)frame_painted, one.x, one.y, one.width, one.height, split.x, split.y, split.width, split.height);
+                        Dump_Png("volley" + std::to_string(m.volley) + "_seam_split_" + num, split.rgba.data(), split.width, split.height);
+                        if (one.width != 0) {
+                            Dump_Png("volley" + std::to_string(m.volley) + "_seam_one_" + num, one.rgba.data(), one.width, one.height);
+                        }
+                    }
+                }
+                snprintf(text, sizeof(text), "; seam (split at %d): differ %.2f%% of %llu px", (int)m.passes[seams[1]].cx, seam_painted != 0 ? 100.0 * seam_differ / seam_painted : 0.0, (unsigned long long)seam_painted);
+                compare_text += text;
+            }
+        }
+
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+            "capture: volley %d ship %d -> %d%s: span %dx%d squares, %d tile(s), %zu frames%s, %.1f ms, %llu KB, glass px %llu, tables %zu, sounds %zu; ops %s; unported %s;%s",
+            m.volley,
+            (int)m.from,
+            (int)m.to,
+            m.non_ship != 0 ? " (missile)" : "",
+            m.span_w,
+            m.span_h,
+            m.tiles,
+            frames,
+            counts_agree ? "" : " (tile frame counts differ)",
+            (double)m.capture_ns / 1e6,
+            (unsigned long long)(bytes / 1024),
+            (unsigned long long)glass_px,
+            render::capture::Tables().size(),
+            s_sounds.size(),
+            m.ops.c_str(),
+            m.unported.empty() ? "none" : m.unported.c_str(),
+            compare_text.c_str());
+
+        const int32_t id = s_capture_next++;
+        char json[256];
+        std::string sounds = "[";
+        for (size_t i = 0; i < s_sounds.size(); ++i) {
+            sounds += (i ? "," : "") + std::string("[") + std::to_string(s_sounds[i].first) + "," + std::to_string(s_sounds[i].second) + "]";
+        }
+        sounds += "]";
+        snprintf(json, sizeof(json), "{\"lbx\":\"capture\",\"entry\":%d,\"x\":%d,\"y\":%d,\"frames\":%zu,\"glass_px\":%llu,", id, set.x0, set.y0, set.frames.size(), (unsigned long long)glass_px);
+        s_beam_capture_json = std::string(json) + "\"sounds\":" + sounds + "}";
+        s_captures[id] = std::move(set);
+        while (s_captures.size() > 48) {
+            s_captures.erase(s_captures.begin());
+        }
+        m.active = false;
+        Beam(m.from, m.to, m.non_ship, m.entries);
+    }
+
+    bool Export_Capture(int32_t entry, sprites::s_sprite* out) {
+        auto it = s_captures.find(entry);
+        if (it == s_captures.end()) {
+            out->error = "no such capture";
+            return false;
+        }
+        const s_capture_set& set = it->second;
+        const int32_t S = render::capture::Scale();
+        out->lbx = "capture";
+        out->entry = entry;
+        out->width = SDL_max(1, set.x1 - set.x0);
+        out->height = SDL_max(1, set.y1 - set.y0);
+        out->scale = S;
+        out->hd = true;
+        for (const s_world_frame& f : set.frames) {
+            sprites::s_frame frame;
+            if (f.width == 0) {
+                frame.width = S;
+                frame.height = S;
+                frame.rgba.assign((size_t)S * S * 4, 0);
+            } else {
+                frame.width = f.width;
+                frame.height = f.height;
+                frame.origin_x = f.x - set.x0;
+                frame.origin_y = f.y - set.y0;
+                frame.rgba = f.rgba;
+            }
+            out->frames.push_back(std::move(frame));
+        }
+        return true;
     }
 
 } // namespace antares::combat

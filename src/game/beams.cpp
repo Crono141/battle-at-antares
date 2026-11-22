@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "antares/combat_native.h"
+#include "antares/render/capture.h"
 
 namespace BEAMS {
     uint8_t g_pierced_shield_flag;
@@ -1220,7 +1221,14 @@ namespace BEAMS {
      * @param fx_entries Beam effect entries to play in sequence.
      */
     void __cdecl Beam_SFX(int16_t attacker_ship_id, int16_t attacker_x, int16_t attacker_y, int16_t target_id, int16_t target_x, int16_t target_y, s_beam_fx_entry* fx_entries, int16_t is_non_ship_target) {
-        antares::combat::Beam(attacker_ship_id, target_id, is_non_ship_target, fx_entries); // WP3.9c
+        // Spike 3.9: in a native battle the volley is captured (painted onto a transparent page,
+        // pass by pass over legacy's window) and posted when done; else posted now (WP3.9c).
+        const bool beam_loop = fx_entries[0].weapon_id == 0x2e || TECHDATA::weapons[fx_entries[0].weapon_id].type == 0;
+        antares::combat::Beam_Capture capture(attacker_ship_id, attacker_x, attacker_y, target_id, target_x, target_y, beam_loop ? fx_entries : nullptr, is_non_ship_target);
+        if (!capture.Active()) {
+            antares::combat::Beam(attacker_ship_id, target_id, is_non_ship_target, fx_entries); // WP3.9c
+        }
+        bool first_pass = true;
         int16_t current_fx_idx[2] = {0, -1};
         int16_t frame_idx[2] = {0, 0};
         int16_t rand_offsets[6] = {0, 0, 0, 0, 0, 0};
@@ -1236,6 +1244,8 @@ namespace BEAMS {
         Reset_Beam_Swapping_Colors();
 
         if (fx_entries[0].weapon_id == 0x2e || TECHDATA::weapons[fx_entries[0].weapon_id].type == 0) {
+        capture_pass: // spike 3.9: each capture pass starts here
+            capture.Start_Pass(&attacker_x, &attacker_y, &target_x, &target_y, fx_entries);
             int16_t attacker_facing_dir = MOX::combat_data[attacker_ship_id].facing_dir;
             int16_t target_facing_dir = MOX::combat_data[target_id].facing_dir;
 
@@ -1265,7 +1275,7 @@ namespace BEAMS {
             // WP3.9d (A3): the volley's hits on a missile stack are a rule. The loop below applied
             // them as each beam reached the stack, so super-fast mode destroyed nothing; now they
             // apply here, in the same order, in every battle; the loop only draws.
-            if (is_non_ship_target != 0) {
+            if (is_non_ship_target != 0 && first_pass) {
                 for (int16_t e = 0; e < 10 && fx_entries[e].weapon_id != 0; ++e) {
                     if (fx_entries[e].accum_hit_x > 0) {
                         MOX::missile[target_id].quantity -= fx_entries[e].accum_hit_x;
@@ -1278,21 +1288,26 @@ namespace BEAMS {
 
             bool bExitLoop = false;
             const bool draws = antares::combat::Legacy_Draws(); // WP3.9d: the loop only draws
+            const bool capturing = capture.Active() && !capture.Reference_Pass();
             do {
-                if (!draws) {
+                if (!draws && !capture.Active()) {
                     break;
                 }
                 int16_t has_reflected = 0;
                 timer::Mark_Time();
                 video::Set_Page_Off();
-                CMBTDRW1::Draw_Main_Combat_Screen();
+                if (capturing) {
+                    render::capture::Clear(); // spike 3.9: the effect alone, over nothing
+                } else {
+                    CMBTDRW1::Draw_Main_Combat_Screen();
+                }
                 graphics::Set_Window(0, 0, 0x27f, 0x15e);
                 video::Clip_On();
 
-                if (MOX::dont_draw_ship == target_id && is_non_ship_target == 0) {
+                if (MOX::dont_draw_ship == target_id && is_non_ship_target == 0 && !capturing) {
                     CMBTDRW1::Draw_Ship(target_id, target_x, target_y);
                 }
-                if (MOX::dont_draw_ship == attacker_ship_id) {
+                if (MOX::dont_draw_ship == attacker_ship_id && !capturing) {
                     CMBTDRW1::Draw_Ship(attacker_ship_id, attacker_x, attacker_y);
                 }
 
@@ -1612,8 +1627,11 @@ namespace BEAMS {
                 }
 
                 Draw_Damage_Message_Queue();
-                timer::Release_Time(1);
-                RUSS::Mox_Sync_Update();
+                capture.End_Frame();
+                if (!capturing) {
+                    timer::Release_Time(1);
+                    RUSS::Mox_Sync_Update();
+                }
                 video::Clip_Off();
                 graphics::Reset_Window();
             } while (!bExitLoop);
@@ -1627,6 +1645,22 @@ namespace BEAMS {
             reflection_field_display_status = 0;
             video::Clip_Off();
             game_random::Set_Random_Seed(seed);
+            if (capture.Next_Pass()) {
+                // Spike 3.9: the next pass starts as the first did.
+                first_pass = false;
+                current_fx_idx[0] = 0;
+                current_fx_idx[1] = -1;
+                frame_idx[0] = frame_idx[1] = 0;
+                memset(rand_offsets, 0, sizeof(rand_offsets));
+                special_timer[0] = special_timer[1] = 0;
+                fx_idx = 0;
+                g_pierced_shield_flag = 0;
+                palette::Restore_Glass_Remap_Block(MOX::shield_remap_colors);
+                Shield_Anims(0, 0, 1, 0);
+                Reset_Beam_Swapping_Colors();
+                goto capture_pass;
+            }
+            capture.Finish();
         }
     }
 

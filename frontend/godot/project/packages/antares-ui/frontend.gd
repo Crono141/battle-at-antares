@@ -7287,11 +7287,15 @@ func _smoke_combat(shots: String) -> bool:
 		for effect: Dictionary in view._effects:
 			var kind := String(effect.kind)
 			counts[kind] = int(counts.get(kind, 0)) + (1 if effect.t <= 0.06 and effect.t > 0.0 else 0)
-			if shots != "" and not shot_kinds.has(kind) and kind in ["shot", "explosion"] and float(effect.t) > 0.08:
+			if shots != "" and not shot_kinds.has(kind) and kind in ["shot", "explosion", "capture"] and float(effect.t) > 0.12:
 				shot_kinds[kind] = true
 				var where: Vector2 = effect.get("at", view._effect_point(int(effect.get("to", -1)), view._cam))
 				view._cam = where
 				await host.shot(shots + "/combat-%s.png" % ("fire" if kind == "shot" else kind))
+				if kind == "capture":
+					# Spike 3.9: the same volley a few frames on, at the camera's zoom.
+					await get_tree().create_timer(0.18).timeout
+					await host.shot(shots + "/combat-capture-later.png")
 		if int(waited * 20.0) % 10 == 0 and not _smoke_answer() and view._my_turn():
 			view._act({"action": "auto"})
 	print("smoke: effects seen %s" % [counts])

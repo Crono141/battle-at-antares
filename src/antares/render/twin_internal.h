@@ -90,6 +90,15 @@ namespace render::twin {
         bool geometry = false;
     };
 
+    // Spike 3.9 (capture.cpp): while set, the off page is a transparent capture surface. Glass over a
+    // transparent pixel leaves a mark (KIND_GLASS, MASK_CLEAR, base = the glass table's id in the
+    // capture) for the frontend to apply over its own picture, and partly covered full-colour
+    // pixels keep their coverage as alpha (base bits 24-31) instead of mixing with black.
+    extern bool capture_active;
+    extern std::unordered_map<std::string, uint32_t> capture_ops;       // twin scopes closed, by op
+    int32_t Capture_Table_Id(const uint8_t* table);                     // the glass table's id (capture.cpp)
+    uint32_t Capture_Through_Table(uint32_t rgb, const uint8_t* table); // twin_draw.cpp
+
     extern s_plane plane_off;
     extern s_plane plane_back;
     extern s_plane plane_published;

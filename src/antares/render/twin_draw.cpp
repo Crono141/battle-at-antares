@@ -64,6 +64,38 @@ namespace render::twin {
 
         // ---------------------------------------------------------------- pixel operations
 
+        // Spike 3.9 capture: a pixel that shows nothing (cleared, or only a glass mark).
+        bool Capture_Empty(const s_px& px) {
+            if (Kind(px) == KIND_GLASS) {
+                return true;
+            }
+            return Bound(px) && (px.mask & MASK_CLEAR) != 0 && ((px.mask >> 16) & 0xFF) == 0;
+        }
+
+        // Spike 3.9 capture: full colour `rgb` at coverage `alpha` over a capture pixel, keeping
+        // alpha (base bits 24-31) over what shows nothing or shows partly.
+        s_px Capture_Over_Rgb(const s_px& dest, uint32_t rgb, uint32_t alpha) {
+            uint32_t da = 0;
+            uint32_t drgb = 0;
+            if (!Capture_Empty(dest)) {
+                if (Bound(dest)) {
+                    da = (dest.mask & MASK_CLEAR) != 0 ? ((dest.mask >> 16) & 0xFF) : 255u;
+                    drgb = Scale_Rgb(Base_Rgb((uint8_t)dest.mask), Shade_Ratio(dest));
+                } else {
+                    da = dest.base >> 24;
+                    drgb = dest.base & 0xFFFFFFu;
+                }
+            }
+            const uint32_t out_a = alpha + da * (255u - alpha) / 255u;
+            if (out_a == 0) {
+                return Clear_Px();
+            }
+            // Colour over colour, weighted by each one's share of the result.
+            const uint32_t share = SDL_min(255u, alpha * 255u / out_a);
+            const uint32_t out_rgb = Mix(rgb, drgb, share);
+            return {(out_a << 24) | out_rgb, (KIND_NONE << KIND_SHIFT) | (out_a < 255 ? MASK_CLEAR : 0u)};
+        }
+
         uint32_t Base_Color(const s_px& px) {
             if (!Bound(px)) {
                 return px.base & 0xFFFFFFu;
@@ -79,9 +111,13 @@ namespace render::twin {
 
         // Palette index `index` with coverage `alpha` over `dest`; one level of blending is kept, as
         // in attempt 2: the destination's dominant index becomes the background.
-        s_px Over_Index(const s_px& dest, uint8_t index, uint32_t alpha) {
+        s_px Over_Index(const s_px& dest_in, uint8_t index, uint32_t alpha) {
             if (alpha >= 255) {
                 return Index_Px(index);
+            }
+            const s_px dest = capture_active && Kind(dest_in) == KIND_GLASS ? Clear_Px() : dest_in;
+            if (capture_active && !Bound(dest)) {
+                return Capture_Over_Rgb(dest, Base_Rgb(index), alpha);
             }
             if (!Bound(dest)) {
                 return Literal_Px(Mix(Base_Rgb(index), dest.base & 0xFFFFFFu, alpha));
@@ -113,6 +149,9 @@ namespace render::twin {
         }
 
         s_px Over_Rgb(const s_px& dest, uint32_t rgb, uint32_t alpha) {
+            if (capture_active && (Capture_Empty(dest) || (dest.mask & MASK_CLEAR) != 0)) {
+                return alpha >= 255 ? Literal_Px(rgb) : Capture_Over_Rgb(dest, rgb, alpha);
+            }
             return Literal_Px(alpha >= 255 ? rgb : Mix(rgb, Base_Color(dest), alpha));
         }
 
@@ -208,6 +247,11 @@ namespace render::twin {
         // table (exactly what the 1x pixel gets); full-colour pixels are tinted in true colour.
         // The D20 `glass` kind (WP1.4) refines partial coverage.
         s_px Glass_Over(const s_px& dest, int32_t level) {
+            if (capture_active && Capture_Empty(dest)) {
+                // Glass over nothing: a mark, applied by the frontend over its own picture.
+                const int32_t id = Capture_Table_Id(video::glass_remap_colors[level & 15]);
+                return {(uint32_t)id, (uint32_t)(level & 15) | (KIND_GLASS << KIND_SHIFT) | MASK_CLEAR};
+            }
             if (Bound(dest)) {
                 const uint8_t* table = video::glass_remap_colors[level & 15];
                 const uint32_t fg = table[dest.mask & 0xFF];
@@ -1706,6 +1750,11 @@ namespace render::twin {
             }
         }
         Accept_Rect(header, 0, 0, width, height);
+    }
+
+    // Spike 3.9 (capture.cpp): a colour through a glass table as the twins apply it.
+    uint32_t Capture_Through_Table(uint32_t rgb, const uint8_t* table) {
+        return Through_Table(rgb, table);
     }
 
 } // namespace render::twin
