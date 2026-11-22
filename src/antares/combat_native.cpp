@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/combat_native.h"
+#include "antares/beam_bench.h"
 
 #include "antares/commands.h"
 #include "antares/commands_internal.h"
@@ -908,11 +909,13 @@ namespace antares::combat {
     } // namespace
 
     bool Capturing() {
-        static const bool off = [] {
+        // The capture is the reference the native drawing is compared against (WP3.9 stage 1),
+        // never shipped: on only with ANTARES_COMBAT_CAPTURE=1.
+        static const bool on = [] {
             const char* value = antares::Get_Env("COMBAT_CAPTURE");
-            return value != nullptr && strcmp(value, "0") == 0;
+            return value != nullptr && strcmp(value, "1") == 0;
         }();
-        return !off && Animating() && render::capture::Available();
+        return on && Animating() && render::capture::Available();
     }
 
     void Record_Beam2(int32_t start_x, int32_t start_y, int32_t end_x, int32_t end_y, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t frame_index, int32_t palette_base, int32_t style, int32_t sfx_sprite_id, int32_t wide_bolt_size_bonus) {
@@ -949,6 +952,7 @@ namespace antares::combat {
     }
 
     void Record_Strand(int32_t x1, int32_t y1, int32_t x2, int32_t y2, const uint8_t* colors, int32_t count) {
+        beam_bench::Strand(x1, y1, x2, y2, colors, count);
         if (!s_sound_collect || s_beam_records.empty() && false) {
             return;
         }
@@ -964,6 +968,7 @@ namespace antares::combat {
     }
 
     bool Capture_Sound(int16_t sound_id) {
+        beam_bench::Sound(sound_id);
         if (!s_sound_recording) {
             return false;
         }

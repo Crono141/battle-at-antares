@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "antares/combat_native.h"
 #include "antares/render/capture.h"
+#include "antares/beam_bench.h"
 
 namespace BEAMS {
     uint8_t g_pierced_shield_flag;
@@ -141,6 +142,7 @@ namespace BEAMS {
 
     /** Draw the requested ship explosion animation frame at the given position. */
     void __cdecl Draw_Ship_Explosion(int16_t x, int16_t y, int16_t type_idx, int16_t frame_idx, int16_t size_idx) {
+        antares::beam_bench::Explosion(x, y, type_idx, frame_idx, size_idx); // WP3.9 bench
         s_animation_header* anim = explosion_anim[size_idx][type_idx];
         int16_t count1 = animate::Get_Animation_Frame_Count(anim);
         animate::Set_Animation_Frame(anim, frame_idx % (count1 - 1));
@@ -495,6 +497,7 @@ namespace BEAMS {
         int16_t base_rot = BEAMS::Rot_To_Base_Rot(hit_rotation);
         int16_t rot_method = BEAMS::Rot_To_Rot_Method(hit_rotation);
 
+        antares::beam_bench::Shield(x, y, ship_idx, is_special, is_heavy, hit_rotation, frame_index, BEAMS::shield_display_status); // WP3.9 bench
         if (BEAMS::shield_display_status == 0) {
             return;
         }
@@ -769,6 +772,7 @@ namespace BEAMS {
 
     void __cdecl Fire_Weapon(int16_t attacker_x, int16_t attacker_y, int16_t target_x, int16_t target_y, int16_t attacker_facing, int16_t target_facing, int16_t weapon_id, int16_t current_frame, int16_t fx_slot_idx, int16_t target_size_class, int16_t hit_result_flags, int16_t special_flag, int16_t is_non_ship_target, int16_t fire_point_idx, int16_t reflection_state, int16_t attacker_size_class, uint16_t weapon_specials, int16_t unused_fighter_beam_flag) {
         (void)unused_fighter_beam_flag;
+        antares::beam_bench::Fire(attacker_x, attacker_y, target_x, target_y, weapon_id, current_frame, fx_slot_idx, fire_point_idx, attacker_facing, target_facing); // WP3.9 bench
 
         int16_t duration_frames;
         int16_t palette_fragment_index;
@@ -1229,6 +1233,7 @@ namespace BEAMS {
             antares::combat::Beam(attacker_ship_id, target_id, is_non_ship_target, fx_entries); // WP3.9c
         }
         bool first_pass = true;
+        antares::beam_bench::Run(attacker_ship_id, attacker_x, attacker_y, target_id, target_x, target_y, is_non_ship_target); // WP3.9 bench
         int16_t current_fx_idx[2] = {0, -1};
         int16_t frame_idx[2] = {0, 0};
         int16_t rand_offsets[6] = {0, 0, 0, 0, 0, 0};
@@ -1295,6 +1300,7 @@ namespace BEAMS {
                 }
                 int16_t has_reflected = 0;
                 timer::Mark_Time();
+                antares::beam_bench::Tick(); // WP3.9 bench
                 video::Set_Page_Off();
                 if (capturing) {
                     render::capture::Clear(); // spike 3.9: the effect alone, over nothing
@@ -1665,6 +1671,7 @@ namespace BEAMS {
     }
 
     void __cdecl Draw_Ship_Burst(int16_t x, int16_t y, int16_t dir, int16_t base_damage_class, int16_t frame, int16_t is_palette_not_90) {
+        antares::beam_bench::Burst(x, y, dir, base_damage_class, frame, is_palette_not_90); // WP3.9 bench
         s_animation_header* anim = laser_burst_anim[base_damage_class][is_palette_not_90][dir];
         animate::Set_Animation_Frame(anim, frame % 3);
         ERIC::Draw_Centered(x, y, anim);
@@ -2331,6 +2338,7 @@ namespace BEAMS {
             by2 = temp_y;
         }
 
+        antares::beam_bench::Segment(frame_index, max_frames, bx1, by1, bx2, by2, ship_hit_now_flag[is_palette_not_90], is_palette_not_90, frame_step_distance, duration_frames); // WP3.9 bench
         if (weapon_visual_fx == nullptr) {
             if (bx1 != bx2 || by1 != by2) {
                 if (beam_renderer_mode == 1) {
@@ -2569,6 +2577,7 @@ namespace BEAMS {
             fx.thickness);
         palette::Refresh_Palette();
         antares::combat::Record_Beam2(start_x, start_y, end_x, end_y, x1, y1, x2, y2, frame_index, palette_base_index, fx.anim_style, fx.sfx_sprite_id, fx.wide_bolt_size_bonus); // spike 3.9
+        antares::beam_bench::Beam2(start_x, start_y, end_x, end_y, x1, y1, x2, y2, frame_index, palette_base_index, fx.anim_style); // WP3.9 bench
     }
 
     /** Return whether the point falls within the target shield hit radius. */
