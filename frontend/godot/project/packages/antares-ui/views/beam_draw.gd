@@ -33,6 +33,8 @@ static func edge_material() -> ShaderMaterial:
 
 
 const STROKE_HALF_WIDTH := 0.5625 # world (1x) pixels
+# Colours blend along a strand (owner, 2026-11-21: "blended looks better").
+const TEXTURE_FILTER := CanvasItem.TEXTURE_FILTER_LINEAR
 
 var strands: Array = [] # {a: Vector2i, b: Vector2i, colors: PackedInt32Array} (palette indices, in Plasma_Line order)
 var dots: Array = [] # {at: Vector2i, color: int}
@@ -229,8 +231,9 @@ func draw_beam2(style: int, start: Vector2i, end: Vector2i, from: Vector2i, to: 
 
 ## Draws the strands and dots on `item` (world units = the game's 1x pixels): each strand a quad one
 ## pixel wide through its end pixels' centres (extended half a pixel at each end), coloured along
-## its length from `ramp` (Color per palette offset from `palette_base`). Set the item's
-## texture_filter to NEAREST for the original's per-pixel steps, LINEAR to blend them.
+## its length from `ramp` (Color per palette offset from `palette_base`). The item's texture_filter
+## should be TEXTURE_FILTER (blended along the strand: the owner's choice, 2026-11-21); NEAREST
+## would show the original's per-pixel colour steps.
 func draw(item: CanvasItem, ramp: Array, palette_base: int) -> void:
 	for s: Dictionary in strands:
 		var a: Vector2i = s.a
