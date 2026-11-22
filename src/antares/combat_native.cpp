@@ -1181,6 +1181,20 @@ namespace antares::combat {
         if (set.x1 < set.x0) {
             set.x0 = set.y0 = set.x1 = set.y1 = 0;
         }
+        // ANTARES_CAPTURE_DUMP_TILED=1: every stitched frame of volleys that needed several tiles.
+        if (m.tiles > 1 && Env_Int("CAPTURE_DUMP_TILED", 0) != 0) {
+            for (size_t k = 0; k < set.frames.size(); ++k) {
+                const s_world_frame& f = set.frames[k];
+                if (f.width != 0) {
+                    char name[96];
+                    snprintf(name, sizeof(name), "tiled_volley%d_frame%02zu_at_%d_%d", m.volley, k, f.x, f.y);
+                    Dump_Png(name, f.rgba.data(), f.width, f.height);
+                }
+            }
+            for (size_t t : tiles) {
+                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "capture: volley %d tile window at %d,%d squares", m.volley, (int)m.passes[t].cx, (int)m.passes[t].cy);
+            }
+        }
 
         // The comparison (ANTARES_CAPTURE_COMPARE): capture over the background against legacy's
         // own frames at the same window; the forced seam against the single-window capture.
@@ -1188,6 +1202,7 @@ namespace antares::combat {
         if (m.compare && compare_pass != SIZE_MAX) {
             const std::vector<s_world_frame>& cap = m.pass_frames[compare_pass];
             uint64_t differ = 0, effect = 0;
+            uint64_t differ_glass = 0, differ_captured = 0, differ_outside = 0;
             const size_t n = SDL_min(cap.size(), m.reference.size());
             for (size_t k = 0; k < n; ++k) {
                 std::vector<uint8_t> composite = m.background;
@@ -1211,6 +1226,24 @@ namespace antares::combat {
                     if (abs((int)ref[i] - (int)composite[i]) > 24 || abs((int)ref[i + 1] - (int)composite[i + 1]) > 24 ||
                         abs((int)ref[i + 2] - (int)composite[i + 2]) > 24) {
                         ++differ;
+                        // Which part of the capture the pixel is in (window pixel -> frame pixel).
+                        const int32_t S4 = render::capture::Scale();
+                        const int32_t wx = (int32_t)((i / 4) % (size_t)m.window_w);
+                        const int32_t wy = (int32_t)((i / 4) / (size_t)m.window_w);
+                        const int32_t fx = wx - (cap[k].x - m.passes[compare_pass].cx * 20) * S4;
+                        const int32_t fy = wy - (cap[k].y - m.passes[compare_pass].cy * 20) * S4;
+                        if (cap[k].width != 0 && fx >= 0 && fy >= 0 && fx < cap[k].width && fy < cap[k].height) {
+                            const size_t fi = (size_t)fy * cap[k].width + fx;
+                            if (cap[k].glass[fi] != 0) {
+                                ++differ_glass;
+                            } else if (cap[k].rgba[fi * 4 + 3] != 0) {
+                                ++differ_captured;
+                            } else {
+                                ++differ_outside;
+                            }
+                        } else {
+                            ++differ_outside;
+                        }
                     }
                 }
                 // ANTARES_CAPTURE_DUMP_ALL=v1,v2: every frame of those volleys, else the middle one.
@@ -1230,7 +1263,7 @@ namespace antares::combat {
                 }
             }
             char text[256];
-            snprintf(text, sizeof(text), " compare: frames legacy %zu capture %zu, effect px %llu, differ %.2f%%, legacy %llu ms (%.1f ms/frame)", m.reference.size(), cap.size(), (unsigned long long)effect, effect != 0 ? 100.0 * differ / effect : 0.0, (unsigned long long)m.reference_ms, m.reference.empty() ? 0.0 : (double)m.reference_ms / m.reference.size());
+            snprintf(text, sizeof(text), " compare: frames legacy %zu capture %zu, effect px %llu, differ %.2f%% (glass %.2f%%, captured %.2f%%, outside the capture %.2f%%), legacy %llu ms (%.1f ms/frame)", m.reference.size(), cap.size(), (unsigned long long)effect, effect != 0 ? 100.0 * differ / effect : 0.0, effect != 0 ? 100.0 * differ_glass / effect : 0.0, effect != 0 ? 100.0 * differ_captured / effect : 0.0, effect != 0 ? 100.0 * differ_outside / effect : 0.0, (unsigned long long)m.reference_ms, m.reference.empty() ? 0.0 : (double)m.reference_ms / m.reference.size());
             compare_text = text;
             if (seams.size() == 2 && !tiles.empty()) {
                 uint64_t seam_differ = 0, seam_painted = 0;

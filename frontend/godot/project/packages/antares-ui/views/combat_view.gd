@@ -66,6 +66,7 @@ var _effects: Array = []
 # WP3.9d: the effect the engine is waiting for ("animate" request): {id, t, dur}; empty when none.
 var _animating := {}
 var _animating_waits_capture := -1 # the capture the current animation waits for (not loaded yet)
+var _capture_asked_at := 0
 var animated := {} # effects played, by kind (the smoke reports them)
 # Spike 3.9: volleys arrive captured from the legacy drawing (sprite "capture", entry); they carry
 # legacy's own damage numbers and shield hits, so the state-diff ones are left out.
@@ -199,6 +200,8 @@ func on_animate(id: int, request: Dictionary) -> void:
 	var dur := 0.0
 	var event_kind := String(event.get("kind", ""))
 	animated[event_kind] = int(animated.get(event_kind, 0)) + 1
+	if event.has("capture"):
+		_captures_seen = true # before the state: its damage and shield hits are in the capture
 	if not st.is_empty():
 		show_state(st)
 	if visible:
@@ -228,6 +231,7 @@ func on_animate(id: int, request: Dictionary) -> void:
 						"waiting": true})
 					dur = float(cap.get("frames", 1)) * CAPTURE_FRAME_TIME
 					_animating_waits_capture = entry
+					_capture_asked_at = Time.get_ticks_msec()
 				else:
 					dur = play_event(event)
 			"destroyed":
@@ -486,6 +490,7 @@ func _process(delta: float) -> void:
 		if _cam.distance_to(_cam_goal) < 1.0:
 			_cam_goal = Vector2.INF
 	if _animating_waits_capture >= 0 and not art.sprite("capture", _animating_waits_capture).is_empty():
+		print("capture: volley %d arrived %d ms after its event" % [_animating_waits_capture, Time.get_ticks_msec() - _capture_asked_at])
 		_animating_waits_capture = -1
 	if not _animating.is_empty() and _animating_waits_capture < 0:
 		_animating.t += delta
