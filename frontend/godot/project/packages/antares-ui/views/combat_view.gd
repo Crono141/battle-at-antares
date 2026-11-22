@@ -357,14 +357,16 @@ func _clear_area() -> Rect2:
 
 ## An enemy's beam or beam-like special: the camera pans (and zooms out if it must) so shooter and
 ## target are both on screen with a margin, and the effect waits until it has (owner 2026-11-22:
-## only on the enemy's turn; missiles, torpedoes and fighters don't need it).
+## on the enemy's turn, and on the player's while Auto is on; missiles, torpedoes and fighters
+## don't need it).
 func _frame_enemy_fire(event: Dictionary) -> void:
 	var kind := String(event.get("kind", ""))
 	if not FRAMED_KINDS.has(kind):
 		return
 	var from := int(event.get("from", -1))
 	var shooter := _ship(from)
-	if not _alive(shooter) or _mine(shooter) or not _ships.has(from):
+	# The player's own fire moves the camera only while Auto plays for them (owner 2026-11-22).
+	if not _alive(shooter) or not _ships.has(from) or (_mine(shooter) and int(state.get("auto", 0)) == 0):
 		return
 	var a: Vector2 = _ships[from].shown
 	var b := Vector2.INF
