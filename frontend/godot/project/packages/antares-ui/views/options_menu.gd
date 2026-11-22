@@ -17,6 +17,7 @@ signal scale_auto_changed(on: bool)
 signal flight_changed(seconds: float)
 ## AUTO ADDRESS TO-DOS switched (owner, 2026-11-20).
 signal todo_auto_changed(on: bool)
+signal native_battles_changed(on: bool) # WP3.9: battles in the native scene (preview)
 ## A right click's help on a row (a HELP.LBX record; the frontend shows it).
 signal help_requested(topic: int, at: Control)
 
@@ -78,6 +79,7 @@ func _ready() -> void:
 		scale_changed.emit(v, true))
 	_add_flight_row()
 	_add_todo_row()
+	_add_native_battles_row()
 	theme_button.item_selected.connect(func(index: int):
 		if index >= 0 and index < _theme_ids.size():
 			theme_chosen.emit(_theme_ids[index]))
@@ -369,6 +371,7 @@ func _add_flight_row() -> void:
 ## AUTO ADDRESS TO-DOS (owner, 2026-11-20): the stock game's way with the turn's to-dos, each
 ## opened in turn as the last is dealt with, instead of the list.
 var todo_auto_button: Button
+var native_battles_button: Button # WP3.9
 
 
 func _add_todo_row() -> void:
@@ -407,3 +410,36 @@ func show_todo_auto(on: bool) -> void:
 func show_flight(seconds: float) -> void:
 	for i in FLIGHT_CHOICES.size():
 		_flight_buttons[i].set_pressed_no_signal(is_equal_approx(float(FLIGHT_CHOICES[i][1]), seconds))
+
+
+## WP3.9: battles in the native scene, a preview (off by default, owner 2026-11-21).
+func _add_native_battles_row() -> void:
+	var box: VBoxContainer = $Fit/Box
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var label := Label.new()
+	label.text = "NATIVE BATTLES (PREVIEW)"
+	label.theme_type_variation = &"Section"
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.tooltip_text = "Space combat in the new battle scene instead of the original screen.\nUnfinished: effects are placeholders. Takes effect from the next battle."
+	label.mouse_filter = Control.MOUSE_FILTER_PASS
+	row.add_child(label)
+	native_battles_button = Button.new()
+	native_battles_button.toggle_mode = true
+	native_battles_button.text = "OFF"
+	native_battles_button.focus_mode = Control.FOCUS_NONE
+	native_battles_button.custom_minimum_size.x = 64
+	native_battles_button.add_theme_font_size_override("font_size", 12)
+	Themes.glowing(native_battles_button)
+	native_battles_button.toggled.connect(func(on: bool):
+		native_battles_button.text = "ON" if on else "OFF"
+		native_battles_changed.emit(on))
+	row.add_child(native_battles_button)
+	box.add_child(row)
+	box.move_child(row, $Fit/Box/ThemeTitle.get_index())
+
+
+func show_native_battles(on: bool) -> void:
+	native_battles_button.set_pressed_no_signal(on)
+	native_battles_button.text = "ON" if on else "OFF"
+	Themes.glow(native_battles_button)

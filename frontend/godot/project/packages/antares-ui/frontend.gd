@@ -232,11 +232,29 @@ func _set_native(on: bool) -> void:
 	native = on
 	for screen in claimed_screens:
 		game.claim_screen(screen, on)
-	game.claim_requests(claimed_requests if on else PackedStringArray())
+	game.claim_requests(_request_kinds() if on else PackedStringArray())
 	if on:
 		for what in ["empire", "galaxy", "fleets", "options", "todo"]:
 			_send({"verb": "watch", "what": what})
 	mode_button.text = "Legacy galaxy (Ctrl+G)" if on else "Native galaxy (Ctrl+G)"
+
+
+## The request kinds claimed: battles ("combat", "animate") only while native battles are on (WP3.9:
+## a preview, off by default; the smoke's battle steps turn it on).
+func _request_kinds() -> PackedStringArray:
+	var kinds := PackedStringArray()
+	for kind in claimed_requests:
+		if kind in ["combat", "animate"] and not native_battles:
+			continue
+		kinds.append(kind)
+	return kinds
+
+
+func _set_native_battles(on: bool) -> void:
+	native_battles = on
+	Themes.save_value("combat", "native", on)
+	if native:
+		game.claim_requests(_request_kinds()) # from the next battle on
 
 
 ## The game holds the sounds a legacy screen starts until its picture shows (owner, 2026-11-13:
@@ -925,6 +943,8 @@ func _view(scene_name: String) -> Control:
 			view.flight_changed.connect(func(seconds: float):
 				galaxy.flight_time = seconds
 				Themes.save_flight_time(seconds))
+		if view.has_signal("native_battles_changed"):
+			view.native_battles_changed.connect(_set_native_battles)
 		if view.has_signal("todo_auto_changed"):
 			view.todo_auto_changed.connect(func(on: bool):
 				todo_auto = on
@@ -979,6 +999,7 @@ func _view(scene_name: String) -> Control:
 		if scene_name == "options_menu":
 			view.show_flight(galaxy.flight_time)
 			view.show_todo_auto(todo_auto)
+			view.show_native_battles(native_battles)
 			view.show_themes(_themes, theme_id)
 			view.show_scale(ui_scale, max_ui_scale(), MIN_UI_SCALE, is_ui_scale_automatic())
 		if scene_name == "build_pane": # the colony's landscape moves aside for it, and back
@@ -1054,6 +1075,10 @@ func _open_todo() -> void:
 ## once, as the original goes from one build screen to the next). An item left as it was isn't
 ## opened again this turn; with all of them opened and some still open, the list comes up.
 var todo_auto: bool = Themes.saved_value("todo", "auto", false)
+# WP3.9: battles in the native scene (a preview, off by default; owner, 2026-11-21). The smoke's
+# battle steps turn it on for their run.
+var native_battles: bool = bool(Themes.saved_value("combat", "native", false)) or "--combat" in OS.get_cmdline_user_args() \
+	or "--selfdestruct" in OS.get_cmdline_user_args()
 var _todo_auto_opened := {} # this turn's items opened, by key
 var _todo_auto_last := {} # the item opened last, and when: {item, at, open}
 var _todo_auto_listed := false # this turn's leftovers shown in the list
