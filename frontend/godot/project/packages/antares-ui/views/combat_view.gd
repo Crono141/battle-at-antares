@@ -741,6 +741,7 @@ func _process(delta: float) -> void:
 			_finish_animation()
 	_advance_effects(delta, false)
 	_place_world()
+	_fill_waiting_chips()
 	_ease_scrolls(delta)
 	_layout()
 	_update_hover()
@@ -2311,6 +2312,22 @@ func _round_marker(number: int) -> Control:
 	return box
 
 
+var _chip_waiting: Array = [] # [TextureRect, lbx, entry] whose picture hasn't arrived
+
+
+func _fill_waiting_chips() -> void:
+	if _chip_waiting.is_empty():
+		return
+	_chip_waiting = _chip_waiting.filter(func(w: Array) -> bool:
+		if not is_instance_valid(w[0]):
+			return false # a chip from an older bar
+		var tex: Texture2D = art.texture(String(w[1]), int(w[2]), 0)
+		if tex == null:
+			return true
+		(w[0] as TextureRect).texture = tex
+		return false)
+
+
 func _chip(index: int, acting: bool) -> Control:
 	var ship := _ship(index)
 	var box := VBoxContainer.new()
@@ -2326,6 +2343,10 @@ func _chip(index: int, acting: bool) -> Control:
 	rect.custom_minimum_size = Vector2(40, 30)
 	var sprite_info: Dictionary = ship.get("sprite", {})
 	rect.texture = art.texture(String(sprite_info.get("lbx", "")), int(sprite_info.get("entry", -1)), 0)
+	if rect.texture == null:
+		# Its art still on the way: filled in when it arrives (the bar is rebuilt only when the
+		# order changes; owner 2026-11-22: chips came up empty).
+		_chip_waiting.append([rect, String(sprite_info.get("lbx", "")), int(sprite_info.get("entry", -1))])
 	pic.add_child(rect)
 	box.add_child(pic)
 	var side := ColorRect.new()

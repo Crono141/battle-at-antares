@@ -57,6 +57,14 @@ float hull_alpha(sampler2D frame_tex, vec2 uv, vec2 tex_size, vec2 gx, vec2 gy) 
 	return textureGrad(hull_tex, h, gx * k, gy * k).a;
 }
 
+// The sprite's modulate (fades, retreat, phased-out ships): read in vertex(), since fragment()'s
+// COLOR arrives already multiplied by the texture (using it darkened every ship: owner 2026-11-22).
+varying vec4 tint;
+
+void vertex() {
+	tint = COLOR;
+}
+
 vec4 darken(vec4 c, vec2 uv, vec2 tex_size) {
 	if (darkness <= 0.0 || c.a <= 0.0) {
 		return c;
@@ -76,7 +84,6 @@ vec4 darken(vec4 c, vec2 uv, vec2 tex_size) {
 }
 
 void fragment() {
-	vec4 tint = COLOR; // the sprite's modulate (fades, retreat, phased-out)
 	vec2 uv = UV;
 	vec2 gx = dFdx(uv);
 	vec2 gy = dFdy(uv);
