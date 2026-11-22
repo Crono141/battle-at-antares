@@ -90,6 +90,12 @@ namespace antares::commands {
         return s_out(doc_, child);
     }
 
+    s_out s_out::Append_List() {
+        yyjson_mut_val* child = yyjson_mut_arr(doc_);
+        yyjson_mut_arr_append(object_, child);
+        return s_out(doc_, child);
+    }
+
     void s_out::Append_Int(int64_t value) {
         yyjson_mut_arr_append(object_, yyjson_mut_sint(doc_, value));
     }

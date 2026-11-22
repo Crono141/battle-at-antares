@@ -42,7 +42,11 @@ namespace antares::combat {
     // drawn as beams): posted as a "combat_event" snapshot {"kind": "beam", from, to, missile,
     // tx, ty, shots: [{weapon, name, type, count, flags}]} for the frontend to animate. Ship deaths,
     // damage, shield hits and missile impacts the frontend reads from successive states.
-    void Beam(int16_t from, int16_t to, int16_t non_ship_target, const struct s_beam_fx_entry* entries);
+    // WP3.9 stage 1 adds what the frontend's port of the volley needs: attacker and target {ship,
+    // x, y, center, grid, size, facing, owner}, speedx2, shield_frames, per shot special, hits,
+    // specials, damage_entry and fire_points [[dx, dy]], and fragments (the non-recipe weapons'
+    // 16 colours, 6-bit) when the volley has such a weapon (native-bridge.md).
+    void Beam(int16_t from, int16_t from_x, int16_t from_y, int16_t to, int16_t to_x, int16_t to_y, int16_t non_ship_target, const struct s_beam_fx_entry* entries);
 
     // WP3.9d (combat-plan.md section 13, foundation 1): the battle's effects as "animate" requests.
     // Each effect is posted when the rules reach it and the rules wait until the frontend has

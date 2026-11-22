@@ -1230,7 +1230,7 @@ namespace BEAMS {
         const bool beam_loop = fx_entries[0].weapon_id == 0x2e || TECHDATA::weapons[fx_entries[0].weapon_id].type == 0;
         antares::combat::Beam_Capture capture(attacker_ship_id, attacker_x, attacker_y, target_id, target_x, target_y, beam_loop ? fx_entries : nullptr, is_non_ship_target);
         if (!capture.Active()) {
-            antares::combat::Beam(attacker_ship_id, target_id, is_non_ship_target, fx_entries); // WP3.9c
+            antares::combat::Beam(attacker_ship_id, attacker_x, attacker_y, target_id, target_x, target_y, is_non_ship_target, fx_entries); // WP3.9c
         }
         bool first_pass = true;
         antares::beam_bench::Run(attacker_ship_id, attacker_x, attacker_y, target_id, target_x, target_y, is_non_ship_target); // WP3.9 bench

@@ -255,6 +255,27 @@ namespace antares::sprites {
         // "LBX@N": the entry under the palette that entry N of the same file holds (a monster's
         // ship picture under its own palette, KEN::Load_Player_Ship_Palette's 413-419).
         std::string lbx = requested;
+        // "LBX~B=RRGGBB.RRGGBB...": palette colours from index B on replaced (8-bit hex), and
+        // the art's masked pixels follow them (WP3.9: a beam's muzzle flash and hit flare in its
+        // weapon's colours, which the game puts in palette slots 144-175 as it fires).
+        std::vector<std::pair<int32_t, uint32_t>> overrides;
+        if (const size_t tilde = lbx.find('~'); tilde != std::string::npos) {
+            const char* p = lbx.c_str() + tilde + 1;
+            char* end = nullptr;
+            int32_t index = (int32_t)strtol(p, &end, 10);
+            if (end != nullptr && *end == '=') {
+                p = end + 1;
+                while (*p != 0 && index < 256) {
+                    const uint32_t rgb = (uint32_t)strtoul(p, &end, 16);
+                    if (end == p) {
+                        break;
+                    }
+                    overrides.emplace_back(index++, rgb & 0xFFFFFF);
+                    p = *end == '.' ? end + 1 : end;
+                }
+            }
+            lbx.erase(tilde);
+        }
         // "LBX:N": HD art at most N times the 1x size (the scene windows' full-screen
         // animations: 30-odd frames at 4x are 600 MB and more as textures).
         int32_t max_scale = 0;
@@ -397,10 +418,14 @@ namespace antares::sprites {
             }
         }
 
+        for (const auto& [index, rgb] : overrides) {
+            palette_rgb[index] = rgb;
+        }
+
         render::Register_Load(bytes, (int32_t)size, lbx.c_str(), entry);
         std::vector<render::s_exported_frame> art;
         // Ships' markings follow their colour set's palette (the masks say which pixels).
-        const bool shade_masks = lbx == "SHIPS.LBX";
+        const bool shade_masks = lbx == "SHIPS.LBX" || !overrides.empty();
         bool still_decoding = false;
         // "LBX:1": the original pixels, not the pack's art (the colony landing's pods, whose HD
         // frames have the smear baked in).

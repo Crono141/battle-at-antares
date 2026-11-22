@@ -21,6 +21,8 @@ const SQUARE := 20.0
 const MIN_ZOOM := 0.3
 const MAX_ZOOM := 3.0
 const SHIELD_SHADER := preload("combat_shield.gdshader")
+const BeamDraw := preload("beam_draw.gd")
+const BeamVolley := preload("beam_volley.gd")
 const PLAYER_COLORS := [
 	Color(0.95, 0.20, 0.20), Color(1.0, 0.90, 0.20), Color(0.25, 0.85, 0.30), Color(0.78, 0.78, 0.82),
 	Color(0.30, 0.50, 1.0), Color(0.62, 0.42, 0.25), Color(0.70, 0.30, 0.90), Color(1.0, 0.55, 0.15)]
@@ -68,6 +70,7 @@ var _animating := {}
 var _animating_waits_capture := -1 # the capture the current animation waits for (not loaded yet)
 var _capture_asked_at := 0
 var animated := {} # effects played, by kind (the smoke reports them)
+var smoke_hold := false # the smoke freezes effects and the awaited animation to shoot chosen ticks
 # Spike 3.9: volleys arrive captured from the legacy drawing (sprite "capture", entry); they carry
 # legacy's own damage numbers and shield hits, so the state-diff ones are left out.
 var _captures_seen := false
@@ -79,6 +82,9 @@ var _world: Node2D
 var _backdrop: Node2D
 var _ship_layer: Node2D
 var _marks: Node2D
+# WP3.9 stage 1: native beam strands, on their own layer (the strand edge shader), under the
+# muzzle flashes and hit flares drawn on _marks.
+var _beams: Node2D
 var _menu: Control
 var _top_left: PanelContainer
 var _round_label: Label
@@ -130,6 +136,11 @@ func _ready() -> void:
 	_world.add_child(_backdrop)
 	_ship_layer = Node2D.new()
 	_world.add_child(_ship_layer)
+	_beams = Node2D.new()
+	_beams.material = BeamDraw.edge_material()
+	_beams.texture_filter = BeamDraw.TEXTURE_FILTER
+	_beams.draw.connect(_draw_beams)
+	_world.add_child(_beams)
 	_marks = Node2D.new()
 	_marks.draw.connect(_draw_marks)
 	_world.add_child(_marks)
@@ -492,6 +503,11 @@ func _process(delta: float) -> void:
 	if _animating_waits_capture >= 0 and not art.sprite("capture", _animating_waits_capture).is_empty():
 		print("capture: volley %d arrived %d ms after its event" % [_animating_waits_capture, Time.get_ticks_msec() - _capture_asked_at])
 		_animating_waits_capture = -1
+	if smoke_hold:
+		_place_world()
+		_marks.queue_redraw()
+		_beams.queue_redraw()
+		return
 	if not _animating.is_empty() and _animating_waits_capture < 0:
 		_animating.t += delta
 		if _animating.t >= _animating.dur:
@@ -512,6 +528,7 @@ func _process(delta: float) -> void:
 		if _toast_time <= 0.0:
 			_toast.hide()
 	_marks.queue_redraw()
+	_beams.queue_redraw()
 
 
 # ---- Camera ----
@@ -1488,11 +1505,15 @@ func _beam_color(name: String) -> Color:
 	return AMBER
 
 
-## A volley from the engine (combat_native.cpp, Beam): each weapon's shots one after another, from
-## the shooter to its target (a ship, or a missile stack's point), sparks where they land.
+## A volley from the engine (combat_native.cpp, Beam). WP3.9 stage 1: the original's own volley,
+## tick by tick (beam_volley.gd), drawn natively (beam_draw.gd strands, the game's muzzle flashes
+## and hit flares in the weapon's colours). Events without the volley's details (an older engine)
+## get the 3.9c drawing: each weapon's shots one after another, sparks where they land.
 func play_event(event: Dictionary) -> float:
 	if not visible or String(event.get("kind", "")) != "beam":
 		return 0.0
+	if event.has("attacker"):
+		return _play_volley(event)
 	var from := int(event.get("from", -1))
 	var to := int(event.get("to", -1))
 	var missile := bool(event.get("missile", false))
@@ -1557,6 +1578,8 @@ func _draw_effects(width: float) -> void:
 		var life: float = effect.life
 		var k := clampf(t / life, 0.0, 1.0)
 		match String(effect.kind):
+			"volley":
+				_draw_volley_sprites(effect)
 			"shot":
 				var from := _effect_point(int(effect.from), effect.get("from_point", Vector2.ZERO))
 				var to: Vector2 = effect.point if effect.missile else _effect_point(int(effect.to), Vector2.ZERO)
@@ -1620,6 +1643,151 @@ func _spark(at: Vector2, k: float, width: float) -> void:
 		art.draw(_marks, "beams.lbx", 65, frame, at - box / 2.0, 1.0, Color(1, 1, 1, 1.0 - k * 0.5))
 	else:
 		_marks.draw_circle(at, (3.0 + 6.0 * k) * width * 1.5, Color(1.0, 0.85, 0.6, 1.0 - k))
+
+# ---- Native beams (WP3.9 stage 1) ----
+
+## Plans the volley and adds it as an effect; returns its length in seconds.
+func _play_volley(event: Dictionary) -> float:
+	var entries: Array = []
+	for shot: Dictionary in event.get("shots", []):
+		entries.append({"weapon": int(shot.get("weapon", 0)), "count": int(shot.get("count", 1)), "result": int(shot.get("flags", 0)),
+			"special": int(shot.get("special", 0)), "hits": int(shot.get("hits", 0)), "specials": int(shot.get("specials", 0)),
+			"type": int(shot.get("type", 0)), "damage_entry": bool(shot.get("damage_entry", false)),
+			"fire_points": shot.get("fire_points", [[0, 0]])})
+	var volley := {"entries": entries, "attacker": event.attacker, "target": event.target, "missile": bool(event.get("missile", false)),
+		"speedx2": bool(event.get("speedx2", false)), "shield_frames": int(event.get("shield_frames", 10))}
+	var planner := BeamVolley.new()
+	var ticks: Array = planner.plan(volley)
+	if ticks.is_empty():
+		return 0.0
+	var fragments: Array = []
+	for f: Array in event.get("fragments", []):
+		fragments.append(BeamVolley.to_colors(f))
+	var target_center: Array = event.target.get("center", [0, 0])
+	_effects.append({"kind": "volley", "t": 0.0, "life": float(ticks.size()) * BeamVolley.TICK, "ticks": ticks, "fragments": fragments,
+		"tick": -1, "strands": [], "at": Vector2(float(target_center[0]), float(target_center[1]))})
+	return float(ticks.size()) * BeamVolley.TICK
+
+
+## The 16 colours a segment op draws with (Color, 8-bit) and the palette slot's base index.
+func _volley_ramp(op: Dictionary, fragments: Array) -> Array:
+	if op.has("recipe"):
+		var fx: Dictionary = op.recipe
+		if not fx.has("_colors"):
+			fx["_colors"] = BeamVolley.to_colors(BeamVolley.recipe_ramp(fx))
+		return fx._colors
+	var frag := int((op.params as Dictionary).get("frag", 0))
+	if frag < fragments.size():
+		return fragments[frag]
+	var grey := []
+	for i in 16:
+		grey.append(Color(i / 15.0, i / 15.0, i / 15.0))
+	return grey
+
+
+## The strands of one tick's segment ops, generated once per tick: [{beam: BeamDraw, ramp, base}].
+func _volley_strands(effect: Dictionary, ops: Array) -> Array:
+	var out: Array = []
+	for op: Dictionary in ops:
+		if String(op.op) != "seg":
+			continue
+		var base := 144 + 16 * int(op.slot)
+		var beam := BeamDraw.new()
+		var a: Vector2i = op.from
+		var b: Vector2i = op.to
+		if op.has("recipe"):
+			var fx: Dictionary = op.recipe
+			beam.draw_beam2(int(fx.style), op.start, op.end, a, b, int(op.frame), base, int(fx.length), int(fx.bonus))
+		elif a != b:
+			var p: Dictionary = op.params
+			match int(p.mode):
+				1:
+					beam.bolt_line(a.x, a.y, b.x, b.y, base, 15, p.jc, p.jr, p.sparkle_phase, p.caps, p.tip, p.full, p.sparkles, p.suppress,
+						p.core_max, p.core_min, p.outer_max, p.outer_min)
+				2:
+					beam.wide_bolt_line(a.x, a.y, b.x, b.y, base, 15, p.jc, p.jr, p.sparkle_phase, p.point_end, p.tip, p.full, p.sparkles,
+						p.core_max, p.core_min, (int(p.outer_max) + int(p.core_max)) / 2, (int(p.outer_min) + int(p.core_min)) / 2,
+						p.outer_max, p.outer_min)
+				_:
+					beam.bolt_line(a.x, a.y, b.x, b.y, base, 15, p.jc, p.jr, p.sparkle_phase, p.caps, p.tip, p.full, p.sparkles, p.suppress,
+						0, 0, maxi(int(p.outer_max), int(p.core_max)), maxi(int(p.outer_min), int(p.core_min)))
+		out.append({"beam": beam, "ramp": _volley_ramp(op, effect.fragments), "base": base})
+	return out
+
+
+## The art name of a BEAMS.LBX sprite in the colours of the slot's weapon (sprites.cpp "~").
+func _slot_sprite(op_ramp: Array, slot: int) -> String:
+	var hex := PackedStringArray()
+	for c: Color in op_ramp:
+		hex.append(c.to_html(false))
+	return "beams.lbx~%d=%s" % [144 + 16 * slot, ".".join(hex)]
+
+
+func _draw_beams() -> void:
+	for effect: Dictionary in _effects:
+		if String(effect.kind) != "volley" or effect.t < 0.0:
+			continue
+		var ticks: Array = effect.ticks
+		var tick := mini(int(effect.t / BeamVolley.TICK), ticks.size() - 1)
+		if tick != int(effect.tick):
+			effect.tick = tick
+			effect.strands = _volley_strands(effect, ticks[tick])
+		for st: Dictionary in effect.strands:
+			(st.beam as BeamDraw).draw(_beams, st.ramp, int(st.base))
+
+
+## A volley's muzzle flashes, hit flares and the Mauler's ball on this tick (over the strands).
+func _draw_volley_sprites(effect: Dictionary) -> void:
+	var ticks: Array = effect.ticks
+	var tick := mini(int(effect.t / BeamVolley.TICK), ticks.size() - 1)
+	var ops: Array = ticks[tick]
+	# Each slot's colours: those of the segment drawn in it this tick, else the last known.
+	var ramps: Dictionary = effect.get("slot_ramps", {})
+	for op: Dictionary in ops:
+		if String(op.op) == "seg":
+			ramps[int(op.slot)] = _volley_ramp(op, effect.fragments)
+	effect["slot_ramps"] = ramps
+	for op: Dictionary in ops:
+		var slot := int(op.get("slot", 0))
+		match String(op.op):
+			"burst":
+				if not ramps.has(slot):
+					ramps[slot] = _first_ramp(effect, slot)
+				var entry := 1 + int(op.variant) * 32 + slot * 16 + int(op.dir)
+				_draw_centered(_slot_sprite(ramps[slot], slot), entry, int(op.frame) % 3, op.at)
+			"explosion":
+				if not ramps.has(slot):
+					ramps[slot] = _first_ramp(effect, slot)
+				var name := _slot_sprite(ramps[slot], slot)
+				var s: Dictionary = art.sprite(name, 65 + slot)
+				if not s.is_empty():
+					var count: int = s.frames.size()
+					var frame := int(op.frame) % maxi(count - 1, 1)
+					art.draw(_marks, name, 65 + slot, frame, Vector2(op.at) - Vector2(8, 8), 1.0)
+			"ball":
+				if not ramps.has(0):
+					ramps[0] = _first_ramp(effect, 0)
+				_draw_centered(_slot_sprite(ramps[0], 0), 88, 0, op.at)
+
+
+## The colours of the first segment in `slot` anywhere in the volley (a burst on frame 0 comes
+## before its weapon's first segment).
+func _first_ramp(effect: Dictionary, slot: int) -> Array:
+	for ops: Array in effect.ticks:
+		for op: Dictionary in ops:
+			if String(op.op) == "seg" and int(op.slot) == slot:
+				return _volley_ramp(op, effect.fragments)
+	return _volley_ramp({"params": {"frag": 0}}, effect.fragments)
+
+
+## ERIC::Draw_Centered: the frame's 1x box centred on `at`.
+func _draw_centered(name: String, entry: int, frame: int, at: Vector2i) -> void:
+	var s: Dictionary = art.sprite(name, entry)
+	if s.is_empty():
+		return
+	var box: Vector2 = s.size
+	art.draw(_marks, name, entry, mini(frame, s.frames.size() - 1), Vector2(at) - Vector2(floorf(box.x / 2.0), floorf(box.y / 2.0)), 1.0)
+
 
 # ---- Settings ----
 

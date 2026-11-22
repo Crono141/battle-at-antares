@@ -48,6 +48,7 @@ namespace antares::commands {
         // Nested values: an array of objects, or an array of integers.
         s_out Add_Object(const char* key);
         s_out Append_Object(); // on an object made by Add_List
+        s_out Append_List(); // a list in a list (WP3.9: points, colours)
         s_out Add_List(const char* key);
         void Append_Int(int64_t value);
         // An error code from the contract ("bad_args", "refused", ...) and a readable message.

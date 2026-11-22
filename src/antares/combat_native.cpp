@@ -541,7 +541,33 @@ namespace antares::combat {
         std::string s_beam_capture_json;
     } // namespace
 
-    void Beam(int16_t from, int16_t to, int16_t non_ship_target, const s_beam_fx_entry* entries) {
+    namespace {
+        // A ship's place in a beam event: its picture's top-left (as Beam_SFX gets it), its
+        // centre, its square, size class, facing and owner (WP3.9 stage 1).
+        void Beam_Ship(s_out out, int16_t ship, int16_t x, int16_t y) {
+            int16_t cx = 0, cy = 0;
+            if (ship >= 0 && ship < MOX::combat_total_ship_count) {
+                COMBINIT::Ship_Center_Offsets(ship, &cx, &cy);
+            }
+            out.Int("ship", ship);
+            out.Int("x", x);
+            out.Int("y", y);
+            s_out center = out.Add_List("center");
+            center.Append_Int(x + cx);
+            center.Append_Int(y + cy);
+            if (ship >= 0 && ship < MOX::combat_total_ship_count) {
+                const s_combat_data& d = MOX::combat_data[ship];
+                s_out grid = out.Add_List("grid");
+                grid.Append_Int(d.x);
+                grid.Append_Int(d.y);
+                out.Int("size", d.size_class);
+                out.Int("facing", d.facing_dir);
+                out.Int("owner", d.owner);
+            }
+        }
+    } // namespace
+
+    void Beam(int16_t from, int16_t from_x, int16_t from_y, int16_t to, int16_t to_x, int16_t to_y, int16_t non_ship_target, const s_beam_fx_entry* entries) {
         if (!s_active || entries == nullptr) {
             return;
         }
@@ -559,6 +585,22 @@ namespace antares::combat {
             out.Int("tx", MOX::missile[to].x);
             out.Int("ty", MOX::missile[to].y);
         }
+        // WP3.9 stage 1: what the frontend's port of the volley (views/beam_volley.gd) needs that
+        // only the game knows: where the ships are, the fire points, the modifiers, the
+        // non-recipe weapons' palette fragments and the shield animation's length.
+        // Beam_SFX's positions are on the scrolled combat screen; the event's are world pixels
+        // (square * 20), as the frontend places ships.
+        const int16_t ox = (int16_t)(MOX::cur_combat_x * 20), oy = (int16_t)(MOX::cur_combat_y * 20);
+        Beam_Ship(out.Add_Object("attacker"), from, (int16_t)(from_x + ox), (int16_t)(from_y + oy));
+        Beam_Ship(out.Add_Object("target"), non_ship_target != 0 ? -1 : to, (int16_t)(to_x + ox), (int16_t)(to_y + oy));
+        out.Bool("speedx2", MOX::speedx2_flag != 0 || MOX::net_flag != 0);
+        out.Int("shield_frames", animate::Get_Animation_Frame_Count(BEAMS::Shield_Anims(0, 0, 0, 0)));
+        int16_t bearing = 0;
+        if (from >= 0 && from < MOX::combat_total_ship_count) {
+            bearing = non_ship_target != 0 ? CMBTDRW1::Relative_Bearing_XY(from, to_x, to_y) : CMBTDRW1::Relative_Bearing(from, to);
+            bearing = CMBTFIRE::Facing_Shield(bearing);
+        }
+        bool fragments = false;
         s_out shots = out.Add_List("shots");
         for (int i = 0; i < 10 && entries[i].weapon_id != 0; ++i) {
             const s_beam_fx_entry& e = entries[i];
@@ -568,13 +610,42 @@ namespace antares::combat {
             shot.Int("type", TECHDATA::weapons[e.weapon_id].type);
             shot.Int("count", e.shot_count);
             shot.Int("flags", e.result_flags);
+            shot.Int("special", e.special_flag);
+            shot.Int("hits", e.accum_hit_x);
+            shot.Int("specials", e.specials);
+            shot.Bool("damage_entry", e.is_damage_entry != 0);
+            // Beam_SFX's fire points (FIREPTS), as offsets from the shooter's centre.
+            const int16_t owner = from >= 0 && from < MOX::combat_total_ship_count ? MOX::combat_data[from].owner : MAX_PLAYERS;
+            const int16_t points = from <= 0 || owner >= MAX_PLAYERS ? 1 : FIREPTS::N_Fire_Points(e.weapon_id, e.shot_count);
+            s_out list = shot.Add_List("fire_points");
+            for (int16_t fp = 0; fp < points; ++fp) {
+                int16_t fx = 0, fy = 0;
+                if (from > 0) {
+                    FIREPTS::Calc_FP_Offsets(&fx, &fy, e.weapon_id, e.shot_count, owner, from, MOX::combat_data[from].picture_num, (uint8_t)MOX::combat_data[from].facing_dir, (uint8_t)bearing, fp);
+                }
+                s_out point = list.Append_List();
+                point.Append_Int(fx);
+                point.Append_Int(fy);
+            }
+            fragments = fragments || !BEAMS::Is_Steve_Stuff_Weapon(e.weapon_id);
         }
-        std::string json = Write(doc);
-        if (!s_beam_capture_json.empty() && json.size() > 1) {
-            json.insert(json.size() - 1, ",\"capture\":" + s_beam_capture_json);
-            s_beam_capture_json.clear();
+        if (fragments && BEAMS::l_anims != nullptr) {
+            // The non-recipe weapons' colours: BEAMS.LBX 0's palette fragments (6-bit), of which
+            // Fire_Weapon copies one into the slot's 16 colours.
+            s_out list = out.Add_List("fragments");
+            for (int16_t f = 0; f < 10; ++f) {
+                s_out fragment = list.Append_List();
+                for (int16_t i = 0; i < 16; ++i) {
+                    uint8_t r = 0, g = 0, b = 0;
+                    remap::Get_Palette_Animation_Color(BEAMS::l_anims, f * 16 + i, &r, &g, &b);
+                    s_out rgb = fragment.Append_List();
+                    rgb.Append_Int(r);
+                    rgb.Append_Int(g);
+                    rgb.Append_Int(b);
+                }
+            }
         }
-        Post_Event(json);
+        Post_Event(Write(doc));
     }
 
     std::string Apply_Action(const std::string& json, int16_t active_player_id, int16_t* next_ship_flag) {
@@ -1421,7 +1492,7 @@ namespace antares::combat {
             s_captures.erase(s_captures.begin());
         }
         m.active = false;
-        Beam(m.from, m.to, m.non_ship, m.entries);
+        Beam(m.from, (int16_t)(m.wax - MOX::cur_combat_x * 20), (int16_t)(m.way - MOX::cur_combat_y * 20), m.to, (int16_t)(m.wtx - MOX::cur_combat_x * 20), (int16_t)(m.wty - MOX::cur_combat_y * 20), m.non_ship, m.entries);
     }
 
     bool Export_Capture(int32_t entry, sprites::s_sprite* out) {

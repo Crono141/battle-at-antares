@@ -7287,10 +7287,15 @@ func _smoke_combat(shots: String) -> bool:
 		for effect: Dictionary in view._effects:
 			var kind := String(effect.kind)
 			counts[kind] = int(counts.get(kind, 0)) + (1 if effect.t <= 0.06 and effect.t > 0.0 else 0)
-			if shots != "" and not shot_kinds.has(kind) and kind in ["shot", "explosion", "capture"] and float(effect.t) > 0.12:
+			if shots != "" and not shot_kinds.has(kind) and kind in ["shot", "explosion", "capture", "volley"] and float(effect.t) > (0.3 if kind == "volley" else 0.12):
 				shot_kinds[kind] = true
 				var where: Vector2 = effect.get("at", view._effect_point(int(effect.get("to", -1)), view._cam))
 				view._cam = where
+				if kind == "volley":
+					# WP3.9 stage 1: the first native volley held still and shot close up on chosen
+					# ticks: its first segment, the middle, its first hit flare.
+					await _smoke_volley_ticks(view, effect, shots)
+					continue
 				await host.shot(shots + "/combat-%s.png" % ("fire" if kind == "shot" else kind))
 				if kind == "capture":
 					# Spike 3.9: the same volley a few frames on, at the camera's zoom.
@@ -8078,4 +8083,43 @@ func _smoke_resize(shots: String) -> void:
 			_view("build_pane").get_global_rect().end.x, get_viewport().get_visible_rect().size.x])
 		if shots != "":
 			await host.shot(shots + "/resize-%d.png" % width)
+
+
+## WP3.9 stage 1 (smoke --combat): a native volley frozen on a few ticks, shot at 3x zoom between
+## its shooter and target.
+func _smoke_volley_ticks(view: Control, effect: Dictionary, shots: String) -> void:
+	var ticks: Array = effect.ticks
+	var first_seg := -1
+	var first_flare := -1
+	for t in ticks.size():
+		for op: Dictionary in ticks[t]:
+			if String(op.op) == "seg" and first_seg < 0:
+				first_seg = t
+			if String(op.op) == "explosion" and first_flare < 0:
+				first_flare = t
+	var picks := {"start": maxi(first_seg, 0), "middle": ticks.size() / 2, "flare": first_flare,
+		"flare-later": first_flare + 2 if first_flare >= 0 and first_flare + 2 < ticks.size() else -1}
+	view.smoke_hold = true
+	var keep_zoom: float = view._zoom
+	view._zoom = 3.0
+	for name: String in picks:
+		var t: int = picks[name]
+		if t < 0:
+			continue
+		var ops: Array = ticks[t]
+		var seg: Dictionary = {}
+		for op: Dictionary in ops:
+			if String(op.op) == "seg":
+				seg = op
+				break
+		if not seg.is_empty():
+			# The flare: the target up and left of centre, clear of the hover card.
+			view._cam = (Vector2(seg.from) + Vector2(seg.to)) / 2.0 if not name.begins_with("flare") else Vector2(seg.end) + Vector2(110, 60)
+		effect.t = (float(t) + 0.5) * 0.055
+		for i in 3:
+			await get_tree().process_frame
+		await host.shot(shots + "/combat-volley-%s.png" % name)
+		print("smoke: volley tick %d (%s): %s" % [t, name, ", ".join(ops.map(func(op): return String(op.op)))])
+	view._zoom = keep_zoom
+	view.smoke_hold = false
 

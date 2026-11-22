@@ -39,7 +39,6 @@ const TEXTURE_FILTER := CanvasItem.TEXTURE_FILTER_LINEAR
 var strands: Array = [] # {a: Vector2i, b: Vector2i, colors: PackedInt32Array} (palette indices, in Plasma_Line order)
 var dots: Array = [] # {at: Vector2i, color: int}
 var rng := RandomNumberGenerator.new()
-var _textures: Array = [] # kept while drawn: a canvas command doesn't keep its texture alive
 
 
 ## angle.cpp Get_Angle: whole degrees, 0 along +x, counter to the screen's y.
@@ -246,11 +245,15 @@ func draw(item: CanvasItem, ramp: Array, palette_base: int) -> void:
 			last = a
 		var count := maxi(absi(b.x - a.x), absi(b.y - a.y)) + 1
 		var colors: PackedInt32Array = s.colors
-		var image := Image.create(count, 1, false, Image.FORMAT_RGBA8)
-		for k in count:
-			image.set_pixel(k, 0, ramp[clampi(colors[k] - palette_base, 0, ramp.size() - 1)])
-		var texture := ImageTexture.create_from_image(image)
-		_textures.append(texture)
+		# Built on the first draw and kept with the strand (a volley redraws a tick's strands
+		# every frame until the next tick).
+		var texture: ImageTexture = s.get("texture")
+		if texture == null:
+			var image := Image.create(count, 1, false, Image.FORMAT_RGBA8)
+			for k in count:
+				image.set_pixel(k, 0, ramp[clampi(colors[k] - palette_base, 0, ramp.size() - 1)])
+			texture = ImageTexture.create_from_image(image)
+			s["texture"] = texture
 		var p0 := Vector2(first) + Vector2(0.5, 0.5)
 		var p1 := Vector2(last) + Vector2(0.5, 0.5)
 		var dir := (p1 - p0).normalized() if p1 != p0 else Vector2.RIGHT
