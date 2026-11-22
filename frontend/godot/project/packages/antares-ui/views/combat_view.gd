@@ -22,6 +22,7 @@ const MIN_ZOOM := 0.3
 const MAX_ZOOM := 3.0
 const SHIELD_SHADER := preload("combat_shield.gdshader")
 const BeamDraw := preload("beam_draw.gd")
+const Themes := preload("../themes.gd")
 const BeamVolley := preload("beam_volley.gd")
 const PLAYER_COLORS := [
 	Color(0.95, 0.20, 0.20), Color(1.0, 0.90, 0.20), Color(0.25, 0.85, 0.30), Color(0.78, 0.78, 0.82),
@@ -78,6 +79,20 @@ var _captures_seen := false
 const CAPTURE_FRAME_TIME := 0.06 # legacy's measured pace (ms per frame of the beam loop: ~60)
 const MOVE_STEP_TIME := 0.012 # seconds per legacy move step (2 px); tuned with the ships (3.9f)
 const TURN_STEP_TIME := 0.05 # seconds per 22.5 degree facing step
+# Ship movement speed (owner 2026-11-21: "no options for ship movement speed yet"): the battle's
+# Moves button, saved as [combat] move_speed; scales moves and turns (not weapons: their pace is
+# the original's).
+const MOVE_SPEEDS := [["Slow", 1.6], ["Normal", 1.0], ["Fast", 0.5], ["Instant", 0.0]]
+var _move_speed := 1 # index in MOVE_SPEEDS
+var _speed_button: Button
+# Scan (owner 2026-11-21): the original's read-only view of any ship (Display_Combat_View_Ship).
+var _scan_mode := false # armed: the next click on a ship scans it
+var _scan_ship := -1 # the ship the scan panel shows, or -1
+var _scan_panel: PanelContainer
+var _scan_title: Label
+var _scan_sub: Label
+var _scan_bars: Control
+var _scan_body: VBoxContainer
 
 var _world: Node2D
 var _backdrop: Node2D
@@ -102,7 +117,9 @@ var _strip_bars: Control
 var _strip_info: Label
 var _weapon_chips := {} # slot -> chip
 var _strip_weapons: HBoxContainer
-var _actions: VBoxContainer
+var _actions: HBoxContainer
+var _top_right: VBoxContainer # Always show health, Auto, Moves, stacked (the initiative bar has the top's middle)
+var _bottom: VBoxContainer # the actions row above the acting ship's strip, centred at the bottom
 var _wait_button: Button
 var _done_button: Button
 var _end_button: Button
@@ -146,6 +163,9 @@ func _ready() -> void:
 	_marks.draw.connect(_draw_marks)
 	_world.add_child(_marks)
 	_build_hud()
+	resized.connect(func():
+		if not state.is_empty():
+			_refresh_timeline())
 	hide()
 	if art != null:
 		art.loaded.connect(func(_key: String):
@@ -223,7 +243,7 @@ func on_animate(id: int, request: Dictionary) -> void:
 				var ship := _ship(index)
 				if _ships.has(index) and not ship.is_empty():
 					var off := _center(ship) - Vector2(float(ship.get("x", 0)), float(ship.get("y", 0))) * 20.0
-					dur = float(event.get("steps", 1)) * MOVE_STEP_TIME
+					dur = float(event.get("steps", 1)) * MOVE_STEP_TIME * _move_factor()
 					var e: Dictionary = _ships[index]
 					var p0 := Vector2(float(event.get("x0", 0)), float(event.get("y0", 0))) + off
 					# Continue from where the ship is shown when the segment follows the last one.
@@ -231,7 +251,7 @@ func on_animate(id: int, request: Dictionary) -> void:
 						p0 = e.shown
 					e.motion = {"p0": p0, "p1": Vector2(float(event.get("x1", 0)), float(event.get("y1", 0))) + off, "t": 0.0, "dur": dur}
 			"turn":
-				dur = float(event.get("steps", 1)) * TURN_STEP_TIME
+				dur = float(event.get("steps", 1)) * TURN_STEP_TIME * _move_factor()
 			"beam":
 				if event.has("capture"):
 					_captures_seen = true
@@ -747,7 +767,7 @@ func _menu_reason(item: String) -> String:
 		"board":
 			return "Boarding comes in a later build"
 		"scan":
-			return "Hover a ship to see its status"
+			return ""
 		"self_destruct":
 			return "A planet can't self-destruct" if bool(ship.get("planet", false)) else ""
 	return ""
@@ -835,6 +855,10 @@ func _menu_pick(i: int) -> void:
 	var reason := _menu_reason(item)
 	if reason != "":
 		_show_toast(reason)
+		return
+	if item == "scan":
+		_close_menu()
+		_arm_scan()
 		return
 	if item == "self_destruct" and _menu_confirm != "self_destruct":
 		_menu_confirm = "self_destruct" # a second click confirms
@@ -931,6 +955,13 @@ func _left_click(at: Vector2) -> void:
 		else:
 			_close_menu()
 		return
+	if _scan_mode:
+		_scan_mode = false
+		if _alive(_ship(_hover_ship)):
+			_show_scan(_hover_ship)
+		else:
+			_show_toast("Scan cancelled")
+		return
 	if not _my_turn():
 		return
 	var hovered := _ship(_hover_ship)
@@ -948,9 +979,14 @@ func _right_click(at: Vector2) -> void:
 	if _menu_ship >= 0:
 		_close_menu()
 		return
+	var acting := int(state.get("ship", -1))
+	# Any other ship: its scan (read-only, so also while the enemy moves).
+	if _hover_ship >= 0 and _hover_ship != acting and _alive(_ship(_hover_ship)):
+		_scan_mode = false
+		_show_scan(_hover_ship)
+		return
 	if not _my_turn():
 		return
-	var acting := int(state.get("ship", -1))
 	if _hover_ship == acting and acting >= 0:
 		_open_menu(acting)
 		return
@@ -979,6 +1015,14 @@ func _input(event: InputEvent) -> void:
 	match key.keycode:
 		KEY_ESCAPE:
 			_close_menu()
+			_scan_mode = false
+			_hide_scan()
+		KEY_S:
+			if _scan_mode:
+				_scan_mode = false
+				_show_toast("Scan cancelled")
+			else:
+				_arm_scan()
 		KEY_W:
 			_act({"action": "wait"})
 		KEY_H:
@@ -1011,18 +1055,17 @@ func _act(action: Dictionary) -> void:
 	_refresh_hud()
 
 
-# ---- HUD: mockup B4's own look (dark glass, thin steel edges, amber for "on"), not the theme's
-# buttons (owner, 2026-11-15: the Chrome button art on the weapons; "not nearly as clean as B4"). ----
+# ---- HUD (owner 2026-11-21: the active theme, not B4's fixed glass; initiative centred at the
+# top, the acting ship and its weapons centred at the bottom with Wait / Done / End turn in a row
+# above them). Panels are the theme's Pane, chips its Row (RowOpen when lit), buttons its own,
+# labels Name / Dim / Section. Colours that mean something (fire, damage, sides) stay. ----
 
-const GLASS_BG := Color(0.035, 0.055, 0.10, 0.88)
-const GLASS_EDGE := Color(0.29, 0.35, 0.45)
-const CHIP_BG := Color(0.055, 0.086, 0.15, 0.95)
-const CHIP_EDGE := Color(0.24, 0.29, 0.38)
-const TEXT := Color(0.85, 0.88, 0.93)
-const DIM := Color(0.58, 0.64, 0.72)
 const ARC_NAMES := {1: "front", 2: "front wide", 3: "front wide", 4: "rear wide", 8: "rear", 12: "rear wide", 15: "all round", 16: "all round"}
+const DIM := Color(0.58, 0.64, 0.72) # a label role: drawn as the theme's Dim
+const TEXT := Color(0.85, 0.88, 0.93) # a label role: the theme's plain label
 
 
+## A small flat box (the run bracket in the timeline): drawn over the theme's panels.
 func _box(bg: Color, edge: Color, radius := 6, pad := 10.0, width := 1) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = bg
@@ -1036,43 +1079,37 @@ func _box(bg: Color, edge: Color, radius := 6, pad := 10.0, width := 1) -> Style
 	return box
 
 
-func _panel() -> PanelContainer:
+func _panel(variation := &"Pane") -> PanelContainer:
 	var p := PanelContainer.new()
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
-	p.add_theme_stylebox_override("panel", _box(GLASS_BG, GLASS_EDGE))
+	p.theme_type_variation = variation
 	return p
 
 
-func _label(text: String, font_size := 14, color := TEXT) -> Label:
+## A label in a theme role: DIM -> Dim, AMBER -> Name, TEXT -> the plain label; any other colour is
+## kept (it means something: fire, damage). `font_size` 0 keeps the theme's.
+func _label(text: String, font_size := 0, color := TEXT) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", font_size)
-	l.add_theme_color_override("font_color", color)
+	if color == DIM:
+		l.theme_type_variation = &"Dim"
+	elif color == AMBER:
+		l.theme_type_variation = &"Name"
+	elif color != TEXT:
+		l.add_theme_color_override("font_color", color)
+	if font_size > 0:
+		l.add_theme_font_size_override("font_size", font_size)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
 
 
-## A flat button in the B4 look: its key after the name, amber when `primary` (End turn).
+## The theme's button, its key after the name; `primary` (End turn) is armed in the theme's way.
 func _flat_button(text: String, key: String, pressed: Callable, primary := false) -> Button:
 	var b := Button.new()
 	b.text = text + ("    " + key if key != "" else "")
 	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_size_override("font_size", 14)
-	var bg := Color(0.95, 0.70, 0.24) if primary else Color(0.08, 0.12, 0.19, 0.92)
-	var edge := AMBER if primary else Color(0.29, 0.35, 0.45)
-	var normal := _box(bg, edge, 4, 12.0)
-	var hover := _box(bg.lightened(0.08), AMBER, 4, 12.0)
-	var disabled := _box(Color(bg, bg.a * 0.45), Color(edge, 0.4), 4, 12.0)
-	b.add_theme_stylebox_override("normal", normal)
-	b.add_theme_stylebox_override("hover", hover)
-	b.add_theme_stylebox_override("pressed", hover)
-	b.add_theme_stylebox_override("hover_pressed", hover)
-	b.add_theme_stylebox_override("disabled", disabled)
-	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	var ink := Color(0.1, 0.07, 0.02) if primary else TEXT
-	for state_name in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
-		b.add_theme_color_override(state_name, ink)
-	b.add_theme_color_override("font_disabled_color", Color(ink, 0.4))
+	if primary:
+		b.add_theme_color_override("font_color", b.get_theme_color("font_pressed_color", "Button"))
 	b.pressed.connect(pressed)
 	return b
 
@@ -1084,9 +1121,9 @@ func _build_hud() -> void:
 	tl.add_theme_constant_override("separation", 4)
 	tl.custom_minimum_size = Vector2(300, 0)
 	_top_left.add_child(tl)
-	_round_label = _label("", 17)
+	_round_label = _label("", 0, AMBER)
 	tl.add_child(_round_label)
-	_strength_label = _label("", 12, DIM)
+	_strength_label = _label("", 0, DIM)
 	tl.add_child(_strength_label)
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 0)
@@ -1099,18 +1136,17 @@ func _build_hud() -> void:
 	_strength_theirs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(_strength_theirs)
 
-	var tr := HBoxContainer.new()
+	var tr := VBoxContainer.new()
+	_top_right = tr
 	tr.add_theme_constant_override("separation", 6)
 	tr.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	add_child(tr)
 	_health_toggle = _flat_button("Always show health", "Alt", func(): pass)
+	_health_toggle.theme_type_variation = &"Toggle"
 	_health_toggle.toggle_mode = true
 	_health_toggle.button_pressed = _always_health
 	_health_toggle.tooltip_text = "Shields and hull on every ship (hold Alt to see them for a moment)"
-	_health_toggle.add_theme_stylebox_override("pressed", _box(Color(0.95, 0.70, 0.24, 0.16), AMBER, 4, 12.0))
-	_health_toggle.add_theme_stylebox_override("hover_pressed", _box(Color(0.95, 0.70, 0.24, 0.22), AMBER, 4, 12.0))
-	_health_toggle.add_theme_color_override("font_pressed_color", AMBER)
-	_health_toggle.add_theme_color_override("font_hover_pressed_color", AMBER)
+	Themes.glowing(_health_toggle)
 	_health_toggle.toggled.connect(func(on: bool):
 		_always_health = on
 		_save_setting("always_show_health", on)
@@ -1120,18 +1156,44 @@ func _build_hud() -> void:
 	_auto_button = _flat_button("Auto", "A", func(): _act({"action": "auto"}))
 	_auto_button.tooltip_text = "The computer fights the rest of this battle for you"
 	tr.add_child(_auto_button)
+	_move_speed = clampi(int(_load_setting("move_speed", 1)), 0, MOVE_SPEEDS.size() - 1)
+	_speed_button = _flat_button("", "", func():
+		_move_speed = (_move_speed + 1) % MOVE_SPEEDS.size()
+		_save_setting("move_speed", _move_speed)
+		_speed_button.text = "Moves: " + String(MOVE_SPEEDS[_move_speed][0]))
+	_speed_button.text = "Moves: " + String(MOVE_SPEEDS[_move_speed][0])
+	_speed_button.tooltip_text = "How fast ships move and turn (weapons keep the original's pace)"
+	tr.add_child(_speed_button)
 
+	# Initiative: centred at the top.
 	_timeline = _panel()
 	_timeline.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_timeline.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(_timeline)
 	_timeline_row = HBoxContainer.new()
 	_timeline_row.add_theme_constant_override("separation", 8)
 	_timeline.add_child(_timeline_row)
 
+	# The bottom: Wait / Done / End turn in a row, the acting ship and its weapons below, centred.
+	_bottom = VBoxContainer.new()
+	_bottom.add_theme_constant_override("separation", 8)
+	_bottom.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_bottom.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_bottom)
+	_actions = HBoxContainer.new()
+	_actions.add_theme_constant_override("separation", 8)
+	_actions.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_bottom.add_child(_actions)
+	_wait_button = _flat_button("Wait", "W", func(): _act({"action": "wait"}))
+	_actions.add_child(_wait_button)
+	_done_button = _flat_button("Done", "D", func(): _act({"action": "done"}))
+	_actions.add_child(_done_button)
+	_end_button = _flat_button("End turn", "T", func(): _act({"action": "end_turn"}), true)
+	_actions.add_child(_end_button)
+
 	_strip = _panel()
-	_strip.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	add_child(_strip)
+	_strip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_bottom.add_child(_strip)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	_strip.add_child(row)
@@ -1139,32 +1201,16 @@ func _build_hud() -> void:
 	who.add_theme_constant_override("separation", 3)
 	who.custom_minimum_size = Vector2(170, 0)
 	row.add_child(who)
-	_strip_name = _label("", 17, AMBER)
+	_strip_name = _label("", 0, AMBER)
 	who.add_child(_strip_name)
-	_strip_info = _label("", 12, DIM)
+	_strip_info = _label("", 0, DIM)
 	who.add_child(_strip_info)
 	_strip_bars = _bars_control(Vector2(170, 10))
 	who.add_child(_strip_bars)
-	var sep := ColorRect.new()
-	sep.color = Color(GLASS_EDGE, 0.6)
-	sep.custom_minimum_size = Vector2(1, 0)
-	row.add_child(sep)
+	row.add_child(VSeparator.new())
 	_strip_weapons = HBoxContainer.new()
 	_strip_weapons.add_theme_constant_override("separation", 6)
 	row.add_child(_strip_weapons)
-
-	_actions = VBoxContainer.new()
-	_actions.add_theme_constant_override("separation", 6)
-	_actions.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_actions.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_actions.custom_minimum_size = Vector2(170, 0)
-	add_child(_actions)
-	_wait_button = _flat_button("Wait", "W", func(): _act({"action": "wait"}))
-	_actions.add_child(_wait_button)
-	_done_button = _flat_button("Done", "D", func(): _act({"action": "done"}))
-	_actions.add_child(_done_button)
-	_end_button = _flat_button("End turn", "T", func(): _act({"action": "end_turn"}), true)
-	_actions.add_child(_end_button)
 
 	_card = _panel()
 	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1174,14 +1220,16 @@ func _build_hud() -> void:
 	cv.add_theme_constant_override("separation", 5)
 	cv.custom_minimum_size = Vector2(270, 0)
 	_card.add_child(cv)
-	_card_title = _label("", 16)
+	_card_title = _label("", 0, AMBER)
 	cv.add_child(_card_title)
 	_card_bars = _bars_control(Vector2(270, 12))
 	cv.add_child(_card_bars)
-	_card_body = _label("", 13)
+	_card_body = _label("")
 	cv.add_child(_card_body)
-	_card_fire = _label("", 13, FIRE)
+	_card_fire = _label("", 0, FIRE)
 	cv.add_child(_card_fire)
+
+	_build_scan()
 
 	_toast = _label("", 15, Color(1.0, 0.82, 0.55))
 	_toast.add_theme_color_override("font_outline_color", Color(0, 0, 0))
@@ -1192,12 +1240,9 @@ func _build_hud() -> void:
 	# Anchors last, once each container knows its size (code-built controls: the offsets must be set too).
 	_top_left.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT, Control.PRESET_MODE_MINSIZE, 16)
 	tr.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
-	_timeline.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 16)
-	_strip.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 16)
-	_strip.offset_top -= 104.0 # above the timeline row
-	_strip.offset_bottom -= 104.0
-	_actions.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
-	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 70)
+	_timeline.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 16)
+	_bottom.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 16)
+	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 130)
 
 
 ## Straight bars (the timeline, the strip, the card): armour on top, shrinking to the centre;
@@ -1287,6 +1332,8 @@ func _refresh_hud() -> void:
 	_auto_button.text = "Auto: on" if int(state.get("auto", 0)) != 0 else "Auto    A"
 	_refresh_strip()
 	_refresh_timeline()
+	if _scan_ship >= 0 and _scan_panel.visible:
+		_show_scan(_scan_ship)
 
 
 func _arc_name(arc: int) -> String:
@@ -1316,17 +1363,15 @@ func _refresh_strip() -> void:
 		var ready := bool(weapon.get("ready", false))
 		var ammo := int(weapon.get("ammo", 0))
 		var shots := int(weapon.get("shots_left", 0))
-		var chip := PanelContainer.new()
-		chip.mouse_filter = Control.MOUSE_FILTER_STOP
-		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		chip.tooltip_text = "Click: on, fire once, off"
 		var targeted := _hover_ship >= 0 and not _mine(_ship(_hover_ship))
 		var lit := targeted and in_arc.has(slot)
-		chip.add_theme_stylebox_override("panel", _box(Color(FIRE, 0.14) if lit else CHIP_BG, FIRE if lit else CHIP_EDGE, 4, 8.0))
+		var chip := _panel(&"RowOpen" if lit else &"Row")
+		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		chip.tooltip_text = "Click: on, fire once, off"
 		var v := VBoxContainer.new()
 		v.add_theme_constant_override("separation", 1)
 		chip.add_child(v)
-		v.add_child(_label("%d × %s" % [count, String(weapon.get("name", ""))], 13, TEXT))
+		v.add_child(_label("%d × %s" % [count, String(weapon.get("name", ""))]))
 		var status := ""
 		if count == 0:
 			status = "destroyed"
@@ -1341,7 +1386,7 @@ func _refresh_strip() -> void:
 		var line := _arc_name(int(weapon.get("arc", 0))) + " · " + status
 		if ammo > 0 and ammo < 99:
 			line += " · %d left" % ammo
-		v.add_child(_label(line, 11, FIRE if lit else (SYSTEMS_COLOR if status == "destroyed" else DIM)))
+		v.add_child(_label(line, 0, FIRE if lit else (SYSTEMS_COLOR if status == "destroyed" else DIM)))
 		if count == 0 or active == -1 or not ready or (targeted and not lit):
 			chip.modulate = Color(1, 1, 1, 0.5)
 		chip.gui_input.connect(func(event: InputEvent):
@@ -1368,8 +1413,8 @@ func _refresh_timeline() -> void:
 		child.queue_free()
 	var round_box := VBoxContainer.new()
 	round_box.add_theme_constant_override("separation", 0)
-	round_box.add_child(_label("ROUND", 11, DIM))
-	var round_number := _label(str(int(state.get("round", 0)) + 1), 26)
+	round_box.add_child(_label("ROUND", 0, DIM))
+	var round_number := _label(str(int(state.get("round", 0)) + 1), 26, AMBER)
 	round_number.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	round_box.add_child(round_number)
 	_timeline_row.add_child(round_box)
@@ -1395,23 +1440,41 @@ func _refresh_timeline() -> void:
 		bracket.add_theme_constant_override("separation", 6)
 		frame.add_child(bracket)
 		_timeline_row.add_child(frame)
-	const MAX_CHIPS := 10
-	for n in mini(order.size(), MAX_CHIPS):
+	# As many chips as fit between the battle box and the buttons at the top right; the bar is
+	# centred, so its half may reach the nearer of the two. Each chip is measured as it is added.
+	var half := minf(size.x / 2.0 - 16.0 - _top_left.get_combined_minimum_size().x, size.x / 2.0 - 16.0 - _top_right.get_combined_minimum_size().x) - 12.0
+	var room := 2.0 * half - round_box.get_combined_minimum_size().x - 60.0 # the "+N"
+	var pane_box := get_theme_stylebox("panel", "Pane")
+	if pane_box != null:
+		room -= pane_box.get_minimum_size().x
+	if bracket != null:
+		room -= 16.0
+	var used := 0.0
+	var shown := 0
+	for n in mini(order.size(), 12):
 		var chip := _chip(order[n], order[n] == acting)
 		if bracket != null and n < run:
 			bracket.add_child(chip)
 		else:
 			_timeline_row.add_child(chip)
-	if order.size() > MAX_CHIPS:
-		_timeline_row.add_child(_label("+%d" % (order.size() - MAX_CHIPS), 14, DIM))
+		var w := chip.get_combined_minimum_size().x + 8.0
+		if shown >= 2 and used + w > room:
+			chip.get_parent().remove_child(chip)
+			chip.queue_free()
+			break
+		used += w
+		shown += 1
+	if order.size() > shown:
+		_timeline_row.add_child(_label("+%d" % (order.size() - shown), 0, DIM))
 
 
 func _chip(index: int, acting: bool) -> Control:
 	var ship := _ship(index)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 3)
-	var pic := PanelContainer.new()
-	pic.add_theme_stylebox_override("panel", _box(CHIP_BG, AMBER if acting else Color(_color(ship), 0.8), 4, 2.0, 2 if acting else 1))
+	var pic := _panel(&"RowOpen" if acting else &"Row")
+	pic.mouse_filter = Control.MOUSE_FILTER_PASS
+	# The side's colour as a thin line under the picture (the theme draws the frame).
 	pic.custom_minimum_size = Vector2(56, 46)
 	pic.tooltip_text = String(ship.get("name", ""))
 	var rect := TextureRect.new()
@@ -1422,6 +1485,11 @@ func _chip(index: int, acting: bool) -> Control:
 	rect.texture = art.texture(String(sprite_info.get("lbx", "")), int(sprite_info.get("entry", -1)), 0)
 	pic.add_child(rect)
 	box.add_child(pic)
+	var side := ColorRect.new()
+	side.color = _color(ship)
+	side.custom_minimum_size = Vector2(56, 2)
+	side.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(side)
 	var bars := _bars_control(Vector2(56, 8))
 	_set_bars(bars, ship)
 	box.add_child(bars)
@@ -1473,7 +1541,7 @@ func _place_card() -> void:
 	var at := _to_screen(_ships[_hover_ship].shown) + Vector2(_radius(_hover_ship) * _zoom + 24.0, -_card.size.y / 2.0)
 	if at.x + _card.size.x > size.x - 8.0:
 		at.x = _to_screen(_ships[_hover_ship].shown).x - _radius(_hover_ship) * _zoom - 24.0 - _card.size.x
-	at.y = clampf(at.y, 80.0, size.y - _card.size.y - 150.0)
+	at.y = clampf(at.y, _timeline.get_rect().end.y + 8.0, maxf(_timeline.get_rect().end.y + 8.0, _bottom.get_rect().position.y - _card.size.y - 8.0))
 	_card.position = at
 
 
@@ -1482,6 +1550,124 @@ func _show_toast(text: String, seconds := 3.0) -> void:
 	_toast.show()
 	_toast_time = seconds
 
+
+
+# ---- Scan ----
+
+func _move_factor() -> float:
+	return float(MOVE_SPEEDS[_move_speed][1])
+
+
+func _arm_scan() -> void:
+	_scan_mode = true
+	_show_toast("Scan: click any ship  (Esc cancels)", 4.0)
+
+
+func _build_scan() -> void:
+	_scan_panel = _panel()
+	_scan_panel.hide()
+	add_child(_scan_panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.custom_minimum_size = Vector2(330, 0)
+	_scan_panel.add_child(v)
+	var head := HBoxContainer.new()
+	v.add_child(head)
+	_scan_title = _label("", 0, AMBER)
+	_scan_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(_scan_title)
+	head.add_child(_flat_button("Close", "Esc", _hide_scan))
+	_scan_sub = _label("", 0, DIM)
+	v.add_child(_scan_sub)
+	_scan_bars = _bars_control(Vector2(330, 12))
+	v.add_child(_scan_bars)
+	_scan_body = VBoxContainer.new()
+	_scan_body.add_theme_constant_override("separation", 3)
+	v.add_child(_scan_body)
+	_scan_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
+
+
+func _hide_scan() -> void:
+	_scan_ship = -1
+	if _scan_panel != null:
+		_scan_panel.hide()
+
+
+## The original's scan of `index`: parts, combat values, crew and officer, weapons, specials, and
+## the pools as the card shows them. Kept current while open (_refresh_hud).
+func _show_scan(index: int) -> void:
+	var ship := _ship(index)
+	if not _alive(ship):
+		_hide_scan()
+		return
+	_scan_ship = index
+	var scan: Dictionary = ship.get("scan", {})
+	var mine := _mine(ship)
+	_scan_title.text = String(ship.get("name", ""))
+	if not mine:
+		_scan_title.add_theme_color_override("font_color", _color(ship).lightened(0.25))
+	else:
+		_scan_title.remove_theme_color_override("font_color")
+	var sub := []
+	if not mine:
+		sub.append(_side_name(int(ship.get("owner", -1))))
+	if scan.has("hull"):
+		sub.append(String(scan.hull))
+	if scan.has("crew"):
+		sub.append(String(scan.crew))
+	_scan_sub.text = "   ·   ".join(sub)
+	_set_bars(_scan_bars, ship)
+	for child in _scan_body.get_children():
+		child.queue_free()
+	var add := func(text: String, color := TEXT):
+		var l := _label(text, 0, color)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size = Vector2(330, 0)
+		_scan_body.add_child(l)
+	var section := func(text: String):
+		var l := _label(text)
+		l.theme_type_variation = &"Section"
+		_scan_body.add_child(l)
+	if scan.has("officer"):
+		add.call("Officer: " + String(scan.officer))
+	var shield: Dictionary = ship.get("shield", {})
+	var armor: Dictionary = ship.get("armor", {})
+	var structure: Dictionary = ship.get("structure", {})
+	section.call("SYSTEMS")
+	var arcs: Array = shield.get("arcs", [0, 0, 0, 0])
+	if int(shield.get("max", 0)) > 0:
+		add.call("Shields: %s   front %d · right %d · rear %d · left %d   of %d" % [String(scan.get("shield", "")), int(arcs[0]), int(arcs[1]),
+			int(arcs[2]), int(arcs[3]), int(shield.get("max", 0))])
+	else:
+		add.call("Shields: none")
+	add.call("Armour: %s   %d / %d" % [String(scan.get("armor", "")), int(armor.get("now", 0)), int(armor.get("max", 0))])
+	add.call("Structure %d / %d" % [int(structure.get("now", 0)), int(structure.get("max", 0))])
+	add.call("Computer: " + String(scan.get("computer", "")))
+	if scan.has("drive"):
+		add.call("Drive: %s   combat speed %d" % [String(scan.drive), int(scan.get("speed", 0))])
+	add.call("%s %d    %s %d    Missile evasion %d" % [String(scan.get("attack_label", "Beam attack")), int(scan.get("attack", 0)),
+		String(scan.get("defense_label", "Beam defence")), int(scan.get("defense", 0)), int(scan.get("evade", 0))])
+	if int(ship.get("marines", 0)) > 0:
+		add.call("Marines %d" % int(ship.get("marines", 0)))
+	var weapons: Array = ship.get("weapons", [])
+	if not weapons.is_empty():
+		section.call("WEAPONS")
+		for weapon: Dictionary in weapons:
+			var count := int(weapon.get("count", 0))
+			var line := "%d × %s   %s" % [count, String(weapon.get("name", "")), _arc_name(int(weapon.get("arc", 0)))]
+			var ammo := int(weapon.get("ammo", 0))
+			if ammo > 0 and ammo < 99:
+				line += "   %d left" % ammo
+			add.call(line + ("   destroyed" if count == 0 else ""), SYSTEMS_COLOR if count == 0 else TEXT)
+	var specials: Array = scan.get("specials", [])
+	if not specials.is_empty():
+		section.call("SPECIALS")
+		for special: Dictionary in specials:
+			var damaged := bool(special.get("damaged", false))
+			add.call(String(special.get("name", "")) + ("   damaged" if damaged else ""), SYSTEMS_COLOR if damaged else TEXT)
+	_scan_panel.show()
+	_scan_panel.reset_size()
+	_scan_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
 
 
 # ---- Effects (WP3.9c) ----

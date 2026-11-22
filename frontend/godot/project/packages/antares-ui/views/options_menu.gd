@@ -421,7 +421,7 @@ func _add_native_battles_row() -> void:
 	label.text = "NATIVE BATTLES (PREVIEW)"
 	label.theme_type_variation = &"Section"
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label.tooltip_text = "Space combat in the new battle scene instead of the original screen.\nUnfinished: effects are placeholders. Takes effect from the next battle."
+	label.tooltip_text = "Space combat in the new battle scene instead of the original screen.\nUnfinished: beams are native; shield hits, missiles, fighters and explosions are placeholders. Takes effect from the next battle."
 	label.mouse_filter = Control.MOUSE_FILTER_PASS
 	row.add_child(label)
 	native_battles_button = Button.new()

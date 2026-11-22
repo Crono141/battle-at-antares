@@ -175,6 +175,37 @@ namespace antares::combat {
             }
             item.Int("marines", ship.marine_count);
             item.Int("crew", ship.crew_quality);
+
+            // The Scan view's facts (CMBTDRW1::Combat_Draw_View_Ship): parts, combat values, crew,
+            // officer, specials (owner 2026-11-21: Scan in the order ring, as the original's).
+            using commands::internal::Utf8;
+            s_out scan = item.Add_Object("scan");
+            const bool planet = i == 0 && MOX::cmbt_colony_id != -1;
+            if (!planet) {
+                scan.Str("hull", Utf8(TECHDATA::hull_data[SDL_clamp((int)ship.size_class, 0, 5)].name, 40));
+                scan.Str("drive", Utf8(TECHDATA::drives[ship.ftl_type].name, 40));
+                scan.Int("speed", ship.combat_speed_base);
+                scan.Str("crew", Utf8(CMBTDRW1::Crew_Quality_String(ship.crew_quality), 60));
+            }
+            scan.Str("shield", Utf8(TECHDATA::shields[ship.shield_type].name, 40));
+            scan.Str("computer", Utf8(TECHDATA::computers[ship.computer_type].name, 40));
+            scan.Str("armor", Utf8(TECHDATA::armor[ship.armor_type].name, 40));
+            scan.Int("attack", ship.tac_val_attack);
+            scan.Int("defense", ship.tac_val_defense);
+            scan.Int("evade", ship.tac_val_evade);
+            scan.Str("attack_label", Utf8(HAROLD::H_Message(0x99), 40));
+            scan.Str("defense_label", Utf8(HAROLD::H_Message(0x9A), 40));
+            if (ship.officer_idx >= 0) {
+                scan.Str("officer", Utf8(OFFICER::Leader_Name(ship.officer_idx, 1), 80));
+            }
+            s_out specials = scan.Add_List("specials");
+            for (int k = 0; k < 39; ++k) {
+                if (struct_::Test_Bit_Field(const_cast<uint8_t*>(ship.special_device_flags), k)) {
+                    s_out special = specials.Append_Object();
+                    special.Str("name", Utf8(TECHDATA::specials[k].name, 60));
+                    special.Bool("damaged", struct_::Test_Bit_Field(const_cast<uint8_t*>(ship.special_device_damage_flags), k) != 0);
+                }
+            }
         }
     } // namespace
 

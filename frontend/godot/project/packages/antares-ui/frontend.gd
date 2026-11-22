@@ -894,6 +894,8 @@ func apply_theme(id: String, remember := true) -> void:
 			(node as Control).theme = built.theme
 	if _views.has("dialog"):
 		_views.dialog.theme = built.theme
+	if _combat != null:
+		_combat.theme = built.theme # the battle follows a theme switch too (owner, 2026-11-21)
 	_frame = built.get("frame")
 	_frame_view.queue_redraw()
 	if remember and id != "":
@@ -7245,6 +7247,20 @@ func _smoke_combat(shots: String) -> bool:
 			await get_tree().create_timer(0.4).timeout
 			if shots != "":
 				await host.shot(shots + "/combat-target.png")
+			# Scan (owner 2026-11-21): a right click on an enemy opens its scan, as a player does it.
+			for pressed in [true, false]:
+				var right := InputEventMouseButton.new()
+				right.button_index = MOUSE_BUTTON_RIGHT
+				right.pressed = pressed
+				right.position = on_enemy
+				right.global_position = on_enemy
+				Input.parse_input_event(right)
+				await get_tree().process_frame
+			await get_tree().create_timer(0.3).timeout
+			print("smoke: scan of ship %d open: %s" % [enemy, view._scan_ship == enemy and view._scan_panel.visible])
+			if shots != "":
+				await host.shot(shots + "/combat-scan.png")
+			view._hide_scan()
 		# As a player does it: the pointer onto the square, then a left click (real input events).
 		var square := Vector2i(best / 1000, best % 1000)
 		var at: Vector2 = view._to_screen(view._square_center(square, ship))
