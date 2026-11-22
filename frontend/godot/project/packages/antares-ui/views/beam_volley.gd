@@ -321,7 +321,7 @@ func plan(v: Dictionary) -> Array:
 						offsets[i] = run.offset
 						run_points[i] = run.points
 					else:
-						offsets[i] = _aim_offset(e, ship_range, missile, int(target.size))
+						offsets[i] = _aim_offset(e, ship_range, missile, int(target.get("size", 0)))
 						run_points[i] = e.get("fire_points", [[0, 0]])
 				var points: Array = run_points[i]
 				for fp in points.size():

@@ -70,6 +70,7 @@ var _animating := {}
 var _animating_waits_capture := -1 # the capture the current animation waits for (not loaded yet)
 var _capture_asked_at := 0
 var animated := {} # effects played, by kind (the smoke reports them)
+var _warned_fragments := false # a volley's non-recipe colours were missing (warned once)
 var smoke_hold := false # the smoke freezes effects and the awaited animation to shoot chosen ticks
 # Spike 3.9: volleys arrive captured from the legacy drawing (sprite "capture", entry); they carry
 # legacy's own damage numbers and shield hits, so the state-diff ones are left out.
@@ -1513,7 +1514,10 @@ func play_event(event: Dictionary) -> float:
 	if not visible or String(event.get("kind", "")) != "beam":
 		return 0.0
 	if event.has("attacker"):
-		return _play_volley(event)
+		var length := _play_volley(event)
+		if length > 0.0:
+			return length
+		# Not a volley the port draws (a first weapon that isn't a beam): the 3.9c drawing.
 	var from := int(event.get("from", -1))
 	var to := int(event.get("to", -1))
 	var missile := bool(event.get("missile", false))
@@ -1664,9 +1668,26 @@ func _play_volley(event: Dictionary) -> float:
 	for f: Array in event.get("fragments", []):
 		fragments.append(BeamVolley.to_colors(f))
 	var target_center: Array = event.target.get("center", [0, 0])
-	_effects.append({"kind": "volley", "t": 0.0, "life": float(ticks.size()) * BeamVolley.TICK, "ticks": ticks, "fragments": fragments,
-		"tick": -1, "strands": [], "at": Vector2(float(target_center[0]), float(target_center[1]))})
+	var effect := {"kind": "volley", "t": 0.0, "life": float(ticks.size()) * BeamVolley.TICK, "ticks": ticks, "fragments": fragments,
+		"tick": -1, "strands": [], "at": Vector2(float(target_center[0]), float(target_center[1]))}
+	_effects.append(effect)
+	_request_volley_art(effect)
 	return float(ticks.size()) * BeamVolley.TICK
+
+
+## Asks for the volley's flashes and flares in their colours now, so they are here (or on their
+## way) by the tick that draws them: each is a new export the first time a weapon fires.
+func _request_volley_art(effect: Dictionary) -> void:
+	for ops: Array in effect.ticks:
+		for op: Dictionary in ops:
+			var slot := int(op.get("slot", 0))
+			match String(op.op):
+				"burst":
+					art.sprite(_slot_sprite(_first_ramp(effect, slot), slot), 1 + int(op.variant) * 32 + slot * 16 + int(op.dir))
+				"explosion":
+					art.sprite(_slot_sprite(_first_ramp(effect, slot), slot), 65 + slot)
+				"ball":
+					art.sprite(_slot_sprite(_first_ramp(effect, 0), 0), 88)
 
 
 ## The 16 colours a segment op draws with (Color, 8-bit) and the palette slot's base index.
@@ -1679,6 +1700,9 @@ func _volley_ramp(op: Dictionary, fragments: Array) -> Array:
 	var frag := int((op.params as Dictionary).get("frag", 0))
 	if frag < fragments.size():
 		return fragments[frag]
+	if not _warned_fragments:
+		_warned_fragments = true
+		push_warning("combat: a non-recipe beam (fragment %d) without the game's palette fragments; drawn grey" % frag)
 	var grey := []
 	for i in 16:
 		grey.append(Color(i / 15.0, i / 15.0, i / 15.0))

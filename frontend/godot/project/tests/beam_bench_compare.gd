@@ -64,7 +64,28 @@ func _initialize() -> void:
 	for key in by_weapon:
 		print("weapons %s: %d match, %d differ" % [key, by_weapon[key][0], by_weapon[key][1]])
 	print("beam bench: %d cases match, %d differ" % [passed, failed])
-	quit(0 if failed == 0 else 1)
+	var missile_ok := _missile_volley()
+	quit(0 if failed == 0 and missile_ok else 1)
+
+
+## A volley at a missile stack in the engine event's shape (combat_native.cpp Beam: the target is
+## ship -1 with only x, y and center): the bench has no such case, so this only checks that it
+## plans, draws segments that end at the stack, and ends.
+func _missile_volley() -> bool:
+	var volley := {"entries": [{"weapon": 9, "count": 2, "result": 0, "special": 0, "hits": 2, "specials": 0, "type": 0,
+		"fire_points": [[0, 0]]}], "missile": true, "speedx2": false, "shield_frames": 10,
+		"attacker": {"ship": 5, "x": 400, "y": 300, "center": [420, 320], "grid": [20, 15], "size": 2, "facing": 0, "owner": 0},
+		"target": {"ship": -1, "x": 560, "y": 340, "center": [560, 340]}}
+	var ticks: Array = BeamVolley.new().plan(volley)
+	var segs := 0
+	var shields := 0
+	for ops: Array in ticks:
+		for op: Dictionary in ops:
+			segs += 1 if String(op.op) == "seg" else 0
+			shields += 1 if String(op.op) == "shield" else 0
+	var ok := ticks.size() > 2 and ticks.size() < 60 and segs > 0 and shields == 0
+	print("missile volley: %d ticks, %d segments, %d shield ops: %s" % [ticks.size(), segs, shields, "ok" if ok else "FAILED"])
+	return ok
 
 
 func _v(a: Array, i := 0) -> Vector2i:
