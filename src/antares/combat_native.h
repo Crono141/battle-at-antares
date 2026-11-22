@@ -51,6 +51,16 @@ namespace antares::combat {
     // (cmbtai.cpp, where the original reads its Auto button) take it once.
     void Request_Auto_Off();
     bool Take_Auto_Off();
+    // The battle's x2 speed (the original's speed button; owner 2026-11-22: an Options choice):
+    // asked from any thread, applied on the game thread at the next frame or event. Drawing only.
+    void Request_Speed_X2(bool on);
+
+    // The target's health as a volley's hits are applied (owner 2026-11-22: the bars drop as each
+    // weapon lands): the rules apply a volley's damage before Beam_SFX animates it, so
+    // combat_firing notes the target before the first weapon and after each entry; the beam event
+    // carries them ("before", per shot "after"). Read only.
+    void Note_Volley_Before(int16_t target);
+    void Note_Volley_Entry(int16_t entry, int16_t target);
 
     void Beam(int16_t from, int16_t from_x, int16_t from_y, int16_t to, int16_t to_x, int16_t to_y, int16_t non_ship_target, const struct s_beam_fx_entry* entries);
 

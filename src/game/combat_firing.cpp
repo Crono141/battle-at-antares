@@ -213,6 +213,9 @@ namespace CMBTFIRE {
                                     }
                                 }
 
+                                if (weapon_type_class == WEAPON_TYPE_BEAM && beam_fx_count == 0 && flag == 0) {
+                                    antares::combat::Note_Volley_Before(target_ship_idx); // the bars per weapon (read only)
+                                }
                                 continue_firing = 1;
                                 while (true) {
                                     if (weapon->shots_left <= 0) break;
@@ -316,6 +319,10 @@ namespace CMBTFIRE {
                                 if (fire_result_flags == 1 && MOX::apply_damage_to_planet == 1) { // WP3.9d (A3): queued in every battle
                                     if (weapon_type_class == WEAPON_TYPE_BEAM) {
                                         beam_fx_entries[beam_fx_count].weapon_id = weapon->weapon_id;
+                                        if (flag == 0) {
+                                            antares::combat::Note_Volley_Entry(beam_fx_count, target_ship_idx);
+                                            antares::combat::Note_Volley_Entry(beam_fx_count + 1, target_ship_idx);
+                                        }
                                         if (primary_damage_total > 0 || secondary_damage_total > 0) {
                                             struct_::Copy_Structure(&beam_fx_entries[beam_fx_count + 1], &beam_fx_entries[beam_fx_count], 15);
                                             beam_fx_entries[beam_fx_count + 1].is_damage_entry = 1;

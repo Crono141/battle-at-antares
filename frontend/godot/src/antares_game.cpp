@@ -104,6 +104,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("release_sounds"), &AntaresGame::release_sounds);
         ClassDB::bind_method(D_METHOD("click_sound"), &AntaresGame::click_sound);
         ClassDB::bind_method(D_METHOD("request_auto_off"), &AntaresGame::request_auto_off);
+        ClassDB::bind_method(D_METHOD("request_speed_x2", "on"), &AntaresGame::request_speed_x2);
         ClassDB::bind_method(D_METHOD("play_game_sound", "sound", "tag", "pitch"), &AntaresGame::play_game_sound, DEFVAL(-1), DEFVAL(0));
         ClassDB::bind_method(D_METHOD("fade_game_sound", "tag", "ticks"), &AntaresGame::fade_game_sound, DEFVAL(10));
         ClassDB::bind_method(D_METHOD("claim_screen", "screen", "claimed"), &AntaresGame::claim_screen);
@@ -727,6 +728,10 @@ namespace godot {
 
     void AntaresGame::click_sound() {
         antares::native::Click_Sound();
+    }
+
+    void AntaresGame::request_speed_x2(bool on) {
+        antares::combat::Request_Speed_X2(on);
     }
 
     void AntaresGame::request_auto_off() {

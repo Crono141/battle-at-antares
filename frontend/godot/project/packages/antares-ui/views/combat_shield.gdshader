@@ -19,6 +19,16 @@ uniform float use_hull = 0.0;
 uniform vec4 inner_color : source_color = vec4(0.92, 1.0, 0.95, 1.0);
 uniform vec4 mid_color : source_color = vec4(0.35, 0.94, 0.6, 1.0);
 uniform vec4 outer_color : source_color = vec4(0.08, 0.45, 0.24, 1.0);
+// The cloak (CMBTDRW1::Plasma_Darken, owner 2026-11-22): a noise map (60x60 frames stacked, values
+// 0-13) pushes each pixel down its colour ramp by noise x darkness / 4 (darkness under 5) or
+// noise + darkness - 4, at most 15 steps of 16; a pixel pushed past its ramp's end is gone.
+// darkness 0 is off; art_scale: texture pixels per 1x pixel (the noise is in 1x pixels).
+uniform sampler2D plasma_tex : filter_nearest, repeat_disable;
+uniform float darkness = 0.0;
+uniform int plasma_frame = 0;
+uniform float art_scale = 1.0;
+// Mask_Brighten_Bitmap under a shield hit: the ship lit up (0 off).
+uniform float brighten = 0.0;
 
 // The sprite's region is padded past its texture (combat_view.gd), so UV runs beyond 0..1 there:
 // room for the glow that Godot also knows about (a quad grown in vertex() lost its glow once the
@@ -47,7 +57,26 @@ float hull_alpha(sampler2D frame_tex, vec2 uv, vec2 tex_size, vec2 gx, vec2 gy) 
 	return textureGrad(hull_tex, h, gx * k, gy * k).a;
 }
 
+vec4 darken(vec4 c, vec2 uv, vec2 tex_size) {
+	if (darkness <= 0.0 || c.a <= 0.0) {
+		return c;
+	}
+	ivec2 p = ivec2(floor(uv * tex_size / max(art_scale, 0.001)));
+	ivec2 at = ivec2(int(mod(float(p.x), 60.0)), int(mod(float(p.y), 60.0)) + 60 * (plasma_frame % 16));
+	float n = floor(texelFetch(plasma_tex, at, 0).r * 255.0 + 0.5);
+	float val = darkness < 5.0 ? floor(n * darkness / 4.0) : n + darkness - 4.0;
+	val = min(val, 15.0);
+	float shade = floor(max(c.r, max(c.g, c.b)) * 15.0 + 0.5);
+	float left = shade - val;
+	if (left < 0.0) {
+		return vec4(0.0);
+	}
+	c.rgb *= shade > 0.0 ? max(left, 0.5) / shade : 0.0;
+	return c;
+}
+
 void fragment() {
+	vec4 tint = COLOR; // the sprite's modulate (fades, retreat, phased-out)
 	vec2 uv = UV;
 	vec2 gx = dFdx(uv);
 	vec2 gy = dFdy(uv);
@@ -55,6 +84,8 @@ void fragment() {
 	if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
 		ship = vec4(0.0);
 	}
+	ship = darken(ship, uv, 1.0 / TEXTURE_PIXEL_SIZE);
+	ship.rgb = min(ship.rgb + vec3(brighten * 0.4), vec3(1.0));
 	COLOR = ship;
 	if (shield_on > 0.5 && thickness_px > 0.0 && ship.a < 0.5) {
 		vec2 px = TEXTURE_PIXEL_SIZE;
@@ -104,4 +135,5 @@ void fragment() {
 			COLOR = mix(glow, ship, ship.a);
 		}
 	}
+	COLOR *= tint;
 }

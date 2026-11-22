@@ -9,7 +9,9 @@
 ##                    muzzle burst, the hit explosion, ship-hit and shield-hit flags;
 ##   Set_Beam_Colors  a recipe weapon's 16-colour ramp.
 ## Compared with the game itself by tests/beam_bench_compare.gd (src/antares/beam_bench.cpp).
-## The reflected beam (the reflection field) is not ported yet: its entries are skipped.
+## The reflected beam (the reflection field): a damage entry (the hits reflected back) plays as a
+## volley of its own from the target back at the attacker once both channels are idle, as Beam_SFX
+## calls itself (owner 2026-11-22). Its ops carry "reflected"; its shield ops "at" and "size".
 extends RefCounted
 
 const TICK := 0.055 # seconds: Release_Time(1)
@@ -339,6 +341,7 @@ func plan(v: Dictionary) -> Array:
 	_shield_frame = 0
 	_shield_hit_now = 0
 	var speedx2 := bool(v.get("speedx2", false))
+	var pending_reflect := -1
 	var guard := 0
 	while guard < 2000:
 		guard += 1
@@ -382,7 +385,10 @@ func plan(v: Dictionary) -> Array:
 						if int(entries[fx_idx].specials) & 0x80 != 0:
 							special_timer[i] = 3
 					else:
-						current[i] = -1 # the reflected beam: not ported yet
+						# The reflected beam: played once both channels are idle (below).
+						fx_idx = next
+						pending_reflect = next
+						current[i] = -1
 			else:
 				if speedx2:
 					frame_idx[i] += 2 if frame_idx[i] + 2 < _max_frames else 1
@@ -422,11 +428,52 @@ func plan(v: Dictionary) -> Array:
 						_ops.append({"op": "sound", "id": 0x1d})
 						_ops.append({"op": "damage", "entry": cur})
 		ticks.append(_ops)
+		if pending_reflect >= 0 and current[0] <= -1 and current[1] <= -1:
+			# Beam_SFX(target -> attacker, the reflected entry): the shield display ends first.
+			ticks.append_array(_reflected_ticks(entries[pending_reflect]))
+			pending_reflect = -1
+			_shield_status = 0
+			_shield_hit_now = 0
+			var after := fx_idx + 1
+			if after < entries.size() and after < 16 and int(entries[after].weapon) > 0 and not bool(entries[after].get("damage_entry", false)):
+				fx_idx = after
+				current[0] = fx_idx
+				frame_idx[0] = 0
+				special_timer[0] = 3 if int(entries[fx_idx].specials) & 0x80 != 0 else 0
+			done = current[0] <= -1 and current[1] <= -1
 		if done:
 			break
 	for e: Dictionary in entries:
 		e.erase("_hit_shown")
 	return ticks
+
+
+## The reflected beam's ticks: the entry fired from the target back at the attacker, by a planner of
+## its own (Beam_SFX's state is the nested call's). Its hit is on the attacker: no "damage" op (the
+## bars follow the volley's target), shield ops placed on the attacker.
+func _reflected_ticks(entry: Dictionary) -> Array:
+	var back: Dictionary = entry.duplicate()
+	back["damage_entry"] = false
+	back["fire_points"] = [[0, 0]]
+	var nested = get_script().new()
+	var reflected: Dictionary = volley.duplicate()
+	reflected["entries"] = [back]
+	reflected["attacker"] = volley.target
+	reflected["target"] = volley.attacker
+	reflected["missile"] = false
+	var out: Array = nested.plan(reflected)
+	var at: Array = (volley.attacker as Dictionary).get("center", [0, 0])
+	for ops: Array in out:
+		for k in range(ops.size() - 1, -1, -1):
+			var op: Dictionary = ops[k]
+			if String(op.op) == "damage":
+				ops.remove_at(k)
+				continue
+			op["reflected"] = true
+			if String(op.op) == "shield":
+				op["at"] = Vector2(float(at[0]), float(at[1]))
+				op["size"] = int((volley.attacker as Dictionary).get("size", 0))
+	return out
 
 
 ## The aim point's random offset from the target's centre (Beam_SFX, a channel's first frame).

@@ -53,6 +53,7 @@ namespace godot {
         void release_sounds();
         void click_sound();
         void request_auto_off();
+        void request_speed_x2(bool on);
         void play_game_sound(int64_t sound, int64_t tag, int64_t pitch);
         void fade_game_sound(int64_t tag, int64_t ticks);
         void send_key(int64_t godot_keycode, bool shift, bool alt, bool ctrl);

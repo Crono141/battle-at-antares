@@ -73,6 +73,17 @@ namespace antares::combat {
             return total;
         }
 
+        // A ship's structure pool's top: a defended planet's is its ground defence
+        // (Draw_Grey_Damage_Bars, ship 0).
+        int32_t Structure_Max(int16_t i) {
+            const s_combat_data& ship = MOX::combat_data[i];
+            if (i == 0 && MOX::cmbt_colony_id != -1 && CMBTFIRE::Does_Combat_Planet_Have_Defenses() != 0) {
+                const int16_t best = INITSHIP::Best_Armor(ship.owner);
+                return CMBTFIRE::Ground_Defense_Structure(TECHDATA::armor[best].ships_bonus);
+            }
+            return ship.structure_max;
+        }
+
         bool In_Grid(int64_t x, int64_t y) {
             return x >= 0 && y >= 0 && x < MOX::combat_grid_width && y < MOX::combat_grid_height;
         }
@@ -137,12 +148,7 @@ namespace antares::combat {
             s_out armor = item.Add_Object("armor");
             armor.Int("now", ship.armor_remaining);
             armor.Int("max", Armor_Total(i));
-            // A defended planet's structure is its ground defence (Draw_Grey_Damage_Bars, ship 0).
-            int32_t structure_max = ship.structure_max;
-            if (i == 0 && MOX::cmbt_colony_id != -1 && CMBTFIRE::Does_Combat_Planet_Have_Defenses() != 0) {
-                const int16_t best = INITSHIP::Best_Armor(ship.owner);
-                structure_max = CMBTFIRE::Ground_Defense_Structure(TECHDATA::armor[best].ships_bonus);
-            }
+            const int32_t structure_max = Structure_Max(i);
             s_out structure = item.Add_Object("structure");
             structure.Int("now", structure_max - ship.structure_damage);
             structure.Int("max", structure_max);
@@ -250,6 +256,64 @@ namespace antares::combat {
         return s_auto_off.exchange(false);
     }
 
+    namespace {
+        std::atomic<int> s_speed_request{-1};
+
+        void Apply_Speed_Request() {
+            const int want = s_speed_request.exchange(-1);
+            if (want >= 0) {
+                MOX::speedx2_flag = (uint8_t)want;
+                MOX::settings.combat_speedx2_flag = (int8_t)want;
+            }
+        }
+
+        struct s_health {
+            bool valid = false;
+            int32_t armor = 0, structure_damage = 0, systems = 0;
+        };
+        s_health s_volley_before;
+        s_health s_volley_after[10];
+
+        s_health Health_Of(int16_t ship_idx) {
+            s_health h;
+            if (ship_idx >= 0 && ship_idx < MOX::combat_total_ship_count) {
+                const s_combat_data& ship = MOX::combat_data[ship_idx];
+                h.valid = true;
+                h.armor = ship.armor_remaining;
+                h.structure_damage = ship.structure_damage;
+                h.systems = CMBTFIR2::Total_Internal_Space(ship_idx);
+            }
+            return h;
+        }
+
+        void Health_Json(s_out out, int16_t ship_idx, const s_health& h) {
+            out.Int("armor", h.armor);
+            out.Int("structure", Structure_Max(ship_idx) - h.structure_damage);
+            out.Int("systems", h.systems);
+        }
+    } // namespace
+
+    void Request_Speed_X2(bool on) {
+        s_speed_request = on ? 1 : 0;
+    }
+
+    void Note_Volley_Before(int16_t target) {
+        if (!s_active) {
+            return;
+        }
+        s_volley_before = Health_Of(target);
+        for (s_health& h : s_volley_after) {
+            h = s_health{};
+        }
+    }
+
+    void Note_Volley_Entry(int16_t entry, int16_t target) {
+        if (!s_active || entry < 0 || entry >= 10) {
+            return;
+        }
+        s_volley_after[entry] = Health_Of(target);
+    }
+
     std::string State_Json() {
         yyjson_mut_doc* doc = yyjson_mut_doc_new(nullptr);
         yyjson_mut_val* root = yyjson_mut_obj(doc);
@@ -284,6 +348,9 @@ namespace antares::combat {
         grid.Int("height", MOX::combat_grid_height);
         out.Int("ship", MOX::cur_ship);
         out.Int("auto", MOX::auto_combat);
+        // The player's own Auto (the side's flag): "auto" is the side moving now's.
+        out.Int("auto_mine", MOX::auto_combat_flag[MOX::PLAYER_NUM == MOX::combat_attacker_player ? 0 : 1]);
+        out.Bool("speedx2", MOX::speedx2_flag != 0 || MOX::net_flag != 0);
         out.Bool("can_wait", COMBAT1::Combat_Wait_Is_Available());
         out.Bool("can_side_wait", COMBAT1::Combat_Side_Wait_Is_Available());
 
@@ -435,6 +502,7 @@ namespace antares::combat {
     }
 
     void Frame() {
+        Apply_Speed_Request();
         if (!s_active) {
             return;
         }
@@ -471,6 +539,7 @@ namespace antares::combat {
         // Posts one effect: an "animate" request while Animating (the rules wait for it), else
         // the 3.9c "combat_event" snapshot for observers.
         void Post_Event(const std::string& event) {
+            Apply_Speed_Request();
             if (Animating()) {
                 native::Ask_Animate("\"event\":" + event);
             } else {
@@ -607,6 +676,23 @@ namespace antares::combat {
         out.Int("killer", killer);
         out.Int("death", death);
         out.Int("size", MOX::combat_data[ship].size_class);
+        // A monster's own death (CMBTSPEC::Destroy_Ship_FX): CMBTSFX 0x45-0x4E by kind, 5 directions
+        // x 16 frames, and its sound.
+        const s_combat_data& d = MOX::combat_data[ship];
+        int32_t monster_entry = -1, monster_sound = -1;
+        switch (d.previous_owner) {
+            case 10: monster_entry = d.size_class == 2 ? 0x48 : 0x47; monster_sound = 0x3F; break;
+            case 11: monster_entry = d.size_class == 2 ? 0x4A : 0x49; monster_sound = 0x42; break;
+            case 12: monster_entry = d.size_class == 2 ? 0x46 : 0x45; monster_sound = 0x41; break;
+            case 13: monster_entry = d.size_class == 2 ? 0x4C : 0x4B; monster_sound = 0x40; break;
+            case 14: monster_entry = d.size_class == 2 ? 0x4E : 0x4D; monster_sound = 0x3E; break;
+            default: break;
+        }
+        if (d.previous_owner >= 10) {
+            out.Int("monster_entry", monster_entry);
+            out.Int("monster_sound", monster_sound);
+            out.Int("facing", d.facing_dir);
+        }
         Post_Effect(doc);
     }
 
@@ -713,6 +799,9 @@ namespace antares::combat {
             bearing = non_ship_target != 0 ? CMBTDRW1::Relative_Bearing_XY(from, to_x, to_y) : CMBTDRW1::Relative_Bearing(from, to);
             bearing = CMBTFIRE::Facing_Shield(bearing);
         }
+        if (s_volley_before.valid && non_ship_target == 0 && to >= 0 && to < MOX::combat_total_ship_count) {
+            Health_Json(out.Add_Object("before"), to, s_volley_before);
+        }
         bool fragments = false;
         s_out shots = out.Add_List("shots");
         for (int i = 0; i < 10 && entries[i].weapon_id != 0; ++i) {
@@ -727,6 +816,9 @@ namespace antares::combat {
             shot.Int("hits", e.accum_hit_x);
             shot.Int("specials", e.specials);
             shot.Bool("damage_entry", e.is_damage_entry != 0);
+            if (s_volley_before.valid && s_volley_after[i].valid && non_ship_target == 0) {
+                Health_Json(shot.Add_Object("after"), to, s_volley_after[i]);
+            }
             // Beam_SFX's fire points (FIREPTS), as offsets from the shooter's centre.
             const int16_t owner = from >= 0 && from < MOX::combat_total_ship_count ? MOX::combat_data[from].owner : MAX_PLAYERS;
             const int16_t points = from <= 0 || owner >= MAX_PLAYERS ? 1 : FIREPTS::N_Fire_Points(e.weapon_id, e.shot_count);
@@ -758,6 +850,7 @@ namespace antares::combat {
                 }
             }
         }
+        s_volley_before = s_health{};
         Post_Event(Write(doc));
     }
 

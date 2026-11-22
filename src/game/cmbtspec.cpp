@@ -85,7 +85,7 @@ namespace CMBTSPEC {
     }
 
     void __cdecl Draw_Cloak(int16_t ship_idx, int16_t cloak_type) {
-        antares::combat::Effect("cloak", {{"ship", ship_idx}, {"kind", cloak_type}}); // WP3.9d
+        antares::combat::Effect("cloak", {{"ship", ship_idx}, {"cloak_type", cloak_type}}); // WP3.9d
         if (!antares::combat::Legacy_Draws()) {
             return; // the frontend plays it (or super-fast)
         }

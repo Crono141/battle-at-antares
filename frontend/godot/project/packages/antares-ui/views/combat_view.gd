@@ -156,6 +156,7 @@ var _options_tab: PanelContainer # the Options button, framed under the initiati
 var _options_panel: PanelContainer # its flyout
 var _show_grid := false
 var _always_moves := false
+var _camera_follow := true # Options: the camera frames the enemy's moves and shots
 var _starfield: Control
 var _scan_scroll: ScrollContainer
 var _tl_acting := -2 # the acting ship the bar was last scrolled for
@@ -198,6 +199,7 @@ func _ready() -> void:
 	add_child(_starfield)
 	_show_grid = bool(_load_setting("show_grid", false))
 	_always_moves = bool(_load_setting("always_show_moves", false))
+	_camera_follow = bool(_load_setting("camera_follow", true))
 	_world = Node2D.new()
 	add_child(_world)
 	_backdrop = Node2D.new()
@@ -323,7 +325,7 @@ func on_animate(id: int, request: Dictionary) -> void:
 				else:
 					dur = play_event(event)
 			"destroyed":
-				dur = 1.0 # the explosion (from the state's change, _diff_effects)
+				dur = _play_death(event) # the rules wait while it plays, as Destroy_Ship_FX
 			# The specials as the original draws them (combat graphics, owner 2026-11-22).
 			"stasis", "tractor", "plasma_web", "stellar", "black_hole", "fighters", "bombs", "gyro", "blast", "retreat", "lightning", "anti_missile", "missile_kill", "teleport", "cloak":
 				dur = _play_special(event) # combat graphics (owner 2026-11-22), combat-effects-legacy.md
@@ -358,6 +360,8 @@ func _clear_area() -> Rect2:
 ## inside the area the HUD leaves clear. The effect (and a move's motion) waits until the camera is
 ## there. Missiles, torpedoes and fighters don't need it.
 func _frame_enemy_fire(event: Dictionary) -> void:
+	if not _camera_follow:
+		return # the player's choice (owner 2026-11-22: some hate the camera taken over)
 	var kind := String(event.get("kind", ""))
 	var points: Array = []
 	var radius := 0.0
@@ -395,6 +399,12 @@ func _frame_enemy_fire(event: Dictionary) -> void:
 		box = box.expand(point)
 	box = box.grow(radius)
 	var area := _clear_area()
+	# Owner 2026-11-22: when the shooter and the target (each whole ship) are already in view, in
+	# the area the HUD leaves clear, the camera stays where it is.
+	if _frame.is_empty() and _cam_goal == Vector2.INF and _zoom_goal < 0.0:
+		var seen := Rect2(_to_screen(box.position), Vector2.ZERO).expand(_to_screen(box.end))
+		if area.encloses(seen):
+			return
 	var room := area.size - Vector2(2.0 * FRAME_MARGIN, 2.0 * FRAME_MARGIN)
 	var fit := minf(room.x / maxf(box.size.x, 1.0), room.y / maxf(box.size.y, 1.0))
 	var zoom := clampf(fit, MIN_ZOOM, MAX_ZOOM)
@@ -650,16 +660,31 @@ func _process(delta: float) -> void:
 		elif e.has("travel_angle"):
 			e.erase("travel_angle")
 		e.angle = lerp_angle(e.angle, goal_angle, minf(1.0, delta * 14.0))
-		e.sprite.position = e.shown
+		e.sprite.position = e.shown + _ship_shake(index)
 		e.sprite.rotation = e.angle
 		var look := _ship_effect_look(index)
 		var ship_now := _ship(index)
 		var status := int(ship_now.get("special_status", 0))
-		if status == 1 or status == 5: # cloaked: dark, shimmering (Plasma_Darken mode 3)
-			look = look * Color(0.4, 0.4, 0.5, 0.6 + 0.1 * sin(_anim_clock * 6.0 + index))
-		elif status == 4: # phased out: own ships faint, others unseen
+		# Plasma_Darken: a cloak turning on or off (its effect), else a cloaked ship's lasting
+		# darkness 6 on frame (ship_frame + ship x 2) % 16.
+		var dark: Array = _cloak_darkness(index)
+		if dark.is_empty() and (status == 1 or status == 5):
+			dark = [6.0, (_legacy_frame() + index * 2) % 16]
+		if status == 4: # phased out: own ships faint, others unseen
 			look.a *= 0.25 if _mine(ship_now) else 0.0
 		e.sprite.self_modulate = look
+		var mat := e.sprite.material as ShaderMaterial
+		if mat != null:
+			mat.set_shader_parameter("darkness", 0.0 if dark.is_empty() else float(dark[0]))
+			if not dark.is_empty():
+				mat.set_shader_parameter("plasma_tex", _plasma_texture())
+				mat.set_shader_parameter("plasma_frame", int(dark[1]))
+				mat.set_shader_parameter("art_scale", float(e.get("art_scale", 1.0)))
+			mat.set_shader_parameter("brighten", _shield_glow.get(index, 0.0))
+	for index in _shield_glow.keys():
+		_shield_glow[index] = float(_shield_glow[index]) - delta * 8.0
+		if float(_shield_glow[index]) <= 0.0:
+			_shield_glow.erase(index)
 	if _cam_goal != Vector2.INF:
 		_cam = _cam.lerp(_cam_goal, minf(1.0, delta * (9.0 if _cam_hold > 0.0 else 6.0)))
 		if _cam.distance_to(_cam_goal) * _zoom < 1.5:
@@ -685,8 +710,11 @@ func _process(delta: float) -> void:
 		if _art_wait.is_empty() or _art_hold > ART_WAIT_MAX:
 			_art_hold = 0.0
 		else:
+			_advance_effects(delta, true)
 			_place_world()
 			_layout()
+			_marks.queue_redraw()
+			_beams.queue_redraw()
 			return # the volley starts once its art is here
 	if not _frame.is_empty():
 		_frame.t = float(_frame.t) + delta
@@ -701,6 +729,7 @@ func _process(delta: float) -> void:
 		if arrived or _cam_hold > FRAME_WAIT_MAX + Themes.saved_flight_time(1.0):
 			_cam_hold = 0.0
 		else:
+			_advance_effects(delta, true)
 			_place_world()
 			_layout()
 			_marks.queue_redraw()
@@ -710,15 +739,7 @@ func _process(delta: float) -> void:
 		_animating.t += delta
 		if _animating.t >= _animating.dur:
 			_finish_animation()
-	for effect: Dictionary in _effects:
-		if effect.get("waiting", false):
-			if art.sprite("capture", int(effect.entry)).is_empty():
-				continue
-			effect.waiting = false
-		effect.t += delta
-		if String(effect.kind) == "capture" and effect.t >= effect.life:
-			art.forget("capture", int(effect.entry))
-	_effects = _effects.filter(func(effect: Dictionary) -> bool: return effect.t < effect.life)
+	_advance_effects(delta, false)
 	_place_world()
 	_ease_scrolls(delta)
 	_layout()
@@ -729,6 +750,34 @@ func _process(delta: float) -> void:
 			_toast.hide()
 	_marks.queue_redraw()
 	_beams.queue_redraw()
+
+
+## Effects' clocks. While the camera or a volley's art holds the next effect, the ones already
+## playing go on (owner 2026-11-22: an explosion froze while the camera framed the next shot, and
+## looked half as fast as the original's); a new one (t <= 0) waits.
+func _advance_effects(delta: float, started_only: bool) -> void:
+	for effect: Dictionary in _effects:
+		if started_only and float(effect.t) <= 0.0:
+			continue
+		if effect.get("waiting", false):
+			if art.sprite("capture", int(effect.entry)).is_empty():
+				continue
+			effect.waiting = false
+		effect.t += delta
+		if String(effect.kind) == "sfx":
+			_effect_sounds(effect)
+		if String(effect.kind) == "capture" and effect.t >= effect.life:
+			art.forget("capture", int(effect.entry))
+	_effects = _effects.filter(func(effect: Dictionary) -> bool: return effect.t < effect.life)
+
+
+## A special's sounds play when its animation reaches them (owner 2026-11-22: the stellar
+## converter's sounded while the camera was still on its way).
+func _effect_sounds(effect: Dictionary) -> void:
+	for part: Dictionary in effect.parts:
+		if String(part.type) == "sound" and not part.get("played", false) and float(effect.t) >= float(part.get("start", 0.0)):
+			part["played"] = true
+			_sound(int(part.id))
 
 
 # ---- Camera ----
@@ -877,7 +926,7 @@ func _draw_marks() -> void:
 		if not _alive(ship):
 			continue
 		if _always_health or _alt_held or index == _hover_ship:
-			_draw_crescent(_ships[index].shown, _radius(index) + 9.0 * maxf(1.0, 1.2 / _zoom), ship, width)
+			_draw_crescent(_ships[index].shown, _radius(index) + 9.0 * maxf(1.0, 1.2 / _zoom), _view_ship(ship), width)
 	# Previews: a move to the hovered square, or fire at the hovered enemy.
 	if _my_turn() and _alive(acting_ship) and _ships.has(acting):
 		var from: Vector2 = _ships[acting].shown
@@ -942,10 +991,16 @@ func _draw_flyer(missile: Dictionary, at: Vector2) -> bool:
 		return false
 	var frames: int = s.frames.size()
 	var pictures: Array = missile.get("pictures", [])
+	var fighter := bool(missile.get("fighter", false))
 	for n in pictures.size():
 		var p: Array = pictures[n]
 		var frame := (_anim_frame + n + int(missile.get("i", 0))) % maxi(frames, 1)
-		art.draw(_marks, name, entry, frame, at + Vector2(float(p[0]), float(p[1])), 1.0)
+		var jitter := Vector2.ZERO
+		if fighter:
+			# CMBTMIS::Draw_Fighter: each picture -1..+1 px off, a new offset every third frame.
+			var h := hash([int(missile.get("i", 0)), n, _legacy_frame() / 3])
+			jitter = Vector2(float(h % 3) - 1.0, float((h / 3) % 3) - 1.0)
+		art.draw(_marks, name, entry, frame, at + Vector2(float(p[0]), float(p[1])) + jitter, 1.0)
 	return true
 
 
@@ -985,6 +1040,39 @@ func _draw_crescent(at: Vector2, radius: float, ship: Dictionary, width: float) 
 		_marks.draw_arc(at, inner, bottom + notch, bottom + notch + (half - notch) * structure, 24, STRUCTURE_COLOR, line, true)
 	if systems > 0.0:
 		_marks.draw_arc(at, inner, bottom - notch - (half - notch) * systems, bottom - notch, 24, SYSTEMS_COLOR, line, true)
+
+
+## Health as the bars show it: during a volley, the target's as each weapon lands (owner
+## 2026-11-22), from the engine's per-weapon record (the beam event's "before" and shots' "after");
+## else the state's.
+const BARS_GROUP := &"combat_bars"
+var _hp_view := {} # ship index -> {"effect": the volley, "pools": {armor, structure, systems}}
+
+
+func _view_ship(ship: Dictionary) -> Dictionary:
+	if ship.is_empty() or _hp_view.is_empty():
+		return ship
+	var index := int(ship.get("i", -1))
+	var view: Dictionary = _hp_view.get(index, {})
+	if view.is_empty():
+		return ship
+	var effect: Dictionary = view.effect
+	if float(effect.t) >= float(effect.life) or not _effects.has(effect):
+		_hp_view.erase(index)
+		return ship
+	var out := ship.duplicate()
+	for key in ["armor", "structure", "systems"]:
+		var pool: Dictionary = (ship.get(key, {}) as Dictionary).duplicate()
+		pool["now"] = int((view.pools as Dictionary).get(key, pool.get("now", 0)))
+		out[key] = pool
+	return out
+
+
+func _set_hp_view(index: int, effect: Dictionary, pools: Dictionary) -> void:
+	if pools.is_empty():
+		return
+	_hp_view[index] = {"effect": effect, "pools": pools}
+	get_tree().call_group(BARS_GROUP, "queue_redraw")
 
 
 func _fraction(pool: Dictionary) -> float:
@@ -1317,20 +1405,52 @@ func _input(event: InputEvent) -> void:
 ## its next look at the Auto button (combat::Request_Auto_Off; owner 2026-11-22: Auto couldn't
 ## be turned off).
 var _auto_pending_on := false # Auto asked for while the enemy moved: sent on the player's next turn
+var _auto_override := -1 # the state the button shows until the game's flag agrees (owner 2026-11-22: show it at once)
+var _x2_buttons: Array = []
+var _x2_override := -1 # the speed asked for, until a state shows it
+
+
+func _set_speed_x2(on: bool) -> void:
+	_x2_override = 1 if on else 0
+	if game != null and game.has_method("request_speed_x2"):
+		game.request_speed_x2(on)
+
+
+## The game's x2 speed (the original's button; legacy effect loops step two frames).
+func _speedx2() -> bool:
+	if _x2_override >= 0:
+		return _x2_override == 1
+	return bool(state.get("speedx2", false))
+
+
+## The player's own Auto flag (the state's "auto" is the side moving now's: 0 on the enemy's turn).
+func _auto_mine() -> bool:
+	return int(state.get("auto_mine", state.get("auto", 0))) != 0
+
+
+func _auto_shown() -> bool:
+	if _auto_override >= 0:
+		return _auto_override == 1
+	return _auto_mine() or _auto_pending_on
 
 
 func _toggle_auto() -> void:
-	var on := int(state.get("auto", 0)) != 0
+	var on := _auto_mine()
+	var want := not _auto_shown()
 	if _my_turn():
 		_auto_pending_on = false
-		_act({"action": "auto"})
-	elif on and game != null:
+		if want != on:
+			_act({"action": "auto"})
+	elif not want and on and game != null:
+		_auto_pending_on = false
 		game.request_auto_off()
 		_show_toast("Auto off: you take over from your next ship")
 	else:
-		_auto_pending_on = not _auto_pending_on
+		_auto_pending_on = want and not on
 		_show_toast("Auto on from your next ship" if _auto_pending_on else "Auto cancelled")
-	_auto_button.set_pressed_no_signal(on or _auto_pending_on)
+	# The button shows the state asked for at once (owner 2026-11-22), until the game's flag agrees.
+	_auto_override = 1 if want else 0
+	_auto_button.set_pressed_no_signal(want)
 	Themes.glow(_auto_button)
 
 
@@ -1618,14 +1738,10 @@ func _layout() -> void:
 	# The buttons' tab steps up from it (drawn under it).
 	_bottom.reset_size()
 	_bottom.position = Vector2(roundf((size.x - _bottom.size.x) / 2.0), _strip.position.y - _grow(_strip, 1) - _bottom.size.y + 4.0)
-	# The round box: a pocket on the bottom edge near the player's corner (attacking: right;
-	# defending: left), clear of the side frame by its own overhang.
+	# The round box: in the player's bottom corner (attacking: right; defending: left), sharing the
+	# bottom and that side's edge with the screen frame (owner 2026-11-22).
 	_top_left.reset_size()
-	var inset := float(get_theme_constant("inset", "Screen"))
-	var corner := inset if inset > 0.0 else 6.0
-	var attacking := int(state.get("player", -1)) == int(state.get("attacker", -2))
-	var side_gap := corner + 24.0
-	var x := size.x - side_gap - _grow(_top_left, 2) - _top_left.size.x if attacking else side_gap + _grow(_top_left, 0)
+	var x := size.x - edge - _top_left.size.x if _round_on_right() else edge
 	_top_left.position = Vector2(x, size.y - edge - _top_left.size.y)
 	_toast.position = Vector2(roundf((size.x - _toast.size.x) / 2.0), _options_tab.position.y + _options_tab.size.y + 12.0)
 	# The scan panel: centred between the button frames (under the Options tab, above the
@@ -1649,6 +1765,10 @@ func _layout() -> void:
 
 ## How far a pocket's art reaches past its box on one side (Chrome's metal.gd `grow`: left, top,
 ## right, bottom), so a tab docked on it shows.
+func _round_on_right() -> bool:
+	return int(state.get("player", -1)) == int(state.get("attacker", -2))
+
+
 func _grow(pocket: Control, side: int) -> float:
 	var box := pocket.get_theme_stylebox("panel")
 	if box != null and "grow" in box:
@@ -1669,6 +1789,17 @@ func _draw_frame() -> void:
 			continue
 		var r := pocket.get_rect()
 		var top := pocket == _timeline
+		if pocket == _top_left:
+			# In the corner: one joint on the bottom bar (its inner side), one on the side bar (its top).
+			var right := _round_on_right()
+			var inner_x: float = r.position.x - _grow(pocket, 0) + c if right else r.end.x + _grow(pocket, 2) - c
+			_draw_tee(Vector2(inner_x, _frame_overlay.size.y - c), false)
+			var top_y := r.position.y - _grow(pocket, 1) + c
+			if right:
+				_draw_tee(Vector2(_frame_overlay.size.x - c, top_y), false, -PI / 2.0)
+			else:
+				_draw_tee(Vector2(c, top_y), false, PI / 2.0)
+			continue
 		for x in [r.position.x - _grow(pocket, 0) + c, r.end.x + _grow(pocket, 2) - c]:
 			if top:
 				_draw_tee(Vector2(x, c), true)
@@ -1852,6 +1983,10 @@ func _build_options() -> void:
 		_show_grid = on
 		_save_setting("show_grid", on)
 		_backdrop.queue_redraw())
+	toggle.call("Camera follows", "On the enemy's turn (and yours under Auto) the camera frames each move and shot. Off: the camera stays where you put it.", _camera_follow,
+		func(on: bool):
+			_camera_follow = on
+			_save_setting("camera_follow", on))
 	toggle.call("Moves always", "The acting ship's squares lit all the time, not only while the pointer is on the field", _always_moves,
 		func(on: bool):
 			_always_moves = on
@@ -1875,6 +2010,25 @@ func _build_options() -> void:
 		speeds.add_child(b)
 		if i == _move_speed:
 			_speed_button = b
+	# The original's x2 speed button (owner 2026-11-22: not exposed): weapons and effects play every
+	# other frame, as the game's own setting (saved with the game's settings).
+	section.call("COMBAT SPEED")
+	var x2_row := HBoxContainer.new()
+	x2_row.add_theme_constant_override("separation", 4)
+	v.add_child(x2_row)
+	var x2_group := ButtonGroup.new()
+	_x2_buttons = []
+	for i in 2:
+		var b := _flat_button("Normal" if i == 0 else "Double", "", func():
+			_set_speed_x2(i == 1))
+		b.theme_type_variation = &"Toggle"
+		b.toggle_mode = true
+		b.button_group = x2_group
+		b.button_pressed = i == 0
+		b.tooltip_text = "The original's combat speed: Double plays weapons and effects at twice the pace"
+		Themes.glowing(b)
+		x2_row.add_child(b)
+		_x2_buttons.append(b)
 	section.call("LAYOUT")
 	var layout := _flat_button("Clear Field", "", func(): pass)
 	layout.theme_type_variation = &"Toggle"
@@ -1892,8 +2046,9 @@ func _bars_control(min_size: Vector2) -> Control:
 	c.custom_minimum_size = min_size
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	c.set_meta("ship", {})
+	c.add_to_group(BARS_GROUP)
 	c.draw.connect(func():
-		var ship: Dictionary = c.get_meta("ship")
+		var ship: Dictionary = _view_ship(c.get_meta("ship"))
 		if ship.is_empty():
 			return
 		var w := c.size.x
@@ -1970,11 +2125,17 @@ func _refresh_hud() -> void:
 	_done_button.disabled = not my_turn
 	_end_button.disabled = not my_turn
 	_auto_button.disabled = false # always reachable (owner 2026-11-22), whoever's turn it is
-	if _auto_pending_on and _my_turn() and int(state.get("auto", 0)) == 0:
+	if _auto_pending_on and _my_turn() and not _auto_mine():
 		_auto_pending_on = false
 		_act.call_deferred({"action": "auto"}) # asked for while the enemy moved
-	_auto_button.set_pressed_no_signal(int(state.get("auto", 0)) != 0 or _auto_pending_on)
+	if _auto_override >= 0 and (_auto_override == 1) == _auto_mine():
+		_auto_override = -1 # the game's flag agrees
+	_auto_button.set_pressed_no_signal(_auto_shown())
 	Themes.glow(_auto_button)
+	if _x2_override >= 0 and state.has("speedx2") and bool(state.speedx2) == (_x2_override == 1):
+		_x2_override = -1
+	for i in _x2_buttons.size():
+		(_x2_buttons[i] as Button).set_pressed_no_signal((i == 1) == _speedx2())
 	_refresh_strip()
 	_refresh_timeline()
 	if _scan_ship >= 0 and _scan_panel.visible:
@@ -2187,7 +2348,7 @@ func _chip(index: int, acting: bool) -> Control:
 
 
 func _place_card() -> void:
-	var ship := _ship(_hover_ship)
+	var ship := _view_ship(_ship(_hover_ship))
 	if not _alive(ship) or _menu_ship >= 0:
 		if _card.visible:
 			_card.hide()
@@ -2613,14 +2774,14 @@ func _play_special(event: Dictionary) -> float:
 			parts.append({"type": "strip", "name": SFX, "entry": 40, "from": _centre(from), "to": _centre(to), "start": 0.0, "frame_time": 2 * TICK_S, "frames": 18})
 			parts.append({"type": "anim", "name": SFX + "!glass=stellar", "entry": 41, "at": _centre(to), "start": 9 * 2 * TICK_S, "frame_time": 2 * TICK_S, "frames": 9})
 			life = 18 * 2 * TICK_S
-			_sound(20)
+			parts.append({"type": "sound", "id": 20, "start": 0.0})
 		"stasis": # beam CMBTSFX 1, 7 frames x 110 ms; then the ball grows over 10 x 55 ms
 			parts.append({"type": "strip", "name": SFX, "entry": 1, "from": _centre(from), "to": _centre(to), "start": 0.0, "frame_time": 2 * TICK_S, "frames": 7})
 			var ball: Array = _stasis_ball(to)
 			parts.append({"type": "anim", "name": SFX + "!shield", "entry": ball[0], "flip": ball[1], "at": _centre(to), "start": 7 * 2 * TICK_S,
 				"frame_time": 10 * TICK_S, "frames": 1, "grow": 10 * TICK_S})
 			life = 7 * 2 * TICK_S + 10 * TICK_S
-			_sound(10)
+			parts.append({"type": "sound", "id": 10, "start": 0.0})
 		"tractor": # CMBTSFX 2 frames 0-6 x 55 ms (then held, frame 6, as a lasting look)
 			parts.append({"type": "strip", "name": SFX, "entry": 2, "from": _centre(from), "to": _centre(to), "start": 0.0, "frame_time": TICK_S, "frames": 7})
 			life = 8 * TICK_S
@@ -2633,18 +2794,18 @@ func _play_special(event: Dictionary) -> float:
 			var impact := 36 if size == 0 else (37 if size <= 2 else (38 if size == 3 else 39))
 			parts.append({"type": "anim", "name": SFX + "!glass=web", "entry": impact, "at": b, "start": fly, "frame_time": SYNC_S, "frames": 20})
 			life = fly + 20 * SYNC_S
-			_sound(0x1B)
+			parts.append({"type": "sound", "id": 0x1B, "start": 0.0})
 		"black_hole": # CMBTSFX 47 frame i%3, 12 x 55 ms, the target end raised 8 px
 			parts.append({"type": "strip", "name": SFX, "entry": 47, "from": _centre(from), "to": _centre(to) - Vector2(0, 8), "start": 0.0,
 				"frame_time": TICK_S, "frames": 3, "loop": true})
 			life = 12 * TICK_S
-			_sound(10)
+			parts.append({"type": "sound", "id": 10, "start": 0.0})
 		"gyro": # CMBTSFX 8: frames 0-7 x 55 ms, then 8 x 110 ms cycling 5-7 while the target spins
 			parts.append({"type": "strip", "name": SFX, "entry": 8, "from": _centre(from), "to": _centre(to), "start": 0.0, "frame_time": TICK_S, "frames": 8})
 			parts.append({"type": "strip", "name": SFX, "entry": 8, "from": _centre(from), "to": _centre(to), "start": 8 * TICK_S, "frame_time": 2 * TICK_S,
 				"frames": 3, "first": 5, "loop": true, "until": 8 * TICK_S + 16 * TICK_S})
 			life = 8 * TICK_S + 16 * TICK_S
-			_sound(11)
+			parts.append({"type": "sound", "id": 11, "start": 0.0})
 		"blast": # Do_Spherical_SFX: 0 flux, 1 pulsar (CMBTSFX 52 glass), 2 compressor (6), 3 drive (SPHERSFX 0), 4 quantum (1)
 			var type := int(event.get("type", 1))
 			var at := _centre(int(event.get("ship", -1)))
@@ -2664,14 +2825,27 @@ func _play_special(event: Dictionary) -> float:
 					name = "sphersfx.lbx!glass=warp"
 					entry = 1
 					frames = 23
+			var source := int(event.get("ship", -1))
+			if type >= 3 and _ships.has(source):
+				# Draw_Ship_Collapsing: the dying ship under the blast, shrinking (100 % less 10 a
+				# frame; the quantum detonator's 132 % less 8, capped at 99) and turning a facing a
+				# frame, gone below 2 %.
+				var e: Dictionary = _ships[source]
+				parts.append({"type": "collapse", "ship": source, "start": 0.0, "frame_time": TICK_S, "scale0": 100 if type == 3 else 132,
+					"less": 10 if type == 3 else 8, "at": at, "angle": e.angle, "tex": e.sprite.texture, "offset": e.sprite.offset + Vector2(e.get("pad", 0.0), e.get("pad", 0.0)),
+					"scale": e.sprite.scale, "dur": (frames + 1) * TICK_S})
 			parts.append({"type": "anim", "name": name, "entry": entry, "at": at, "start": 0.0, "frame_time": TICK_S, "frames": frames + 1})
+			# Nearby ships shake (+-2 px) as the blast's front passes them.
+			parts.append({"type": "shake", "blast": type, "source": source, "at": at, "start": 0.0, "frame_time": TICK_S, "dur": (frames + 1) * TICK_S})
 			life = (frames + 1) * TICK_S
-			_sound(0x14 if type <= 2 else (0x2F if type == 3 else 0x19))
+			parts.append({"type": "sound", "id": 0x14 if type <= 2 else (0x2F if type == 3 else 0x19), "start": 0.0})
+			if type >= 3:
+				parts.append({"type": "sound", "id": 8, "start": 0.0})
 		"lightning": # CMBTSFX 0 on the defending ship, 15 x 55 ms
 			parts.append({"type": "anim", "name": SFX, "entry": 0, "at": _centre(int(event.get("ship", -1))), "start": 0.0, "frame_time": TICK_S,
 				"frames": 7, "loop": true, "until": 15 * TICK_S})
 			life = 15 * TICK_S
-			_sound(4)
+			parts.append({"type": "sound", "id": 4, "start": 0.0})
 		"anti_missile": # a rocket from the ship to the stack, 20 px a frame x 55 ms
 			var a := _centre(int(event.get("ship", -1)))
 			var b := _stack_point(int(event.get("stack", -1)), a)
@@ -2682,7 +2856,7 @@ func _play_special(event: Dictionary) -> float:
 			var at := _stack_point(int(event.get("stack", -1)), Vector2.ZERO)
 			parts.append({"type": "anim", "name": SFX, "entry": 7, "at": at, "start": 0.0, "frame_time": TICK_S, "frames": 7})
 			life = 7 * TICK_S
-			_sound(0x1c)
+			parts.append({"type": "sound", "id": 0x1c, "start": 0.0})
 		"bombs": # CMBTMISL 144+facing flies 6 px a frame, then CMBTSFX 7 on the planet
 			var a := _centre(from)
 			var b := _centre(to)
@@ -2692,7 +2866,7 @@ func _play_special(event: Dictionary) -> float:
 			parts.append({"type": "proj", "name": "cmbtmisl.lbx", "entry": 144 + facing, "from": a, "to": b, "start": 0.0, "dur": fly, "frame_time": TICK_S, "frames": 1})
 			parts.append({"type": "anim", "name": SFX, "entry": 7, "at": b, "start": fly, "frame_time": TICK_S, "frames": 7})
 			life = fly + 7 * TICK_S
-			_sound(24)
+			parts.append({"type": "sound", "id": 24, "start": 0.0})
 		"retreat": # the portal (CMBTSFX 42, 20 x 55 ms) ahead of the ship; the ship slides in and goes
 			var index := int(event.get("ship", -1))
 			var at := _centre(index)
@@ -2701,7 +2875,7 @@ func _play_special(event: Dictionary) -> float:
 			parts.append({"type": "anim", "name": SFX, "entry": 42, "at": at + ahead, "start": 0.0, "frame_time": TICK_S, "frames": 20})
 			parts.append({"type": "fade", "ship": index, "start": 0.0, "dur": 20 * TICK_S, "slide": ahead})
 			life = 20 * TICK_S
-			_sound(52)
+			parts.append({"type": "sound", "id": 52, "start": 0.0})
 		"teleport": # the ship dissolves at its old place and forms at the new (10 steps each way)
 			var index := int(event.get("ship", -1))
 			var off := _center(_ship(index)) - Vector2(float(_ship(index).get("x", 0)), float(_ship(index).get("y", 0))) * SQUARE
@@ -2709,14 +2883,14 @@ func _play_special(event: Dictionary) -> float:
 				"start": 0.0, "dur": 10 * SYNC_S, "out": true})
 			parts.append({"type": "fade", "ship": index, "start": 0.0, "dur": 10 * SYNC_S, "fade_in_after": true})
 			life = 20 * SYNC_S
-			_sound(0x37)
+			parts.append({"type": "sound", "id": 0x37, "start": 0.0})
 		"cloak": # Draw_Cloak: the ship darkens (on, phase out) or brightens (off, phase in)
 			var index := int(event.get("ship", -1))
-			var k := int(event.get("kind", 1))
+			var k := int(event.get("cloak_type", 1)) # "kind" is the event's own
 			var steps := 24 if k == 1 or k == 2 else (60 if k == 4 else 36)
-			parts.append({"type": "cloak", "ship": index, "start": 0.0, "dur": steps * TICK_S, "into": k == 1 or k == 4})
+			parts.append({"type": "cloak", "ship": index, "start": 0.0, "dur": steps * TICK_S, "step": TICK_S, "steps": steps, "mode": k})
 			life = steps * TICK_S
-			_sound(10)
+			parts.append({"type": "sound", "id": 10, "start": 0.0})
 		"fighters": # each picture fires a short beam at the target (the owner's point-defence weapon)
 			var stack := int(event.get("stack", -1))
 			var target := _centre(to)
@@ -2725,13 +2899,83 @@ func _play_special(event: Dictionary) -> float:
 				var jitter := Vector2(randf_range(-10, 10), randf_range(-10, 10))
 				parts.append({"type": "bolt", "from": origin + jitter, "to": target, "start": k * TICK_S, "dur": 5 * TICK_S})
 			life = 8 * TICK_S
+	return _add_sfx(parts, life)
+
+
+## Adds a special's parts as one effect (at the x2 speed every time is halved: the legacy loops
+## step two frames); returns its length.
+func _add_sfx(parts: Array, life: float) -> float:
 	if parts.is_empty():
 		return 0.0
+	if _speedx2():
+		for part: Dictionary in parts:
+			for key in ["start", "frame_time", "dur", "until", "grow"]:
+				if part.has(key):
+					part[key] = float(part[key]) * 0.5
+		life *= 0.5
 	for part: Dictionary in parts:
 		if part.has("name"):
 			art.sprite(String(part.name), int(part.entry))
 	_effects.append({"kind": "sfx", "t": 0.0, "life": life, "parts": parts})
 	return life
+
+
+var _death_played := {} # ship index -> its death is drawn (the destroyed event's)
+
+
+## A ship's death (CMBTSPEC::Destroy_Ship_FX): a monster's own animation (CMBTSFX 0x45-0x4E, its
+## facing's 16 frames: shrinking to a point, then a twinkle), a drive or quantum-detonator death
+## (the blast event that follows draws it), else the explosion by size.
+func _play_death(event: Dictionary) -> float:
+	var index := int(event.get("ship", -1))
+	if index < 0 or _death_played.has(index):
+		return 0.0
+	_death_played[index] = true
+	var at := _centre(index)
+	if event.has("monster_entry"):
+		var entry := int(event.monster_entry)
+		if entry < 0:
+			return 0.0
+		var facing := int(event.get("facing", 0)) % 16
+		var quadrant := (facing - 1) / 4 # C's division: facing 0 is in the first quadrant
+		var dir := facing
+		var flip := Vector2.ONE
+		match quadrant:
+			1:
+				dir = 8 - facing
+				flip = Vector2(-1, 1)
+			2:
+				dir = facing - 8
+				flip = Vector2(-1, -1)
+			3:
+				dir = 16 - facing
+				flip = Vector2(1, -1)
+		var parts: Array = [{"type": "anim", "name": SFX, "entry": entry, "at": at, "start": 0.0, "frame_time": TICK_S, "frames": 16,
+			"first": dir * 16, "flip": flip}, {"type": "hide", "ship": index, "start": 0.0, "dur": 16 * TICK_S}]
+		if int(event.get("monster_sound", -1)) >= 0:
+			parts.append({"type": "sound", "id": int(event.monster_sound), "start": 0.0})
+		return _add_sfx(parts, 16 * TICK_S)
+	if int(event.get("death", 1)) != 1:
+		return 0.0 # Do_Spherical_SFX: the blast event that follows
+	return _play_explosion(index, at, int(event.get("size", 0)))
+
+
+## Destroy_Ship_FX's explosion: CMBTSFX 3 (size 0, 18 frames), 4 (sizes 1-2), 5 (3-5; 12 frames),
+## 55 ms a frame, the ship gone from the middle frame; Play_Ship_Explosion_SFX's sound.
+func _play_explosion(index: int, at: Vector2, size: int) -> float:
+	var entry := 3 if size == 0 else (4 if size <= 2 else 5)
+	var frames := 18 if entry == 3 else 12
+	var parts: Array = [{"type": "anim", "name": SFX, "entry": entry, "at": at, "start": 0.0, "frame_time": TICK_S, "frames": frames},
+		{"type": "hide", "ship": index, "start": float(frames / 2) * TICK_S, "dur": float(frames) * TICK_S}]
+	var pick := randi_range(1, 3) + size - 1
+	if pick == 0:
+		parts.append({"type": "sound", "id": 0x1d, "start": 0.0})
+	elif pick == 5:
+		parts.append({"type": "sound", "id": 0x1e, "start": 0.0})
+		parts.append({"type": "sound", "id": 0x2b, "start": 0.0})
+	else:
+		parts.append({"type": "sound", "id": 0x18, "start": 0.0})
+	return _add_sfx(parts, float(frames) * TICK_S)
 
 
 ## A missile stack's point (the state's), else `fallback`.
@@ -2802,6 +3046,14 @@ func _draw_sfx(effect: Dictionary) -> void:
 					var fade := 1.0 - k
 					_marks.draw_line(part.from, part.to, Color(1.0, 0.45, 0.3, 0.35 * fade), 3.0 / _zoom)
 					_marks.draw_line(part.from, part.to, Color(1.0, 0.85, 0.7, 0.9 * fade), 1.2 / _zoom)
+			"collapse": # Draw_Ship_Collapsing: shrinking and turning a facing a frame under the blast
+				var frame := int(local / maxf(float(part.frame_time), 0.001))
+				var pct := mini(int(part.scale0) - int(part.less) * frame, 99)
+				var tex: Texture2D = part.get("tex")
+				if pct >= 2 and tex != null:
+					_marks.draw_set_transform(part.at, float(part.angle) - float(frame) * PI / 8.0, (part.scale as Vector2) * (float(pct) / 100.0))
+					_marks.draw_texture(tex, part.offset)
+					_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 			"ghost": # the ship's picture dissolving at its old place
 				var index := int(part.ship)
 				if _ships.has(index) and local < float(part.dur):
@@ -2813,11 +3065,11 @@ func _draw_sfx(effect: Dictionary) -> void:
 						_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-## A ship's look during a fade, retreat or cloak effect (the ship sprite's modulate and place).
+## A ship's look during a fade, retreat, death or collapse (the ship sprite's modulate).
 func _ship_effect_look(index: int) -> Color:
 	var look := Color.WHITE
 	for effect: Dictionary in _effects:
-		if String(effect.kind) != "sfx":
+		if String(effect.kind) != "sfx" or float(effect.t) <= 0.0:
 			continue
 		for part: Dictionary in effect.parts:
 			if int(part.get("ship", -999)) != index:
@@ -2830,10 +3082,108 @@ func _ship_effect_look(index: int) -> Color:
 						look.a = minf(look.a, k)
 					else:
 						look.a = minf(look.a, 1.0 - k)
-				"cloak":
-					var dark := k if bool(part.get("into", true)) else 1.0 - k
-					look = look.lerp(Color(0.35, 0.35, 0.45, 0.55), dark)
+				"hide":
+					if local >= 0.0:
+						look.a = 0.0
+				"collapse": # drawn by the effect itself
+					look.a = 0.0
 	return look
+
+
+## Draw_Cloak's darkness and noise frame for a ship's cloak effect: [darkness, frame], or [].
+## Kind 1 on: step / 4 up to 6 (24 steps); 2 off: 6 - step / 4; 4 phase out: step / 3 up to 20
+## (60 steps); 5 phase in: 12 - step / 3 (36 steps). 55 ms a step.
+func _cloak_darkness(index: int) -> Array:
+	for effect: Dictionary in _effects:
+		if String(effect.kind) != "sfx" or float(effect.t) <= 0.0:
+			continue
+		for part: Dictionary in effect.parts:
+			if String(part.type) != "cloak" or int(part.get("ship", -999)) != index:
+				continue
+			var step := int((float(effect.t) - float(part.get("start", 0.0))) / maxf(float(part.get("step", TICK_S)), 0.001))
+			var steps := int(part.get("steps", 24))
+			step = clampi(step, 0, steps - 1)
+			var d := 0.0
+			match int(part.get("mode", 1)):
+				1:
+					d = minf(step / 4, 6)
+				2:
+					d = maxf(6 - step / 4, 0)
+				4:
+					d = minf(step / 3, 20)
+				5:
+					d = maxf(12 - step / 3, 0)
+			return [d, step % 16]
+	return []
+
+
+## The legacy frame counter (ship_frame: one a 55 ms tick).
+func _legacy_frame() -> int:
+	return int(Time.get_ticks_msec() / 55)
+
+
+var _plasma_tex: ImageTexture = null
+var _shield_glow := {} # ship index -> brightening under a shield hit (fades between frames)
+
+
+## The cloak's noise map: 16 frames of 60x60, values 0-13, a slowly changing plasma (the original's
+## COMBAT.LBX 0x31 is of this kind; generated, not copied).
+func _plasma_texture() -> ImageTexture:
+	if _plasma_tex != null:
+		return _plasma_tex
+	var noise := FastNoiseLite.new()
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	noise.frequency = 0.09
+	noise.fractal_octaves = 2
+	noise.seed = 141
+	var img := Image.create(60, 60 * 16, false, Image.FORMAT_L8)
+	for f in 16:
+		# A loop in the third dimension: frame 15 runs back into frame 0.
+		var a := TAU * float(f) / 16.0
+		for y in 60:
+			for x in 60:
+				var n := noise.get_noise_3d(float(x) + 9.0 * cos(a), float(y) + 9.0 * sin(a), 0.0)
+				var v := clampi(int(round((n * 0.5 + 0.5) * 13.0)), 0, 13)
+				img.set_pixel(x, y + 60 * f, Color8(v, v, v))
+	_plasma_tex = ImageTexture.create_from_image(img)
+	return _plasma_tex
+
+
+## Do_Spherical_SFX's shake: a ship in the blast's reach drawn -2..+2 px off, a new offset each
+## frame, while the blast's front passes it (pulsar and flux: rings by distance in squares; the
+## others: within the front's radius by frame).
+const BLAST_FRONT := [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0xd, 0xd, 0x16, 0x2e, 0x3d, 0x3d, 0x56, 0x5f, 0x6b, 0x72, 0x76, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xd,
+	0x10, 0x19, 0x1e, 0x23, 0x23, 0x23, 0x23, 0x23, 0x23, 0, 0, 0xb, 0x15, 0x2d, 0x40, 0x41, 0x55, 0x61, 0x6c, 0x73, 0x73, 0, 0, 0, 0]
+
+
+func _ship_shake(index: int) -> Vector2:
+	for effect: Dictionary in _effects:
+		if String(effect.kind) != "sfx" or float(effect.t) <= 0.0:
+			continue
+		for part: Dictionary in effect.parts:
+			if String(part.type) != "shake" or int(part.get("source", -1)) == index or not _ships.has(index):
+				continue
+			var frame := int((float(effect.t) - float(part.start)) / maxf(float(part.frame_time), 0.001))
+			if float(effect.t) - float(part.start) >= float(part.dur):
+				continue
+			var type := int(part.blast)
+			var d: Vector2 = (_ships[index].shown as Vector2) - (part.at as Vector2)
+			var shaking := false
+			if type <= 2:
+				var ratio := int(maxf(absf(d.x), absf(d.y)) / 20.0)
+				shaking = (frame < 5 and ratio == 1) or (frame > 0 and frame < 7 and ratio == 2) or (frame > 4 and frame < 13 and ratio == 3) or (frame > 8 and ratio == 4)
+			if not shaking and type != 0 and type != 1:
+				var front := int(BLAST_FRONT[mini(type * 25 + frame, BLAST_FRONT.size() - 1)])
+				var dist_sq := d.length_squared()
+				var reach := float(front * front) + float(int(_ship(index).get("size", 0)) * 25)
+				shaking = dist_sq <= reach and (front < 85 or dist_sq <= float(front * front - 625))
+			if shaking:
+				var h := hash([index, frame, int(part.source)])
+				return Vector2(float(h % 5) - 2.0, float((h / 5) % 5) - 2.0)
+	return Vector2.ZERO
 
 
 ## The lasting looks (CMBTDRW1::Draw_Ship): stasis ball, plasma web, black-hole vortex, absorber
@@ -2955,10 +3305,10 @@ func _diff_effects(before: Dictionary, after: Dictionary) -> void:
 			continue
 		var at: Vector2 = _ships[index].shown if _ships.has(index) else _center(old)
 		if int(ship.get("status", 0)) != 0:
-			# Destroy_Ship_FX: CMBTSFX 3 (size 0, 18 frames), 4 (sizes 1-2), 5 (3-5; 12 frames), 55 ms a frame.
-			var size := int(old.get("size", 0))
-			var entry := 3 if size == 0 else (4 if size <= 2 else 5)
-			_effects.append({"kind": "explosion", "t": 0.0, "life": (18.0 if entry == 3 else 12.0) * TICK_S, "at": at, "entry": entry})
+			# A death without its event (an older engine): the ordinary explosion.
+			if int(ship.get("status", 0)) == 5 and not _death_played.has(index):
+				_death_played[index] = true
+				_play_explosion(index, at, int(old.get("size", 0)))
 			continue
 		var hp_old := float((old.get("armor", {}) as Dictionary).get("now", 0)) + float((old.get("structure", {}) as Dictionary).get("now", 0))
 		var hp_new := float((ship.get("armor", {}) as Dictionary).get("now", 0)) + float((ship.get("structure", {}) as Dictionary).get("now", 0))
@@ -3078,7 +3428,14 @@ func _play_volley(event: Dictionary) -> float:
 	var effect := {"kind": "volley", "t": 0.0, "life": float(ticks.size()) * BeamVolley.TICK, "ticks": ticks, "fragments": fragments,
 		"tick": -1, "strands": [], "at": Vector2(float(target_center[0]), float(target_center[1])), "target_size": int(event.target.get("size", 0))}
 	_native_volleys = true # the original's shield hits now: no 3.9c arc flashes
+	var afters: Array = []
+	for shot: Dictionary in event.get("shots", []):
+		afters.append(shot.get("after", {}))
+	effect["afters"] = afters
+	effect["target_ship"] = int(event.target.get("ship", -1))
 	_effects.append(effect)
+	if event.has("before") and int(effect.target_ship) >= 0:
+		_set_hp_view(int(effect.target_ship), effect, event.before)
 	_request_volley_art(effect)
 	return float(ticks.size()) * BeamVolley.TICK
 
@@ -3099,7 +3456,7 @@ func _request_volley_art(effect: Dictionary) -> void:
 				"ball":
 					wanted[[_slot_sprite(_first_ramp(effect, 0), 0), 88]] = true
 				"shield":
-					wanted[[SHIELD_ART, _shield_entry(op, int(effect.get("target_size", 0)))]] = true
+					wanted[[SHIELD_ART, _shield_entry(op, int(op.get("size", effect.get("target_size", 0))))]] = true
 	_art_wait = []
 	for key: Array in wanted.keys():
 		if art.sprite(String(key[0]), int(key[1])).is_empty():
@@ -3138,6 +3495,16 @@ func _volley_strands(effect: Dictionary, ops: Array) -> Array:
 	return out
 
 
+## A weapon's hit landing: the target's bars drop to what the engine recorded after it.
+func _volley_damage(effect: Dictionary, ops: Array) -> void:
+	var afters: Array = effect.get("afters", [])
+	for op: Dictionary in ops:
+		if String(op.op) == "damage":
+			var entry := int(op.entry)
+			if entry < afters.size() and not (afters[entry] as Dictionary).is_empty() and int(effect.get("target_ship", -1)) >= 0:
+				_set_hp_view(int(effect.target_ship), effect, afters[entry])
+
+
 ## A tick's sounds, played by the game (its sound effects and volume; native::Play_Game_Sound).
 func _volley_sounds(ops: Array) -> void:
 	if art == null or art.game == null:
@@ -3159,17 +3526,17 @@ func _slot_sprite(op_ramp: Array, slot: int) -> String:
 
 
 func _draw_beams() -> void:
-	if _art_hold > 0.0 or _cam_hold > 0.0:
-		return # the volley waits for its art or the camera
+	var holding := _art_hold > 0.0 or _cam_hold > 0.0
 	for effect: Dictionary in _effects:
-		if String(effect.kind) != "volley" or effect.t < 0.0:
-			continue
+		if String(effect.kind) != "volley" or effect.t < 0.0 or (holding and effect.t <= 0.0):
+			continue # a new volley waits for its art or the camera
 		var ticks: Array = effect.ticks
 		var tick := mini(int(effect.t / BeamVolley.TICK), ticks.size() - 1)
 		if tick != int(effect.tick):
 			# Each tick passed plays its sounds once (a slow frame may pass several).
 			for k in range(int(effect.tick) + 1, tick + 1):
 				_volley_sounds(ticks[k])
+				_volley_damage(effect, ticks[k])
 			effect.tick = tick
 			effect.strands = _volley_strands(effect, ticks[tick])
 		for st: Dictionary in effect.strands:
@@ -3178,8 +3545,8 @@ func _draw_beams() -> void:
 
 ## A volley's muzzle flashes, hit flares and the Mauler's ball on this tick (over the strands).
 func _draw_volley_sprites(effect: Dictionary) -> void:
-	if _art_hold > 0.0 or _cam_hold > 0.0:
-		return # the volley waits for its art or the camera
+	if (_art_hold > 0.0 or _cam_hold > 0.0) and float(effect.t) <= 0.0:
+		return # a new volley waits for its art or the camera
 	var ticks: Array = effect.ticks
 	var tick := mini(int(effect.t / BeamVolley.TICK), ticks.size() - 1)
 	var ops: Array = ticks[tick]
@@ -3213,6 +3580,8 @@ func _draw_volley_sprites(effect: Dictionary) -> void:
 				_draw_centered(_slot_sprite(ramps[0], 0), 88, 0, op.at)
 			"shield":
 				_draw_shield_hit(op, effect)
+				if int(effect.get("target_ship", -1)) >= 0 and not op.get("reflected", false):
+					_shield_glow[int(effect.target_ship)] = 1.0 # Mask_Brighten_Bitmap while it shows
 
 
 ## The colours of the first segment in `slot` anywhere in the volley (a burst on frame 0 comes
@@ -3242,7 +3611,7 @@ func _shield_entry(op: Dictionary, target_size: int) -> int:
 ## centre, mirrored for the other directions, drawn as glass (the export's tint and strength,
 ## blended over the ship). Not yet: the ship brightened under it (Mask_Brighten_Bitmap).
 func _draw_shield_hit(op: Dictionary, effect: Dictionary) -> void:
-	var target_size := int(effect.get("target_size", 0))
+	var target_size := int(op.get("size", effect.get("target_size", 0))) # a reflected beam's: the attacker's
 	var entry := _shield_entry(op, target_size)
 	var s: Dictionary = art.sprite(SHIELD_ART, entry)
 	_note_art(SHIELD_ART, entry, s)
@@ -3252,7 +3621,7 @@ func _draw_shield_hit(op: Dictionary, effect: Dictionary) -> void:
 	var method: int = SHIELD_ROT_METHOD[int(op.rotation) & 15]
 	var flip := Vector2(-1.0 if method == 1 or method == 2 else 1.0, -1.0 if method == 2 or method == 3 else 1.0)
 	var frame := int(op.frame) % maxi(s.frames.size(), 1)
-	_marks.draw_set_transform(effect.at, 0.0, flip)
+	_marks.draw_set_transform(op.get("at", effect.at), 0.0, flip)
 	art.draw(_marks, SHIELD_ART, entry, frame, Vector2(-diam / 2.0, -diam / 2.0), 1.0)
 	_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 

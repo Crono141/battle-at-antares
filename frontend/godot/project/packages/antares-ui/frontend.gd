@@ -8267,6 +8267,11 @@ func _smoke_effects_gallery(view: Control, mine: int, enemy: int, shots: String)
 		[{"kind": "lightning", "ship": enemy}, 0.3],
 		[{"kind": "retreat", "ship": enemy}, 0.6],
 		[{"kind": "cloak", "ship": enemy, "kind_": 1}, 0.9],
+		[{"kind": "cloak", "ship": enemy, "kind_": 4}, 2.0],
+		[{"kind": "blast", "ship": enemy, "type": 3}, 0.12],
+		[{"kind": "destroyed", "ship": enemy, "death": 1, "size": 2}, 0.3],
+		[{"kind": "destroyed", "ship": enemy, "monster_entry": 0x45, "monster_sound": -1, "facing": 2}, 0.3],
+		[{"kind": "destroyed", "ship": enemy, "monster_entry": 0x45, "monster_sound": -1, "facing": 2}, 0.8],
 	]
 	view.smoke_hold = true
 	var n := 0
@@ -8274,8 +8279,15 @@ func _smoke_effects_gallery(view: Control, mine: int, enemy: int, shots: String)
 		var event: Dictionary = c[0].duplicate()
 		if event.has("kind_"):
 			event["kind"] = "cloak"
+			event["cloak_type"] = int(event.kind_)
 		view._effects.clear()
-		var life: float = view._play_special(event)
+		var life: float
+		if String(event.kind) == "destroyed":
+			view._death_played.clear()
+			life = view._play_death(event)
+			view._death_played.clear()
+		else:
+			life = view._play_special(event)
 		var effect: Dictionary = view._effects.back() if not view._effects.is_empty() else {}
 		# The art first (each sprite a new export).
 		for i in 40:
