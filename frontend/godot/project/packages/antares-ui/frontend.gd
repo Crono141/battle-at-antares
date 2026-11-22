@@ -7279,6 +7279,26 @@ func _smoke_combat(shots: String) -> bool:
 				await get_tree().process_frame
 			print("smoke: initiative bar scrolled by the wheel: %s (%d -> %d)" % [view._tl_scroll.scroll_horizontal > scroll_before, scroll_before, view._tl_scroll.scroll_horizontal])
 			view._tl_scroll.scroll_horizontal = 0
+			# The camera frames an enemy's beam (owner 2026-11-22): zoomed in on our ship, a beam from
+			# the enemy must bring both on screen before it plays.
+			var keep_zoom: float = view._zoom
+			var keep_cam: Vector2 = view._cam
+			view._zoom = 2.6
+			view._cam = view._ships[int(ship.i)].shown
+			await get_tree().process_frame
+			view._frame_enemy_fire({"kind": "beam", "from": enemy, "to": int(ship.i)})
+			var held: bool = view._cam_hold > 0.0
+			await get_tree().create_timer(1.3).timeout
+			var area: Rect2 = view._clear_area()
+			var both: bool = area.has_point(view._to_screen(view._ships[enemy].shown)) and area.has_point(view._to_screen(view._ships[int(ship.i)].shown))
+			print("smoke: camera framed an enemy beam: held %s, both on screen %s, hold released %s (zoom %.2f)" % [held, both, view._cam_hold == 0.0, view._zoom])
+			if shots != "":
+				await host.shot(shots + "/combat-framed.png")
+			view._zoom = keep_zoom
+			view._cam = keep_cam
+			view._cam_goal = Vector2.INF
+			await get_tree().process_frame
+			await get_tree().process_frame
 		# As a player does it: the pointer onto the square, then a left click (real input events).
 		var square := Vector2i(best / 1000, best % 1000)
 		var at: Vector2 = view._to_screen(view._square_center(square, ship))
@@ -7339,6 +7359,7 @@ func _smoke_combat(shots: String) -> bool:
 			view._act({"action": "auto"})
 	print("smoke: effects seen %s" % [counts])
 	print("smoke: effects played for the engine %s" % [view.animated]) # WP3.9d
+	print("smoke: enemy fire framed by the camera: %d" % view.framed)
 	print("smoke: battle over after %.0f s (scene shown: %s)" % [waited, view.visible])
 	return not view.visible
 

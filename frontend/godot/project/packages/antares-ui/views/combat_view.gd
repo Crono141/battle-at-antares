@@ -47,6 +47,12 @@ var _request_id := -1
 var _zoom := 1.4
 var _cam := Vector2(810, 680)
 var _cam_goal := Vector2.INF
+var _zoom_goal := -1.0 # the zoom the camera eases to (-1: none)
+# The camera frames an enemy's beam (owner 2026-11-22): the effect waits until it is in place.
+const FRAMED_KINDS := ["beam", "stasis", "tractor", "plasma_web", "stellar", "black_hole", "absorber", "gyro"]
+const FRAME_MARGIN := 90.0 # world pixels round shooter and target
+const FRAME_WAIT_MAX := 1.0 # seconds the effect waits for the camera at most
+var _cam_hold := 0.0 # > 0: the effect waits for the camera (seconds waited so far + a tiny bit)
 var _hover_ship := -1
 var _hover_square := Vector2i(-1, -1)
 var _always_health := false
@@ -71,6 +77,7 @@ var _animating := {}
 var _animating_waits_capture := -1 # the capture the current animation waits for (not loaded yet)
 var _capture_asked_at := 0
 var animated := {} # effects played, by kind (the smoke reports them)
+var framed := 0 # enemy fire the camera framed (the smoke reports it)
 var _warned_fragments := false # a volley's non-recipe colours were missing (warned once)
 var smoke_hold := false # the smoke freezes effects and the awaited animation to shoot chosen ticks
 # Spike 3.9: volleys arrive captured from the legacy drawing (sprite "capture", entry); they carry
@@ -270,6 +277,7 @@ func on_animate(id: int, request: Dictionary) -> void:
 	if not st.is_empty():
 		show_state(st)
 	if visible:
+		_frame_enemy_fire(event)
 		var index := int(event.get("ship", -1))
 		match String(event.get("kind", "")):
 			"move":
@@ -324,6 +332,55 @@ func on_animate(id: int, request: Dictionary) -> void:
 	_animating = {"id": id, "t": 0.0, "dur": dur}
 	if dur <= 0.0:
 		_finish_animation()
+
+
+## The battlefield area the HUD leaves clear (screen pixels): under the Options tab, above the
+## buttons' tab.
+func _clear_area() -> Rect2:
+	var top := 0.0
+	var bottom := size.y
+	if _options_tab != null:
+		top = _options_tab.get_rect().end.y + 12.0
+	if _bottom != null:
+		bottom = _bottom.get_rect().position.y - 12.0
+	return Rect2(Vector2(24.0, top), Vector2(size.x - 48.0, maxf(bottom - top, 100.0)))
+
+
+## An enemy's beam or beam-like special: the camera pans (and zooms out if it must) so shooter and
+## target are both on screen with a margin, and the effect waits until it has (owner 2026-11-22:
+## only on the enemy's turn; missiles, torpedoes and fighters don't need it).
+func _frame_enemy_fire(event: Dictionary) -> void:
+	var kind := String(event.get("kind", ""))
+	if not FRAMED_KINDS.has(kind):
+		return
+	var from := int(event.get("from", -1))
+	var shooter := _ship(from)
+	if not _alive(shooter) or _mine(shooter) or not _ships.has(from):
+		return
+	var a: Vector2 = _ships[from].shown
+	var b := Vector2.INF
+	var to := int(event.get("to", -1))
+	if bool(event.get("missile", false)):
+		b = Vector2(float(event.get("tx", 0)), float(event.get("ty", 0)))
+	elif _ships.has(to):
+		b = _ships[to].shown
+	if b == Vector2.INF:
+		return
+	var margin := FRAME_MARGIN + maxf(_radius(from), _radius(to) if _ships.has(to) else 0.0)
+	var box := Rect2(a, Vector2.ZERO).expand(b).grow(margin)
+	var area := _clear_area()
+	# Already in view: nothing to do.
+	var on_screen := Rect2(_to_screen(box.position), box.size * _zoom)
+	if area.encloses(on_screen):
+		return
+	var fit := minf(area.size.x / box.size.x, area.size.y / box.size.y)
+	var zoom := clampf(minf(_zoom, fit), MIN_ZOOM, MAX_ZOOM)
+	# The camera's centre such that the box's centre lands in the middle of the clear area.
+	var cam := box.get_center() - (area.get_center() - size / 2.0) / zoom
+	_cam_goal = cam
+	_zoom_goal = zoom if absf(zoom - _zoom) > 0.005 else -1.0
+	_cam_hold = 0.0001
+	framed += 1
 
 
 const PLACEHOLDER_COLORS := {"stasis": Color(0.6, 0.85, 1.0), "tractor": Color(0.5, 0.7, 1.0), "plasma_web": Color(0.5, 1.0, 0.5),
@@ -562,6 +619,22 @@ func _process(delta: float) -> void:
 		_marks.queue_redraw()
 		_beams.queue_redraw()
 		return
+	if _zoom_goal > 0.0:
+		_zoom = lerpf(_zoom, _zoom_goal, minf(1.0, delta * 6.0))
+		if absf(_zoom - _zoom_goal) < 0.005:
+			_zoom = _zoom_goal
+			_zoom_goal = -1.0
+	if _cam_hold > 0.0:
+		_cam_hold += delta
+		var arrived := _cam_goal == Vector2.INF and _zoom_goal < 0.0
+		if arrived or _cam_hold > FRAME_WAIT_MAX:
+			_cam_hold = 0.0
+		else:
+			_place_world()
+			_layout()
+			_marks.queue_redraw()
+			_beams.queue_redraw()
+			return # the effect and the rules' wait start once the camera is in place
 	if not _animating.is_empty() and _animating_waits_capture < 0:
 		_animating.t += delta
 		if _animating.t >= _animating.dur:
