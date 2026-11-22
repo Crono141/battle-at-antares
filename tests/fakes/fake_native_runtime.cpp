@@ -249,3 +249,9 @@ namespace ERICNET {
         return 0; // the frontend's button click (play_sound)
     }
 } // namespace ERICNET
+
+namespace sound {
+    // WP3.9 stage 1: a native battle's beam sounds (native::Play_Game_Sound, Fade_Game_Sound).
+    void __cdecl Pitch_Bend_Sound(int32_t, int32_t) {}
+    void __cdecl Fadeout_Sound(int16_t, int8_t) {}
+} // namespace sound

@@ -102,6 +102,8 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("stop_auto_turns"), &AntaresGame::stop_auto_turns);
         ClassDB::bind_method(D_METHOD("release_sounds"), &AntaresGame::release_sounds);
         ClassDB::bind_method(D_METHOD("click_sound"), &AntaresGame::click_sound);
+        ClassDB::bind_method(D_METHOD("play_game_sound", "sound", "tag", "pitch"), &AntaresGame::play_game_sound, DEFVAL(-1), DEFVAL(0));
+        ClassDB::bind_method(D_METHOD("fade_game_sound", "tag", "ticks"), &AntaresGame::fade_game_sound, DEFVAL(10));
         ClassDB::bind_method(D_METHOD("claim_screen", "screen", "claimed"), &AntaresGame::claim_screen);
         ClassDB::bind_method(D_METHOD("claim_requests", "kinds"), &AntaresGame::claim_requests);
         ClassDB::bind_method(D_METHOD("send_command", "command"), &AntaresGame::send_command);
@@ -723,6 +725,14 @@ namespace godot {
 
     void AntaresGame::click_sound() {
         antares::native::Click_Sound();
+    }
+
+    void AntaresGame::play_game_sound(int64_t sound, int64_t tag, int64_t pitch) {
+        antares::native::Play_Game_Sound((int16_t)sound, (int32_t)tag, (int32_t)pitch);
+    }
+
+    void AntaresGame::fade_game_sound(int64_t tag, int64_t ticks) {
+        antares::native::Fade_Game_Sound((int32_t)tag, (int32_t)ticks);
     }
 
     void AntaresGame::stop_auto_turns() {

@@ -113,6 +113,15 @@ namespace antares::native {
         // Keeps the game alive while it waits on the frontend: exit requests (throws on quit),
         // sound streaming and network traffic, as Get_Input loops do through Mox_Update.
         std::atomic<int> s_clicks{0}; // the frontend's button clicks to sound (Click_Sound)
+        // The frontend's game sounds (Play_Game_Sound, Fade_Game_Sound), played by the game thread.
+        struct s_game_sound {
+            int16_t sound; // -1: a fade
+            int32_t tag;
+            int32_t value; // pitch, or the fade's ticks
+        };
+        std::mutex s_game_sound_mutex;
+        std::vector<s_game_sound> s_game_sounds;
+        std::map<int32_t, int> s_game_sound_tags; // tag -> handle (game thread only)
         std::function<void()> s_scene_tick; // Set_Scene (game thread)
 
         std::atomic<int> s_music_hold{-1}; // Hold_Music's track, -1 none
@@ -129,6 +138,32 @@ namespace antares::native {
             }
             for (int pending = s_clicks.exchange(0); pending > 0; --pending) {
                 ERICNET::Mox_Play_Sound(0x28); // the game's button click (fields.cpp)
+            }
+            std::vector<s_game_sound> sounds;
+            {
+                std::lock_guard<std::mutex> lock(s_game_sound_mutex);
+                sounds.swap(s_game_sounds);
+            }
+            for (const s_game_sound& s : sounds) {
+                if (s.sound >= 0) {
+                    const int handle = ERICNET::Mox_Play_Sound(s.sound);
+                    static bool logged = false;
+                    if (!logged) {
+                        logged = true;
+                        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: first frontend game sound %d (handle %d, tag %d, pitch %d)", (int)s.sound, handle, (int)s.tag, (int)s.value);
+                    }
+                    if (handle != 0 && s.value != 0) {
+                        sound::Pitch_Bend_Sound(handle, s.value);
+                    }
+                    if (s.tag >= 0) {
+                        s_game_sound_tags[s.tag] = handle;
+                    }
+                } else if (const auto it = s_game_sound_tags.find(s.tag); it != s_game_sound_tags.end()) {
+                    if (it->second != 0) {
+                        sound::Fadeout_Sound((int16_t)it->second, (int8_t)s.value);
+                    }
+                    s_game_sound_tags.erase(it);
+                }
             }
             RUSS::Mox_Update();
             SDL_Delay(5);
@@ -1039,6 +1074,20 @@ namespace antares::native {
     void Click_Sound() {
         if (s_clicks < 4) {
             ++s_clicks;
+        }
+    }
+
+    void Play_Game_Sound(int16_t sound, int32_t tag, int32_t pitch) {
+        std::lock_guard<std::mutex> lock(s_game_sound_mutex);
+        if (sound >= 0 && sound < 256 && s_game_sounds.size() < 64) {
+            s_game_sounds.push_back({sound, tag, pitch});
+        }
+    }
+
+    void Fade_Game_Sound(int32_t tag, int32_t ticks) {
+        std::lock_guard<std::mutex> lock(s_game_sound_mutex);
+        if (s_game_sounds.size() < 64) {
+            s_game_sounds.push_back({-1, tag, ticks});
         }
     }
 

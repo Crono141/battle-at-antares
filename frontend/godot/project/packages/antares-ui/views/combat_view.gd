@@ -1716,27 +1716,21 @@ func _volley_strands(effect: Dictionary, ops: Array) -> Array:
 		if String(op.op) != "seg":
 			continue
 		var base := 144 + 16 * int(op.slot)
-		var beam := BeamDraw.new()
-		var a: Vector2i = op.from
-		var b: Vector2i = op.to
-		if op.has("recipe"):
-			var fx: Dictionary = op.recipe
-			beam.draw_beam2(int(fx.style), op.start, op.end, a, b, int(op.frame), base, int(fx.length), int(fx.bonus))
-		elif a != b:
-			var p: Dictionary = op.params
-			match int(p.mode):
-				1:
-					beam.bolt_line(a.x, a.y, b.x, b.y, base, 15, p.jc, p.jr, p.sparkle_phase, p.caps, p.tip, p.full, p.sparkles, p.suppress,
-						p.core_max, p.core_min, p.outer_max, p.outer_min)
-				2:
-					beam.wide_bolt_line(a.x, a.y, b.x, b.y, base, 15, p.jc, p.jr, p.sparkle_phase, p.point_end, p.tip, p.full, p.sparkles,
-						p.core_max, p.core_min, (int(p.outer_max) + int(p.core_max)) / 2, (int(p.outer_min) + int(p.core_min)) / 2,
-						p.outer_max, p.outer_min)
-				_:
-					beam.bolt_line(a.x, a.y, b.x, b.y, base, 15, p.jc, p.jr, p.sparkle_phase, p.caps, p.tip, p.full, p.sparkles, p.suppress,
-						0, 0, maxi(int(p.outer_max), int(p.core_max)), maxi(int(p.outer_min), int(p.core_min)))
+		var beam: BeamDraw = BeamVolley.strands(op)
 		out.append({"beam": beam, "ramp": _volley_ramp(op, effect.fragments), "base": base})
 	return out
+
+
+## A tick's sounds, played by the game (its sound effects and volume; native::Play_Game_Sound).
+func _volley_sounds(ops: Array) -> void:
+	if art == null or art.game == null:
+		return
+	for op: Dictionary in ops:
+		match String(op.op):
+			"sound":
+				art.game.play_game_sound(int(op.id), int(op.get("tag", -1)), int(op.get("pitch", 0)))
+			"fade":
+				art.game.fade_game_sound(int(op.tag), 10)
 
 
 ## The art name of a BEAMS.LBX sprite in the colours of the slot's weapon (sprites.cpp "~").
@@ -1754,6 +1748,9 @@ func _draw_beams() -> void:
 		var ticks: Array = effect.ticks
 		var tick := mini(int(effect.t / BeamVolley.TICK), ticks.size() - 1)
 		if tick != int(effect.tick):
+			# Each tick passed plays its sounds once (a slow frame may pass several).
+			for k in range(int(effect.tick) + 1, tick + 1):
+				_volley_sounds(ticks[k])
 			effect.tick = tick
 			effect.strands = _volley_strands(effect, ticks[tick])
 		for st: Dictionary in effect.strands:

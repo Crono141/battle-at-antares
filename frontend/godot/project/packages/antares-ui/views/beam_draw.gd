@@ -110,7 +110,9 @@ func bolt_segment(x1: int, y1: int, x2: int, y2: int, color_base: int, color_ran
 	if tip_highlight != 0:
 		var fade := 3 / tip_highlight
 		if y2 < y1:
-			for i in 6:
+			# A strand shorter than the tip: the game writes past its end into a scratch buffer that
+			# isn't drawn; here those writes are dropped.
+			for i in mini(6, buf.size() - 1):
 				buf[i + 1] = (buf[i + 1] + fade) & 0xFF
 		elif length > 5:
 			for i in 6:

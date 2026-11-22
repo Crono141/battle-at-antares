@@ -264,6 +264,36 @@ var _shield_status := 0
 var _shield_frame := 0
 var _shield_frames := 10 # Shield_Anims(0, 0)'s frame count (BEAMS.LBX 67); the volley may say
 var _ops: Array = []
+var _fire_sounds := {} # slot * 5 + fire point -> true while its firing sound plays (g_beam_fire_sfx_handle)
+var _shield_sound := false # g_shield_sfx_handle
+const SHIELD_SOUND_TAG := 10
+
+
+## The strands of one "seg" op, as the game draws them (Draw_Generic_Beam's bolt modes for the
+## other weapons, Draw_Beam2's styles for recipe weapons), on a BeamDraw. Palette base 144 + 16 *
+## slot. Compared with the game's own strands by tests/beam_bench_compare.gd.
+static func strands(op: Dictionary) -> RefCounted:
+	var beam = preload("res://packages/antares-ui/views/beam_draw.gd").new()
+	var base := 144 + 16 * int(op.slot)
+	var a: Vector2i = op.from
+	var b: Vector2i = op.to
+	if op.has("recipe"):
+		var fx: Dictionary = op.recipe
+		beam.draw_beam2(int(fx.style), op.start, op.end, a, b, int(op.frame), base, int(fx.length), int(fx.bonus))
+	elif a != b:
+		var p: Dictionary = op.params
+		match int(p.mode):
+			1:
+				beam.bolt_line(a.x, a.y, b.x, b.y, base, 15, p.jc, p.jr, p.sparkle_phase, p.caps, p.tip, p.full, p.sparkles, p.suppress,
+					p.core_max, p.core_min, p.outer_max, p.outer_min)
+			2:
+				beam.wide_bolt_line(a.x, a.y, b.x, b.y, base, 15, p.jc, p.jr, p.sparkle_phase, p.point_end, p.tip, p.full, p.sparkles,
+					p.core_max, p.core_min, (int(p.outer_max) + int(p.core_max)) / 2, (int(p.outer_min) + int(p.core_min)) / 2,
+					p.outer_max, p.outer_min)
+			_:
+				beam.bolt_line(a.x, a.y, b.x, b.y, base, 15, p.jc, p.jr, p.sparkle_phase, p.caps, p.tip, p.full, p.sparkles, p.suppress,
+					0, 0, maxi(int(p.outer_max), int(p.core_max)), maxi(int(p.outer_min), int(p.core_min)))
+	return beam
 
 
 ## Plans `v`: {entries: [{weapon, count, result, special, hits, specials, fire_points: [[dx, dy]]}],
@@ -274,7 +304,8 @@ var _ops: Array = []
 ##   {op: "explosion", at, type, frame, slot}      BEAMS.LBX 65 + slot
 ##   {op: "ball", at}                              the Mauler's ball, BEAMS.LBX 88
 ##   {op: "shield", status, frame, rotation, special, heavy}
-##   {op: "sound", id}
+##   {op: "sound", id, tag, pitch}                 a game sound; `tag` names it for a fade
+##   {op: "fade", tag}                             the tagged sound fades (over 10 ticks)
 func plan(v: Dictionary) -> Array:
 	volley = v
 	_shield_frames = int(v.get("shield_frames", 10))
@@ -302,6 +333,8 @@ func plan(v: Dictionary) -> Array:
 	if int(entries[0].specials) & 0x80 != 0:
 		special_timer[0] = 3
 	_pierced = 0
+	_fire_sounds = {}
+	_shield_sound = false
 	_shield_status = 0
 	_shield_frame = 0
 	_shield_hit_now = 0
@@ -373,6 +406,13 @@ func plan(v: Dictionary) -> Array:
 					heavy = int(entries[current[0]].specials) & 0x100
 				_ops.append({"op": "shield", "status": _shield_status, "frame": _shield_frame, "rotation": _shield_rotation(),
 					"special": 1 if special != 0 else 0, "heavy": heavy})
+				# Draw_Shield_Hit's sound: 38 on the first frame, lower for bigger ships, faded on the last.
+				if _shield_frame == 0 and not _shield_sound:
+					_shield_sound = true
+					_ops.append({"op": "sound", "id": 38, "tag": SHIELD_SOUND_TAG, "pitch": -int(target.get("size", 0)) * 2500})
+				elif _shield_frames - 1 <= _shield_frame and _shield_sound:
+					_shield_sound = false
+					_ops.append({"op": "fade", "tag": SHIELD_SOUND_TAG})
 			for i in 2:
 				var cur: int = current[i]
 				if cur > -1 and _ship_hit_now[i] != 0:
@@ -499,8 +539,15 @@ func _fire_weapon(from: Vector2i, to: Vector2i, e: Dictionary, frame: int, slot:
 	var loops := 3 if int(p.multi) != 0 and attacker_size != -1 else 1
 	for k in loops:
 		_generic_beam(from, to, e, p, fx, frame + k, slot)
+	# The firing sound: on the first frame (and when the fire point's number equals the frame, a
+	# quirk), faded once the ship stops firing or on the last frame.
+	var tag := slot * 5 + fire_point
 	if fire_point == frame or frame == 0:
-		_ops.append({"op": "sound", "id": int(p.sound), "slot": slot})
+		_ops.append({"op": "sound", "id": int(p.sound), "slot": slot, "tag": tag})
+		_fire_sounds[tag] = true
+	elif (_firing_now[slot] == 0 or _max_frames - 1 <= frame) and _fire_sounds.get(tag, false):
+		_ops.append({"op": "fade", "tag": tag})
+		_fire_sounds.erase(tag)
 
 
 ## Draw_Generic_Beam.

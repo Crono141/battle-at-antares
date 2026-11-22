@@ -227,6 +227,13 @@ namespace antares::native {
     // A native button was pressed: the game's click sound, played by the game thread while a
     // native screen runs or a request waits (any thread).
     void Click_Sound();
+    // WP3.9 stage 1: a game sound the frontend plays (a native battle's beams), by the game thread
+    // as the click. `tag` >= 0 names it for a later Fade_Game_Sound; `pitch` bends it
+    // (sound::Pitch_Bend_Sound; 0 none). Any thread.
+    void Play_Game_Sound(int16_t sound, int32_t tag, int32_t pitch);
+    // Fades the sound played with `tag` over `ticks` (sound::Fadeout_Sound), as the game fades a
+    // beam's firing sound when it stops.
+    void Fade_Game_Sound(int32_t tag, int32_t ticks);
     // A leader's card as JSON (name, title, level, type, portrait, skills), for popups' fields.
     std::string Leader_Json(int16_t leader, int16_t owner);
     /** The `system` query's answer for `star` (planets, orbits, fleets) as JSON, for the popups that

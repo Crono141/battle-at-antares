@@ -52,6 +52,8 @@ namespace godot {
         // The legacy screen's picture is shown: the sounds it started play (native::Release_Sounds).
         void release_sounds();
         void click_sound();
+        void play_game_sound(int64_t sound, int64_t tag, int64_t pitch);
+        void fade_game_sound(int64_t tag, int64_t ticks);
         void send_key(int64_t godot_keycode, bool shift, bool alt, bool ctrl);
         // Asks the game to exit as its own quit does (game_exited follows).
         void request_game_quit();

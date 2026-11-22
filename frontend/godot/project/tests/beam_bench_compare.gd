@@ -119,7 +119,7 @@ func _compare(c: Dictionary) -> Array:
 	# The game's ticks, as comparable lists.
 	var game: Array = []
 	for t in int(c.get("ticks", 0)):
-		game.append({"seg": [], "burst": [], "explosion": [], "shield": [], "sound": [], "ramp": []})
+		game.append({"seg": [], "burst": [], "explosion": [], "shield": [], "sound": [], "ramp": [], "strand": []})
 	for l: Dictionary in lines:
 		var t := int(l.t)
 		if t < 0 or t >= game.size():
@@ -135,17 +135,25 @@ func _compare(c: Dictionary) -> Array:
 			g.shield.append("st%d f%d r%d sp%d h%d" % [int(l.status), int(l.frame), int(l.rotation), int(l.special), int(l.heavy)])
 		elif l.has("sound") and int(l.sound) != 38 and int(l.sound) != 42:
 			g.sound.append(int(l.sound))
+		elif l.has("strand"):
+			g.strand.append([int(l.strand[0]), int(l.strand[1]), int(l.strand[2]), int(l.strand[3]), (l.colors as Array).size()])
 		elif l.has("beam2"):
 			g.ramp.append(str((l.ramp as Array).map(func(c): return [int(c[0]), int(c[1]), int(c[2])])))
 	var mine: Array = []
 	for ops: Array in ticks:
-		var m := {"seg": [], "burst": [], "explosion": [], "shield": [], "sound": [], "ramp": []}
+		var m := {"seg": [], "burst": [], "explosion": [], "shield": [], "sound": [], "ramp": [], "strand": [], "arc": false}
 		for op: Dictionary in ops:
 			match String(op.op):
 				"seg":
 					m.seg.append("s%d f%d max%d hit%d %d,%d-%d,%d" % [op.slot, op.frame, op.max, op.hit, op.from.x, op.from.y, op.to.x, op.to.y])
 					if op.has("recipe"):
 						m.ramp.append(str(BeamVolley.recipe_ramp(op.recipe)))
+						if int(op.recipe.style) == 2:
+							m.arc = true # aimed at a random point near the target
+					for st: Dictionary in BeamVolley.strands(op).strands:
+						var sa: Vector2i = st.a
+						var sb: Vector2i = st.b
+						m.strand.append([sa.x, sa.y, sb.x, sb.y, (st.colors as PackedInt32Array).size()])
 				"burst":
 					m.burst.append("b%d %d,%d d%d v%d f%d" % [op.slot, op.at.x, op.at.y, op.dir, op.variant, op.frame])
 				"explosion":
@@ -153,7 +161,8 @@ func _compare(c: Dictionary) -> Array:
 				"shield":
 					m.shield.append("st%d f%d r%d sp%d h%d" % [op.status, op.frame, op.rotation, op.special, op.heavy])
 				"sound":
-					m.sound.append(int(op.id))
+					if int(op.id) != 38: # the shield's sound: the trace leaves it out too
+						m.sound.append(int(op.id))
 		mine.append(m)
 
 	var problems: Array = []
@@ -170,8 +179,8 @@ func _compare(c: Dictionary) -> Array:
 	if last_game != last_mine:
 		problems.append("drawing ends on tick %d, game %d" % [last_mine, last_game])
 	for t in maxi(last_game, last_mine) + 1:
-		var g: Dictionary = game[t] if t < game.size() else {"seg": [], "burst": [], "explosion": [], "shield": [], "sound": [], "ramp": []}
-		var m: Dictionary = mine[t] if t < mine.size() else {"seg": [], "burst": [], "explosion": [], "shield": [], "sound": [], "ramp": []}
+		var g: Dictionary = game[t] if t < game.size() else {"seg": [], "burst": [], "explosion": [], "shield": [], "sound": [], "ramp": [], "strand": []}
+		var m: Dictionary = mine[t] if t < mine.size() else {"seg": [], "burst": [], "explosion": [], "shield": [], "sound": [], "ramp": [], "strand": []}
 		for kind in ["seg", "burst", "explosion", "shield", "sound", "ramp"]:
 			var a: Array = g[kind].duplicate()
 			var b: Array = m[kind].duplicate()
@@ -183,7 +192,35 @@ func _compare(c: Dictionary) -> Array:
 				b = _unique(b)
 			if a != b:
 				problems.append("t%d %s: game %s, port %s" % [t, kind, str(a).left(160), str(b).left(160)])
+		var gs: Array = g.strand.duplicate()
+		var ms: Array = m.get("strand", []).duplicate()
+		gs.sort()
+		ms.sort()
+		if not _strands_match(gs, ms, bool(m.get("arc", false))):
+			problems.append("t%d strands: game %d %s, port %d %s" % [t, gs.size(), str(gs).left(200), ms.size(), str(ms).left(200)])
 	return problems
+
+
+## Strands [x1, y1, x2, y2, colours]: the same set; with an arc (Draw_Beam2 style 2, aimed at the
+## target plus a random -3..1 each way, then the side strands one pixel off) the ends may differ by
+## up to 5 and the length with them.
+func _strands_match(game: Array, port: Array, arc: bool) -> bool:
+	if game == port:
+		return true
+	if not arc or game.size() != port.size():
+		return false
+	var left := port.duplicate()
+	for g: Array in game:
+		var found := -1
+		for k in left.size():
+			var p: Array = left[k]
+			if p[0] == g[0] and p[1] == g[1] and absi(int(p[2]) - int(g[2])) <= 5 and absi(int(p[3]) - int(g[3])) <= 5:
+				found = k
+				break
+		if found < 0:
+			return false
+		left.remove_at(found)
+	return true
 
 
 func _unique(a: Array) -> Array:
