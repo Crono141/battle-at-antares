@@ -276,18 +276,76 @@ namespace antares::sprites {
             }
             lbx.erase(tilde);
         }
-        // "LBX!shield": glass pixels kept as the combat shield's glass (COMBINIT: level L tints
-        // toward (2L+13, 2L+30, 63) six-bit by 20+3L percent), for the frontend's shield hits.
+        // "LBX!shield" or "LBX!glass=NAME": glass pixels kept as one of the combat's glass tables
+        // (COMBINIT, combinit.cpp:745-860: level L tints toward a colour by a strength), as colour
+        // and alpha for the frontend to blend: shield (also the stasis bubble), pulsar, warp,
+        // tractor, bhg, web, stellar.
         uint32_t glass_argb[16] = {};
         bool glass = false;
-        if (const size_t bang = lbx.find("!shield"); bang != std::string::npos) {
-            glass = true;
-            for (int32_t level = 1; level < 16; ++level) {
-                const uint32_t r = (uint32_t)(2 * level + 13) * 255 / 63, g = (uint32_t)(2 * level + 30) * 255 / 63, b = 255;
-                const uint32_t a = (uint32_t)(20 + 3 * level) * 255 / 100;
-                glass_argb[level] = (a << 24) | (r << 16) | (g << 8) | b;
+        {
+            std::string table;
+            if (const size_t bang = lbx.find("!shield"); bang != std::string::npos) {
+                table = "shield";
+                lbx.erase(bang, 7);
+            } else if (const size_t g = lbx.find("!glass="); g != std::string::npos) {
+                size_t end = g + 7;
+                while (end < lbx.size() && lbx[end] != '~' && lbx[end] != ':' && lbx[end] != '@' && lbx[end] != '!') {
+                    ++end;
+                }
+                table = lbx.substr(g + 7, end - g - 7);
+                lbx.erase(g, end - g);
             }
-            lbx.erase(bang, 7);
+            if (!table.empty()) {
+                glass = true;
+                // A palette as the table was built under: the current one, under an entry's own.
+                auto palette_of = [](const char* source_lbx, int32_t source_entry, uint32_t out[256]) {
+                    std::vector<uint64_t> bytes;
+                    size_t size = 0;
+                    if (source_lbx != nullptr && Read_Entry(source_lbx, source_entry, &bytes, &size)) {
+                        Palette_For(reinterpret_cast<const uint8_t*>(bytes.data()), size, out);
+                    } else {
+                        for (int i = 0; i < 256; ++i) {
+                            const auto& c = video::current_palette[i];
+                            out[i] = ((uint32_t)(c.r & 0x3F) << 18) | ((uint32_t)(c.g & 0x3F) << 10) | ((uint32_t)(c.b & 0x3F) << 2);
+                        }
+                    }
+                };
+                uint32_t pal[256] = {};
+                if (table == "pulsar") {
+                    palette_of("CMBTSFX.LBX", 52, pal);
+                } else if (table == "warp") {
+                    palette_of("SPHERSFX.LBX", 0, pal);
+                } else if (table == "bhg") {
+                    palette_of("CMBTSFX.LBX", 46, pal);
+                } else if (table == "stellar") {
+                    palette_of("CMBTSFX.LBX", 40, pal);
+                } else {
+                    palette_of(nullptr, 0, pal);
+                }
+                for (int32_t level = 1; level < 16; ++level) {
+                    uint32_t rgb = 0;
+                    int32_t pct = 20 + 3 * level;
+                    if (table == "pulsar" || table == "warp") {
+                        rgb = pal[144 + level];
+                        pct = 50 + 3 * level;
+                    } else if (table == "tractor") {
+                        rgb = pal[80 + level / 2];
+                    } else if (table == "bhg") {
+                        rgb = pal[144 + level];
+                        pct = 60 + 2 * level;
+                    } else if (table == "web") {
+                        rgb = pal[176 + level];
+                        pct = SDL_min((3 * level + 15) * 2, 100);
+                    } else if (table == "stellar") {
+                        rgb = pal[SDL_min(144 + 2 * level, 255)];
+                        pct = 50 + 3 * level;
+                    } else { // shield, stasis
+                        rgb = ((uint32_t)(2 * level + 13) * 255 / 63) << 16 | ((uint32_t)(2 * level + 30) * 255 / 63) << 8 | 255u;
+                    }
+                    const uint32_t a = (uint32_t)SDL_clamp(pct, 0, 100) * 255 / 100;
+                    glass_argb[level] = (a << 24) | (rgb & 0xFFFFFF);
+                }
+            }
         }
         // "LBX:N": HD art at most N times the 1x size (the scene windows' full-screen
         // animations: 30-odd frames at 4x are 600 MB and more as textures).
@@ -413,6 +471,15 @@ namespace antares::sprites {
         } else {
             // Other art its own, if declared.
             Declared_Palette_Rgb(lbx, entry, palette_rgb);
+            // A combat effect with its own palette (the stasis beam, lightning, the retreat portal:
+            // Draw_Palette before drawing) is drawn under it.
+            std::string upper_lbx = lbx;
+            for (char& ch : upper_lbx) {
+                ch = (char)toupper((unsigned char)ch);
+            }
+            if (upper_lbx == "CMBTSFX.LBX" || upper_lbx == "SPHERSFX.LBX") {
+                Apply_Embedded_Palette(bytes, size, palette_rgb);
+            }
         }
         if (palette_entry >= 0) {
             std::vector<uint64_t> own_palette;
@@ -438,7 +505,14 @@ namespace antares::sprites {
         render::Register_Load(bytes, (int32_t)size, lbx.c_str(), entry);
         std::vector<render::s_exported_frame> art;
         // Ships' markings follow their colour set's palette (the masks say which pixels).
-        const bool shade_masks = lbx == "SHIPS.LBX" || !overrides.empty();
+        // Combat effects (CMBTSFX, SPHERSFX) too: their masked pixels take the palette the effect is
+        // drawn under (its own, over the combat's), as the game draws them; under the pack's
+        // palette the stasis beam, compressor, lightning and portal came out nearly black.
+        std::string upper = lbx;
+        for (char& ch : upper) {
+            ch = (char)toupper((unsigned char)ch);
+        }
+        const bool shade_masks = upper == "SHIPS.LBX" || upper == "CMBTSFX.LBX" || upper == "SPHERSFX.LBX" || !overrides.empty();
         bool still_decoding = false;
         // "LBX:1": the original pixels, not the pack's art (the colony landing's pods, whose HD
         // frames have the smear baked in).

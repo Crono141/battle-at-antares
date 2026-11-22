@@ -183,6 +183,14 @@ namespace antares::combat {
             }
             item.Int("marines", ship.marine_count);
             item.Int("crew", ship.crew_quality);
+            // Lasting looks (CMBTDRW1::Draw_Ship, Full_Draw_Combat_Screen): webbed, in a black hole
+            // (its vortex's second half when black_hole_flag != 1), an absorber's charge, the ship a
+            // tractor holds (combat graphics, owner 2026-11-22).
+            item.Bool("webbed", ship.plasma_web_damage > 0);
+            item.Bool("black_hole", CMBTMOV1::Ship_In_Black_Hole(i));
+            item.Int("black_hole_flag", ship.black_hole_flag);
+            item.Bool("absorbing", ship.reflected_damage_pool > 0);
+            item.Int("tractor", ship.special_cooldown == COMBAT_SHIP_NONE ? -1 : (int)ship.special_cooldown);
 
             // The Scan view's facts (CMBTDRW1::Combat_Draw_View_Ship): parts, combat values, crew,
             // officer, specials (owner 2026-11-21: Scan in the order ring, as the original's).
@@ -348,6 +356,51 @@ namespace antares::combat {
             item.Int("y", missile.y);
             item.Int("count", missile.quantity);
             item.Int("facing", missile.facing_dir);
+            // The stack's pictures as the original lays them out (CMBTMIS::Draw_Missile and
+            // Draw_Fighter, their x/y quirk included): art entry and each picture's top-left from
+            // the stack's point (combat graphics, owner 2026-11-22).
+            const bool fighter = TECHDATA::weapons[missile.type].type == WEAPON_TYPE_FIGHTER;
+            const int16_t type_idx = CMBTMIS::Missile_Type(m);
+            const int16_t owner = CMBTMIS::Missile_Owner(m);
+            const int16_t facing = (int16_t)(uint8_t)missile.facing_dir;
+            int16_t xs[10] = {}, ys[10] = {};
+            int16_t pictures = 0, corner = 12;
+            if (fighter) {
+                pictures = (int16_t)SDL_clamp(missile.quantity / 4, 1, 9);
+                CMBTMIS::Get_Multiple_Missile_Coords(m, pictures, xs, ys);
+                item.Str("lbx", "CMBTFGTR.LBX");
+                item.Int("entry", owner < MAX_PLAYERS ? type_idx * 16 + facing : 64 + (type_idx * 16 + facing) % 16);
+                item.Bool("fighter", true);
+                item.Str("side", owner == MOX::combat_attacker_player ? "attacker" : "defender");
+                item.Bool("monster", owner >= MAX_PLAYERS);
+            } else {
+                pictures = CMBTMIS::Picture_Count(m);
+                if (TECHDATA::weapons[missile.type].type != WEAPON_TYPE_MISSILE && missile.type != WEAPON_ANTI_MATTER_TORP) {
+                    CMBTMIS::Get_Multiple_Torpedo_Coords(m, pictures, ys, xs);
+                    corner = 23;
+                } else {
+                    CMBTMIS::Get_Multiple_Missile_Coords(m, pictures, ys, xs);
+                }
+                item.Str("lbx", "CMBTMISL.LBX");
+                item.Int("entry", type_idx * 16 + facing);
+            }
+            s_out list = item.Add_List("pictures");
+            for (int16_t p = 0; p < SDL_min(pictures, (int16_t)10); ++p) {
+                s_out at = list.Append_List();
+                at.Append_Int(xs[p] - corner);
+                at.Append_Int(ys[p] - corner);
+            }
+        }
+
+        // The sides' ship colours (palette 0x20-0x2F attacker, 0x60-0x6F defender, 8-bit): fighters
+        // take them for their own 0x50-0x5F (COMBINIT's Replace_Color_Range).
+        s_out sides = out.Add_Object("side_colors");
+        for (int k = 0; k < 2; ++k) {
+            s_out list = sides.Add_List(k == 0 ? "attacker" : "defender");
+            for (int i = 0; i < 16; ++i) {
+                const auto& c = video::current_palette[(k == 0 ? 0x20 : 0x60) + i];
+                list.Append_Int(((c.r * 255 / 63) << 16) | ((c.g * 255 / 63) << 8) | (c.b * 255 / 63));
+            }
         }
 
         char* text = yyjson_mut_write(doc, 0, nullptr);

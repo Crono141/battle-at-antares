@@ -7342,6 +7342,10 @@ func _smoke_combat(shots: String) -> bool:
 			view._cam_goal = Vector2.INF
 			await get_tree().process_frame
 			await get_tree().process_frame
+			# Combat graphics gallery (owner 2026-11-22): each special between our ship and the nearest
+			# enemy, frozen at a telling moment; then the lasting looks on the enemy.
+			if "--gallery" in OS.get_cmdline_user_args() and shots != "":
+				await _smoke_effects_gallery(view, int(ship.i), enemy, shots)
 		# As a player does it: the pointer onto the square, then a left click (real input events).
 		var square := Vector2i(best / 1000, best % 1000)
 		var at: Vector2 = view._to_screen(view._square_center(square, ship))
@@ -7380,6 +7384,17 @@ func _smoke_combat(shots: String) -> bool:
 	while view.visible and waited < 180.0:
 		await get_tree().create_timer(0.05).timeout
 		waited += 0.05
+		# Combat graphics: the first missile stack and the first fighter stack in flight, close up.
+		for flyer: Dictionary in view.state.get("missiles", []):
+			var flyer_kind := "fighters" if bool(flyer.get("fighter", false)) else "missiles"
+			if shots != "" and not shot_kinds.has(flyer_kind):
+				shot_kinds[flyer_kind] = true
+				var keep_zoom: float = view._zoom
+				view._cam = Vector2(float(flyer.get("x", 0)), float(flyer.get("y", 0)))
+				view._zoom = 3.0
+				await get_tree().create_timer(0.3).timeout
+				await host.shot(shots + "/combat-%s.png" % flyer_kind)
+				view._zoom = keep_zoom
 		# WP3.9c: the first volley and the first explosion on screen, the camera on them.
 		for effect: Dictionary in view._effects:
 			var kind := String(effect.kind)
@@ -8228,4 +8243,85 @@ func _smoke_volley_ticks(view: Control, effect: Dictionary, shots: String) -> vo
 		print("smoke: volley tick %d (%s): %s" % [t, name, ", ".join(ops.map(func(op): return String(op.op)))])
 	view._zoom = keep_zoom
 	view.smoke_hold = false
+
+
+func _smoke_effects_gallery(view: Control, mine: int, enemy: int, shots: String) -> void:
+	var keep_zoom: float = view._zoom
+	var keep_cam: Vector2 = view._cam
+	var a: Vector2 = view._ships[mine].shown
+	var b: Vector2 = view._ships[enemy].shown
+	view._cam = (a + b) / 2.0
+	view._zoom = clampf(minf(view.size.x * 0.6 / maxf(absf(b.x - a.x), 1.0), 2.4), 0.6, 2.4)
+	var cases := [
+		[{"kind": "stellar", "from": mine, "to": enemy}, 1.4],
+		[{"kind": "stasis", "from": mine, "to": enemy}, 0.4],
+		[{"kind": "stasis", "from": mine, "to": enemy}, 1.25],
+		[{"kind": "tractor", "from": mine, "to": enemy}, 0.3],
+		[{"kind": "plasma_web", "from": mine, "to": enemy}, 0.5],
+		[{"kind": "black_hole", "from": mine, "to": enemy}, 0.3],
+		[{"kind": "gyro", "from": mine, "to": enemy}, 0.3],
+		[{"kind": "blast", "ship": enemy, "type": 1}, 0.3],
+		[{"kind": "blast", "ship": enemy, "type": 2}, 0.3],
+		[{"kind": "blast", "ship": enemy, "type": 3}, 0.3],
+		[{"kind": "blast", "ship": enemy, "type": 4}, 0.5],
+		[{"kind": "lightning", "ship": enemy}, 0.3],
+		[{"kind": "retreat", "ship": enemy}, 0.6],
+		[{"kind": "cloak", "ship": enemy, "kind_": 1}, 0.9],
+	]
+	view.smoke_hold = true
+	var n := 0
+	for c: Array in cases:
+		var event: Dictionary = c[0].duplicate()
+		if event.has("kind_"):
+			event["kind"] = "cloak"
+		view._effects.clear()
+		var life: float = view._play_special(event)
+		var effect: Dictionary = view._effects.back() if not view._effects.is_empty() else {}
+		# The art first (each sprite a new export).
+		for i in 40:
+			var ready := true
+			for part: Dictionary in effect.get("parts", []):
+				if part.has("name") and view.art.sprite(String(part.name), int(part.entry)).is_empty():
+					ready = false
+			if ready:
+				break
+			await get_tree().create_timer(0.1).timeout
+		if not effect.is_empty():
+			effect.t = minf(float(c[1]), life * 0.95)
+		for i in 3:
+			await get_tree().process_frame
+		await host.shot(shots + "/gallery-%02d-%s%s.png" % [n, String(event.kind), ("-%d" % int(event.get("type", 0))) if event.has("type") else ""])
+		n += 1
+	view._effects.clear()
+	# The lasting looks, set on the enemy in the shown state.
+	for look in ["stasis", "webbed", "black_hole", "absorbing", "tractor"]:
+		var st: Dictionary = view.state
+		var ship: Dictionary = view._ship(enemy)
+		var keep := ship.duplicate()
+		if look == "tractor":
+			view._ship(mine)["tractor"] = enemy
+		else:
+			ship[look] = true
+		for part in [["stasis", "cmbtsfx.lbx!shield"], ["webbed", "cmbtsfx.lbx!glass=web"], ["black_hole", "cmbtsfx.lbx!glass=bhg"]]:
+			pass
+		for i in 20:
+			await get_tree().create_timer(0.1).timeout
+		await host.shot(shots + "/gallery-%02d-lasting-%s.png" % [n, look])
+		n += 1
+		for k in ship.keys():
+			if not keep.has(k):
+				ship.erase(k)
+		for k in keep.keys():
+			ship[k] = keep[k]
+		view._ship(mine).erase("tractor")
+	view.smoke_hold = false
+	view._zoom = keep_zoom
+	view._zoom_goal = -1.0
+	view._cam = keep_cam
+	view._cam_goal = Vector2.INF
+	view._frame = {}
+	for i in 4:
+		await get_tree().process_frame
+	view._place_world()
+	print("smoke: effects gallery: %d shots" % n)
 

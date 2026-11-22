@@ -324,23 +324,14 @@ func on_animate(id: int, request: Dictionary) -> void:
 					dur = play_event(event)
 			"destroyed":
 				dur = 1.0 # the explosion (from the state's change, _diff_effects)
-			"teleport":
-				dur = 0.25
-			# WP3.9d-2: placeholders until each effect gets its own art (stages 3.9g-3.9i): a
-			# coloured line from shooter to target, the game's explosion, or a short hold.
-			"stasis", "tractor", "plasma_web", "stellar", "black_hole", "absorber", "fighters", "bombs":
-				dur = _placeholder_line(event)
-			"gyro":
-				dur = float(event.get("steps", 8)) * TURN_STEP_TIME * 0.5
-			"blast":
-				var at := _effect_point(index if index >= 0 else int(event.get("ship", -1)), Vector2(float(event.get("x", 0)), float(event.get("y", 0))))
-				_effects.append({"kind": "explosion", "t": 0.0, "life": 1.1, "at": at, "entry": 5})
-				dur = 1.1
-			"retreat":
-				dur = 0.6
+			# The specials as the original draws them (combat graphics, owner 2026-11-22).
+			"stasis", "tractor", "plasma_web", "stellar", "black_hole", "fighters", "bombs", "gyro", "blast", "retreat", "lightning", "anti_missile", "missile_kill", "teleport", "cloak":
+				dur = _play_special(event) # combat graphics (owner 2026-11-22), combat-effects-legacy.md
+			"absorber":
+				dur = 0.0 # drawn as its beam volley (weapon 46, the beam event before it)
 			"missiles_step":
 				dur = 0.055 # one legacy frame: the missiles' positions are in the state
-			"cloak", "lightning", "anti_missile", "missile_kill", "missile_launch", "missile_arrive", "damage":
+			"missile_launch", "missile_arrive", "damage":
 				dur = 0.25
 			_:
 				dur = 0.0
@@ -661,6 +652,14 @@ func _process(delta: float) -> void:
 		e.angle = lerp_angle(e.angle, goal_angle, minf(1.0, delta * 14.0))
 		e.sprite.position = e.shown
 		e.sprite.rotation = e.angle
+		var look := _ship_effect_look(index)
+		var ship_now := _ship(index)
+		var status := int(ship_now.get("special_status", 0))
+		if status == 1 or status == 5: # cloaked: dark, shimmering (Plasma_Darken mode 3)
+			look = look * Color(0.4, 0.4, 0.5, 0.6 + 0.1 * sin(_anim_clock * 6.0 + index))
+		elif status == 4: # phased out: own ships faint, others unseen
+			look.a *= 0.25 if _mine(ship_now) else 0.0
+		e.sprite.self_modulate = look
 	if _cam_goal != Vector2.INF:
 		_cam = _cam.lerp(_cam_goal, minf(1.0, delta * (9.0 if _cam_hold > 0.0 else 6.0)))
 		if _cam.distance_to(_cam_goal) * _zoom < 1.5:
@@ -901,10 +900,14 @@ func _draw_marks() -> void:
 				_marks.draw_set_transform(to, end_angle, e.sprite.scale)
 				_marks.draw_texture(tex, e.sprite.offset + Vector2(e.get("pad", 0.0), e.get("pad", 0.0)), Color(1, 1, 1, 0.35))
 				_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# Missiles and fighters in flight (WP3.9c animates them): a marker in the owner's colour with the count.
+	# Missiles, torpedoes and fighters in flight: the original's pictures (CMBTMISL / CMBTFGTR by
+	# type and facing, laid out as CMBTMIS::Draw_Missile does; fighters in their side's colours),
+	# a stack without its art yet as a marker in the owner's colour.
 	var font := get_theme_default_font()
 	for missile: Dictionary in state.get("missiles", []):
 		var at := Vector2(float(missile.get("x", 0)), float(missile.get("y", 0)))
+		if _draw_flyer(missile, at):
+			continue
 		var owner_color := MONSTER_COLOR
 		for ship: Dictionary in _ships_list():
 			if int(ship.get("owner", -1)) == int(missile.get("owner", -2)):
@@ -914,15 +917,36 @@ func _draw_marks() -> void:
 		var tip := at + Vector2(cos(heading), sin(heading)) * 7.0 * width * 1.5
 		_marks.draw_line(at, tip, owner_color, 2.0 * width)
 		_marks.draw_circle(at, 3.0 * width * 1.5, owner_color)
-		var count := int(missile.get("count", 1))
-		if count > 1:
-			_marks.draw_set_transform(at + Vector2(6, -6) * width, 0.0, Vector2.ONE / _zoom)
-			_marks.draw_string(font, Vector2.ZERO, str(count), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, owner_color)
-			_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_draw_lasting()
 	_draw_effects(width)
 	# The order ring.
 	if _menu_ship >= 0 and _ships.has(_menu_ship):
 		_draw_menu(_ships[_menu_ship].shown, width)
+
+
+## A flying stack's pictures (false while its art is on its way).
+func _draw_flyer(missile: Dictionary, at: Vector2) -> bool:
+	if not missile.has("lbx"):
+		return false
+	var name := String(missile.lbx).to_lower()
+	if bool(missile.get("fighter", false)) and not bool(missile.get("monster", false)):
+		var colors: Array = (state.get("side_colors", {}) as Dictionary).get(String(missile.get("side", "attacker")), [])
+		if colors.size() == 16:
+			var hex := PackedStringArray()
+			for c in colors:
+				hex.append("%06x" % int(c))
+			name += "~80=" + ".".join(hex) # COMBINIT: the fighters' 0x50-0x5F take the side's colours
+	var entry := int(missile.get("entry", 0))
+	var s: Dictionary = art.sprite(name, entry)
+	if s.is_empty():
+		return false
+	var frames: int = s.frames.size()
+	var pictures: Array = missile.get("pictures", [])
+	for n in pictures.size():
+		var p: Array = pictures[n]
+		var frame := (_anim_frame + n + int(missile.get("i", 0))) % maxi(frames, 1)
+		art.draw(_marks, name, entry, frame, at + Vector2(float(p[0]), float(p[1])), 1.0)
+	return true
 
 
 func _radius(index: int) -> float:
@@ -2518,6 +2542,351 @@ func _show_scan(index: int) -> void:
 		tween.tween_property(self, "_scan_anim", 1.0, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
+# ---- Combat graphics: the specials (owner 2026-11-22; notes/antares/combat-effects-legacy.md) ----
+
+const TICK_S := 0.055 # Release_Time(1)
+const SYNC_S := 0.033 # loops paced only by page flips: about two frames at 60 Hz
+const SFX := "cmbtsfx.lbx"
+
+
+## A ship's centre on the field (as shown).
+func _centre(index: int) -> Vector2:
+	if _ships.has(index):
+		return _ships[index].shown
+	return _center(_ship(index))
+
+
+func _sound(id: int) -> void:
+	if game != null and id >= 0:
+		game.play_game_sound(id, -1, 0)
+
+
+## The stasis ball's entry and flip for a ship (CMBTSPEC::Draw_Stasis_Ball): by size and the folded
+## facing.
+func _stasis_ball(index: int) -> Array:
+	var ship := _ship(index)
+	var size := int(ship.get("size", 0))
+	var f := int(ship.get("facing", 0)) % 16
+	var d := f
+	var flip := Vector2.ONE
+	if f >= 5 and f <= 8:
+		d = 8 - f
+		flip = Vector2(-1, 1)
+	elif f >= 9 and f <= 12:
+		d = f - 8
+	elif f >= 13:
+		d = 16 - f
+		flip = Vector2(1, -1)
+	var base := 53 if size == 0 else (58 if size <= 2 else (63 if size == 3 else 9))
+	return [base + d, flip]
+
+
+## The plasma web's entry and flip (CMBTSPEC::Draw_Plasma_Web).
+func _web_sprite(index: int) -> Array:
+	var ship := _ship(index)
+	var size := int(ship.get("size", 0))
+	var facing := int(ship.get("facing", 0)) % 16
+	var sub := 4 if facing == 4 or facing == 12 else facing % 4
+	var even := ((facing / 4) & 1) == 0
+	var entry: int
+	if size == 0:
+		entry = 31 + sub if even else 35 - sub
+	elif size <= 2:
+		entry = 26 + sub if even else 30 - sub
+	elif size == 3:
+		entry = 21 + sub if even else 25 - sub
+	else:
+		entry = 21 + sub if even else 20 - sub
+	var flip := Vector2(-1, 1) if facing / 4 == 1 else (Vector2(1, -1) if facing / 4 == 3 else Vector2.ONE)
+	return [entry, flip]
+
+
+## Plays a special as the original draws it; returns how long the rules wait.
+func _play_special(event: Dictionary) -> float:
+	var kind := String(event.get("kind", ""))
+	var from := int(event.get("from", -1))
+	var to := int(event.get("to", -1))
+	var parts: Array = []
+	var life := 0.0
+	match kind:
+		"stellar": # beam CMBTSFX 40 18 frames x 110 ms; impact 41 (glass) from beam frame 9
+			parts.append({"type": "strip", "name": SFX, "entry": 40, "from": _centre(from), "to": _centre(to), "start": 0.0, "frame_time": 2 * TICK_S, "frames": 18})
+			parts.append({"type": "anim", "name": SFX + "!glass=stellar", "entry": 41, "at": _centre(to), "start": 9 * 2 * TICK_S, "frame_time": 2 * TICK_S, "frames": 9})
+			life = 18 * 2 * TICK_S
+			_sound(20)
+		"stasis": # beam CMBTSFX 1, 7 frames x 110 ms; then the ball grows over 10 x 55 ms
+			parts.append({"type": "strip", "name": SFX, "entry": 1, "from": _centre(from), "to": _centre(to), "start": 0.0, "frame_time": 2 * TICK_S, "frames": 7})
+			var ball: Array = _stasis_ball(to)
+			parts.append({"type": "anim", "name": SFX + "!shield", "entry": ball[0], "flip": ball[1], "at": _centre(to), "start": 7 * 2 * TICK_S,
+				"frame_time": 10 * TICK_S, "frames": 1, "grow": 10 * TICK_S})
+			life = 7 * 2 * TICK_S + 10 * TICK_S
+			_sound(10)
+		"tractor": # CMBTSFX 2 frames 0-6 x 55 ms (then held, frame 6, as a lasting look)
+			parts.append({"type": "strip", "name": SFX, "entry": 2, "from": _centre(from), "to": _centre(to), "start": 0.0, "frame_time": TICK_S, "frames": 7})
+			life = 8 * TICK_S
+		"plasma_web": # a ball (CMBTSFX 14) flies 6 px a frame, then the impact by size (glass)
+			var a := _centre(from)
+			var b := _centre(to)
+			var fly := a.distance_to(b) / 6.0 * SYNC_S
+			parts.append({"type": "proj", "name": SFX, "entry": 14, "from": a, "to": b, "start": 0.0, "dur": fly, "frame_time": SYNC_S, "frames": 12})
+			var size := int(_ship(to).get("size", 0))
+			var impact := 36 if size == 0 else (37 if size <= 2 else (38 if size == 3 else 39))
+			parts.append({"type": "anim", "name": SFX + "!glass=web", "entry": impact, "at": b, "start": fly, "frame_time": SYNC_S, "frames": 20})
+			life = fly + 20 * SYNC_S
+			_sound(0x1B)
+		"black_hole": # CMBTSFX 47 frame i%3, 12 x 55 ms, the target end raised 8 px
+			parts.append({"type": "strip", "name": SFX, "entry": 47, "from": _centre(from), "to": _centre(to) - Vector2(0, 8), "start": 0.0,
+				"frame_time": TICK_S, "frames": 3, "loop": true})
+			life = 12 * TICK_S
+			_sound(10)
+		"gyro": # CMBTSFX 8: frames 0-7 x 55 ms, then 8 x 110 ms cycling 5-7 while the target spins
+			parts.append({"type": "strip", "name": SFX, "entry": 8, "from": _centre(from), "to": _centre(to), "start": 0.0, "frame_time": TICK_S, "frames": 8})
+			parts.append({"type": "strip", "name": SFX, "entry": 8, "from": _centre(from), "to": _centre(to), "start": 8 * TICK_S, "frame_time": 2 * TICK_S,
+				"frames": 3, "first": 5, "loop": true, "until": 8 * TICK_S + 16 * TICK_S})
+			life = 8 * TICK_S + 16 * TICK_S
+			_sound(11)
+		"blast": # Do_Spherical_SFX: 0 flux, 1 pulsar (CMBTSFX 52 glass), 2 compressor (6), 3 drive (SPHERSFX 0), 4 quantum (1)
+			var type := int(event.get("type", 1))
+			var at := _centre(int(event.get("ship", -1)))
+			var name := SFX + "!glass=pulsar"
+			var entry := 52
+			var frames := 11
+			match type:
+				2:
+					name = SFX
+					entry = 6
+					frames = 12
+				3:
+					name = "sphersfx.lbx!glass=warp"
+					entry = 0
+					frames = 12
+				4:
+					name = "sphersfx.lbx!glass=warp"
+					entry = 1
+					frames = 23
+			parts.append({"type": "anim", "name": name, "entry": entry, "at": at, "start": 0.0, "frame_time": TICK_S, "frames": frames + 1})
+			life = (frames + 1) * TICK_S
+			_sound(0x14 if type <= 2 else (0x2F if type == 3 else 0x19))
+		"lightning": # CMBTSFX 0 on the defending ship, 15 x 55 ms
+			parts.append({"type": "anim", "name": SFX, "entry": 0, "at": _centre(int(event.get("ship", -1))), "start": 0.0, "frame_time": TICK_S,
+				"frames": 7, "loop": true, "until": 15 * TICK_S})
+			life = 15 * TICK_S
+			_sound(4)
+		"anti_missile": # a rocket from the ship to the stack, 20 px a frame x 55 ms
+			var a := _centre(int(event.get("ship", -1)))
+			var b := _stack_point(int(event.get("stack", -1)), a)
+			var fly := maxf(a.distance_to(b) / 20.0, 1.0) * TICK_S
+			parts.append({"type": "rocket", "from": a, "to": b, "start": 0.0, "dur": fly})
+			life = fly
+		"missile_kill": # CMBTSFX 7 at the stack, 7 x 55 ms
+			var at := _stack_point(int(event.get("stack", -1)), Vector2.ZERO)
+			parts.append({"type": "anim", "name": SFX, "entry": 7, "at": at, "start": 0.0, "frame_time": TICK_S, "frames": 7})
+			life = 7 * TICK_S
+			_sound(0x1c)
+		"bombs": # CMBTMISL 144+facing flies 6 px a frame, then CMBTSFX 7 on the planet
+			var a := _centre(from)
+			var b := _centre(to)
+			var travel := b - a
+			var facing := posmod(int(round(-travel.angle() / (PI / 8.0))), 16)
+			var fly := maxf(a.distance_to(b) / 6.0, 1.0) * TICK_S * 0.5
+			parts.append({"type": "proj", "name": "cmbtmisl.lbx", "entry": 144 + facing, "from": a, "to": b, "start": 0.0, "dur": fly, "frame_time": TICK_S, "frames": 1})
+			parts.append({"type": "anim", "name": SFX, "entry": 7, "at": b, "start": fly, "frame_time": TICK_S, "frames": 7})
+			life = fly + 7 * TICK_S
+			_sound(24)
+		"retreat": # the portal (CMBTSFX 42, 20 x 55 ms) ahead of the ship; the ship slides in and goes
+			var index := int(event.get("ship", -1))
+			var at := _centre(index)
+			var attacker := int(_ship(index).get("owner", -1)) == int(state.get("attacker", -2))
+			var ahead := Vector2(-1.0 if attacker else 1.0, 0.0) * (_radius(index) + 40.0)
+			parts.append({"type": "anim", "name": SFX, "entry": 42, "at": at + ahead, "start": 0.0, "frame_time": TICK_S, "frames": 20})
+			parts.append({"type": "fade", "ship": index, "start": 0.0, "dur": 20 * TICK_S, "slide": ahead})
+			life = 20 * TICK_S
+			_sound(52)
+		"teleport": # the ship dissolves at its old place and forms at the new (10 steps each way)
+			var index := int(event.get("ship", -1))
+			var off := _center(_ship(index)) - Vector2(float(_ship(index).get("x", 0)), float(_ship(index).get("y", 0))) * SQUARE
+			parts.append({"type": "ghost", "ship": index, "at": Vector2(float(event.get("x0", 0)), float(event.get("y0", 0))) * SQUARE + off,
+				"start": 0.0, "dur": 10 * SYNC_S, "out": true})
+			parts.append({"type": "fade", "ship": index, "start": 0.0, "dur": 10 * SYNC_S, "fade_in_after": true})
+			life = 20 * SYNC_S
+			_sound(0x37)
+		"cloak": # Draw_Cloak: the ship darkens (on, phase out) or brightens (off, phase in)
+			var index := int(event.get("ship", -1))
+			var k := int(event.get("kind", 1))
+			var steps := 24 if k == 1 or k == 2 else (60 if k == 4 else 36)
+			parts.append({"type": "cloak", "ship": index, "start": 0.0, "dur": steps * TICK_S, "into": k == 1 or k == 4})
+			life = steps * TICK_S
+			_sound(10)
+		"fighters": # each picture fires a short beam at the target (the owner's point-defence weapon)
+			var stack := int(event.get("stack", -1))
+			var target := _centre(to)
+			var origin := _stack_point(stack, Vector2(float(event.get("x", 0)), float(event.get("y", 0))))
+			for k in 3:
+				var jitter := Vector2(randf_range(-10, 10), randf_range(-10, 10))
+				parts.append({"type": "bolt", "from": origin + jitter, "to": target, "start": k * TICK_S, "dur": 5 * TICK_S})
+			life = 8 * TICK_S
+	if parts.is_empty():
+		return 0.0
+	for part: Dictionary in parts:
+		if part.has("name"):
+			art.sprite(String(part.name), int(part.entry))
+	_effects.append({"kind": "sfx", "t": 0.0, "life": life, "parts": parts})
+	return life
+
+
+## A missile stack's point (the state's), else `fallback`.
+func _stack_point(stack: int, fallback: Vector2) -> Vector2:
+	for missile: Dictionary in state.get("missiles", []):
+		if int(missile.get("i", -1)) == stack:
+			return Vector2(float(missile.get("x", 0)), float(missile.get("y", 0)))
+	return fallback
+
+
+func _draw_sfx(effect: Dictionary) -> void:
+	var t: float = effect.t
+	for part: Dictionary in effect.parts:
+		var local := t - float(part.get("start", 0.0))
+		if local < 0.0 or (part.has("until") and t > float(part.until)):
+			continue
+		match String(part.type):
+			"anim", "strip", "proj":
+				var name := String(part.name)
+				var entry := int(part.entry)
+				var s: Dictionary = art.sprite(name, entry)
+				if s.is_empty():
+					continue
+				var count: int = s.frames.size()
+				var step := int(local / float(part.get("frame_time", TICK_S)))
+				var frames := int(part.get("frames", count))
+				var frame: int
+				if bool(part.get("loop", false)):
+					frame = int(part.get("first", 0)) + step % maxi(mini(frames, count - int(part.get("first", 0))), 1)
+				else:
+					if step >= frames and String(part.type) == "anim" and not part.has("grow"):
+						continue # played out
+					frame = int(part.get("first", 0)) + mini(step, frames - 1)
+				frame = clampi(frame, 0, count - 1)
+				var box: Vector2 = s.size
+				if String(part.type) == "anim":
+					var scale := 1.0
+					if part.has("grow"):
+						scale = clampf(local / float(part.grow), 0.0, 1.0) * 0.9 + 0.1
+					var flip: Vector2 = part.get("flip", Vector2.ONE)
+					_marks.draw_set_transform(part.at, 0.0, flip * scale)
+					art.draw(_marks, name, entry, frame, -box / 2.0, 1.0)
+					_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				elif String(part.type) == "strip":
+					# Draw_Bitmap_Line: the strip stretched along the line, centred on its middle.
+					var a: Vector2 = part.from
+					var b: Vector2 = part.to
+					var length := a.distance_to(b)
+					if length < 1.0:
+						continue
+					_marks.draw_set_transform((a + b) / 2.0, (b - a).angle(), Vector2(length / box.x, 1.0))
+					art.draw(_marks, name, entry, frame, -box / 2.0, 1.0)
+					_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				else: # a projectile along its path
+					var k := clampf(local / maxf(float(part.dur), 0.001), 0.0, 1.0)
+					if k >= 1.0:
+						continue
+					var at := (part.from as Vector2).lerp(part.to, k)
+					art.draw(_marks, name, entry, frame, at - box / 2.0, 1.0)
+			"rocket":
+				var k := clampf(local / maxf(float(part.dur), 0.001), 0.0, 1.0)
+				if k < 1.0:
+					var at := (part.from as Vector2).lerp(part.to, k)
+					_marks.draw_rect(Rect2(at - Vector2(1.5, 1.5), Vector2(3, 3)), Color(1.0, 0.85, 0.5))
+			"bolt":
+				var k := clampf(local / maxf(float(part.dur), 0.001), 0.0, 1.0)
+				if k < 1.0:
+					var fade := 1.0 - k
+					_marks.draw_line(part.from, part.to, Color(1.0, 0.45, 0.3, 0.35 * fade), 3.0 / _zoom)
+					_marks.draw_line(part.from, part.to, Color(1.0, 0.85, 0.7, 0.9 * fade), 1.2 / _zoom)
+			"ghost": # the ship's picture dissolving at its old place
+				var index := int(part.ship)
+				if _ships.has(index) and local < float(part.dur):
+					var e: Dictionary = _ships[index]
+					var tex: Texture2D = e.sprite.texture
+					if tex != null:
+						_marks.draw_set_transform(part.at, e.angle, e.sprite.scale)
+						_marks.draw_texture(tex, e.sprite.offset + Vector2(e.get("pad", 0.0), e.get("pad", 0.0)), Color(1, 1, 1, 1.0 - local / float(part.dur)))
+						_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## A ship's look during a fade, retreat or cloak effect (the ship sprite's modulate and place).
+func _ship_effect_look(index: int) -> Color:
+	var look := Color.WHITE
+	for effect: Dictionary in _effects:
+		if String(effect.kind) != "sfx":
+			continue
+		for part: Dictionary in effect.parts:
+			if int(part.get("ship", -999)) != index:
+				continue
+			var local := float(effect.t) - float(part.get("start", 0.0))
+			var k := clampf(local / maxf(float(part.get("dur", 1.0)), 0.001), 0.0, 1.0)
+			match String(part.type):
+				"fade":
+					if bool(part.get("fade_in_after", false)):
+						look.a = minf(look.a, k)
+					else:
+						look.a = minf(look.a, 1.0 - k)
+				"cloak":
+					var dark := k if bool(part.get("into", true)) else 1.0 - k
+					look = look.lerp(Color(0.35, 0.35, 0.45, 0.55), dark)
+	return look
+
+
+## The lasting looks (CMBTDRW1::Draw_Ship): stasis ball, plasma web, black-hole vortex, absorber
+## glow; a held tractor (Full_Draw_Combat_Screen).
+func _draw_lasting() -> void:
+	for ship: Dictionary in _ships_list():
+		if not _alive(ship):
+			continue
+		var index := int(ship.i)
+		if not _ships.has(index):
+			continue
+		var at: Vector2 = _ships[index].shown
+		var tractor := int(ship.get("tractor", -1))
+		if tractor >= 0 and _alive(_ship(tractor)) and _ships.has(tractor):
+			_draw_lasting_strip(SFX, 2, 6, at, _ships[tractor].shown)
+		if bool(ship.get("stasis", false)):
+			var ball: Array = _stasis_ball(index)
+			_draw_lasting_anim(SFX + "!shield", ball[0], 0, at, ball[1])
+		elif bool(ship.get("webbed", false)):
+			var web: Array = _web_sprite(index)
+			_draw_lasting_anim(SFX + "!glass=web", web[0], _anim_frame, at, web[1])
+		elif bool(ship.get("black_hole", false)):
+			var size := int(ship.get("size", 0))
+			var vortex := 46 if size == 0 else (45 if size <= 2 else (44 if size <= 4 else 43))
+			var frame := (_anim_frame / 2) % 8 + (8 if int(ship.get("black_hole_flag", 1)) != 1 else 0)
+			_draw_lasting_anim(SFX + "!glass=bhg", vortex, frame, at, Vector2.ONE)
+		elif bool(ship.get("absorbing", false)):
+			var size := int(ship.get("size", 0))
+			var glow := 51 if size == 0 else (50 if size <= 2 else (49 if size == 3 else 48))
+			_draw_lasting_anim(SFX, glow, (_anim_frame / 2 + index) % 4, at, Vector2.ONE, 0.6)
+
+
+func _draw_lasting_anim(name: String, entry: int, frame: int, at: Vector2, flip: Vector2, alpha := 1.0) -> void:
+	var s: Dictionary = art.sprite(name, entry)
+	if s.is_empty():
+		return
+	var box: Vector2 = s.size
+	_marks.draw_set_transform(at, 0.0, flip)
+	art.draw(_marks, name, entry, frame % s.frames.size(), -box / 2.0, 1.0, Color(1, 1, 1, alpha))
+	_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _draw_lasting_strip(name: String, entry: int, frame: int, a: Vector2, b: Vector2) -> void:
+	var s: Dictionary = art.sprite(name, entry)
+	var length := a.distance_to(b)
+	if s.is_empty() or length < 1.0:
+		return
+	var box: Vector2 = s.size
+	_marks.draw_set_transform((a + b) / 2.0, (b - a).angle(), Vector2(length / box.x, 1.0))
+	art.draw(_marks, name, entry, mini(frame, s.frames.size() - 1), -box / 2.0, 1.0)
+	_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
 # ---- Effects (WP3.9c) ----
 
 ## Beam colours by weapon family (legacy builds them per weapon in the palette's beam slots).
@@ -2586,9 +2955,10 @@ func _diff_effects(before: Dictionary, after: Dictionary) -> void:
 			continue
 		var at: Vector2 = _ships[index].shown if _ships.has(index) else _center(old)
 		if int(ship.get("status", 0)) != 0:
+			# Destroy_Ship_FX: CMBTSFX 3 (size 0, 18 frames), 4 (sizes 1-2), 5 (3-5; 12 frames), 55 ms a frame.
 			var size := int(old.get("size", 0))
-			var entry := 3 if size <= 1 else (4 if size <= 3 else 5)
-			_effects.append({"kind": "explosion", "t": 0.0, "life": 1.1, "at": at, "entry": entry})
+			var entry := 3 if size == 0 else (4 if size <= 2 else 5)
+			_effects.append({"kind": "explosion", "t": 0.0, "life": (18.0 if entry == 3 else 12.0) * TICK_S, "at": at, "entry": entry})
 			continue
 		var hp_old := float((old.get("armor", {}) as Dictionary).get("now", 0)) + float((old.get("structure", {}) as Dictionary).get("now", 0))
 		var hp_new := float((ship.get("armor", {}) as Dictionary).get("now", 0)) + float((ship.get("structure", {}) as Dictionary).get("now", 0))
@@ -2617,6 +2987,8 @@ func _draw_effects(width: float) -> void:
 		var life: float = effect.life
 		var k := clampf(t / life, 0.0, 1.0)
 		match String(effect.kind):
+			"sfx":
+				_draw_sfx(effect)
 			"volley":
 				_draw_volley_sprites(effect)
 			"shot":
