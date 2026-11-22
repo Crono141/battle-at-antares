@@ -277,6 +277,34 @@ namespace antares::native {
         // waits on the game thread for its answer, keeping sound, network and exit checks alive.
         std::function<std::string()> s_scene; // Set_Scene (game thread)
 
+        // While a request waits: the queued read-only queries run (queries never change the game,
+        // D25); commands stay queued for their screen. The battle's scan asks for help this way.
+        void Serve_Queries() {
+            std::deque<s_command> queries;
+            {
+                std::lock_guard<std::mutex> lock(s_mutex);
+                for (auto it = s_commands.begin(); it != s_commands.end();) {
+                    bool query = false;
+                    if (yyjson_doc* doc = yyjson_read(it->json.data(), it->json.size(), 0)) {
+                        const char* verb = yyjson_get_str(yyjson_obj_get(yyjson_doc_get_root(doc), "verb"));
+                        query = verb != nullptr && strcmp(verb, "query") == 0;
+                        yyjson_doc_free(doc);
+                    }
+                    if (query) {
+                        queries.push_back(std::move(*it));
+                        it = s_commands.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
+            for (s_command& query : queries) {
+                std::string result = Run_Command(MOX::current_screen, query.id, query.json);
+                std::lock_guard<std::mutex> lock(s_mutex);
+                s_results.push_back(std::move(result));
+            }
+        }
+
         int32_t Ask(const char* kind, const char* text, const std::string& fields) {
             // The map as it is now behind the question (owner, 2026-11-20: a blockade's "select
             // combat" came with the fleets still where they were last turn, as during the turn
@@ -320,6 +348,7 @@ namespace antares::native {
                     }
                 }
                 Serve_Sprites(10); // a popup's art (a leader's portrait) while the turn waits
+                Serve_Queries(); // read-only queries (a native battle's right-click help)
                 Tick();
             }
             Drop_Legacy_Input();

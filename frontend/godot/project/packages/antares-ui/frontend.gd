@@ -2911,6 +2911,7 @@ func _combat_view() -> Control:
 		_combat.game = game
 		_combat.theme = native_layer.theme
 		_combat.frame_style = _built.get("frame")
+		_combat.help_requested.connect(show_help) # the scan's right clicks
 		_combat.tee = _built.get("tee", {})
 		_combat.dialog_open = func() -> bool: return overlay.visible
 		# The legacy view hides under a battle: its pointer image (the hidden combat screen's, frozen)
@@ -7265,6 +7266,31 @@ func _smoke_combat(shots: String) -> bool:
 			print("smoke: scan of ship %d open: %s" % [enemy, view._scan_ship == enemy and view._scan_panel.visible])
 			if shots != "":
 				await host.shot(shots + "/combat-scan.png")
+			# A right click on the scan's first weapon: its help (served while the battle waits).
+			if view._scan_body.get_child_count() > 0:
+				var row_at: Vector2 = (view._scan_body.get_child(0) as Control).get_global_rect().get_center()
+				for pressed in [true, false]:
+					var rc := InputEventMouseButton.new()
+					rc.button_index = MOUSE_BUTTON_RIGHT
+					rc.pressed = pressed
+					rc.position = row_at
+					rc.global_position = row_at
+					Input.parse_input_event(rc)
+					await get_tree().process_frame
+				await get_tree().create_timer(0.8).timeout
+				if shots != "":
+					await host.shot(shots + "/combat-scan-help.png")
+				# A click elsewhere closes the help popup, as a player's would.
+				var away := Vector2(view.size.x * 0.5, view.size.y * 0.55)
+				for pressed in [true, false]:
+					var lc := InputEventMouseButton.new()
+					lc.button_index = MOUSE_BUTTON_LEFT
+					lc.pressed = pressed
+					lc.position = away
+					lc.global_position = away
+					Input.parse_input_event(lc)
+					await get_tree().process_frame
+				await get_tree().create_timer(0.2).timeout
 			view._hide_scan()
 			# The initiative bar scrolls (owner 2026-11-22): a wheel notch over it, as a player does it.
 			var bar_at: Vector2 = view._tl_scroll.get_global_rect().get_center()

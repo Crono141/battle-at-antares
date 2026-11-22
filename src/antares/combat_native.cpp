@@ -171,8 +171,15 @@ namespace antares::combat {
                 weapon.Int("ammo", slot.ammo);
                 weapon.Int("active", slot.active);
                 weapon.Int("shots_left", slot.shots_left);
+                weapon.Int("help", TECHDATA::weapons[slot.weapon_id].tech_app_id); // right-click help (HELP.LBX)
                 // Can still fire this turn (the legacy weapon list's lit lines: on, shots left).
                 weapon.Bool("ready", COMBAT1::Weapon_Is_On(i, (int16_t)w));
+                // Spent this turn, as the original's weapon list greys it (cmbtdrw1_hud.cpp): no shots
+                // left, a launcher without ammo, a torpedo loading (owner 2026-11-22: fired weapons
+                // still showed ready).
+                const uint8_t kind = TECHDATA::weapons[slot.weapon_id].type;
+                weapon.Bool("spent", ((kind == WEAPON_TYPE_MISSILE || kind == WEAPON_TYPE_BOMB || kind == WEAPON_TYPE_FIGHTER) && slot.ammo == 0) ||
+                    (kind == WEAPON_TYPE_TORPEDO && slot.ammo > 0) || (slot.shots_left == 0 && slot.status != 1));
             }
             item.Int("marines", ship.marine_count);
             item.Int("crew", ship.crew_quality);
@@ -191,6 +198,14 @@ namespace antares::combat {
             scan.Str("shield", Utf8(TECHDATA::shields[ship.shield_type].name, 40));
             scan.Str("computer", Utf8(TECHDATA::computers[ship.computer_type].name, 40));
             scan.Str("armor", Utf8(TECHDATA::armor[ship.armor_type].name, 40));
+            // Each part's help record (the right click, as the design panel's).
+            s_out help = scan.Add_Object("help");
+            help.Int("shield", TECHDATA::shields[ship.shield_type].tech_app_id);
+            help.Int("computer", TECHDATA::computers[ship.computer_type].tech_app_id);
+            help.Int("armor", TECHDATA::armor[ship.armor_type].tech_app_id);
+            if (!planet) {
+                help.Int("drive", TECHDATA::drives[ship.ftl_type].tech_app_id);
+            }
             scan.Int("attack", ship.tac_val_attack);
             scan.Int("defense", ship.tac_val_defense);
             scan.Int("evade", ship.tac_val_evade);
@@ -205,6 +220,7 @@ namespace antares::combat {
                     s_out special = specials.Append_Object();
                     special.Str("name", Utf8(TECHDATA::specials[k].name, 60));
                     special.Bool("damaged", struct_::Test_Bit_Field(const_cast<uint8_t*>(ship.special_device_damage_flags), k) != 0);
+                    special.Int("help", TECHDATA::specials[k].tech_app_id);
                 }
             }
         }

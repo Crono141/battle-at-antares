@@ -16,6 +16,8 @@ extends Control
 
 signal opened
 signal closed
+## A right click on a part in the scan: its help record (frontend.gd show_help, as the design panel's).
+signal help_requested(topic: int, at: Control)
 
 const SQUARE := 20.0
 const MIN_ZOOM := 0.3
@@ -55,6 +57,9 @@ const FRAME_WAIT_MAX := 2.5 # seconds the effect waits for the camera at most (a
 var _art_hold := 0.0 # > 0: a volley waits for its flashes' art (seconds waited + a tiny bit)
 var _art_wait: Array = [] # [name, entry] the waiting volley needs
 const ART_WAIT_MAX := 1.0
+# A framing glides over the galaxy's flight time (Options' SYSTEM ZOOM; owner 2026-11-22: the
+# camera's speed preference), eased in and out; 0 cuts.
+var _frame := {} # {from_cam, to_cam, from_zoom, to_zoom, t, dur} while the camera frames
 var _cam_hold := 0.0 # > 0: the effect waits for the camera (seconds waited so far + a tiny bit)
 var _hover_ship := -1
 var _hover_square := Vector2i(-1, -1)
@@ -405,10 +410,16 @@ func _frame_enemy_fire(event: Dictionary) -> void:
 	var cam := box.get_center() - (area.get_center() - size / 2.0) / zoom
 	if _cam.distance_to(cam) * zoom < 2.0 and absf(zoom - _zoom) < 0.01:
 		return # already framed so
-	_cam_goal = cam
-	_zoom_goal = zoom
-	_cam_hold = 0.0001
 	framed += 1
+	_cam_goal = Vector2.INF
+	_zoom_goal = -1.0
+	var dur := Themes.saved_flight_time(1.0)
+	if dur <= 0.0:
+		_cam = cam
+		_zoom = zoom
+		return
+	_frame = {"from_cam": _cam, "to_cam": cam, "from_zoom": _zoom, "to_zoom": zoom, "t": 0.0, "dur": dur}
+	_cam_hold = 0.0001
 
 
 const PLACEHOLDER_COLORS := {"stasis": Color(0.6, 0.85, 1.0), "tractor": Color(0.5, 0.7, 1.0), "plasma_web": Color(0.5, 1.0, 0.5),
@@ -458,6 +469,9 @@ func close() -> void:
 
 
 func _open() -> void:
+	_tl_round = -1 # a new battle: its own initiative cycle
+	_tl_base = []
+	_tl_shown = []
 	show()
 	move_to_front()
 	_opened = true
@@ -675,10 +689,17 @@ func _process(delta: float) -> void:
 			_place_world()
 			_layout()
 			return # the volley starts once its art is here
+	if not _frame.is_empty():
+		_frame.t = float(_frame.t) + delta
+		var fk := smoothstep(0.0, 1.0, clampf(float(_frame.t) / float(_frame.dur), 0.0, 1.0))
+		_cam = (_frame.from_cam as Vector2).lerp(_frame.to_cam, fk)
+		_zoom = lerpf(float(_frame.from_zoom), float(_frame.to_zoom), fk)
+		if fk >= 1.0:
+			_frame = {}
 	if _cam_hold > 0.0:
 		_cam_hold += delta
-		var arrived := _cam_goal == Vector2.INF and _zoom_goal < 0.0
-		if arrived or _cam_hold > FRAME_WAIT_MAX:
+		var arrived := _frame.is_empty() and _cam_goal == Vector2.INF and _zoom_goal < 0.0
+		if arrived or _cam_hold > FRAME_WAIT_MAX + Themes.saved_flight_time(1.0):
 			_cam_hold = 0.0
 		else:
 			_place_world()
@@ -1271,13 +1292,21 @@ func _input(event: InputEvent) -> void:
 ## Auto: on the player's turn an action; while the AI plays their ships, a request the AI takes at
 ## its next look at the Auto button (combat::Request_Auto_Off; owner 2026-11-22: Auto couldn't
 ## be turned off).
+var _auto_pending_on := false # Auto asked for while the enemy moved: sent on the player's next turn
+
+
 func _toggle_auto() -> void:
+	var on := int(state.get("auto", 0)) != 0
 	if _my_turn():
+		_auto_pending_on = false
 		_act({"action": "auto"})
-	elif int(state.get("auto", 0)) != 0 and game != null:
+	elif on and game != null:
 		game.request_auto_off()
-		_show_toast("Auto off: you take over from the next ship")
-	_auto_button.set_pressed_no_signal(int(state.get("auto", 0)) != 0 and _my_turn())
+		_show_toast("Auto off: you take over from your next ship")
+	else:
+		_auto_pending_on = not _auto_pending_on
+		_show_toast("Auto on from your next ship" if _auto_pending_on else "Auto cancelled")
+	_auto_button.set_pressed_no_signal(on or _auto_pending_on)
 	Themes.glow(_auto_button)
 
 
@@ -1356,8 +1385,9 @@ func _flat_button(text: String, key: String, pressed: Callable, primary := false
 ## End turn / Auto in a pocket docked on it; the round box in the bottom corner on the player's
 ## side (attacking: right; defending: left). _layout places them every frame.
 func _build_hud() -> void:
-	# The round box: a pane docked in the player's bottom corner (the galaxy's panes: pane_gap).
-	_top_left = _panel()
+	# The round box: a pocket on the bottom edge in the player's corner (owner 2026-11-22: framed and
+	# attached to the outer frame as the other bars are).
+	_top_left = _panel(&"BottomPocket")
 	add_child(_top_left)
 	var tl := VBoxContainer.new()
 	tl.add_theme_constant_override("separation", 2)
@@ -1423,9 +1453,13 @@ func _build_hud() -> void:
 	# weapons pocket (added first: the pocket draws over the tab's lower edge).
 	_bottom = _panel(&"BottomPocket")
 	add_child(_bottom)
+	var actions_pad := MarginContainer.new() # a little taller: the buttons' lower edge showed cut
+	actions_pad.add_theme_constant_override("margin_top", 2)
+	actions_pad.add_theme_constant_override("margin_bottom", 6)
+	_bottom.add_child(actions_pad)
 	_actions = HBoxContainer.new()
 	_actions.add_theme_constant_override("separation", 6)
-	_bottom.add_child(_actions)
+	actions_pad.add_child(_actions)
 	_wait_button = _flat_button("Wait", "W", func(): _act({"action": "wait"}))
 	_actions.add_child(_wait_button)
 	_done_button = _flat_button("Done", "D", func(): _act({"action": "done"}))
@@ -1525,7 +1559,7 @@ func _layout() -> void:
 		return
 	# A theme without edge pockets (Glass: empty, no screen frame) gives the content pockets its
 	# Pane, so the ship, its weapons and the round don't float on the battlefield.
-	for pocket: PanelContainer in [_timeline, _strip]:
+	for pocket: PanelContainer in [_timeline, _strip, _top_left]:
 		var wanted: StringName = &"Pocket" if pocket == _timeline else &"BottomPocket"
 		var bare := get_theme_stylebox("panel", wanted) is StyleBoxEmpty
 		var variation: StringName = &"Pane" if bare else wanted
@@ -1544,7 +1578,9 @@ func _layout() -> void:
 	_options_tab.reset_size()
 	_options_tab.position = Vector2(roundf((size.x - _options_tab.size.x) / 2.0), _timeline.position.y + _timeline.size.y + _grow(_timeline, 3) - 4.0)
 	_options_panel.reset_size()
-	var out_y := _options_tab.position.y + _options_tab.size.y + 4.0
+	# Its top level with the initiative bar's bottom edge; the Options tab juts over it (owner
+	# 2026-11-22).
+	var out_y := _timeline.position.y + _timeline.size.y + _grow(_timeline, 3)
 	var ko := clampf(_options_anim, 0.0, 1.0)
 	_options_panel.position = Vector2(roundf((size.x - _options_panel.size.x) / 2.0), lerpf(out_y - _options_panel.size.y * 0.6, out_y, ko))
 	_options_panel.modulate.a = ko
@@ -1558,13 +1594,15 @@ func _layout() -> void:
 	# The buttons' tab steps up from it (drawn under it).
 	_bottom.reset_size()
 	_bottom.position = Vector2(roundf((size.x - _bottom.size.x) / 2.0), _strip.position.y - _grow(_strip, 1) - _bottom.size.y + 4.0)
-	# The round box: in the frame's corner on the player's side (attacking: right; defending: left).
+	# The round box: a pocket on the bottom edge near the player's corner (attacking: right;
+	# defending: left), clear of the side frame by its own overhang.
 	_top_left.reset_size()
 	var inset := float(get_theme_constant("inset", "Screen"))
 	var corner := inset if inset > 0.0 else 6.0
 	var attacking := int(state.get("player", -1)) == int(state.get("attacker", -2))
-	var x := size.x - corner - _top_left.size.x if attacking else corner
-	_top_left.position = Vector2(x, size.y - corner - _top_left.size.y)
+	var side_gap := corner + 24.0
+	var x := size.x - side_gap - _grow(_top_left, 2) - _top_left.size.x if attacking else side_gap + _grow(_top_left, 0)
+	_top_left.position = Vector2(x, size.y - edge - _top_left.size.y)
 	_toast.position = Vector2(roundf((size.x - _toast.size.x) / 2.0), _options_tab.position.y + _options_tab.size.y + 12.0)
 	# The scan panel: centred between the button frames (under the Options tab, above the
 	# buttons' tab), its list capped to that room; it grows out of the scanned ship.
@@ -1602,7 +1640,7 @@ func _draw_frame() -> void:
 		return
 	var c: float = tee.bar_center
 	# The edge pockets meet the screen frame (as the galaxy's bars do).
-	for pocket: Control in [_timeline, _strip]:
+	for pocket: Control in [_timeline, _strip, _top_left]:
 		if not pocket.visible:
 			continue
 		var r := pocket.get_rect()
@@ -1624,13 +1662,6 @@ func _draw_frame() -> void:
 		var bar_y := _strip.get_rect().position.y - _grow(_strip, 1) + c
 		for x in [r.position.x - _grow(_bottom, 0) + c, r.end.x + _grow(_bottom, 2) - c]:
 			_draw_tee(Vector2(x, bar_y), false)
-	# The round box in its corner: its side meets the bottom frame, its top the side frame.
-	var box := _top_left.get_rect()
-	var at_right := box.get_center().x > _frame_overlay.size.x / 2.0
-	var side_x := box.position.x + c if at_right else box.end.x - c
-	_draw_tee(Vector2(side_x, _frame_overlay.size.y - c), false)
-	var frame_x := _frame_overlay.size.x - c if at_right else c
-	_draw_tee(Vector2(frame_x, box.position.y + c), false, -PI / 2.0 if at_right else PI / 2.0)
 
 
 ## The theme's joint (its art is a bar arriving from above onto a horizontal bar), its meeting
@@ -1914,8 +1945,11 @@ func _refresh_hud() -> void:
 	_wait_button.disabled = not my_turn or not bool(state.get("can_wait", true))
 	_done_button.disabled = not my_turn
 	_end_button.disabled = not my_turn
-	_auto_button.disabled = not my_turn
-	_auto_button.set_pressed_no_signal(int(state.get("auto", 0)) != 0)
+	_auto_button.disabled = false # always reachable (owner 2026-11-22), whoever's turn it is
+	if _auto_pending_on and _my_turn() and int(state.get("auto", 0)) == 0:
+		_auto_pending_on = false
+		_act.call_deferred({"action": "auto"}) # asked for while the enemy moved
+	_auto_button.set_pressed_no_signal(int(state.get("auto", 0)) != 0 or _auto_pending_on)
 	Themes.glow(_auto_button)
 	_refresh_strip()
 	_refresh_timeline()
@@ -1940,6 +1974,7 @@ func _refresh_strip() -> void:
 	_strip_info.text = "%d moves   ·   marines %d" % [int(acting.get("moves", 0)), int(acting.get("marines", 0))]
 	_set_bars(_strip_bars, acting)
 	for child in _strip_weapons.get_children():
+		_strip_weapons.remove_child(child) # out now: a freed chip lingering a frame doubled the width (flicker)
 		child.queue_free()
 	_weapon_chips.clear()
 	var in_arc := _slots_against(_hover_ship)
@@ -1947,7 +1982,7 @@ func _refresh_strip() -> void:
 		var slot := int(weapon.get("slot", 0))
 		var count := int(weapon.get("count", 0))
 		var active := int(weapon.get("active", 1))
-		var ready := bool(weapon.get("ready", false))
+		var ready := bool(weapon.get("ready", false)) and not bool(weapon.get("spent", false))
 		var ammo := int(weapon.get("ammo", 0))
 		var shots := int(weapon.get("shots_left", 0))
 		var targeted := _hover_ship >= 0 and not _mine(_ship(_hover_ship))
@@ -2001,17 +2036,47 @@ func _slots_against(target: int) -> Dictionary:
 	return slots
 
 
+var _tl_round := -1
+var _tl_base: Array = [] # the round's whole order, as it stood at the round's start
+var _tl_shown: Array = [] # the sequence the bar shows now
+var _tl_bars := {} # ship -> its chip's bars (updated in place)
+var _tl_split := -1 # where the next round begins in the bar
+
+
+## The initiative bar (owner 2026-11-22): a fixed cycle of every live ship, the acting one first,
+## then those still to act this round, then the ones that already acted in the round's order (they
+## come round again); a destroyed ship leaves at once. Rebuilt only when that sequence changes.
 func _refresh_timeline() -> void:
+	var acting := int(state.get("ship", -1))
+	var order: Array = []
+	if acting >= 0 and _alive(_ship(acting)):
+		order.append(acting)
+	for index in state.get("order", []):
+		var i := int(index)
+		if i != acting and _alive(_ship(i)) and not order.has(i):
+			order.append(i)
+	var this_round := order.size() # the ships still to act this round; the rest come next round
+	var round := int(state.get("round", 0))
+	if round != _tl_round or _tl_base.is_empty():
+		_tl_round = round
+		_tl_base = order.duplicate() # the round's start: everyone is still to act
+	for i in _tl_base:
+		if _alive(_ship(int(i))) and not order.has(int(i)):
+			order.append(int(i))
+	for ship: Dictionary in _ships_list(): # anyone the round's start missed (never expected)
+		var i := int(ship.i)
+		if _alive(ship) and not order.has(i):
+			order.append(i)
+	if order == _tl_shown and this_round == _tl_split:
+		for i in _tl_bars:
+			_set_bars(_tl_bars[i], _ship(int(i)))
+		return
+	_tl_shown = order.duplicate()
+	_tl_split = this_round
+	_tl_bars.clear()
 	for child in _timeline_row.get_children():
 		_timeline_row.remove_child(child)
 		child.queue_free()
-	var order: Array = []
-	var acting := int(state.get("ship", -1))
-	if acting >= 0:
-		order.append(acting)
-	for index in state.get("order", []):
-		if int(index) != acting:
-			order.append(int(index))
 	# Your run: the player's ships before the next enemy one (the bracket; WP3.9d lets you pick in it).
 	var run := 0
 	for index in order:
@@ -2029,6 +2094,8 @@ func _refresh_timeline() -> void:
 		_timeline_row.add_child(frame)
 	# Every ship still to act (owner 2026-11-22); the bar scrolls.
 	for n in order.size():
+		if n == this_round and n > 0:
+			_timeline_row.add_child(_round_marker(round + 2)) # owner 2026-11-22: where the next round begins
 		var chip := _chip(order[n], order[n] == acting)
 		if bracket != null and n < run:
 			bracket.add_child(chip)
@@ -2036,7 +2103,27 @@ func _refresh_timeline() -> void:
 			_timeline_row.add_child(chip)
 	if acting != _tl_acting:
 		_tl_acting = acting
+		_scroll_goal.erase(_tl_scroll)
 		_tl_scroll.scroll_horizontal = 0 # the acting ship in view
+
+
+## The handoff to the next round in the initiative bar: a bright divider with the round's number.
+func _round_marker(number: int) -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 0)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	var line := ColorRect.new()
+	line.color = AMBER
+	line.custom_minimum_size = Vector2(3, 28)
+	line.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(line)
+	var label := _label("ROUND\n%d" % number, 10, AMBER)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(label)
+	box.custom_minimum_size = Vector2(40, 0)
+	return box
 
 
 func _chip(index: int, acting: bool) -> Control:
@@ -2064,6 +2151,7 @@ func _chip(index: int, acting: bool) -> Control:
 	var bars := _bars_control(Vector2(46, 6))
 	_set_bars(bars, ship)
 	box.add_child(bars)
+	_tl_bars[index] = bars
 	# The chip hovers its ship as the field does (owner 2026-11-22); a click centres the camera on it.
 	box.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.mouse_entered.connect(func(): _chip_hover = index)
@@ -2198,6 +2286,13 @@ func _build_scan() -> void:
 	_scan_picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_scan_picture.custom_minimum_size = Vector2(170, 110)
 	pv.add_child(_scan_picture)
+	# The shield's four arcs written round the picture (owner 2026-11-22): the nose points right, so
+	# front at the right, rear at the left, the right arc below and the left above.
+	var arcs_overlay := Control.new()
+	arcs_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	arcs_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	arcs_overlay.draw.connect(func(): _draw_scan_arcs(arcs_overlay))
+	_scan_picture.add_child(arcs_overlay)
 	_scan_bars = _bars_control(Vector2(170, 10))
 	pv.add_child(_scan_bars)
 	_scan_values = _label("", 12, DIM)
@@ -2216,6 +2311,29 @@ func _hide_scan() -> void:
 	_scan_ship = -1
 	if _scan_panel != null:
 		_scan_panel.hide()
+
+
+func _draw_scan_arcs(item: Control) -> void:
+	var ship := _ship(_scan_ship)
+	var shield: Dictionary = ship.get("shield", {})
+	if int(shield.get("max", 0)) <= 0:
+		return
+	var arcs: Array = shield.get("arcs", [0, 0, 0, 0])
+	var font := get_theme_default_font()
+	var size_px := 13
+	var c := item.size / 2.0
+	var places := [Vector2(item.size.x - 4.0, c.y), Vector2(c.x, item.size.y - 2.0), Vector2(4.0, c.y), Vector2(c.x, 14.0)]
+	for a in 4:
+		var text := str(int(arcs[a]))
+		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+		var at: Vector2 = places[a]
+		var pos := Vector2(at.x - w / 2.0, at.y)
+		if a == 0:
+			pos.x = at.x - w
+		elif a == 2:
+			pos.x = at.x
+		item.draw_string_outline(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, 4, Color(0, 0, 0, 0.9))
+		item.draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, Color(0.6, 1.0, 0.8))
 
 
 ## A system's glyph (drawn in the label colour): shield, armor, structure, computer, drive.
@@ -2254,6 +2372,20 @@ func _draw_glyph(g: Control, kind: String) -> void:
 			g.draw_colored_polygon(PackedVector2Array([c + Vector2(-r, -r * 0.5), c + Vector2(0, -r * 0.5), c + Vector2(0, r * 0.5),
 				c + Vector2(-r, r * 0.5)]), Color(ink, 0.25))
 			g.draw_polyline(PackedVector2Array([c + Vector2(0, -r * 0.5), c + Vector2(r, 0), c + Vector2(0, r * 0.5)]), ink, 1.5, true)
+
+
+## A right click on `control` shows help record `topic` (as the design panel's rows do).
+func _with_help(control: Control, topic: int) -> Control:
+	if topic < 0:
+		return control
+	control.mouse_filter = Control.MOUSE_FILTER_STOP
+	control.tooltip_text = "Right click: what it does"
+	control.gui_input.connect(func(event: InputEvent):
+		var b := event as InputEventMouseButton
+		if b != null and b.pressed and b.button_index == MOUSE_BUTTON_RIGHT:
+			help_requested.emit(topic, control)
+			control.accept_event())
+	return control
 
 
 ## One system line, as the design panel's: glyph, small dim title, the part, the detail at the right.
@@ -2316,6 +2448,8 @@ func _show_scan(index: int) -> void:
 	var sprite_info: Dictionary = ship.get("sprite", {})
 	_scan_picture.texture = art.texture(String(sprite_info.get("lbx", "")), int(sprite_info.get("entry", -1)), 0)
 	_set_bars(_scan_bars, ship)
+	for child in _scan_picture.get_children():
+		(child as CanvasItem).queue_redraw()
 	for child in _scan_systems.get_children():
 		_scan_systems.remove_child(child)
 		child.queue_free()
@@ -2323,15 +2457,14 @@ func _show_scan(index: int) -> void:
 	var arcs: Array = shield.get("arcs", [0, 0, 0, 0])
 	var armor: Dictionary = ship.get("armor", {})
 	var structure: Dictionary = ship.get("structure", {})
-	var shield_detail := "none"
-	if int(shield.get("max", 0)) > 0:
-		shield_detail = "%d %d %d %d / %d" % [int(arcs[0]), int(arcs[1]), int(arcs[2]), int(arcs[3]), int(shield.get("max", 0))]
-	_scan_systems.add_child(_scan_line("shield", "SHIELD", String(scan.get("shield", "")), shield_detail))
-	_scan_systems.add_child(_scan_line("armor", "ARMOUR", String(scan.get("armor", "")), "%d / %d" % [int(armor.get("now", 0)), int(armor.get("max", 0))]))
+	var shield_detail := "none" if int(shield.get("max", 0)) <= 0 else "max %d" % int(shield.get("max", 0)) # each arc's on the picture
+	var helps: Dictionary = scan.get("help", {})
+	_scan_systems.add_child(_with_help(_scan_line("shield", "SHIELD", String(scan.get("shield", "")), shield_detail), int(helps.get("shield", -1))))
+	_scan_systems.add_child(_with_help(_scan_line("armor", "ARMOUR", String(scan.get("armor", "")), "%d / %d" % [int(armor.get("now", 0)), int(armor.get("max", 0))]), int(helps.get("armor", -1))))
 	_scan_systems.add_child(_scan_line("structure", "STRUCTURE", "", "%d / %d" % [int(structure.get("now", 0)), int(structure.get("max", 0))]))
-	_scan_systems.add_child(_scan_line("computer", "COMPUTER", String(scan.get("computer", "")), "%s %d" % [String(scan.get("attack_label", "Beam OCV")), int(scan.get("attack", 0))]))
+	_scan_systems.add_child(_with_help(_scan_line("computer", "COMPUTER", String(scan.get("computer", "")), "%s %d" % [String(scan.get("attack_label", "Beam OCV")), int(scan.get("attack", 0))]), int(helps.get("computer", -1))))
 	if scan.has("drive"):
-		_scan_systems.add_child(_scan_line("drive", "DRIVE", String(scan.drive), "speed %d" % int(scan.get("speed", 0))))
+		_scan_systems.add_child(_with_help(_scan_line("drive", "DRIVE", String(scan.drive), "speed %d" % int(scan.get("speed", 0))), int(helps.get("drive", -1))))
 	var values := ["%s %d" % [String(scan.get("defense_label", "Beam DCV")), int(scan.get("defense", 0))], "Missile evasion %d" % int(scan.get("evade", 0))]
 	if int(ship.get("marines", 0)) > 0:
 		values.append("Marines %d" % int(ship.get("marines", 0)))
@@ -2357,13 +2490,13 @@ func _show_scan(index: int) -> void:
 		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		line.add_child(name)
 		var ammo := int(weapon.get("ammo", 0))
-		var detail := _arc_name(int(weapon.get("arc", 0)))
+		var detail := "" # the arc is the glyph's (owner 2026-11-22)
 		if ammo > 0 and ammo < 99:
-			detail += " · %d left" % ammo
+			detail = "%d left" % ammo
 		if count == 0:
 			detail = "destroyed"
 		line.add_child(_label(detail, 12, DIM))
-		_scan_body.add_child(row)
+		_scan_body.add_child(_with_help(row, int(weapon.get("help", -1))))
 	for special: Dictionary in scan.get("specials", []):
 		var row := _panel(&"Row")
 		var damaged := bool(special.get("damaged", false))
@@ -2374,7 +2507,7 @@ func _show_scan(index: int) -> void:
 		line.add_child(name)
 		if damaged:
 			line.add_child(_label("damaged", 12, SYSTEMS_COLOR))
-		_scan_body.add_child(row)
+		_scan_body.add_child(_with_help(row, int(special.get("help", -1))))
 	_scan_panel.show()
 	_toast.hide()
 	if opening:
