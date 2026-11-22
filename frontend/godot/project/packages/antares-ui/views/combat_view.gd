@@ -118,8 +118,17 @@ var _strip_info: Label
 var _weapon_chips := {} # slot -> chip
 var _strip_weapons: HBoxContainer
 var _actions: HBoxContainer
-var _top_right: VBoxContainer # Always show health, Auto, Moves, stacked (the initiative bar has the top's middle)
-var _bottom: VBoxContainer # the actions row above the acting ship's strip, centred at the bottom
+var _top_right: Control # the pocket under the initiative bar: Show Health and the move speed
+var _bottom: Control # the actions row (Wait, Done, End turn, Auto), framed with the weapons in one bottom pocket
+var _strip_row: Control # the acting ship and its weapons (hidden when the acting ship isn't the player's)
+var _round_number: Label
+var _tl_scroll: ScrollContainer
+var _tl_dragging := false
+var _tl_acting := -2 # the acting ship the bar was last scrolled for
+## The theme's screen frame and its joints (frontend.gd sets them, as for the galaxy).
+var frame_style: StyleBox
+var tee := {}
+var _frame_overlay: Control
 var _wait_button: Button
 var _done_button: Button
 var _end_button: Button
@@ -543,6 +552,7 @@ func _process(delta: float) -> void:
 			art.forget("capture", int(effect.entry))
 	_effects = _effects.filter(func(effect: Dictionary) -> bool: return effect.t < effect.life)
 	_place_world()
+	_layout()
 	_update_hover()
 	if _toast_time > 0.0:
 		_toast_time -= delta
@@ -1106,7 +1116,9 @@ func _label(text: String, font_size := 0, color := TEXT) -> Label:
 ## The theme's button, its key after the name; `primary` (End turn) is armed in the theme's way.
 func _flat_button(text: String, key: String, pressed: Callable, primary := false) -> Button:
 	var b := Button.new()
-	b.text = text + ("    " + key if key != "" else "")
+	b.text = text # the key goes in the tooltip (owner, 2026-11-22: "Just Wait is fine")
+	if key != "":
+		b.tooltip_text = "Key: " + key
 	b.focus_mode = Control.FOCUS_NONE
 	if primary:
 		b.add_theme_color_override("font_color", b.get_theme_color("font_pressed_color", "Button"))
@@ -1114,20 +1126,28 @@ func _flat_button(text: String, key: String, pressed: Callable, primary := false
 	return b
 
 
+## The HUD docked to the screen's edges as the galaxy's bars are (owner, 2026-11-22): the
+## initiative bar a pocket on the top edge (scrolls), Show Health and the move speed in a pocket
+## under it; the acting ship and its weapons a pocket on the bottom edge with Wait / Done /
+## End turn / Auto in a pocket docked on it; the round box in the bottom corner on the player's
+## side (attacking: right; defending: left). _layout places them every frame.
 func _build_hud() -> void:
+	# The round box: a pane docked in the player's bottom corner (the galaxy's panes: pane_gap).
 	_top_left = _panel()
 	add_child(_top_left)
 	var tl := VBoxContainer.new()
-	tl.add_theme_constant_override("separation", 4)
-	tl.custom_minimum_size = Vector2(300, 0)
+	tl.add_theme_constant_override("separation", 2)
+	tl.custom_minimum_size = Vector2(230, 0)
 	_top_left.add_child(tl)
 	_round_label = _label("", 0, AMBER)
 	tl.add_child(_round_label)
-	_strength_label = _label("", 0, DIM)
+	_round_number = _label("", 0)
+	tl.add_child(_round_number)
+	_strength_label = _label("", 12, DIM)
 	tl.add_child(_strength_label)
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 0)
-	bar.custom_minimum_size = Vector2(0, 6)
+	bar.custom_minimum_size = Vector2(0, 5)
 	tl.add_child(bar)
 	_strength_mine = ColorRect.new()
 	_strength_mine.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1136,12 +1156,43 @@ func _build_hud() -> void:
 	_strength_theirs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(_strength_theirs)
 
-	var tr := VBoxContainer.new()
-	_top_right = tr
+	# Initiative: the top edge, scrolled by its arrows, the wheel or a drag.
+	_timeline = _panel(&"Pocket")
+	add_child(_timeline)
+	var trow := HBoxContainer.new()
+	trow.add_theme_constant_override("separation", 4)
+	_timeline.add_child(trow)
+	var left: Button = preload("arrow_button.gd").new()
+	left.points_left = true
+	left.focus_mode = Control.FOCUS_NONE
+	left.tooltip_text = "Earlier in the order"
+	left.pressed.connect(func(): _tl_scroll.scroll_horizontal -= 200)
+	trow.add_child(left)
+	_tl_scroll = ScrollContainer.new()
+	_tl_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_tl_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	_tl_scroll.gui_input.connect(_on_timeline_input)
+	trow.add_child(_tl_scroll)
+	_timeline_row = HBoxContainer.new()
+	_timeline_row.add_theme_constant_override("separation", 6)
+	_tl_scroll.add_child(_timeline_row)
+	var right: Button = preload("arrow_button.gd").new()
+	right.points_left = false
+	right.focus_mode = Control.FOCUS_NONE
+	right.tooltip_text = "Later in the order"
+	right.pressed.connect(func(): _tl_scroll.scroll_horizontal += 200)
+	trow.add_child(right)
+
+	# Under it: Show Health and the move speed (bare buttons hanging under the bar: a second
+	# pocket's frame would reach up over it).
+	_top_right = _panel()
+	_top_right.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	_top_right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_top_right)
+	var tr := HBoxContainer.new()
 	tr.add_theme_constant_override("separation", 6)
-	tr.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	add_child(tr)
-	_health_toggle = _flat_button("Always show health", "Alt", func(): pass)
+	_top_right.add_child(tr)
+	_health_toggle = _flat_button("Show Health", "Alt", func(): pass)
 	_health_toggle.theme_type_variation = &"Toggle"
 	_health_toggle.toggle_mode = true
 	_health_toggle.button_pressed = _always_health
@@ -1153,64 +1204,66 @@ func _build_hud() -> void:
 		for index in _ships.keys():
 			_apply_shield(index, _ship(index)))
 	tr.add_child(_health_toggle)
-	_auto_button = _flat_button("Auto", "A", func(): _act({"action": "auto"}))
-	_auto_button.tooltip_text = "The computer fights the rest of this battle for you"
-	tr.add_child(_auto_button)
 	_move_speed = clampi(int(_load_setting("move_speed", 1)), 0, MOVE_SPEEDS.size() - 1)
-	_speed_button = _flat_button("", "", func():
+	_speed_button = _flat_button(String(MOVE_SPEEDS[_move_speed][0]), "", func():
 		_move_speed = (_move_speed + 1) % MOVE_SPEEDS.size()
 		_save_setting("move_speed", _move_speed)
-		_speed_button.text = "Moves: " + String(MOVE_SPEEDS[_move_speed][0]))
-	_speed_button.text = "Moves: " + String(MOVE_SPEEDS[_move_speed][0])
-	_speed_button.tooltip_text = "How fast ships move and turn (weapons keep the original's pace)"
+		_speed_button.text = String(MOVE_SPEEDS[_move_speed][0]))
+	_speed_button.tooltip_text = "How fast ships move and turn (click to change; weapons keep the original's pace)"
+	_speed_button.custom_minimum_size = Vector2(90, 0)
 	tr.add_child(_speed_button)
 
-	# Initiative: centred at the top.
-	_timeline = _panel()
-	_timeline.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	add_child(_timeline)
-	_timeline_row = HBoxContainer.new()
-	_timeline_row.add_theme_constant_override("separation", 8)
-	_timeline.add_child(_timeline_row)
-
-	# The bottom: Wait / Done / End turn in a row, the acting ship and its weapons below, centred.
-	_bottom = VBoxContainer.new()
-	_bottom.add_theme_constant_override("separation", 8)
-	_bottom.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_bottom.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_bottom)
+	# The bottom edge: one pocket, Wait / Done / End turn / Auto framed above the acting ship and
+	# its weapons (two stacked pockets' frames would overlap).
+	_strip = _panel(&"BottomPocket")
+	add_child(_strip)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 6)
+	_strip.add_child(stack)
 	_actions = HBoxContainer.new()
-	_actions.add_theme_constant_override("separation", 8)
+	_actions.add_theme_constant_override("separation", 6)
 	_actions.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_bottom.add_child(_actions)
+	stack.add_child(_actions)
+	_bottom = _actions
 	_wait_button = _flat_button("Wait", "W", func(): _act({"action": "wait"}))
 	_actions.add_child(_wait_button)
 	_done_button = _flat_button("Done", "D", func(): _act({"action": "done"}))
 	_actions.add_child(_done_button)
 	_end_button = _flat_button("End turn", "T", func(): _act({"action": "end_turn"}), true)
 	_actions.add_child(_end_button)
-
-	_strip = _panel()
-	_strip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_bottom.add_child(_strip)
+	_auto_button = _flat_button("Auto", "A", func(): _act({"action": "auto"}))
+	_auto_button.tooltip_text = "The computer fights the rest of this battle for you (key: A)"
+	_auto_button.theme_type_variation = &"Toggle"
+	_auto_button.toggle_mode = true
+	_auto_button.button_pressed = false
+	_actions.add_child(_auto_button)
+	for b: Button in [_wait_button, _done_button, _end_button, _auto_button]:
+		b.custom_minimum_size = Vector2(96, 0)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	_strip.add_child(row)
+	row.add_theme_constant_override("separation", 8)
+	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	stack.add_child(row)
+	_strip_row = row
+	var pad_left := Control.new()
+	pad_left.custom_minimum_size = Vector2(6, 0)
+	row.add_child(pad_left)
 	var who := VBoxContainer.new()
-	who.add_theme_constant_override("separation", 3)
-	who.custom_minimum_size = Vector2(170, 0)
+	who.add_theme_constant_override("separation", 2)
+	who.custom_minimum_size = Vector2(130, 0)
 	row.add_child(who)
-	_strip_name = _label("", 0, AMBER)
+	_strip_name = _label("", 14, AMBER)
 	who.add_child(_strip_name)
-	_strip_info = _label("", 0, DIM)
+	_strip_info = _label("", 11, DIM)
 	who.add_child(_strip_info)
-	_strip_bars = _bars_control(Vector2(170, 10))
+	_strip_bars = _bars_control(Vector2(130, 8))
 	who.add_child(_strip_bars)
 	row.add_child(VSeparator.new())
 	_strip_weapons = HBoxContainer.new()
-	_strip_weapons.add_theme_constant_override("separation", 6)
+	_strip_weapons.add_theme_constant_override("separation", 4)
 	row.add_child(_strip_weapons)
+	var pad_right := Control.new()
+	pad_right.custom_minimum_size = Vector2(6, 0)
+	row.add_child(pad_right)
 
 	_card = _panel()
 	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1218,15 +1271,19 @@ func _build_hud() -> void:
 	add_child(_card)
 	var cv := VBoxContainer.new()
 	cv.add_theme_constant_override("separation", 5)
-	cv.custom_minimum_size = Vector2(270, 0)
+	cv.custom_minimum_size = Vector2(230, 0)
 	_card.add_child(cv)
-	_card_title = _label("", 0, AMBER)
+	_card_title = _label("", 14, AMBER)
 	cv.add_child(_card_title)
-	_card_bars = _bars_control(Vector2(270, 12))
+	_card_bars = _bars_control(Vector2(230, 8))
 	cv.add_child(_card_bars)
-	_card_body = _label("")
+	_card_body = _label("", 12)
+	_card_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_card_body.custom_minimum_size = Vector2(230, 0)
 	cv.add_child(_card_body)
-	_card_fire = _label("", 0, FIRE)
+	_card_fire = _label("", 12, FIRE)
+	_card_fire.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_card_fire.custom_minimum_size = Vector2(230, 0)
 	cv.add_child(_card_fire)
 
 	_build_scan()
@@ -1237,12 +1294,107 @@ func _build_hud() -> void:
 	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_toast.hide()
 	add_child(_toast)
-	# Anchors last, once each container knows its size (code-built controls: the offsets must be set too).
-	_top_left.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT, Control.PRESET_MODE_MINSIZE, 16)
-	tr.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
-	_timeline.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 16)
-	_bottom.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 16)
-	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 130)
+
+	# The screen frame over everything, as the galaxy's (its joints where the edge pockets meet it).
+	_frame_overlay = Control.new()
+	_frame_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_frame_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_frame_overlay.draw.connect(_draw_frame)
+	add_child(_frame_overlay)
+
+
+## Where the edge pockets sit (the galaxy's offsets: map_controls.gd, galaxy_bar.gd).
+func _edge() -> float:
+	var inset := get_theme_constant("inset", "Screen")
+	return float(inset - 3) if inset > 0 else 6.0
+
+
+func _layout() -> void:
+	if _timeline == null:
+		return
+	# A theme without edge pockets (Glass: empty, no screen frame) gives the content pockets its
+	# Pane, so the ship, its weapons and the round don't float on the battlefield.
+	for pocket: PanelContainer in [_timeline, _strip]:
+		var wanted: StringName = &"Pocket" if pocket == _timeline else &"BottomPocket"
+		var bare := get_theme_stylebox("panel", wanted) is StyleBoxEmpty
+		var variation: StringName = &"Pane" if bare else wanted
+		if pocket.theme_type_variation != variation:
+			pocket.theme_type_variation = variation
+	var edge := _edge()
+	# Initiative: as wide as its ships, at most the screen less the corners.
+	var arrows := 2.0 * 60.0
+	var pane_w := 0.0
+	var box := _timeline.get_theme_stylebox("panel")
+	if box != null:
+		pane_w = box.get_minimum_size().x
+	var room := size.x - 2.0 * (edge + 40.0) - arrows - pane_w
+	var want := _timeline_row.get_combined_minimum_size().x
+	_tl_scroll.custom_minimum_size = Vector2(clampf(want, 60.0, maxf(room, 60.0)), _timeline_row.get_combined_minimum_size().y)
+	_timeline.reset_size()
+	_timeline.position = Vector2(roundf((size.x - _timeline.size.x) / 2.0), edge)
+	_top_right.reset_size()
+	_top_right.position = Vector2(roundf((size.x - _top_right.size.x) / 2.0), _timeline.position.y + _timeline.size.y)
+	# The bottom: one pocket on the edge.
+	_strip.reset_size()
+	_strip.position = Vector2(roundf((size.x - _strip.size.x) / 2.0), size.y - edge - _strip.size.y)
+	# The round box: a pane in the player's corner, inside the frame by the theme's pane gap.
+	_top_left.reset_size()
+	var inset := float(get_theme_constant("inset", "Screen"))
+	var gap := inset + float(maxi(get_theme_constant("pane_gap", "Screen"), 6))
+	var attacking := int(state.get("player", -1)) == int(state.get("attacker", -2))
+	var x := size.x - gap - _top_left.size.x if attacking else gap
+	_top_left.position = Vector2(x, size.y - gap - _top_left.size.y)
+	_toast.position = Vector2(roundf((size.x - _toast.size.x) / 2.0), _top_right.position.y + _top_right.size.y + 12.0)
+	_frame_overlay.queue_redraw()
+
+
+func _draw_frame() -> void:
+	if frame_style == null:
+		return
+	_frame_overlay.draw_style_box(frame_style, Rect2(Vector2.ZERO, _frame_overlay.size))
+	if tee.is_empty():
+		return
+	var tex: Texture2D = tee.texture
+	var scale: float = tee.scale
+	var c: float = tee.bar_center
+	var tsize := Vector2(tex.get_size()) * scale
+	var anchor: Vector2 = tee.anchor * scale
+	for pocket: Control in [_timeline, _strip]:
+		if not pocket.visible:
+			continue
+		var pbox: StyleBox = pocket.get_theme_stylebox("panel")
+		var grow := Vector2(9, 9)
+		if pbox and "grow" in pbox:
+			grow = Vector2(pbox.grow[0], pbox.grow[2])
+		var r := pocket.get_rect()
+		var top := pocket == _timeline
+		for x in [r.position.x - grow.x + c, r.end.x + grow.y - c]:
+			if top: # the joint upside down, its top flush with the screen's top (frontend.gd)
+				_frame_overlay.draw_set_transform(Vector2(0, tsize.y), 0.0, Vector2(1, -1))
+				_frame_overlay.draw_texture_rect(tex, Rect2(Vector2(x - anchor.x, 0), tsize), false)
+				_frame_overlay.draw_set_transform(Vector2.ZERO)
+			else:
+				_frame_overlay.draw_texture_rect(tex, Rect2(Vector2(x - anchor.x, _frame_overlay.size.y - c - anchor.y), tsize), false)
+
+
+## The initiative bar scrolls with the wheel and a drag (and its arrows).
+func _on_timeline_input(event: InputEvent) -> void:
+	var button := event as InputEventMouseButton
+	if button != null:
+		if button.pressed and button.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_LEFT]:
+			_tl_scroll.scroll_horizontal -= 80
+			_tl_scroll.accept_event()
+		elif button.pressed and button.button_index in [MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_RIGHT]:
+			_tl_scroll.scroll_horizontal += 80
+			_tl_scroll.accept_event()
+		elif button.button_index == MOUSE_BUTTON_LEFT:
+			_tl_dragging = button.pressed
+			_tl_scroll.accept_event()
+		return
+	var motion := event as InputEventMouseMotion
+	if motion != null and _tl_dragging:
+		_tl_scroll.scroll_horizontal -= int(motion.relative.x)
+		_tl_scroll.accept_event()
 
 
 ## Straight bars (the timeline, the strip, the card): armour on top, shrinking to the centre;
@@ -1286,7 +1438,8 @@ func _refresh_hud() -> void:
 	if state.is_empty():
 		return
 	var star := String(state.get("star", ""))
-	_round_label.text = ("Battle at " + star if star != "" else "Space combat") + "      Round %d" % (int(state.get("round", 0)) + 1)
+	_round_label.text = "Battle at " + star if star != "" else "Space combat"
+	_round_number.text = "Round %d" % (int(state.get("round", 0)) + 1)
 	var mine := 0.0
 	var theirs := 0.0
 	var my_count := 0
@@ -1329,7 +1482,8 @@ func _refresh_hud() -> void:
 	_done_button.disabled = not my_turn
 	_end_button.disabled = not my_turn
 	_auto_button.disabled = not my_turn
-	_auto_button.text = "Auto: on" if int(state.get("auto", 0)) != 0 else "Auto    A"
+	_auto_button.set_pressed_no_signal(int(state.get("auto", 0)) != 0)
+	Themes.glow(_auto_button)
 	_refresh_strip()
 	_refresh_timeline()
 	if _scan_ship >= 0 and _scan_panel.visible:
@@ -1346,9 +1500,9 @@ func _arc_name(arc: int) -> String:
 func _refresh_strip() -> void:
 	var acting := _ship(int(state.get("ship", -1)))
 	if not _alive(acting) or not _mine(acting):
-		_strip.hide()
+		_strip_row.hide()
 		return
-	_strip.show()
+	_strip_row.show()
 	_strip_name.text = String(acting.get("name", ""))
 	_strip_info.text = "%d moves   ·   marines %d" % [int(acting.get("moves", 0)), int(acting.get("marines", 0))]
 	_set_bars(_strip_bars, acting)
@@ -1366,12 +1520,21 @@ func _refresh_strip() -> void:
 		var targeted := _hover_ship >= 0 and not _mine(_ship(_hover_ship))
 		var lit := targeted and in_arc.has(slot)
 		var chip := _panel(&"RowOpen" if lit else &"Row")
+		# Up to 8 weapon slots must fit: the theme's chip with tighter padding.
+		var chip_box: StyleBox = chip.get_theme_stylebox("panel", &"RowOpen" if lit else &"Row")
+		if chip_box != null:
+			chip_box = chip_box.duplicate()
+			chip_box.content_margin_left = 7
+			chip_box.content_margin_right = 7
+			chip_box.content_margin_top = 4
+			chip_box.content_margin_bottom = 4
+			chip.add_theme_stylebox_override("panel", chip_box)
 		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		chip.tooltip_text = "Click: on, fire once, off"
 		var v := VBoxContainer.new()
-		v.add_theme_constant_override("separation", 1)
+		v.add_theme_constant_override("separation", 0)
 		chip.add_child(v)
-		v.add_child(_label("%d × %s" % [count, String(weapon.get("name", ""))]))
+		v.add_child(_label("%d × %s" % [count, String(weapon.get("name", ""))], 11))
 		var status := ""
 		if count == 0:
 			status = "destroyed"
@@ -1386,7 +1549,8 @@ func _refresh_strip() -> void:
 		var line := _arc_name(int(weapon.get("arc", 0))) + " · " + status
 		if ammo > 0 and ammo < 99:
 			line += " · %d left" % ammo
-		v.add_child(_label(line, 0, FIRE if lit else (SYSTEMS_COLOR if status == "destroyed" else DIM)))
+		var status_label := _label(line, 10, FIRE if lit else (SYSTEMS_COLOR if status == "destroyed" else DIM))
+		v.add_child(status_label)
 		if count == 0 or active == -1 or not ready or (targeted and not lit):
 			chip.modulate = Color(1, 1, 1, 0.5)
 		chip.gui_input.connect(func(event: InputEvent):
@@ -1410,14 +1574,8 @@ func _slots_against(target: int) -> Dictionary:
 
 func _refresh_timeline() -> void:
 	for child in _timeline_row.get_children():
+		_timeline_row.remove_child(child)
 		child.queue_free()
-	var round_box := VBoxContainer.new()
-	round_box.add_theme_constant_override("separation", 0)
-	round_box.add_child(_label("ROUND", 0, DIM))
-	var round_number := _label(str(int(state.get("round", 0)) + 1), 26, AMBER)
-	round_number.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	round_box.add_child(round_number)
-	_timeline_row.add_child(round_box)
 	var order: Array = []
 	var acting := int(state.get("ship", -1))
 	if acting >= 0:
@@ -1435,37 +1593,21 @@ func _refresh_timeline() -> void:
 	var bracket: HBoxContainer = null
 	if run > 0 and _mine(_ship(order[0])):
 		var frame := PanelContainer.new()
-		frame.add_theme_stylebox_override("panel", _box(Color(AMBER, 0.08), AMBER, 6, 4.0, 2))
+		frame.add_theme_stylebox_override("panel", _box(Color(AMBER, 0.08), AMBER, 6, 3.0, 2))
 		bracket = HBoxContainer.new()
-		bracket.add_theme_constant_override("separation", 6)
+		bracket.add_theme_constant_override("separation", 4)
 		frame.add_child(bracket)
 		_timeline_row.add_child(frame)
-	# As many chips as fit between the battle box and the buttons at the top right; the bar is
-	# centred, so its half may reach the nearer of the two. Each chip is measured as it is added.
-	var half := minf(size.x / 2.0 - 16.0 - _top_left.get_combined_minimum_size().x, size.x / 2.0 - 16.0 - _top_right.get_combined_minimum_size().x) - 12.0
-	var room := 2.0 * half - round_box.get_combined_minimum_size().x - 60.0 # the "+N"
-	var pane_box := get_theme_stylebox("panel", "Pane")
-	if pane_box != null:
-		room -= pane_box.get_minimum_size().x
-	if bracket != null:
-		room -= 16.0
-	var used := 0.0
-	var shown := 0
-	for n in mini(order.size(), 12):
+	# Every ship still to act (owner 2026-11-22); the bar scrolls.
+	for n in order.size():
 		var chip := _chip(order[n], order[n] == acting)
 		if bracket != null and n < run:
 			bracket.add_child(chip)
 		else:
 			_timeline_row.add_child(chip)
-		var w := chip.get_combined_minimum_size().x + 8.0
-		if shown >= 2 and used + w > room:
-			chip.get_parent().remove_child(chip)
-			chip.queue_free()
-			break
-		used += w
-		shown += 1
-	if order.size() > shown:
-		_timeline_row.add_child(_label("+%d" % (order.size() - shown), 0, DIM))
+	if acting != _tl_acting:
+		_tl_acting = acting
+		_tl_scroll.scroll_horizontal = 0 # the acting ship in view
 
 
 func _chip(index: int, acting: bool) -> Control:
@@ -1475,22 +1617,22 @@ func _chip(index: int, acting: bool) -> Control:
 	var pic := _panel(&"RowOpen" if acting else &"Row")
 	pic.mouse_filter = Control.MOUSE_FILTER_PASS
 	# The side's colour as a thin line under the picture (the theme draws the frame).
-	pic.custom_minimum_size = Vector2(56, 46)
+	pic.custom_minimum_size = Vector2(46, 36)
 	pic.tooltip_text = String(ship.get("name", ""))
 	var rect := TextureRect.new()
 	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	rect.custom_minimum_size = Vector2(50, 40)
+	rect.custom_minimum_size = Vector2(40, 30)
 	var sprite_info: Dictionary = ship.get("sprite", {})
 	rect.texture = art.texture(String(sprite_info.get("lbx", "")), int(sprite_info.get("entry", -1)), 0)
 	pic.add_child(rect)
 	box.add_child(pic)
 	var side := ColorRect.new()
 	side.color = _color(ship)
-	side.custom_minimum_size = Vector2(56, 2)
+	side.custom_minimum_size = Vector2(46, 2)
 	side.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(side)
-	var bars := _bars_control(Vector2(56, 8))
+	var bars := _bars_control(Vector2(46, 6))
 	_set_bars(bars, ship)
 	box.add_child(bars)
 	return box
@@ -1516,10 +1658,10 @@ func _place_card() -> void:
 	var systems: Dictionary = ship.get("systems", {})
 	var lines := []
 	if int(shield.get("layers", 0)) > 0:
-		lines.append("Shields   front %d · right %d · rear %d · left %d   of %d" % [int(arcs[0]), int(arcs[1]), int(arcs[2]), int(arcs[3]), int(shield.get("max", 0))])
+		lines.append("Shields %d / %d / %d / %d  of %d  (front, right, rear, left)" % [int(arcs[0]), int(arcs[1]), int(arcs[2]), int(arcs[3]), int(shield.get("max", 0))])
 	else:
 		lines.append("Shields   down")
-	lines.append("Armour %d / %d     Structure %d / %d" % [int(armor.get("now", 0)), int(armor.get("max", 0)), int(structure.get("now", 0)), int(structure.get("max", 0))])
+	lines.append("Armour %d / %d   Structure %d / %d" % [int(armor.get("now", 0)), int(armor.get("max", 0)), int(structure.get("now", 0)), int(structure.get("max", 0))])
 	var sys_max := maxf(float(systems.get("max", 0)), 1.0)
 	lines.append("Systems %d%%" % int(round(100.0 * float(systems.get("now", 0)) / sys_max)))
 	if _mine(ship):
@@ -1538,11 +1680,13 @@ func _place_card() -> void:
 	if was_hidden:
 		_refresh_strip() # the chips light for this target
 	_card.reset_size()
-	var at := _to_screen(_ships[_hover_ship].shown) + Vector2(_radius(_hover_ship) * _zoom + 24.0, -_card.size.y / 2.0)
-	if at.x + _card.size.x > size.x - 8.0:
-		at.x = _to_screen(_ships[_hover_ship].shown).x - _radius(_hover_ship) * _zoom - 24.0 - _card.size.x
-	at.y = clampf(at.y, _timeline.get_rect().end.y + 8.0, maxf(_timeline.get_rect().end.y + 8.0, _bottom.get_rect().position.y - _card.size.y - 8.0))
-	_card.position = at
+	# Docked in the bottom corner opposite the round box (owner 2026-11-22: beside the ship it
+	# covered a large part of the battlefield).
+	var inset := float(get_theme_constant("inset", "Screen"))
+	var gap := inset + float(maxi(get_theme_constant("pane_gap", "Screen"), 6))
+	var attacking := int(state.get("player", -1)) == int(state.get("attacker", -2))
+	var x := gap if attacking else size.x - gap - _card.size.x
+	_card.position = Vector2(x, size.y - gap - _card.size.y)
 
 
 func _show_toast(text: String, seconds := 3.0) -> void:

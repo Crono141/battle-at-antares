@@ -896,6 +896,8 @@ func apply_theme(id: String, remember := true) -> void:
 		_views.dialog.theme = built.theme
 	if _combat != null:
 		_combat.theme = built.theme # the battle follows a theme switch too (owner, 2026-11-21)
+		_combat.frame_style = built.get("frame")
+		_combat.tee = built.get("tee", {})
 	_frame = built.get("frame")
 	_frame_view.queue_redraw()
 	if remember and id != "":
@@ -2908,6 +2910,8 @@ func _combat_view() -> Control:
 		_combat.art = art
 		_combat.game = game
 		_combat.theme = native_layer.theme
+		_combat.frame_style = _built.get("frame")
+		_combat.tee = _built.get("tee", {})
 		_combat.dialog_open = func() -> bool: return overlay.visible
 		# The legacy view hides under a battle: its pointer image (the hidden combat screen's, frozen)
 		# would replace the system's, and its keys would reach the battle's legacy input (owner,
@@ -7261,6 +7265,19 @@ func _smoke_combat(shots: String) -> bool:
 			if shots != "":
 				await host.shot(shots + "/combat-scan.png")
 			view._hide_scan()
+			# The initiative bar scrolls (owner 2026-11-22): a wheel notch over it, as a player does it.
+			var bar_at: Vector2 = view._tl_scroll.get_global_rect().get_center()
+			var scroll_before: int = view._tl_scroll.scroll_horizontal
+			for pressed in [true, false]:
+				var wheel := InputEventMouseButton.new()
+				wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+				wheel.pressed = pressed
+				wheel.position = bar_at
+				wheel.global_position = bar_at
+				Input.parse_input_event(wheel)
+				await get_tree().process_frame
+			print("smoke: initiative bar scrolled by the wheel: %s (%d -> %d)" % [view._tl_scroll.scroll_horizontal > scroll_before, scroll_before, view._tl_scroll.scroll_horizontal])
+			view._tl_scroll.scroll_horizontal = 0
 		# As a player does it: the pointer onto the square, then a left click (real input events).
 		var square := Vector2i(best / 1000, best % 1000)
 		var at: Vector2 = view._to_screen(view._square_center(square, ship))
