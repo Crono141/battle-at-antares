@@ -82,7 +82,9 @@ const TURN_STEP_TIME := 0.05 # seconds per 22.5 degree facing step
 # Ship movement speed (owner 2026-11-21: "no options for ship movement speed yet"): the battle's
 # Moves button, saved as [combat] move_speed; scales moves and turns (not weapons: their pace is
 # the original's).
-const MOVE_SPEEDS := [["Slow", 1.6], ["Normal", 1.0], ["Fast", 0.5], ["Instant", 0.0]]
+# Owner 2026-11-22: "the speeds are slow overall": Slow is the old Normal, Normal the old Fast,
+# Fast twice Normal.
+const MOVE_SPEEDS := [["Slow", 1.0], ["Normal", 0.5], ["Fast", 0.25], ["Instant", 0.0]]
 var _move_speed := 1 # index in MOVE_SPEEDS
 var _speed_button: Button
 # Scan (owner 2026-11-21): the original's read-only view of any ship (Display_Combat_View_Ship).
