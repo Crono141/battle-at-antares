@@ -2,6 +2,7 @@
 
 #include "antares/host.h"
 #include "antares/native.h"
+#include "antares/combat_native.h"
 #include "antares/stall_trace.h"
 #include "pch.h"
 #include "command_line.h"
@@ -102,6 +103,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("stop_auto_turns"), &AntaresGame::stop_auto_turns);
         ClassDB::bind_method(D_METHOD("release_sounds"), &AntaresGame::release_sounds);
         ClassDB::bind_method(D_METHOD("click_sound"), &AntaresGame::click_sound);
+        ClassDB::bind_method(D_METHOD("request_auto_off"), &AntaresGame::request_auto_off);
         ClassDB::bind_method(D_METHOD("play_game_sound", "sound", "tag", "pitch"), &AntaresGame::play_game_sound, DEFVAL(-1), DEFVAL(0));
         ClassDB::bind_method(D_METHOD("fade_game_sound", "tag", "ticks"), &AntaresGame::fade_game_sound, DEFVAL(10));
         ClassDB::bind_method(D_METHOD("claim_screen", "screen", "claimed"), &AntaresGame::claim_screen);
@@ -725,6 +727,10 @@ namespace godot {
 
     void AntaresGame::click_sound() {
         antares::native::Click_Sound();
+    }
+
+    void AntaresGame::request_auto_off() {
+        antares::combat::Request_Auto_Off(); // a native battle's Auto button while the AI plays
     }
 
     void AntaresGame::play_game_sound(int64_t sound, int64_t tag, int64_t pitch) {

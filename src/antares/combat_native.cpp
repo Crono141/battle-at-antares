@@ -14,6 +14,7 @@
 #include "stb_image_write.h"
 #include "yyjson.h"
 
+#include <atomic>
 #include <map>
 
 // WP3.9a: the battle as a native scene (combat_native.h). Everything here reads the battle globals
@@ -211,6 +212,18 @@ namespace antares::combat {
 
     bool Active() {
         return s_active;
+    }
+
+    namespace {
+        std::atomic<bool> s_auto_off{false};
+    }
+
+    void Request_Auto_Off() {
+        s_auto_off = true;
+    }
+
+    bool Take_Auto_Off() {
+        return s_auto_off.exchange(false);
     }
 
     std::string State_Json() {

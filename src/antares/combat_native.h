@@ -46,6 +46,12 @@ namespace antares::combat {
     // x, y, center, grid, size, facing, owner}, speedx2, shield_frames, per shot special, hits,
     // specials, damage_entry and fire_points [[dx, dy]], and fragments (the non-recipe weapons'
     // 16 colours, 6-bit) when the volley has such a weapon (native-bridge.md).
+    // A native battle's Auto button while the AI plays the player's ships (owner 2026-11-22: Auto
+    // couldn't be turned off): the frontend asks (any thread), the AI's own button polls
+    // (cmbtai.cpp, where the original reads its Auto button) take it once.
+    void Request_Auto_Off();
+    bool Take_Auto_Off();
+
     void Beam(int16_t from, int16_t from_x, int16_t from_y, int16_t to, int16_t to_x, int16_t to_y, int16_t non_ship_target, const struct s_beam_fx_entry* entries);
 
     // WP3.9d (combat-plan.md section 13, foundation 1): the battle's effects as "animate" requests.

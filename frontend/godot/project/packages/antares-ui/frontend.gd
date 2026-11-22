@@ -7279,6 +7279,23 @@ func _smoke_combat(shots: String) -> bool:
 				await get_tree().process_frame
 			print("smoke: initiative bar scrolled by the wheel: %s (%d -> %d)" % [view._tl_scroll.scroll_horizontal > scroll_before, scroll_before, view._tl_scroll.scroll_horizontal])
 			view._tl_scroll.scroll_horizontal = 0
+			view._scroll_goal.erase(view._tl_scroll)
+			await get_tree().process_frame
+			# Its right arrow, clicked as a player clicks it.
+			var arrow_button: Control = view._tl_scroll.get_parent().get_child(view._tl_scroll.get_index() + 1)
+			var arrow_at: Vector2 = arrow_button.get_global_rect().get_center()
+			for pressed in [true, false]:
+				var click := InputEventMouseButton.new()
+				click.button_index = MOUSE_BUTTON_LEFT
+				click.pressed = pressed
+				click.position = arrow_at
+				click.global_position = arrow_at
+				Input.parse_input_event(click)
+				await get_tree().process_frame
+			await get_tree().create_timer(0.5).timeout
+			print("smoke: initiative bar scrolled by its arrow: %s (0 -> %d)" % [view._tl_scroll.scroll_horizontal > 0, view._tl_scroll.scroll_horizontal])
+			view._tl_scroll.scroll_horizontal = 0
+			view._scroll_goal.erase(view._tl_scroll)
 			# The camera frames an enemy's beam (owner 2026-11-22): zoomed in on our ship, a beam from
 			# the enemy must bring both on screen before it plays.
 			var keep_zoom: float = view._zoom

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/combat_native.h"
 
 #include "game/boarding.h"
 
@@ -165,7 +166,7 @@ namespace CMBTAI {
         int16_t action_result = 0;
         do {
             int16_t target_idx = Choose_Target(MOX::cur_ship);
-            if (fields::Get_Input() == MOX::auto_button) {
+            if (fields::Get_Input() == MOX::auto_button || antares::combat::Take_Auto_Off()) { // native battle: Auto off
                 Toggle_Auto_Combat_Flags();
             }
 
@@ -182,7 +183,7 @@ namespace CMBTAI {
                 }
             }
 
-            if (fields::Get_Input() == MOX::auto_button) {
+            if (fields::Get_Input() == MOX::auto_button || antares::combat::Take_Auto_Off()) { // native battle: Auto off
                 Toggle_Auto_Combat_Flags();
             }
 
@@ -306,7 +307,7 @@ namespace CMBTAI {
             }
         }
 
-        if (fields::Get_Input() == MOX::auto_button) {
+        if (fields::Get_Input() == MOX::auto_button || antares::combat::Take_Auto_Off()) { // native battle: Auto off
             Toggle_Auto_Combat_Flags();
         }
 

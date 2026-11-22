@@ -50,8 +50,8 @@ var _cam_goal := Vector2.INF
 var _zoom_goal := -1.0 # the zoom the camera eases to (-1: none)
 # The camera frames an enemy's beam (owner 2026-11-22): the effect waits until it is in place.
 const FRAMED_KINDS := ["beam", "stasis", "tractor", "plasma_web", "stellar", "black_hole", "absorber", "gyro"]
-const FRAME_MARGIN := 90.0 # world pixels round shooter and target
-const FRAME_WAIT_MAX := 1.0 # seconds the effect waits for the camera at most
+const FRAME_MARGIN := 110.0 # screen pixels between the framed ships and the clear area's edges (a constant)
+const FRAME_WAIT_MAX := 2.5 # seconds the effect waits for the camera at most (a safety: it waits until the camera settles)
 var _art_hold := 0.0 # > 0: a volley waits for its flashes' art (seconds waited + a tiny bit)
 var _art_wait: Array = [] # [name, entry] the waiting volley needs
 const ART_WAIT_MAX := 1.0
@@ -141,6 +141,7 @@ var _bottom: Control # the actions row (Wait, Done, End turn, Auto), framed with
 var _strip_row: Control # the acting ship and its weapons (hidden when the acting ship isn't the player's)
 var _round_number: Label
 var _tl_scroll: ScrollContainer
+var _tl_dragged := false
 var _scroll_goal := {} # ScrollContainer -> the horizontal scroll it eases to (smooth scrolling)
 var _wp_scroll: ScrollContainer # the acting ship's weapons (scrolls when more than fit)
 var _wp_press := Vector2.INF # where a press on the weapons began (a drag scrolls, a click toggles)
@@ -355,41 +356,57 @@ func _clear_area() -> Rect2:
 	return Rect2(Vector2(24.0, top), Vector2(size.x - 48.0, maxf(bottom - top, 100.0)))
 
 
-## An enemy's beam or beam-like special: the camera pans (and zooms out if it must) so shooter and
-## target are both on screen with a margin, and the effect waits until it has (owner 2026-11-22:
-## on the enemy's turn, and on the player's while Auto is on; missiles, torpedoes and fighters
-## don't need it).
+## The camera frames the action (owner 2026-11-22) on the enemy's turn and on the player's while
+## Auto plays: a move (the ship's from and to), then each beam or beam-like special (shooter and
+## target). Each gets its own zoom, in or out, and centre: the ships sit FRAME_MARGIN screen pixels
+## inside the area the HUD leaves clear. The effect (and a move's motion) waits until the camera is
+## there. Missiles, torpedoes and fighters don't need it.
 func _frame_enemy_fire(event: Dictionary) -> void:
 	var kind := String(event.get("kind", ""))
-	if not FRAMED_KINDS.has(kind):
+	var points: Array = []
+	var radius := 0.0
+	var actor := -1
+	if kind == "move":
+		actor = int(event.get("ship", -1))
+		var ship := _ship(actor)
+		if not _alive(ship) or not _ships.has(actor):
+			return
+		var off := _center(ship) - Vector2(float(ship.get("x", 0)), float(ship.get("y", 0))) * 20.0
+		points = [Vector2(float(event.get("x0", 0)), float(event.get("y0", 0))) + off, Vector2(float(event.get("x1", 0)), float(event.get("y1", 0))) + off]
+		radius = _radius(actor)
+	elif FRAMED_KINDS.has(kind):
+		actor = int(event.get("from", -1))
+		if not _ships.has(actor):
+			return
+		var to := int(event.get("to", -1))
+		points = [_ships[actor].shown]
+		radius = _radius(actor)
+		if bool(event.get("missile", false)):
+			points.append(Vector2(float(event.get("tx", 0)), float(event.get("ty", 0))))
+		elif _ships.has(to):
+			points.append(_ships[to].shown)
+			radius = maxf(radius, _radius(to))
+		else:
+			return
+	else:
 		return
-	var from := int(event.get("from", -1))
-	var shooter := _ship(from)
-	# The player's own fire moves the camera only while Auto plays for them (owner 2026-11-22).
-	if not _alive(shooter) or not _ships.has(from) or (_mine(shooter) and int(state.get("auto", 0)) == 0):
+	var who := _ship(actor)
+	# The player's own ships only while Auto plays them.
+	if not _alive(who) or (_mine(who) and int(state.get("auto", 0)) == 0):
 		return
-	var a: Vector2 = _ships[from].shown
-	var b := Vector2.INF
-	var to := int(event.get("to", -1))
-	if bool(event.get("missile", false)):
-		b = Vector2(float(event.get("tx", 0)), float(event.get("ty", 0)))
-	elif _ships.has(to):
-		b = _ships[to].shown
-	if b == Vector2.INF:
-		return
-	var margin := FRAME_MARGIN + maxf(_radius(from), _radius(to) if _ships.has(to) else 0.0)
-	var box := Rect2(a, Vector2.ZERO).expand(b).grow(margin)
+	var box := Rect2(points[0], Vector2.ZERO)
+	for point: Vector2 in points:
+		box = box.expand(point)
+	box = box.grow(radius)
 	var area := _clear_area()
-	# Already in view: nothing to do.
-	var on_screen := Rect2(_to_screen(box.position), box.size * _zoom)
-	if area.encloses(on_screen):
-		return
-	var fit := minf(area.size.x / box.size.x, area.size.y / box.size.y)
-	var zoom := clampf(minf(_zoom, fit), MIN_ZOOM, MAX_ZOOM)
-	# The camera's centre such that the box's centre lands in the middle of the clear area.
+	var room := area.size - Vector2(2.0 * FRAME_MARGIN, 2.0 * FRAME_MARGIN)
+	var fit := minf(room.x / maxf(box.size.x, 1.0), room.y / maxf(box.size.y, 1.0))
+	var zoom := clampf(fit, MIN_ZOOM, MAX_ZOOM)
 	var cam := box.get_center() - (area.get_center() - size / 2.0) / zoom
+	if _cam.distance_to(cam) * zoom < 2.0 and absf(zoom - _zoom) < 0.01:
+		return # already framed so
 	_cam_goal = cam
-	_zoom_goal = zoom if absf(zoom - _zoom) > 0.005 else -1.0
+	_zoom_goal = zoom
 	_cam_hold = 0.0001
 	framed += 1
 
@@ -607,20 +624,33 @@ func _process(delta: float) -> void:
 		var goal: Vector2 = e.get("goal", e.shown)
 		if e.has("motion"): # WP3.9d: a move segment at the legacy pace
 			var m: Dictionary = e.motion
-			m.t += delta
+			if _cam_hold <= 0.0 and _art_hold <= 0.0:
+				m.t += delta # a move starts once the camera frames it
 			var k := clampf(m.t / maxf(m.dur, 0.001), 0.0, 1.0)
 			e.shown = (m.p0 as Vector2).lerp(m.p1, k)
+			# Owner 2026-11-22: a ship moves in a straight line facing the way it travels, and turns
+			# to its final facing only once it has arrived (the next segment follows within moments).
+			var travel: Vector2 = (m.p1 as Vector2) - (m.p0 as Vector2)
+			if travel.length() > 0.5:
+				e["travel_angle"] = travel.angle()
+			e["travel_hold"] = 0.15
 			if k >= 1.0:
 				e.erase("motion")
 		else:
 			e.shown = e.shown.lerp(goal, minf(1.0, delta * 18.0))
+			e["travel_hold"] = float(e.get("travel_hold", 0.0)) - delta
 		var goal_angle: float = e.get("goal_angle", e.angle)
+		if e.has("travel_angle") and float(e.get("travel_hold", 0.0)) > 0.0:
+			goal_angle = e.travel_angle
+		elif e.has("travel_angle"):
+			e.erase("travel_angle")
 		e.angle = lerp_angle(e.angle, goal_angle, minf(1.0, delta * 14.0))
 		e.sprite.position = e.shown
 		e.sprite.rotation = e.angle
 	if _cam_goal != Vector2.INF:
-		_cam = _cam.lerp(_cam_goal, minf(1.0, delta * 6.0))
-		if _cam.distance_to(_cam_goal) < 1.0:
+		_cam = _cam.lerp(_cam_goal, minf(1.0, delta * (9.0 if _cam_hold > 0.0 else 6.0)))
+		if _cam.distance_to(_cam_goal) * _zoom < 1.5:
+			_cam = _cam_goal
 			_cam_goal = Vector2.INF
 	if _animating_waits_capture >= 0 and not art.sprite("capture", _animating_waits_capture).is_empty():
 		print("capture: volley %d arrived %d ms after its event" % [_animating_waits_capture, Time.get_ticks_msec() - _capture_asked_at])
@@ -631,7 +661,7 @@ func _process(delta: float) -> void:
 		_beams.queue_redraw()
 		return
 	if _zoom_goal > 0.0:
-		_zoom = lerpf(_zoom, _zoom_goal, minf(1.0, delta * 6.0))
+		_zoom = lerpf(_zoom, _zoom_goal, minf(1.0, delta * (9.0 if _cam_hold > 0.0 else 6.0)))
 		if absf(_zoom - _zoom_goal) < 0.005:
 			_zoom = _zoom_goal
 			_zoom_goal = -1.0
@@ -835,7 +865,6 @@ func _draw_marks() -> void:
 		if _alive(hovered) and not _mine(hovered):
 			var at: Vector2 = _ships[_hover_ship].shown
 			_marks.draw_dashed_line(from, at, Color(FIRE, 0.8), 2.0 * width, 8.0 * width)
-			_marks.draw_arc(at, _radius(_hover_ship) + 4.0, 0.0, TAU, 48, FIRE, 2.0 * width)
 		elif _hover_ship < 0 and _square_legal(_hover_square):
 			var to := _square_center(_hover_square, acting_ship)
 			_marks.draw_dashed_line(from, to, Color(AMBER, 0.9), 2.5 * width, 6.0 * width)
@@ -1092,6 +1121,11 @@ func _square_legal(square: Vector2i) -> bool:
 # ---- Input ----
 
 func _gui_input(event: InputEvent) -> void:
+	# Events that bubbled up from the HUD (a scan list scrolled to its end, a label in a panel) are
+	# the HUD's: they never zoom or act on the field (owner 2026-11-22).
+	if (event is InputEventMouseButton) and not _pointer_on_field():
+		accept_event()
+		return
 	var wheel := event as InputEventMouseButton
 	if wheel and wheel.pressed and (wheel.button_index == MOUSE_BUTTON_WHEEL_UP or wheel.button_index == MOUSE_BUTTON_WHEEL_DOWN):
 		_zoom_at(wheel.position, 1.12 if wheel.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.12)
@@ -1171,6 +1205,20 @@ func _right_click(at: Vector2) -> void:
 func _input(event: InputEvent) -> void:
 	if not visible:
 		return
+	# A click outside the Options flyout or the scan closes it; on the field it does nothing else.
+	var press := event as InputEventMouseButton
+	if press != null and press.pressed and press.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
+		var closed := false
+		if _options_panel != null and _options_panel.visible and not _options_panel.get_global_rect().has_point(press.global_position) \
+				and not _options_tab.get_global_rect().has_point(press.global_position):
+			_close_options()
+			closed = true
+		if _scan_panel != null and _scan_panel.visible and not _scan_panel.get_global_rect().has_point(press.global_position):
+			_hide_scan()
+			closed = true
+		if closed and _pointer_on_field():
+			get_viewport().set_input_as_handled()
+		return
 	var key := event as InputEventKey
 	if key == null:
 		return
@@ -1188,8 +1236,8 @@ func _input(event: InputEvent) -> void:
 	match key.keycode:
 		KEY_ESCAPE:
 			_close_menu()
-			if _options_panel != null:
-				_options_panel.hide()
+			if _options_panel != null and _options_panel.visible:
+				_close_options()
 			_scan_mode = false
 			_hide_scan()
 		KEY_S:
@@ -1207,7 +1255,7 @@ func _input(event: InputEvent) -> void:
 		KEY_T:
 			_act({"action": "end_turn"})
 		KEY_A:
-			_act({"action": "auto"})
+			_toggle_auto()
 		KEY_R:
 			_act({"action": "retreat"})
 		KEY_SPACE, KEY_C:
@@ -1218,6 +1266,19 @@ func _input(event: InputEvent) -> void:
 			handled = false
 	# Every key stays with the battle: none may reach the hidden legacy screen.
 	get_viewport().set_input_as_handled()
+
+
+## Auto: on the player's turn an action; while the AI plays their ships, a request the AI takes at
+## its next look at the Auto button (combat::Request_Auto_Off; owner 2026-11-22: Auto couldn't
+## be turned off).
+func _toggle_auto() -> void:
+	if _my_turn():
+		_act({"action": "auto"})
+	elif int(state.get("auto", 0)) != 0 and game != null:
+		game.request_auto_off()
+		_show_toast("Auto off: you take over from the next ship")
+	_auto_button.set_pressed_no_signal(int(state.get("auto", 0)) != 0 and _my_turn())
+	Themes.glow(_auto_button)
 
 
 func _act(action: Dictionary) -> void:
@@ -1324,7 +1385,11 @@ func _build_hud() -> void:
 	_options_tab = _panel(&"Pocket")
 	add_child(_options_tab)
 	_top_right = _options_tab
-	var options_button := _flat_button("Options", "", func(): _options_panel.visible = not _options_panel.visible)
+	var options_button := _flat_button("Options", "", func():
+		if _options_panel.visible:
+			_close_options()
+		else:
+			_open_options())
 	options_button.tooltip_text = "Battle options: health, grid, move squares, ship speed, layout"
 	_options_tab.add_child(options_button)
 
@@ -1339,7 +1404,7 @@ func _build_hud() -> void:
 	_tl_scroll = ScrollContainer.new()
 	_tl_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_tl_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	_tl_scroll.gui_input.connect(func(event: InputEvent): _wheel_scroll(_tl_scroll, event))
+	_tl_scroll.gui_input.connect(func(event: InputEvent): _timeline_input(event, -1))
 	trow.add_child(_tl_scroll)
 	# A margin inside the scroller: the run's gold bracket was cut at its top.
 	var tl_margin := MarginContainer.new()
@@ -1352,6 +1417,7 @@ func _build_hud() -> void:
 	trow.add_child(_arrow(false, "Later in the order", func(): _scroll_by(_tl_scroll, 240)))
 
 	_build_options()
+	move_child(_options_panel, _options_tab.get_index()) # slides out from under the tab and the bar
 
 	# The bottom: Wait / Done / End turn / Auto in their own framed tab, stepping up from the
 	# weapons pocket (added first: the pocket draws over the tab's lower edge).
@@ -1366,7 +1432,7 @@ func _build_hud() -> void:
 	_actions.add_child(_done_button)
 	_end_button = _flat_button("End turn", "T", func(): _act({"action": "end_turn"}), true)
 	_actions.add_child(_end_button)
-	_auto_button = _flat_button("Auto", "A", func(): _act({"action": "auto"}))
+	_auto_button = _flat_button("Auto", "A", _toggle_auto)
 	_auto_button.tooltip_text = "The computer fights the rest of this battle for you (key: A)"
 	_auto_button.theme_type_variation = &"Toggle"
 	_auto_button.toggle_mode = true
@@ -1478,7 +1544,10 @@ func _layout() -> void:
 	_options_tab.reset_size()
 	_options_tab.position = Vector2(roundf((size.x - _options_tab.size.x) / 2.0), _timeline.position.y + _timeline.size.y + _grow(_timeline, 3) - 4.0)
 	_options_panel.reset_size()
-	_options_panel.position = Vector2(roundf((size.x - _options_panel.size.x) / 2.0), _options_tab.position.y + _options_tab.size.y + 4.0)
+	var out_y := _options_tab.position.y + _options_tab.size.y + 4.0
+	var ko := clampf(_options_anim, 0.0, 1.0)
+	_options_panel.position = Vector2(roundf((size.x - _options_panel.size.x) / 2.0), lerpf(out_y - _options_panel.size.y * 0.6, out_y, ko))
+	_options_panel.modulate.a = ko
 	# The weapons pocket: at most half the screen, centred, on the bottom edge.
 	var wp_chrome := _strip.get_combined_minimum_size().x - _wp_scroll.get_combined_minimum_size().x
 	var wp_room := maxf(half_screen - wp_chrome, 120.0)
@@ -1497,14 +1566,22 @@ func _layout() -> void:
 	var x := size.x - corner - _top_left.size.x if attacking else corner
 	_top_left.position = Vector2(x, size.y - corner - _top_left.size.y)
 	_toast.position = Vector2(roundf((size.x - _toast.size.x) / 2.0), _options_tab.position.y + _options_tab.size.y + 12.0)
-	# The scan panel: on the right, its height capped to the screen inside the frame.
+	# The scan panel: centred between the button frames (under the Options tab, above the
+	# buttons' tab), its list capped to that room; it grows out of the scanned ship.
 	if _scan_panel.visible:
-		var frame_room := size.y - 2.0 * corner - 16.0
+		var room := _clear_area()
 		var head := _scan_panel.get_combined_minimum_size().y - _scan_scroll.get_combined_minimum_size().y
 		var body := _scan_body.get_combined_minimum_size()
-		_scan_scroll.custom_minimum_size = Vector2(body.x, clampf(body.y, 60.0, maxf(frame_room - head, 60.0)))
+		_scan_scroll.custom_minimum_size = Vector2(0, clampf(body.y, 40.0, maxf(room.size.y - head, 40.0)))
 		_scan_panel.reset_size()
-		_scan_panel.position = Vector2(size.x - corner - 8.0 - _scan_panel.size.x, clampf((size.y - _scan_panel.size.y) / 2.0, corner + 8.0, maxf(corner + 8.0, size.y - corner - 8.0 - _scan_panel.size.y)))
+		var final := Vector2(roundf((size.x - _scan_panel.size.x) / 2.0), roundf(room.position.y + (room.size.y - _scan_panel.size.y) / 2.0))
+		final.y = maxf(final.y, room.position.y)
+		var k := clampf(_scan_anim, 0.0, 1.0)
+		var grow := lerpf(0.08, 1.0, k)
+		_scan_panel.pivot_offset = Vector2.ZERO
+		_scan_panel.scale = Vector2(grow, grow)
+		_scan_panel.position = (_scan_from - _scan_panel.size * grow / 2.0).lerp(final, k)
+		_scan_panel.modulate.a = lerpf(0.2, 1.0, k)
 	_frame_overlay.queue_redraw()
 
 
@@ -1523,27 +1600,49 @@ func _draw_frame() -> void:
 	_frame_overlay.draw_style_box(frame_style, Rect2(Vector2.ZERO, _frame_overlay.size))
 	if tee.is_empty():
 		return
-	var tex: Texture2D = tee.texture
-	var scale: float = tee.scale
 	var c: float = tee.bar_center
-	var tsize := Vector2(tex.get_size()) * scale
-	var anchor: Vector2 = tee.anchor * scale
+	# The edge pockets meet the screen frame (as the galaxy's bars do).
 	for pocket: Control in [_timeline, _strip]:
 		if not pocket.visible:
 			continue
-		var pbox: StyleBox = pocket.get_theme_stylebox("panel")
-		var grow := Vector2(9, 9)
-		if pbox and "grow" in pbox:
-			grow = Vector2(pbox.grow[0], pbox.grow[2])
 		var r := pocket.get_rect()
 		var top := pocket == _timeline
-		for x in [r.position.x - grow.x + c, r.end.x + grow.y - c]:
-			if top: # the joint upside down, its top flush with the screen's top (frontend.gd)
-				_frame_overlay.draw_set_transform(Vector2(0, tsize.y), 0.0, Vector2(1, -1))
-				_frame_overlay.draw_texture_rect(tex, Rect2(Vector2(x - anchor.x, 0), tsize), false)
-				_frame_overlay.draw_set_transform(Vector2.ZERO)
+		for x in [r.position.x - _grow(pocket, 0) + c, r.end.x + _grow(pocket, 2) - c]:
+			if top:
+				_draw_tee(Vector2(x, c), true)
 			else:
-				_frame_overlay.draw_texture_rect(tex, Rect2(Vector2(x - anchor.x, _frame_overlay.size.y - c - anchor.y), tsize), false)
+				_draw_tee(Vector2(x, _frame_overlay.size.y - c), false)
+	# The tabs meet their pockets (owner 2026-11-22, ClearFieldBattleMarkup.png): the Options tab
+	# hangs from the initiative bar's lower edge, the buttons' tab stands on the weapons pocket.
+	if _options_tab.visible:
+		var r := _options_tab.get_rect()
+		var bar_y := _timeline.get_rect().end.y + _grow(_timeline, 3) - c
+		for x in [r.position.x - _grow(_options_tab, 0) + c, r.end.x + _grow(_options_tab, 2) - c]:
+			_draw_tee(Vector2(x, bar_y), true)
+	if _bottom.visible:
+		var r := _bottom.get_rect()
+		var bar_y := _strip.get_rect().position.y - _grow(_strip, 1) + c
+		for x in [r.position.x - _grow(_bottom, 0) + c, r.end.x + _grow(_bottom, 2) - c]:
+			_draw_tee(Vector2(x, bar_y), false)
+	# The round box in its corner: its side meets the bottom frame, its top the side frame.
+	var box := _top_left.get_rect()
+	var at_right := box.get_center().x > _frame_overlay.size.x / 2.0
+	var side_x := box.position.x + c if at_right else box.end.x - c
+	_draw_tee(Vector2(side_x, _frame_overlay.size.y - c), false)
+	var frame_x := _frame_overlay.size.x - c if at_right else c
+	_draw_tee(Vector2(frame_x, box.position.y + c), false, -PI / 2.0 if at_right else PI / 2.0)
+
+
+## The theme's joint (its art is a bar arriving from above onto a horizontal bar), its meeting
+## point at `at`: upside down (a bar leaving downward), or turned (a bar arriving from the side).
+func _draw_tee(at: Vector2, upside_down: bool, turn := 0.0) -> void:
+	var tex: Texture2D = tee.texture
+	var scale: float = tee.scale
+	var tsize := Vector2(tex.get_size()) * scale
+	var anchor: Vector2 = tee.anchor * scale
+	_frame_overlay.draw_set_transform(at, turn, Vector2(1.0, -1.0 if upside_down else 1.0))
+	_frame_overlay.draw_texture_rect(tex, Rect2(-anchor, tsize), false)
+	_frame_overlay.draw_set_transform(Vector2.ZERO)
 
 
 # ---- Scrolling bars and the Options flyout (owner 2026-11-22) ----
@@ -1592,6 +1691,34 @@ func _wheel_scroll(sc: ScrollContainer, event: InputEvent) -> bool:
 	return true
 
 
+var _tl_press := Vector2.INF
+
+
+## The initiative bar: the wheel and its arrows scroll it, a drag pans it (owner 2026-11-22: "click
+## to pan"), a click (no drag) on a chip centres the camera on that ship.
+func _timeline_input(event: InputEvent, index: int) -> void:
+	if _wheel_scroll(_tl_scroll, event):
+		return
+	var button := event as InputEventMouseButton
+	if button != null and button.button_index == MOUSE_BUTTON_LEFT:
+		if button.pressed:
+			_tl_press = button.global_position
+			_tl_dragged = false
+		else:
+			if not _tl_dragged and index >= 0 and _ships.has(index):
+				_cam_goal = _ships[index].shown
+			_tl_press = Vector2.INF
+		accept_event()
+		return
+	var motion := event as InputEventMouseMotion
+	if motion != null and _tl_press != Vector2.INF:
+		if _tl_dragged or motion.global_position.distance_to(_tl_press) > 6.0:
+			_tl_dragged = true
+			_scroll_goal.erase(_tl_scroll)
+			_tl_scroll.scroll_horizontal -= int(motion.relative.x)
+		accept_event()
+
+
 ## The weapons: the wheel scrolls, a drag scrolls, a click (no drag) on a chip cycles that weapon.
 func _weapons_input(event: InputEvent, slot: int) -> void:
 	if _wheel_scroll(_wp_scroll, event):
@@ -1618,6 +1745,24 @@ func _weapons_input(event: InputEvent, slot: int) -> void:
 
 ## The flyout under the Options tab: every battle option (owner: "all the options we have/haven't
 ## discovered"), and the layout, as themes are for the galaxy.
+var _options_anim := 0.0 # 0: tucked under the Options tab, 1: out
+
+
+## The flyout slides down out from under the Options tab (as the galaxy's panes fly out).
+func _open_options() -> void:
+	_options_panel.show()
+	var tween := create_tween()
+	tween.tween_property(self, "_options_anim", 1.0, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+func _close_options() -> void:
+	var tween := create_tween()
+	tween.tween_property(self, "_options_anim", 0.0, 0.14).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.tween_callback(func():
+		if _options_anim <= 0.0:
+			_options_panel.hide())
+
+
 func _build_options() -> void:
 	_options_panel = _panel()
 	_options_panel.hide()
@@ -1925,10 +2070,7 @@ func _chip(index: int, acting: bool) -> Control:
 	box.mouse_exited.connect(func():
 		if _chip_hover == index:
 			_chip_hover = -1)
-	box.gui_input.connect(func(event: InputEvent):
-		var click := event as InputEventMouseButton
-		if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT and _ships.has(index):
-			_cam_goal = _ships[index].shown)
+	box.gui_input.connect(func(event: InputEvent): _timeline_input(event, index))
 	return box
 
 
@@ -2001,31 +2143,72 @@ func _arm_scan() -> void:
 	_show_toast("Scan: click any ship  (Esc cancels)", 4.0)
 
 
+## The scan panel, modelled on the Ship Design panel (owner 2026-11-22): the name and side with a
+## Close button; the hull, crew and officer; one frame with the systems (a glyph each: shield,
+## armour, structure, computer, drive) beside a frame with the ship's picture and its pools; the
+## combat values; the weapons as rows with their arc glyph; the specials. It grows out of the
+## scanned ship to the middle of the screen, between the button frames.
+const SCAN_WIDTH := 660.0
+var _scan_anim := 1.0 # 0: at the ship, 1: in place (tweened when it opens)
+var _scan_from := Vector2.ZERO # the scanned ship on screen when it opened
+var _scan_picture: TextureRect
+var _scan_systems: VBoxContainer
+var _scan_values: Label
+
+
 func _build_scan() -> void:
 	_scan_panel = _panel()
 	_scan_panel.hide()
 	add_child(_scan_panel)
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 6)
-	v.custom_minimum_size = Vector2(330, 0)
+	v.add_theme_constant_override("separation", 8)
+	v.custom_minimum_size = Vector2(SCAN_WIDTH, 0)
 	_scan_panel.add_child(v)
 	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
 	v.add_child(head)
-	_scan_title = _label("", 0, AMBER)
+	_scan_title = _label("")
+	_scan_title.theme_type_variation = &"Heading"
 	_scan_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scan_title.clip_text = true
 	head.add_child(_scan_title)
-	head.add_child(_flat_button("Close", "Esc", _hide_scan))
+	var close := _flat_button("X", "Esc", _hide_scan)
+	close.custom_minimum_size = Vector2(34, 30)
+	head.add_child(close)
 	_scan_sub = _label("", 0, DIM)
 	v.add_child(_scan_sub)
-	_scan_bars = _bars_control(Vector2(330, 12))
-	v.add_child(_scan_bars)
-	# The body scrolls: the panel never grows past the screen inside its frame (owner 2026-11-22:
-	# a tall ship's scan ran off the screen with its Close button).
+	# The top: the systems' frame beside the picture's frame (the design panel's).
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 10)
+	v.add_child(top)
+	var systems_frame := _panel(&"Row")
+	systems_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(systems_frame)
+	_scan_systems = VBoxContainer.new()
+	_scan_systems.add_theme_constant_override("separation", 0)
+	systems_frame.add_child(_scan_systems)
+	var picture_frame := _panel(&"Row")
+	picture_frame.custom_minimum_size = Vector2(190, 0)
+	top.add_child(picture_frame)
+	var pv := VBoxContainer.new()
+	pv.add_theme_constant_override("separation", 4)
+	picture_frame.add_child(pv)
+	_scan_picture = TextureRect.new()
+	_scan_picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_scan_picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_scan_picture.custom_minimum_size = Vector2(170, 110)
+	pv.add_child(_scan_picture)
+	_scan_bars = _bars_control(Vector2(170, 10))
+	pv.add_child(_scan_bars)
+	_scan_values = _label("", 12, DIM)
+	v.add_child(_scan_values)
+	# Weapons and specials scroll; the panel never outgrows the room between the frames.
 	_scan_scroll = ScrollContainer.new()
 	_scan_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	v.add_child(_scan_scroll)
 	_scan_body = VBoxContainer.new()
-	_scan_body.add_theme_constant_override("separation", 3)
+	_scan_body.add_theme_constant_override("separation", 4)
+	_scan_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_scan_scroll.add_child(_scan_body)
 
 
@@ -2035,13 +2218,86 @@ func _hide_scan() -> void:
 		_scan_panel.hide()
 
 
-## The original's scan of `index`: parts, combat values, crew and officer, weapons, specials, and
-## the pools as the card shows them. Kept current while open (_refresh_hud).
+## A system's glyph (drawn in the label colour): shield, armor, structure, computer, drive.
+func _glyph(kind: String) -> Control:
+	var g := Control.new()
+	g.custom_minimum_size = Vector2(20, 20)
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	g.draw.connect(_draw_glyph.bind(g, kind))
+	return g
+
+
+func _draw_glyph(g: Control, kind: String) -> void:
+	var c := g.size / 2.0
+	var r := minf(g.size.x, g.size.y) * 0.42
+	var ink := g.get_theme_color("font_color", "Label")
+	match kind:
+		"shield": # a shield's outline
+			var pts := PackedVector2Array([c + Vector2(-r, -r * 0.8), c + Vector2(0, -r), c + Vector2(r, -r * 0.8), c + Vector2(r, 0),
+				c + Vector2(0, r), c + Vector2(-r, 0), c + Vector2(-r, -r * 0.8)])
+			g.draw_polyline(pts, ink, 1.5, true)
+		"armor": # stacked plates
+			for k in 3:
+				var y := c.y - r + k * r * 0.75
+				g.draw_rect(Rect2(Vector2(c.x - r, y), Vector2(r * 2.0, r * 0.55)), ink, false, 1.5)
+		"structure": # a girder
+			g.draw_rect(Rect2(c - Vector2(r, r * 0.6), Vector2(r * 2.0, r * 1.2)), ink, false, 1.5)
+			g.draw_line(c + Vector2(-r, -r * 0.6), c + Vector2(0, r * 0.6), ink, 1.5, true)
+			g.draw_line(c + Vector2(0, r * 0.6), c + Vector2(r, -r * 0.6), ink, 1.5, true)
+		"computer": # a chip with pins
+			g.draw_rect(Rect2(c - Vector2(r * 0.6, r * 0.6), Vector2(r * 1.2, r * 1.2)), ink, false, 1.5)
+			for k in [-0.3, 0.3]:
+				for side in [-1.0, 1.0]:
+					g.draw_line(c + Vector2(r * k, side * r * 0.6), c + Vector2(r * k, side * r), ink, 1.5)
+					g.draw_line(c + Vector2(side * r * 0.6, r * k), c + Vector2(side * r, r * k), ink, 1.5)
+		"drive": # an exhaust flame behind a nozzle
+			g.draw_colored_polygon(PackedVector2Array([c + Vector2(-r, -r * 0.5), c + Vector2(0, -r * 0.5), c + Vector2(0, r * 0.5),
+				c + Vector2(-r, r * 0.5)]), Color(ink, 0.25))
+			g.draw_polyline(PackedVector2Array([c + Vector2(0, -r * 0.5), c + Vector2(r, 0), c + Vector2(0, r * 0.5)]), ink, 1.5, true)
+
+
+## One system line, as the design panel's: glyph, small dim title, the part, the detail at the right.
+func _scan_line(kind: String, title: String, value: String, detail: String) -> Control:
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 6)
+	line.custom_minimum_size.y = 24
+	line.add_child(_glyph(kind))
+	var t := _label(title, 11, DIM)
+	t.custom_minimum_size.x = 76
+	line.add_child(t)
+	var v := _label(value)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.clip_text = true
+	v.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	line.add_child(v)
+	var d := _label(detail, 12, DIM)
+	d.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	line.add_child(d)
+	return line
+
+
+## The weapon slot's arc (combat data) as the arc glyph's (0 forward, 1 forward wide, 2 back wide,
+## 3 back, 4 all round).
+func _arc_glyph_index(arc: int) -> int:
+	match arc:
+		1:
+			return 0
+		2, 3:
+			return 1
+		4, 12:
+			return 2
+		8:
+			return 3
+	return 4
+
+
+## The original's scan of `index`. Kept current while open (_refresh_hud).
 func _show_scan(index: int) -> void:
 	var ship := _ship(index)
 	if not _alive(ship):
 		_hide_scan()
 		return
+	var opening := not _scan_panel.visible or _scan_ship != index
 	_scan_ship = index
 	var scan: Dictionary = ship.get("scan", {})
 	var mine := _mine(ship)
@@ -2053,61 +2309,80 @@ func _show_scan(index: int) -> void:
 	var sub := []
 	if not mine:
 		sub.append(_side_name(int(ship.get("owner", -1))))
-	if scan.has("hull"):
-		sub.append(String(scan.hull))
-	if scan.has("crew"):
-		sub.append(String(scan.crew))
+	for key in ["hull", "crew", "officer"]:
+		if scan.has(key):
+			sub.append(String(scan[key]))
 	_scan_sub.text = "   ·   ".join(sub)
+	var sprite_info: Dictionary = ship.get("sprite", {})
+	_scan_picture.texture = art.texture(String(sprite_info.get("lbx", "")), int(sprite_info.get("entry", -1)), 0)
 	_set_bars(_scan_bars, ship)
-	for child in _scan_body.get_children():
+	for child in _scan_systems.get_children():
+		_scan_systems.remove_child(child)
 		child.queue_free()
-	var add := func(text: String, color := TEXT):
-		var l := _label(text, 0, color)
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		l.custom_minimum_size = Vector2(330, 0)
-		_scan_body.add_child(l)
-	var section := func(text: String):
-		var l := _label(text)
-		l.theme_type_variation = &"Section"
-		_scan_body.add_child(l)
-	if scan.has("officer"):
-		add.call("Officer: " + String(scan.officer))
 	var shield: Dictionary = ship.get("shield", {})
+	var arcs: Array = shield.get("arcs", [0, 0, 0, 0])
 	var armor: Dictionary = ship.get("armor", {})
 	var structure: Dictionary = ship.get("structure", {})
-	section.call("SYSTEMS")
-	var arcs: Array = shield.get("arcs", [0, 0, 0, 0])
+	var shield_detail := "none"
 	if int(shield.get("max", 0)) > 0:
-		add.call("Shields: %s   front %d · right %d · rear %d · left %d   of %d" % [String(scan.get("shield", "")), int(arcs[0]), int(arcs[1]),
-			int(arcs[2]), int(arcs[3]), int(shield.get("max", 0))])
-	else:
-		add.call("Shields: none")
-	add.call("Armour: %s   %d / %d" % [String(scan.get("armor", "")), int(armor.get("now", 0)), int(armor.get("max", 0))])
-	add.call("Structure %d / %d" % [int(structure.get("now", 0)), int(structure.get("max", 0))])
-	add.call("Computer: " + String(scan.get("computer", "")))
+		shield_detail = "%d %d %d %d / %d" % [int(arcs[0]), int(arcs[1]), int(arcs[2]), int(arcs[3]), int(shield.get("max", 0))]
+	_scan_systems.add_child(_scan_line("shield", "SHIELD", String(scan.get("shield", "")), shield_detail))
+	_scan_systems.add_child(_scan_line("armor", "ARMOUR", String(scan.get("armor", "")), "%d / %d" % [int(armor.get("now", 0)), int(armor.get("max", 0))]))
+	_scan_systems.add_child(_scan_line("structure", "STRUCTURE", "", "%d / %d" % [int(structure.get("now", 0)), int(structure.get("max", 0))]))
+	_scan_systems.add_child(_scan_line("computer", "COMPUTER", String(scan.get("computer", "")), "%s %d" % [String(scan.get("attack_label", "Beam OCV")), int(scan.get("attack", 0))]))
 	if scan.has("drive"):
-		add.call("Drive: %s   combat speed %d" % [String(scan.drive), int(scan.get("speed", 0))])
-	add.call("%s %d    %s %d    Missile evasion %d" % [String(scan.get("attack_label", "Beam attack")), int(scan.get("attack", 0)),
-		String(scan.get("defense_label", "Beam defence")), int(scan.get("defense", 0)), int(scan.get("evade", 0))])
+		_scan_systems.add_child(_scan_line("drive", "DRIVE", String(scan.drive), "speed %d" % int(scan.get("speed", 0))))
+	var values := ["%s %d" % [String(scan.get("defense_label", "Beam DCV")), int(scan.get("defense", 0))], "Missile evasion %d" % int(scan.get("evade", 0))]
 	if int(ship.get("marines", 0)) > 0:
-		add.call("Marines %d" % int(ship.get("marines", 0)))
-	var weapons: Array = ship.get("weapons", [])
-	if not weapons.is_empty():
-		section.call("WEAPONS")
-		for weapon: Dictionary in weapons:
-			var count := int(weapon.get("count", 0))
-			var line := "%d × %s   %s" % [count, String(weapon.get("name", "")), _arc_name(int(weapon.get("arc", 0)))]
-			var ammo := int(weapon.get("ammo", 0))
-			if ammo > 0 and ammo < 99:
-				line += "   %d left" % ammo
-			add.call(line + ("   destroyed" if count == 0 else ""), SYSTEMS_COLOR if count == 0 else TEXT)
-	var specials: Array = scan.get("specials", [])
-	if not specials.is_empty():
-		section.call("SPECIALS")
-		for special: Dictionary in specials:
-			var damaged := bool(special.get("damaged", false))
-			add.call(String(special.get("name", "")) + ("   damaged" if damaged else ""), SYSTEMS_COLOR if damaged else TEXT)
+		values.append("Marines %d" % int(ship.get("marines", 0)))
+	_scan_values.text = "      ".join(values)
+	for child in _scan_body.get_children():
+		_scan_body.remove_child(child)
+		child.queue_free()
+	for weapon: Dictionary in ship.get("weapons", []):
+		var row := _panel(&"Row")
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 8)
+		row.add_child(line)
+		var glyph := preload("arc_glyph.gd").new()
+		glyph.arc = _arc_glyph_index(int(weapon.get("arc", 0)))
+		glyph.custom_minimum_size = Vector2(22, 22)
+		glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		line.add_child(glyph)
+		var count := int(weapon.get("count", 0))
+		var n := _label("%d×" % count, 0, AMBER)
+		n.custom_minimum_size.x = 34
+		line.add_child(n)
+		var name := _label(String(weapon.get("name", "")), 0, SYSTEMS_COLOR if count == 0 else TEXT)
+		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		line.add_child(name)
+		var ammo := int(weapon.get("ammo", 0))
+		var detail := _arc_name(int(weapon.get("arc", 0)))
+		if ammo > 0 and ammo < 99:
+			detail += " · %d left" % ammo
+		if count == 0:
+			detail = "destroyed"
+		line.add_child(_label(detail, 12, DIM))
+		_scan_body.add_child(row)
+	for special: Dictionary in scan.get("specials", []):
+		var row := _panel(&"Row")
+		var damaged := bool(special.get("damaged", false))
+		var line := HBoxContainer.new()
+		row.add_child(line)
+		var name := _label(String(special.get("name", "")), 0, SYSTEMS_COLOR if damaged else TEXT)
+		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		line.add_child(name)
+		if damaged:
+			line.add_child(_label("damaged", 12, SYSTEMS_COLOR))
+		_scan_body.add_child(row)
 	_scan_panel.show()
+	_toast.hide()
+	if opening:
+		# Out of the scanned ship to its place.
+		_scan_from = _to_screen(_ships[index].shown) if _ships.has(index) else size / 2.0
+		_scan_anim = 0.0
+		var tween := create_tween()
+		tween.tween_property(self, "_scan_anim", 1.0, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 # ---- Effects (WP3.9c) ----
@@ -2201,10 +2476,11 @@ func _effect_point(ship_index: int, fallback: Vector2) -> Vector2:
 
 func _draw_effects(width: float) -> void:
 	var font := get_theme_default_font()
+	var holding := _cam_hold > 0.0 or _art_hold > 0.0
 	for effect: Dictionary in _effects:
 		var t: float = effect.t
-		if t < 0.0:
-			continue
+		if t < 0.0 or (holding and t <= 0.0):
+			continue # an effect waiting for the camera (or its art) isn't shown yet
 		var life: float = effect.life
 		var k := clampf(t / life, 0.0, 1.0)
 		match String(effect.kind):
@@ -2378,8 +2654,8 @@ func _slot_sprite(op_ramp: Array, slot: int) -> String:
 
 
 func _draw_beams() -> void:
-	if _art_hold > 0.0:
-		return # the volley waits for its art
+	if _art_hold > 0.0 or _cam_hold > 0.0:
+		return # the volley waits for its art or the camera
 	for effect: Dictionary in _effects:
 		if String(effect.kind) != "volley" or effect.t < 0.0:
 			continue
@@ -2397,8 +2673,8 @@ func _draw_beams() -> void:
 
 ## A volley's muzzle flashes, hit flares and the Mauler's ball on this tick (over the strands).
 func _draw_volley_sprites(effect: Dictionary) -> void:
-	if _art_hold > 0.0:
-		return # the volley waits for its art
+	if _art_hold > 0.0 or _cam_hold > 0.0:
+		return # the volley waits for its art or the camera
 	var ticks: Array = effect.ticks
 	var tick := mini(int(effect.t / BeamVolley.TICK), ticks.size() - 1)
 	var ops: Array = ticks[tick]
