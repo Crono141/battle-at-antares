@@ -4587,13 +4587,13 @@ func _smoke_native() -> void:
 			var todo_list := _view("todo_panel")
 			print("smoke: system-endturn: system pane %s on %d, to-do list %s, END TURN %s" % [_view("system_pane").visible, galaxy.system_star,
 				todo_list.visible, (not todo_list._end_turn.disabled) if todo_list._end_turn else "none"])
-			# END TURN under the title (owner 2026-11-23), whatever the list's length.
+			# END TURN on the title's row (owner 2026-11-23), whatever the list's length.
 			if todo_list._end_turn != null:
-				var at: int = todo_list._end_turn.get_index()
-				var title_at: int = todo_list.get_node("Fit/Box/Title").get_index()
-				print("smoke: system-endturn: END TURN at %d, title at %d" % [at, title_at])
-				if at != title_at + 1:
-					print("smoke: FAILED: END TURN not under the title")
+				var row: Node = todo_list._end_turn.get_parent()
+				var title_beside: bool = row.name == "TitleRow" and row.get_node_or_null("Title") != null and row.get_index() == 0
+				print("smoke: system-endturn: END TURN in %s, title beside %s" % [row.name, title_beside])
+				if not title_beside:
+					print("smoke: FAILED: END TURN not on the title's row")
 					return
 			if shots != "" and todo_list.visible:
 				await host.shot(shots + "/todo-end-turn.png")
