@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <string>
 
 namespace COMBAT1 {
     extern int32_t end_of_turn_button;
@@ -177,6 +178,10 @@ namespace COMBAT1 {
     // Validates and resolves a boarding attempt against the selected target.
     // attacker_idx/defender_idx: combat ship indices.
     void __cdecl Initiate_Boarding_Action(int16_t attacker_idx, int16_t defender_idx);
+    // Initiate_Boarding_Action in two halves for native battles: the checks (false, with the
+    // warnings, when it may not board) and the order once marines and raid/capture are chosen.
+    bool Boarding_Check(int16_t attacker_idx, int16_t defender_idx, std::string* warning_1, std::string* warning_2);
+    void Apply_Boarding(int16_t attacker_idx, int16_t defender_idx, int16_t result, int16_t marines_sent);
 
     // Advances and resolves seeking missiles for the current combat pass.
     // player_idx: player whose pass is being processed.

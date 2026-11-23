@@ -351,6 +351,10 @@ namespace antares::combat {
         // The player's own Auto (the side's flag): "auto" is the side moving now's.
         out.Int("auto_mine", MOX::auto_combat_flag[MOX::PLAYER_NUM == MOX::combat_attacker_player ? 0 : 1]);
         out.Bool("speedx2", MOX::speedx2_flag != 0 || MOX::net_flag != 0);
+        // The missile warning (cmbtmov1.cpp): 1 a move stopped short of missiles in its path (the
+        // legacy HUD's flashing lamp), 2 the player chose to move through them; "missile_warning"
+        // cycles it.
+        out.Int("missile_warning", MOX::missile_warning);
         out.Bool("can_wait", COMBAT1::Combat_Wait_Is_Available());
         out.Bool("can_side_wait", COMBAT1::Combat_Side_Wait_Is_Available());
 
@@ -1004,8 +1008,40 @@ namespace antares::combat {
             }
             return "";
         }
-        if (action == "board") {
-            return "boarding is not native yet (WP3.9d)";
+        if (action == "board" || action == "board_check") {
+            // Boarding (owner 2026-11-22), as the legacy BOARD order: the checks first (their
+            // warnings come back as the error); "board_check" answers "board:ok <most marines>" when
+            // the ship may board, for the frontend's popup; "board" with marines and mode (1 raid,
+            // 2 capture) carries it out (COMBAT1::Apply_Boarding, the legacy path after its popup).
+            if (!Ship_Alive(target)) {
+                return "not a ship";
+            }
+            std::string warning_1, warning_2;
+            if (!COMBAT1::Boarding_Check(cur, (int16_t)target, &warning_1, &warning_2)) {
+                std::string text = warning_1;
+                if (!warning_2.empty()) {
+                    text += (text.empty() ? "" : "\n") + warning_2;
+                }
+                return text.empty() ? std::string("can't board") : text;
+            }
+            const int16_t most = (int16_t)((ship.marine_count + 1) / 2);
+            if (action == "board_check") {
+                return "board:ok " + std::to_string(most);
+            }
+            int64_t marines = most;
+            int64_t mode = 0;
+            yyjson_doc* again = yyjson_read(json.data(), json.size(), 0);
+            if (again != nullptr) {
+                const commands::s_args more(yyjson_doc_get_root(again));
+                more.Int("marines", &marines);
+                more.Int("mode", &mode);
+                yyjson_doc_free(again);
+            }
+            if (mode != 1 && mode != 2) {
+                return "choose raid or capture";
+            }
+            COMBAT1::Apply_Boarding(cur, (int16_t)target, (int16_t)mode, (int16_t)SDL_clamp(marines, 0, (int64_t)most));
+            return "";
         }
         return "unknown action";
     }

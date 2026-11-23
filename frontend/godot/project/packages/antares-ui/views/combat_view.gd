@@ -62,6 +62,7 @@ const ART_WAIT_MAX := 1.0
 var _frame := {} # {from_cam, to_cam, from_zoom, to_zoom, t, dur} while the camera frames
 var _cam_hold := 0.0 # > 0: the effect waits for the camera (seconds waited so far + a tiny bit)
 var _hover_ship := -1
+var _hover_missile := -1 # an enemy missile or fighter stack under the pointer (its "i")
 var _hover_square := Vector2i(-1, -1)
 var _always_health := false
 var _alt_held := false
@@ -132,6 +133,15 @@ var _strength_theirs: ColorRect
 var _strength_label: Label
 var _health_toggle: Button
 var _auto_button: Button
+var _missile_button: Button
+var _warn_panel: PanelContainer
+var _warn_label: Label
+var _warn_anim := 0.0 # 0 hidden behind the buttons, 1 out
+var last_error := "" # the last request's refusal (smoke)
+var _board_mode := false # BOARD on the ring: the next click on an enemy ship boards it
+var _board_target := -1
+var _board_panel: PanelContainer
+var _last_missile_warning := 0
 var _timeline: PanelContainer
 var _timeline_row: HBoxContainer
 var _strip: PanelContainer
@@ -247,6 +257,8 @@ func show_state(st: Dictionary) -> void:
 	if not state.is_empty():
 		_diff_effects(state, st)
 	state = st
+	for missile: Dictionary in st.get("missiles", []):
+		_last_missiles[int(missile.get("i", -1))] = missile
 	_legal.clear()
 	for code in st.get("legal", []):
 		_legal[int(code)] = true
@@ -266,8 +278,13 @@ func on_request(id: int, request: Dictionary) -> void:
 	var st: Dictionary = request.get("scene_state", {})
 	if not st.is_empty():
 		show_state(st)
+	last_error = String(request.get("error", ""))
 	if request.has("error"):
-		_show_toast(String(request.error))
+		var error := String(request.error)
+		if error.begins_with("board:ok"):
+			_show_board_popup(_board_target, int(error.get_slice(" ", 1)))
+		else:
+			_show_toast(error)
 	var acting := int(state.get("ship", -1))
 	if acting != _last_acting:
 		_last_acting = acting
@@ -401,7 +418,11 @@ func _frame_enemy_fire(event: Dictionary) -> void:
 	var area := _clear_area()
 	# Owner 2026-11-22: when the shooter and the target (each whole ship) are already in view, in
 	# the area the HUD leaves clear, the camera stays where it is.
-	if _frame.is_empty() and _cam_goal == Vector2.INF and _zoom_goal < 0.0:
+	# Only when the view isn't much further out than the framing would be: zoomed far out every ship
+	# is "in view", and the camera stopped following (owner 2026-11-22).
+	var room0 := area.size - Vector2(2.0 * FRAME_MARGIN, 2.0 * FRAME_MARGIN)
+	var want := clampf(minf(room0.x / maxf(box.size.x, 1.0), room0.y / maxf(box.size.y, 1.0)), MIN_ZOOM, MAX_ZOOM)
+	if _frame.is_empty() and _cam_goal == Vector2.INF and _zoom_goal < 0.0 and _zoom >= want * 0.6:
 		var seen := Rect2(_to_screen(box.position), Vector2.ZERO).expand(_to_screen(box.end))
 		if area.encloses(seen):
 			return
@@ -414,7 +435,7 @@ func _frame_enemy_fire(event: Dictionary) -> void:
 	framed += 1
 	_cam_goal = Vector2.INF
 	_zoom_goal = -1.0
-	var dur := Themes.saved_flight_time(1.0)
+	var dur := Themes.saved_flight_time(1.0) * (0.5 if _speedx2() else 1.0)
 	if dur <= 0.0:
 		_cam = cam
 		_zoom = zoom
@@ -471,6 +492,13 @@ func close() -> void:
 
 func _open() -> void:
 	_tl_round = -1 # a new battle: its own initiative cycle
+	# The deaths' and blasts' art asked for now: the biggest exports of the battle.
+	for key: Array in [[SFX, 3], [SFX, 4], [SFX, 5], ["sphersfx.lbx!glass=warp", 0], ["sphersfx.lbx!glass=warp", 1], [SFX + "!glass=pulsar", 52], [SFX, 6]]:
+		art.sprite(String(key[0]), int(key[1]))
+	_death_played.clear() # ship indexes start again in each battle
+	_last_missiles.clear()
+	_gone.clear()
+	_hp_view.clear()
 	_tl_base = []
 	_tl_shown = []
 	show()
@@ -932,9 +960,13 @@ func _draw_marks() -> void:
 	if _my_turn() and _alive(acting_ship) and _ships.has(acting):
 		var from: Vector2 = _ships[acting].shown
 		var hovered := _ship(_hover_ship)
+		var stack_at := _missile_point(_hover_missile) if _hover_missile >= 0 else Vector2.INF
 		if _alive(hovered) and not _mine(hovered):
 			var at: Vector2 = _ships[_hover_ship].shown
 			_marks.draw_dashed_line(from, at, Color(FIRE, 0.8), 2.0 * width, 8.0 * width)
+		elif stack_at != Vector2.INF:
+			_marks.draw_dashed_line(from, stack_at, Color(FIRE, 0.8), 2.0 * width, 8.0 * width)
+			_dashed_circle(stack_at, 18.0, Color(FIRE, 0.85), 2.0 * width)
 		elif _hover_ship < 0 and _square_legal(_hover_square):
 			var to := _square_center(_hover_square, acting_ship)
 			_marks.draw_dashed_line(from, to, Color(AMBER, 0.9), 2.5 * width, 6.0 * width)
@@ -1099,7 +1131,7 @@ func _menu_reason(item: String) -> String:
 				return "No speed to retreat"
 			return ""
 		"board":
-			return "Boarding comes in a later build"
+			return "No marines aboard" if int(ship.get("marines", 0)) <= 0 else ""
 		"scan":
 			return ""
 		"self_destruct":
@@ -1194,6 +1226,11 @@ func _menu_pick(i: int) -> void:
 		_close_menu()
 		_arm_scan()
 		return
+	if item == "board": # as the legacy BOARD button: then the target ship
+		_close_menu()
+		_board_mode = true
+		_show_toast("Click the enemy ship to board")
+		return
 	if item == "self_destruct" and _menu_confirm != "self_destruct":
 		_menu_confirm = "self_destruct" # a second click confirms
 		return
@@ -1222,8 +1259,50 @@ func _update_hover() -> void:
 		_hover_ship = best
 		for index in _ships.keys():
 			_apply_shield(index, _ship(index))
+	_hover_missile = _missile_at(world) if best < 0 else -1
 	_hover_square = _square_at(world)
 	_place_card()
+
+
+## An enemy missile, torpedo or fighter stack whose pictures are under `world` (owner 2026-11-22:
+## they could only be shot under Auto), else -1.
+func _missile_at(world: Vector2) -> int:
+	var best := -1
+	var best_d := INF
+	for missile: Dictionary in state.get("missiles", []):
+		if int(missile.get("owner", -1)) == int(state.get("player", -2)):
+			continue
+		var at := Vector2(float(missile.get("x", 0)), float(missile.get("y", 0)))
+		var half := 12.0
+		if missile.has("lbx"):
+			var s: Dictionary = art.sprite(String(missile.lbx).to_lower(), int(missile.get("entry", 0)))
+			if not s.is_empty():
+				half = maxf((s.size as Vector2).x, (s.size as Vector2).y) / 2.0
+		var points: Array = missile.get("pictures", [])
+		if points.is_empty():
+			points = [[-half, -half]]
+		for p: Array in points:
+			var centre := at + Vector2(float(p[0]), float(p[1])) + Vector2(half, half)
+			var d := world.distance_to(centre)
+			if d < maxf(half, 10.0) and d < best_d:
+				best = int(missile.get("i", -1))
+				best_d = d
+	return best
+
+
+func _missile_point(stack: int) -> Vector2:
+	for missile: Dictionary in state.get("missiles", []):
+		if int(missile.get("i", -1)) != stack:
+			continue
+		var at := Vector2(float(missile.get("x", 0)), float(missile.get("y", 0)))
+		var points: Array = missile.get("pictures", [])
+		if points.is_empty():
+			return at
+		var sum := Vector2.ZERO
+		for p: Array in points:
+			sum += Vector2(float(p[0]), float(p[1]))
+		return at + sum / float(points.size()) + Vector2(12, 12)
+	return Vector2.INF
 
 
 ## The square the acting ship would move to so that its centre lands nearest `world`.
@@ -1301,6 +1380,15 @@ func _left_click(at: Vector2) -> void:
 		else:
 			_close_menu()
 		return
+	if _board_mode:
+		_board_mode = false
+		var target := _ship(_hover_ship)
+		if _alive(target) and not _mine(target):
+			_board_target = _hover_ship
+			_act({"action": "board_check", "target": _hover_ship}) # the game's checks; "board:ok" opens the popup
+		else:
+			_show_toast("Boarding cancelled")
+		return
 	if _scan_mode:
 		_scan_mode = false
 		if _alive(_ship(_hover_ship)):
@@ -1309,6 +1397,9 @@ func _left_click(at: Vector2) -> void:
 			_show_toast("Scan cancelled")
 		return
 	if not _my_turn():
+		return
+	if _hover_missile >= 0 and not _alive(_ship(_hover_ship)):
+		_act({"action": "fire_missile", "target": _hover_missile})
 		return
 	var hovered := _ship(_hover_ship)
 	if _alive(hovered):
@@ -1596,6 +1687,23 @@ func _build_hud() -> void:
 
 	# The bottom: Wait / Done / End turn / Auto in their own framed tab, stepping up from the
 	# weapons pocket (added first: the pocket draws over the tab's lower edge).
+	# The original's missile warning lamp (owner 2026-11-22: ships stopped short of missiles with
+	# nothing on screen to say why) as a toast with a button that slides up from behind the action
+	# buttons; the button cycles the warning as the lamp did (on -> ignored: the next move flies
+	# through -> off).
+	_warn_panel = _panel(&"Pane")
+	_warn_panel.hide()
+	add_child(_warn_panel) # before the buttons' tab: it slides out from behind it
+	var warn_row := HBoxContainer.new()
+	warn_row.add_theme_constant_override("separation", 10)
+	_warn_panel.add_child(warn_row)
+	_warn_label = _label("", 13, FIRE)
+	_warn_label.custom_minimum_size = Vector2(300, 0)
+	_warn_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	warn_row.add_child(_warn_label)
+	_missile_button = _flat_button("Fly through", "", func(): _act({"action": "missile_warning"}))
+	_missile_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	warn_row.add_child(_missile_button)
 	_bottom = _panel(&"BottomPocket")
 	add_child(_bottom)
 	var actions_pad := MarginContainer.new() # a little taller: the buttons' lower edge showed cut
@@ -1739,6 +1847,11 @@ func _layout() -> void:
 	# The buttons' tab steps up from it (drawn under it).
 	_bottom.reset_size()
 	_bottom.position = Vector2(roundf((size.x - _bottom.size.x) / 2.0), _strip.position.y - _grow(_strip, 1) - _bottom.size.y + 4.0)
+	# The missile warning slides up from behind the buttons' tab.
+	if _warn_panel.visible:
+		_warn_panel.reset_size()
+		var tab_top := _bottom.position.y - _grow(_bottom, 1)
+		_warn_panel.position = Vector2(roundf((size.x - _warn_panel.size.x) / 2.0), lerpf(tab_top + 4.0, tab_top - _warn_panel.size.y - 6.0, clampf(_warn_anim, 0.0, 1.0)))
 	# The round box: in the player's bottom corner (attacking: right; defending: left), sharing the
 	# bottom and that side's edge with the screen frame (owner 2026-11-22).
 	_top_left.reset_size()
@@ -2126,6 +2239,24 @@ func _refresh_hud() -> void:
 	_done_button.disabled = not my_turn
 	_end_button.disabled = not my_turn
 	_auto_button.disabled = false # always reachable (owner 2026-11-22), whoever's turn it is
+	var warning := int(state.get("missile_warning", 0)) if my_turn else 0
+	if warning == 1:
+		_warn_label.text = "Missile warning: the move stopped short of incoming missiles."
+		_missile_button.text = "Fly through"
+		_missile_button.tooltip_text = "Ignore the warning: move again and the ship flies through the missiles' path"
+	elif warning == 2:
+		_warn_label.text = "Missile warning off: moves fly through missiles' paths."
+		_missile_button.text = "Warn me"
+		_missile_button.tooltip_text = "Turn the missile warning back on"
+	if warning != _last_missile_warning:
+		var tween := create_tween()
+		if warning > 0:
+			_warn_panel.show()
+			tween.tween_property(self, "_warn_anim", 1.0, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		else:
+			tween.tween_property(self, "_warn_anim", 0.0, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+			tween.tween_callback(_warn_panel.hide)
+	_last_missile_warning = warning
 	if _auto_pending_on and _my_turn() and not _auto_mine():
 		_auto_pending_on = false
 		_act.call_deferred({"action": "auto"}) # asked for while the enemy moved
@@ -2419,6 +2550,54 @@ func _place_card() -> void:
 	_card.position = Vector2(x, size.y - corner - _card.size.y)
 
 
+## The boarding popup (CMBTDRW1::Board_Popup): marines to send, 0 to half the ship's (rounded up),
+## all by default; Raid, Capture or Cancel.
+func _show_board_popup(target: int, most: int) -> void:
+	if _board_panel != null:
+		_board_panel.queue_free()
+	_board_panel = _panel(&"Pane")
+	add_child(_board_panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	v.custom_minimum_size = Vector2(320, 0)
+	_board_panel.add_child(v)
+	var title := _label("Board the %s" % String(_ship(target).get("name", "ship")), 15)
+	title.theme_type_variation = &"Section"
+	v.add_child(title)
+	var count := _label("", 13)
+	var slider := HSlider.new()
+	slider.min_value = 0
+	slider.max_value = most
+	slider.step = 1
+	slider.value = most
+	slider.custom_minimum_size = Vector2(300, 18)
+	var show_count := func(value: float): count.text = "Marines to send: %d of %d" % [int(value), most]
+	slider.value_changed.connect(show_count)
+	show_count.call(slider.value)
+	v.add_child(count)
+	v.add_child(slider)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(row)
+	var send := func(mode: int):
+		_board_panel.queue_free()
+		_board_panel = null
+		_act({"action": "board", "target": target, "marines": int(slider.value), "mode": mode})
+	var raid := _flat_button("Raid", "", func(): send.call(1))
+	raid.tooltip_text = "Marines wreck a system aboard and come back"
+	var capture := _flat_button("Capture", "", func(): send.call(2))
+	capture.tooltip_text = "Marines fight the crew to take the ship"
+	var cancel := _flat_button("Cancel", "", func():
+		_board_panel.queue_free()
+		_board_panel = null)
+	for b: Button in [raid, capture, cancel]:
+		b.custom_minimum_size = Vector2(90, 0)
+		row.add_child(b)
+	_board_panel.reset_size()
+	_board_panel.position = ((size - _board_panel.size) / 2.0).floor()
+
+
 func _show_toast(text: String, seconds := 3.0) -> void:
 	_toast.text = text
 	_toast.show()
@@ -2429,7 +2608,8 @@ func _show_toast(text: String, seconds := 3.0) -> void:
 # ---- Scan ----
 
 func _move_factor() -> float:
-	return float(MOVE_SPEEDS[_move_speed][1])
+	# The original's x2 also hurried moves (cmbtmov1: drawn every sixth step).
+	return float(MOVE_SPEEDS[_move_speed][1]) * (0.5 if _speedx2() else 1.0)
 
 
 func _arm_scan() -> void:
@@ -2810,7 +2990,7 @@ func _play_special(event: Dictionary) -> float:
 			var a := _centre(from)
 			var b := _centre(to)
 			var fly := a.distance_to(b) / 6.0 * SYNC_S
-			parts.append({"type": "proj", "name": SFX, "entry": 14, "from": a, "to": b, "start": 0.0, "dur": fly, "frame_time": SYNC_S, "frames": 12})
+			parts.append({"type": "proj", "name": SFX, "entry": 14, "from": a, "to": b, "start": 0.0, "dur": fly, "frame_time": SYNC_S, "frames": 12, "loop": true}) # turning all the way
 			var size := int(_ship(to).get("size", 0))
 			var impact := 36 if size == 0 else (37 if size <= 2 else (38 if size == 3 else 39))
 			parts.append({"type": "anim", "name": SFX + "!glass=web", "entry": impact, "at": b, "start": fly, "frame_time": SYNC_S, "frames": 20})
@@ -2912,14 +3092,24 @@ func _play_special(event: Dictionary) -> float:
 			parts.append({"type": "cloak", "ship": index, "start": 0.0, "dur": steps * TICK_S, "step": TICK_S, "steps": steps, "mode": k})
 			life = steps * TICK_S
 			parts.append({"type": "sound", "id": 10, "start": 0.0})
-		"fighters": # each picture fires a short beam at the target (the owner's point-defence weapon)
+		"fighters": # Fighter_Combat_SFX: the stack stays drawn while each picture fires at the target
 			var stack := int(event.get("stack", -1))
 			var target := _centre(to)
-			var origin := _stack_point(stack, Vector2(float(event.get("x", 0)), float(event.get("y", 0))))
-			for k in 3:
-				var jitter := Vector2(randf_range(-10, 10), randf_range(-10, 10))
-				parts.append({"type": "bolt", "from": origin + jitter, "to": target, "start": k * TICK_S, "dur": 5 * TICK_S})
+			var info: Dictionary = _last_missiles.get(stack, {})
 			life = 8 * TICK_S
+			if info.is_empty():
+				var origin := Vector2(float(event.get("x", 0)), float(event.get("y", 0)))
+				parts.append({"type": "bolt", "from": origin, "to": target, "start": 0.0, "dur": 5 * TICK_S})
+			else:
+				# The rules took the stack out of play before posting its attack (cmbtmis.cpp): drawn
+				# from its last state (owner 2026-11-22: fighters vanished over their target).
+				var at := Vector2(float(info.get("x", 0)), float(info.get("y", 0)))
+				parts.append({"type": "flyer", "missile": info, "at": at, "start": 0.0, "dur": life})
+				var pictures: Array = info.get("pictures", [[0, 0]])
+				for n in pictures.size():
+					var p: Array = pictures[n]
+					var picture_at := at + Vector2(float(p[0]), float(p[1])) + Vector2(10, 10)
+					parts.append({"type": "bolt", "from": picture_at, "to": target, "start": float(n % 3) * TICK_S, "dur": 5 * TICK_S})
 	return _add_sfx(parts, life)
 
 
@@ -2934,14 +3124,23 @@ func _add_sfx(parts: Array, life: float) -> float:
 				if part.has(key):
 					part[key] = float(part[key]) * 0.5
 		life *= 0.5
+	# Like a volley, the effect (and the rules) wait for its art (owner 2026-11-22: Doom Stars
+	# vanished with no explosion: the quantum detonator's 23 big frames weren't here yet, and the
+	# collapse had already hidden the ship).
+	var missing: Array = []
 	for part: Dictionary in parts:
-		if part.has("name"):
-			art.sprite(String(part.name), int(part.entry))
+		if part.has("name") and art.sprite(String(part.name), int(part.entry)).is_empty():
+			missing.append([String(part.name), int(part.entry)])
+	if not missing.is_empty():
+		_art_wait = missing
+		_art_hold = 0.0001
 	_effects.append({"kind": "sfx", "t": 0.0, "life": life, "parts": parts})
 	return life
 
 
 var _death_played := {} # ship index -> its death is drawn (the destroyed event's)
+var _last_missiles := {} # stack index -> its last state (an attacking fighter stack has left the state)
+var _gone := {} # ship index -> hidden by its death (owner 2026-11-22: a drive overload's ship came back for a frame)
 
 
 ## A ship's death (CMBTSPEC::Destroy_Ship_FX): a monster's own animation (CMBTSFX 0x45-0x4E, its
@@ -3067,6 +3266,9 @@ func _draw_sfx(effect: Dictionary) -> void:
 					var fade := 1.0 - k
 					_marks.draw_line(part.from, part.to, Color(1.0, 0.45, 0.3, 0.35 * fade), 3.0 / _zoom)
 					_marks.draw_line(part.from, part.to, Color(1.0, 0.85, 0.7, 0.9 * fade), 1.2 / _zoom)
+			"flyer": # an attacking stack, no longer in the state
+				if local < float(part.dur):
+					_draw_flyer(part.missile, part.at)
 			"collapse": # Draw_Ship_Collapsing: shrinking and turning a facing a frame under the blast
 				var frame := int(local / maxf(float(part.frame_time), 0.001))
 				var pct := mini(int(part.scale0) - int(part.less) * frame, 99)
@@ -3089,6 +3291,8 @@ func _draw_sfx(effect: Dictionary) -> void:
 ## A ship's look during a fade, retreat, death or collapse (the ship sprite's modulate).
 func _ship_effect_look(index: int) -> Color:
 	var look := Color.WHITE
+	if _gone.has(index):
+		return Color(1, 1, 1, 0) # its death has hidden it: never back before the state drops it
 	for effect: Dictionary in _effects:
 		if String(effect.kind) != "sfx" or float(effect.t) <= 0.0:
 			continue
@@ -3106,8 +3310,10 @@ func _ship_effect_look(index: int) -> Color:
 				"hide":
 					if local >= 0.0:
 						look.a = 0.0
+						_gone[index] = true
 				"collapse": # drawn by the effect itself
 					look.a = 0.0
+					_gone[index] = true
 	return look
 
 
@@ -3449,6 +3655,7 @@ func _play_volley(event: Dictionary) -> float:
 	var effect := {"kind": "volley", "t": 0.0, "life": float(ticks.size()) * BeamVolley.TICK, "ticks": ticks, "fragments": fragments,
 		"tick": -1, "strands": [], "at": Vector2(float(target_center[0]), float(target_center[1])), "target_size": int(event.target.get("size", 0))}
 	_native_volleys = true # the original's shield hits now: no 3.9c arc flashes
+	effect["speedx2"] = bool(event.get("speedx2", false))
 	var afters: Array = []
 	for shot: Dictionary in event.get("shots", []):
 		afters.append(shot.get("after", {}))

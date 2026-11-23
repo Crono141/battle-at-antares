@@ -371,6 +371,8 @@ var _bombing_buttons: VBoxContainer
 var _bombing_planet: TextureRect
 var _bombing_picture := {}
 var _blast_layer: Control
+const PLANET_BOX := 220.0
+const HUGE_PLANET_PX := 150.0 # CMBTPLNT's huge planets
 var _blasts: Array = [] # {lbx, entry, dx, dy, born}
 var _planet_width := 0.0
 var _offered: Array = [] # the choice's buttons (the orbit's), kept for the bombing's layout
@@ -391,13 +393,21 @@ func _bombing_body(request: Dictionary) -> Control:
 	body.add_child(left)
 	_bombing_picture = request.get("picture", {})
 	_bombing_planet = preload("sprite_rect.gd").new()
-	_bombing_planet.custom_minimum_size = Vector2(220, 220)
+	_bombing_planet.custom_minimum_size = Vector2(PLANET_BOX, PLANET_BOX)
 	_bombing_planet.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_bombing_planet.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_bombing_planet.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_bombing_planet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if art:
 		_bombing_planet.bind(art)
 		_bombing_planet.show_sprite(String(_bombing_picture.get("lbx", "")), int(_bombing_picture.get("entry", -1)))
-	left.add_child(_bombing_planet)
+	# The planet at the original's scale (owner 2026-11-22: a tiny planet filled the box, and its
+	# bombs' explosions were blown up with it): a huge planet (150 px) fills the box, the others
+	# are as much smaller as in the original, in a box that keeps its size.
+	var holder := CenterContainer.new()
+	holder.custom_minimum_size = Vector2(PLANET_BOX, PLANET_BOX)
+	holder.add_child(_bombing_planet)
+	left.add_child(holder)
 	_blast_layer = Control.new()
 	_blast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_blast_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -553,9 +563,10 @@ func _draw_blasts() -> void:
 		return
 	var area := _blast_layer.size
 	var planet_size: Vector2 = planet.size
-	var k := minf(area.x / planet_size.x, area.y / planet_size.y)
-	if _planet_width > 0.0:
-		k = minf(area.x, area.y * planet_size.x / planet_size.y) / _planet_width
+	var k := PLANET_BOX / HUGE_PLANET_PX # screen px per original pixel, for every planet
+	var side := Vector2(planet_size.x, planet_size.y) * k
+	if _bombing_planet.custom_minimum_size != side:
+		_bombing_planet.custom_minimum_size = side
 	var centre := area * 0.5
 	var now := Time.get_ticks_msec() / 1000.0
 	for b: Dictionary in _blasts:
@@ -565,7 +576,9 @@ func _draw_blasts() -> void:
 		var frame := int((now - float(b.born)) * BLAST_FPS)
 		if frame >= (s.frames as Array).size():
 			continue
-		art.draw(_blast_layer, String(b.lbx), int(b.entry), frame, centre + Vector2(float(b.dx), float(b.dy)) * k, k)
+		# Each hit is the explosion's top-left from 15 px up-left of the planet's centre (MAINPUPS:
+		# base = centre - 30 / 2): drawn from the centre, every bomb landed low and right.
+		art.draw(_blast_layer, String(b.lbx), int(b.entry), frame, centre + (Vector2(float(b.dx), float(b.dy)) - Vector2(15, 15)) * k, k)
 
 
 func _process(_delta: float) -> void:

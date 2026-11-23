@@ -2919,8 +2919,30 @@ func _combat_view() -> Control:
 		# 2026-11-15: a "no" cursor, and Wait pressed repeatedly turned Auto on).
 		_combat.opened.connect(func(): legacy.hide())
 		_combat.closed.connect(func():
-			if native_screen == Screens.LEGACY and not _question_over_galaxy:
-				legacy.show())
+			# The legacy view comes back only with a new frame from the game, different from the
+			# battle's last (owner 2026-11-22: the legacy screen showed for a frame on the way back
+			# to the galaxy); the native galaxy, when it takes over first, cancels it.
+			if native_screen != Screens.LEGACY or _question_over_galaxy:
+				return
+			if native and not galaxy.stars.is_empty():
+				# The galaxy as after a film: it stays until the game is back on the galaxy or a
+				# legacy screen waits for the player (_process's hand-back).
+				if not _turn_over_galaxy:
+					_turn_over_galaxy = true
+					var held_galaxy: Image = game.get_frame_image()
+					_stale_frame = held_galaxy.get_data() if held_galaxy != null else PackedByteArray()
+				legacy.hide()
+				galaxy.show()
+				_frame_view.show()
+				for chrome in ["galaxy_bar", "side_tabs", "map_controls"]:
+					_view(chrome).show()
+				_turn_clearing = 0.0
+				_turn_clearing_polls = int(game.get_stats().get("input_polls", 0))
+				return
+			var held: Image = game.get_frame_image()
+			_stale_frame = held.get_data() if held != null else PackedByteArray()
+			_legacy_after_frame = int(game.get_stats().frames)
+			_legacy_waited = 0.0)
 		layer.add_child(_combat)
 	return _combat
 
@@ -7376,10 +7398,41 @@ func _smoke_combat(shots: String) -> bool:
 		await get_tree().create_timer(0.8).timeout
 		if shots != "":
 			await host.shot(shots + "/combat-moved.png")
+	# The combat speed option (owner 2026-11-22: Double seemed to do nothing): volleys after it
+	# must come at x2.
+	# Boarding (owner 2026-11-22): the game's checks answer for the nearest enemy ship.
+	if view._my_turn():
+		var acting_ship: Dictionary = view._ship(int(view.state.get("ship", -1)))
+		var near := -1
+		var near_d := INF
+		for other: Dictionary in view._ships_list():
+			if view._alive(other) and not view._mine(other) and not bool(other.get("planet", false)):
+				var d: float = view._center(other).distance_to(view._center(acting_ship))
+				if d < near_d:
+					near_d = d
+					near = int(other.i)
+		if near >= 0:
+			view._board_target = near
+			view._act({"action": "board_check", "target": near})
+			for i in 100:
+				await get_tree().create_timer(0.05).timeout
+				if view._my_turn():
+					break
+			print("smoke: board_check on ship %d: '%s' (popup %s)" % [near, view.last_error, view._board_panel != null])
+			if view._board_panel == null:
+				view._show_board_popup(near, 7) # the popup itself (no ship in boarding range here)
+				await get_tree().process_frame
+				if shots != "":
+					await host.shot(shots + "/combat-board-popup.png")
+			if view._board_panel != null:
+				view._board_panel.queue_free()
+				view._board_panel = null
+	view._set_speed_x2(true)
 	if view._my_turn():
 		view._act({"action": "auto"})
 	waited = 0.0
 	var shot_kinds := {}
+	var x2_volleys := [0, 0] # volleys at x2, at normal speed
 	var counts := {}
 	while view.visible and waited < 180.0:
 		await get_tree().create_timer(0.05).timeout
@@ -7387,6 +7440,16 @@ func _smoke_combat(shots: String) -> bool:
 		# Combat graphics: the first missile stack and the first fighter stack in flight, close up.
 		for flyer: Dictionary in view.state.get("missiles", []):
 			var flyer_kind := "fighters" if bool(flyer.get("fighter", false)) else "missiles"
+			# An enemy stack can be picked by the pointer (owner 2026-11-22: only Auto could shoot them).
+			if not shot_kinds.has("pick") and int(flyer.get("owner", -1)) != int(view.state.get("player", -2)) and not (flyer.get("pictures", []) as Array).is_empty():
+				shot_kinds["pick"] = true
+				var p0: Array = flyer.pictures[0]
+				var where := Vector2(float(flyer.x) + float(p0[0]) + 11.0, float(flyer.y) + float(p0[1]) + 11.0)
+				var found: int = view._missile_at(where)
+				print("smoke: enemy %s stack %d under the pointer: picked %d" % [flyer_kind, int(flyer.get("i", -1)), found])
+				if found != int(flyer.get("i", -1)):
+					print("smoke: an enemy stack could not be picked")
+					return false
 			if shots != "" and not shot_kinds.has(flyer_kind):
 				shot_kinds[flyer_kind] = true
 				var keep_zoom: float = view._zoom
@@ -7399,6 +7462,9 @@ func _smoke_combat(shots: String) -> bool:
 		for effect: Dictionary in view._effects:
 			var kind := String(effect.kind)
 			counts[kind] = int(counts.get(kind, 0)) + (1 if effect.t <= 0.06 and effect.t > 0.0 else 0)
+			if kind == "volley" and not effect.get("_x2_counted", false):
+				effect["_x2_counted"] = true
+				x2_volleys[0 if bool(effect.get("speedx2", false)) else 1] += 1
 			if shots != "" and not shot_kinds.has(kind) and kind in ["shot", "explosion", "capture", "volley"] and float(effect.t) > (0.3 if kind == "volley" else 0.12):
 				shot_kinds[kind] = true
 				var where: Vector2 = effect.get("at", view._effect_point(int(effect.get("to", -1)), view._cam))
@@ -7420,6 +7486,11 @@ func _smoke_combat(shots: String) -> bool:
 	print("smoke: enemy fire framed by the camera: %d" % view.framed)
 	print("smoke: volley art late on its first tick: %d of %d %s" % [view.art_late.size(), view.art_late.size() + view.art_drawn.size(), view.art_late.keys()])
 	print("smoke: battle over after %.0f s (scene shown: %s)" % [waited, view.visible])
+	print("smoke: volleys at x2 %d, at normal speed %d" % x2_volleys)
+	view._set_speed_x2(false)
+	if x2_volleys[0] == 0 or x2_volleys[0] < x2_volleys[1]:
+		print("smoke: Double combat speed did not reach the volleys")
+		return false
 	return not view.visible
 
 
@@ -8252,6 +8323,21 @@ func _smoke_effects_gallery(view: Control, mine: int, enemy: int, shots: String)
 	var b: Vector2 = view._ships[enemy].shown
 	view._cam = (a + b) / 2.0
 	view._zoom = clampf(minf(view.size.x * 0.6 / maxf(absf(b.x - a.x), 1.0), 2.4), 0.6, 2.4)
+	# Picking an enemy missile stack by the pointer (owner 2026-11-22), on a stack set into the state.
+	var fake := {"i": 77, "owner": int(view._ship(enemy).get("owner", -1)), "x": int(b.x), "y": int(b.y) - 60, "pictures": [[-12, -12], [4, -12]],
+		"lbx": "CMBTMISL.LBX", "entry": 0, "count": 10, "facing": 0}
+	if not view.state.has("missiles"):
+		view.state["missiles"] = []
+	(view.state["missiles"] as Array).append(fake)
+	var picked: int = view._missile_at(Vector2(fake.x, fake.y) + Vector2(-1, -1))
+	var own := fake.duplicate()
+	own["owner"] = int(view.state.get("player", -1))
+	own["i"] = 78
+	(view.state["missiles"] as Array).append(own)
+	var picked_own: int = view._missile_at(Vector2(own.x, own.y) + Vector2(-1, -1) + Vector2(0, 0))
+	print("smoke: gallery: enemy stack picked %d (77 wanted), own stack picked %d" % [picked, picked_own])
+	(view.state["missiles"] as Array).erase(fake)
+	(view.state["missiles"] as Array).erase(own)
 	var cases := [
 		[{"kind": "stellar", "from": mine, "to": enemy}, 1.4],
 		[{"kind": "stasis", "from": mine, "to": enemy}, 0.4],
@@ -8282,6 +8368,7 @@ func _smoke_effects_gallery(view: Control, mine: int, enemy: int, shots: String)
 			event["cloak_type"] = int(event.kind_)
 		view._effects.clear()
 		var life: float
+		view._gone.clear()
 		if String(event.kind) == "destroyed":
 			view._death_played.clear()
 			life = view._play_death(event)
@@ -8305,6 +8392,7 @@ func _smoke_effects_gallery(view: Control, mine: int, enemy: int, shots: String)
 		await host.shot(shots + "/gallery-%02d-%s%s.png" % [n, String(event.kind), ("-%d" % int(event.get("type", 0))) if event.has("type") else ""])
 		n += 1
 	view._effects.clear()
+	view._gone.clear()
 	# The lasting looks, set on the enemy in the shown state.
 	for look in ["stasis", "webbed", "black_hole", "absorbing", "tractor"]:
 		var st: Dictionary = view.state
