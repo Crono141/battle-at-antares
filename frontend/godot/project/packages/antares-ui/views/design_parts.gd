@@ -150,8 +150,23 @@ func set_data(design_now: Dictionary, weapons_now: Array, specials_now: Array) -
 	design = design_now
 	weapons = weapons_now
 	specials = specials_now
-	if visible:
-		refresh()
+	# New data (a count changed, the weapons then the specials come back): the rows and the card
+	# only, once a frame, and only the rows that changed (owner 2026-11-23: + and - lagged, each
+	# reply rebuilt the whole list, about 0.2 s).
+	if visible and not _data_queued:
+		_data_queued = true
+		_refresh_data.call_deferred()
+
+
+var _data_queued := false
+
+
+func _refresh_data() -> void:
+	_data_queued = false
+	if not visible or _filters == null:
+		return
+	_show_rows()
+	_show_card()
 
 
 func set_preview(result: Dictionary) -> void:
@@ -186,8 +201,16 @@ func refresh() -> void:
 
 # ---- The list ----
 
+var _row_keys: Array = [] # each shown row's look (_row_key), in order; [] while "Nothing here" shows
+
+
+## What a row shows: equal keys, the same row (its pick callable reads only the part's id and rack).
+func _row_key(e: Dictionary) -> String:
+	return "%s|%s|%s|%s|%d|%d|%s|%s|%d|%d" % [e.kind, e.name, e.note, e.damage, int(e.cost), int(e.space), e.picked, e.dim,
+		int(e.get("app", -1)), int(e.get("weapon", {}).get("rack", 1)) if e.has("weapon") else int(e.get("special", -1))]
+
+
 func _show_rows() -> void:
-	_clear(_rows)
 	var needle := find.strip_edges().to_lower()
 	var entries: Array = []
 	if filter != "systems":
@@ -225,7 +248,15 @@ func _show_rows() -> void:
 			if va == vb:
 				return String(a.name) < String(b.name)
 			return (va > vb) if sort_descending else (va < vb))
-	for e: Dictionary in entries:
+	var keys: Array = entries.map(_row_key)
+	# The same rows in the same order: only those whose look changed are made again, in place.
+	var reuse := not entries.is_empty() and keys.size() == _row_keys.size() and _rows.get_child_count() == keys.size()
+	if not reuse:
+		_clear(_rows)
+	for i in entries.size():
+		if reuse and keys[i] == _row_keys[i]:
+			continue
+		var e: Dictionary = entries[i]
 		var pick: Callable
 		if e.has("weapon"):
 			var w: Dictionary = e.weapon
@@ -233,8 +264,18 @@ func _show_rows() -> void:
 		else:
 			var id := int(e.special)
 			pick = func(): _pick_special(id)
-		_rows.add_child(_line(e, pick))
+		var line := _line(e, pick)
+		if reuse:
+			var old := _rows.get_child(i)
+			_rows.add_child(line)
+			_rows.move_child(line, i)
+			_rows.remove_child(old)
+			old.queue_free()
+		else:
+			_rows.add_child(line)
+	_row_keys = keys
 	if entries.is_empty():
+		_row_keys = []
 		_rows.add_child(_dim("Nothing here" + (": turn FITS NOW off to see what needs more room" if fits_only else "")))
 
 

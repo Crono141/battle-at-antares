@@ -322,7 +322,7 @@ func show_design(result: Dictionary) -> void:
 	# Asked each time, like the weapons and specials: what is researched changes between openings
 	# (and with a loaded save or a new game), and the costs and spaces follow the hull size.
 	command.emit({"verb": "query", "what": "design_systems", "_reply_to": "_on_systems"})
-	_show_body()
+	_queue_body()
 
 
 func _on_weapons(result: Dictionary) -> void:
@@ -337,7 +337,7 @@ func _on_specials(result: Dictionary) -> void:
 		_specials = result.specials
 		if _parts != null:
 			_parts.set_data(design, _weapons, _specials)
-		_show_body()
+		_queue_body() # with the design's own rebuild, once a frame
 
 
 func _on_systems(result: Dictionary) -> void:
@@ -435,7 +435,21 @@ func _system_choice(title: String, key: String, items: Array, current: int, deta
 
 # ---- What is fitted (the owner's mockup C) ----
 
+var _body_queued := false
+
+
+## The fitted list made again at the frame's end: a design and its specials coming back in the same
+## frame make it once (owner 2026-11-23: + and - lagged).
+func _queue_body() -> void:
+	if not _body_queued:
+		_body_queued = true
+		(func():
+			_body_queued = false
+			_show_body()).call_deferred()
+
+
 func _show_body() -> void:
+	_count_labels.clear()
 	_clear(_body)
 	if design.is_empty():
 		return
@@ -499,6 +513,7 @@ func _weapon_row(w: Dictionary) -> Control:
 	var count := Label.new()
 	count.theme_type_variation = &"Name"
 	count.text = "%d×" % int(w.count)
+	_count_labels[row_slot] = count
 	count.custom_minimum_size.x = 30
 	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	line.add_child(count)
@@ -647,7 +662,18 @@ func add_special(special: int) -> void:
 	_send({"verb": "design_special", "slot": -1, "special": special})
 
 
+var _count_labels := {} # weapon row slot -> its count label (shown at once on + and -)
+
+
 func weapon_count(row_slot: int, delta: int) -> void:
+	# The new count at once (owner 2026-11-23: + and - lagged); the design that comes back confirms
+	# it (or puts it back, if the game refused).
+	var label: Label = _count_labels.get(row_slot)
+	if is_instance_valid(label):
+		for w: Dictionary in design.get("weapons", []):
+			if int(w.get("slot", -1)) == row_slot:
+				w["count"] = maxi(int(w.count) + delta, 1)
+				label.text = "%d×" % int(w.count)
 	_send({"verb": "design_weapon_count", "slot": row_slot, "delta": delta})
 
 
