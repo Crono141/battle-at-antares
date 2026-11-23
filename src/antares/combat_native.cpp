@@ -204,6 +204,31 @@ namespace antares::combat {
             using commands::internal::Utf8;
             s_out scan = item.Add_Object("scan");
             const bool planet = i == 0 && MOX::cmbt_colony_id != -1;
+            if (planet && ship.owner != 8) {
+                // The colony as the original's planet view lists it (CMBTDRW1::Combat_Draw_View_Ship):
+                // its defences still standing (each goes when destroyed: CMBTFIRE::Destroy_Colony_Defense),
+                // population, troops and tanks (owner 2026-11-23: not shown in the native battle).
+                const s_colony& colony = MOX::colony[MOX::cmbt_colony_id];
+                s_out colony_out = scan.Add_Object("colony");
+                char label[80];
+                KEN::Ken_Get_Text_Message(0, label, sizeof(label));
+                colony_out.Str("pop_label", Utf8(label, sizeof(label)));
+                colony_out.Int("pop", colony.n_pops);
+                KEN::Ken_Get_Text_Message(1, label, sizeof(label));
+                colony_out.Str("troops_label", Utf8(label, sizeof(label)));
+                colony_out.Int("troops", colony.military[1]);
+                KEN::Ken_Get_Text_Message(2, label, sizeof(label));
+                colony_out.Str("tanks_label", Utf8(label, sizeof(label)));
+                colony_out.Int("tanks", colony.military[0]);
+                s_out defences = colony_out.Add_List("defences");
+                for (const int16_t building : {BUILDING_MISSILE_BASE, BUILDING_GROUND_BATTERIES, BUILDING_FIGHTER_GARRISON, BUILDING_STELLAR_CONVERTER}) {
+                    if (colony.buildings[building] != 0) {
+                        s_out d = defences.Append_Object();
+                        d.Str("name", Utf8(TECHDATA::buildings[building].name, 40));
+                        d.Int("help", TECHDATA::buildings[building].tech_app);
+                    }
+                }
+            }
             if (!planet) {
                 scan.Str("hull", Utf8(TECHDATA::hull_data[SDL_clamp((int)ship.size_class, 0, 5)].name, 40));
                 scan.Str("drive", Utf8(TECHDATA::drives[ship.ftl_type].name, 40));

@@ -2553,6 +2553,9 @@ func _place_card() -> void:
 	lines.append("Armour %d / %d   Structure %d / %d" % [int(armor.get("now", 0)), int(armor.get("max", 0)), int(structure.get("now", 0)), int(structure.get("max", 0))])
 	var sys_max := maxf(float(systems.get("max", 0)), 1.0)
 	lines.append("Systems %d%%" % int(round(100.0 * float(systems.get("now", 0)) / sys_max)))
+	var colony: Dictionary = ship.get("scan", {}).get("colony", {})
+	if not colony.is_empty():
+		lines.append_array(_colony_lines(colony))
 	if _mine(ship):
 		lines.append("%d moves" % int(ship.get("moves", 0)))
 	_card_body.text = "\n".join(lines)
@@ -2576,6 +2579,18 @@ func _place_card() -> void:
 	var attacking := int(state.get("player", -1)) == int(state.get("attacker", -2))
 	var x := corner if attacking else size.x - corner - _card.size.x
 	_card.position = Vector2(x, size.y - corner - _card.size.y)
+
+
+## A colony's lines as the original's planet view lists them (owner 2026-11-23): its defences still
+## standing (each goes when destroyed), then population, troops and tanks.
+func _colony_lines(colony: Dictionary) -> Array:
+	var names: Array = (colony.get("defences", []) as Array).map(func(d: Dictionary) -> String: return String(d.get("name", "")))
+	var people := "%s %d" % [String(colony.get("pop_label", "Pop:")).strip_edges(), int(colony.get("pop", 0))]
+	if int(colony.get("troops", 0)) > 0:
+		people += "   %s %d" % [String(colony.get("troops_label", "Troops:")).strip_edges(), int(colony.troops)]
+	if int(colony.get("tanks", 0)) > 0:
+		people += "   %s %d" % [String(colony.get("tanks_label", "Tanks:")).strip_edges(), int(colony.tanks)]
+	return ["Defences: " + (", ".join(names) if not names.is_empty() else "none left"), people]
 
 
 ## The boarding popup (CMBTDRW1::Board_Popup): marines to send, 0 to half the ship's (rounded up),
@@ -2911,6 +2926,20 @@ func _show_scan(index: int) -> void:
 			detail = "destroyed"
 		line.add_child(_label(detail, 12, DIM))
 		_scan_body.add_child(_with_help(row, int(weapon.get("help", -1))))
+	var colony: Dictionary = scan.get("colony", {})
+	if not colony.is_empty():
+		# The planet's defences still standing, and its people (the original's planet view).
+		for defence: Dictionary in colony.get("defences", []):
+			var row := _panel(&"Row")
+			var line := HBoxContainer.new()
+			row.add_child(line)
+			var name := _label(String(defence.get("name", "")))
+			name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			line.add_child(name)
+			_scan_body.add_child(_with_help(row, int(defence.get("help", -1))))
+		if (colony.get("defences", []) as Array).is_empty():
+			_scan_body.add_child(_label("No defences left", 0, DIM))
+		_scan_body.add_child(_label(_colony_lines(colony)[1], 13, DIM))
 	for special: Dictionary in scan.get("specials", []):
 		var row := _panel(&"Row")
 		var damaged := bool(special.get("damaged", false))

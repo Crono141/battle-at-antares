@@ -7594,6 +7594,22 @@ func _smoke_combat(shots: String) -> bool:
 		int(view.state.ship), (view.state.legal as Array).size()])
 	if shots != "":
 		await host.shot(shots + "/combat-start.png")
+	# The planet under the pointer: its defences still standing and its people (owner 2026-11-23).
+	var planet_scan: Dictionary = view._ship(0).get("scan", {})
+	if planet_scan.has("colony"):
+		view._hover_ship = 0
+		view._place_card()
+		var card_text: String = view._card_body.text
+		print("smoke: combat planet card: %s" % card_text.replace("\n", " | "))
+		if shots != "":
+			await host.shot(shots + "/combat-planet-card.png")
+		view._hover_ship = -1
+		view._place_card()
+		if not card_text.contains("Defences:"):
+			print("smoke: FAILED: the planet's card has no defences line")
+			return false
+	else:
+		print("smoke: combat planet card: no colony in this battle")
 	await get_tree().create_timer(0.3).timeout
 	view._health_toggle.button_pressed = true
 	await get_tree().create_timer(0.4).timeout
