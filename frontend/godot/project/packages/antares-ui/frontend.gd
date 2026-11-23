@@ -128,6 +128,10 @@ func _ready() -> void:
 		var controls: Control = _views.get("map_controls")
 		if controls != null:
 			controls.show_recenter(away))
+	# Newest pane on top (owner 2026-11-23): every view in the layer rises when it opens.
+	native_layer.child_entered_tree.connect(_watch_layer_child)
+	for child in native_layer.get_children():
+		_watch_layer_child(child)
 	_frame_view = Control.new()
 	_frame_view.name = "ScreenFrame"
 	_frame_view.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1340,6 +1344,39 @@ func show_help(topic: int, at: Control) -> void:
 func _on_empty_clicked() -> void:
 	if _panel_star >= 0 and _view("system_pane").visible:
 		_view("system_pane").close()
+
+
+## Newest pane on top (owner 2026-11-23: the design panel's parts list stayed behind the colony
+## and build panes it was opened over). Whatever opens in the layer, by the player or by the game,
+## rises over every other view; the turn notice, the film window and the chrome then go back over
+## it. Only a view's own show counts: the layer coming back (after a battle or a legacy screen)
+## keeps the order it had. The colony landscape places itself (over the panes when popped up, under
+## the build pane beside them; _place_landscape).
+var _layer_shown := {} # view -> its own `visible` as last seen
+
+
+func _watch_layer_child(node: Node) -> void:
+	if node is Control and not node.visibility_changed.is_connected(_on_layer_child_visibility):
+		_layer_shown[node] = (node as Control).visible
+		node.visibility_changed.connect(_on_layer_child_visibility.bind(node))
+		node.tree_exiting.connect(func(): _layer_shown.erase(node), CONNECT_ONE_SHOT)
+
+
+func _on_layer_child_visibility(view: Control) -> void:
+	var was: bool = _layer_shown.get(view, false)
+	_layer_shown[view] = view.visible
+	if not view.visible or was or view.get_parent() != native_layer:
+		return
+	if view == _frame_view or view == _film_frame or view == _turn_notice or view == _measure_hint:
+		return
+	for own in ["galaxy_bar", "side_tabs", "colony_landscape"]:
+		if _views.get(own) == view:
+			return
+	view.move_to_front()
+	for top: Control in [_turn_notice, _film_frame]:
+		if top != null and top.visible:
+			top.move_to_front()
+	_raise_chrome()
 
 
 ## Closes the other flyouts and raises `view` over every view (the frame stays on top).
@@ -2555,6 +2592,63 @@ func _smoke_races_panel(shots: String) -> bool:
 ## WP3.6 (`--design`): EDIT on a design opens the Ship Design panel; a weapon is added (the first
 ## beam, then one more), its arc changed, a special added, the size changed; CANCEL leaves the slot
 ## as it was; again, a weapon added and BUILD writes the slot and brings the list back.
+## Newest pane on top (owner 2026-11-23): a colony with its build list open, then a ship design
+## and its parts list: the design panel and the parts list over both colony panes, the frame over all.
+func _smoke_layering(shots: String) -> bool:
+	var star := -1
+	var colony := -1
+	for c in 64:
+		var data: Dictionary = await _query_args({"what": "colony", "colony": c})
+		if data.get("ok", false) and not data.get("outpost", false):
+			star = int(data.star)
+			colony = c
+			break
+	if colony < 0:
+		print("smoke: layering: no colony")
+		return false
+	var listed: Dictionary = await _query_args({"what": "designs"})
+	if (listed.get("designs", []) as Array).is_empty():
+		print("smoke: layering: no designs")
+		return false
+	# A design with its parts list first, closed again: the list stays in the layer, below what
+	# opens after it (the owner's case).
+	_on_view_action("designs")
+	await get_tree().create_timer(1.0).timeout
+	_on_view_command({"verb": "open", "screen": Screens.DESIGN, "slot": int(listed.designs[0].slot)}, _view("design_list"))
+	await get_tree().create_timer(1.2).timeout
+	_view("design_panel")._open_parts("weapons")
+	await get_tree().create_timer(0.5).timeout
+	_view("design_panel").close()
+	await get_tree().create_timer(0.5).timeout
+	await _open_colony_at(star, colony, true)
+	await get_tree().create_timer(1.5).timeout
+	var colony_pane := _view("colony_pane")
+	var build := _view("build_pane")
+	if not colony_pane.visible or not build.visible:
+		print("smoke: layering: colony pane %s, build pane %s" % [colony_pane.visible, build.visible])
+		return false
+	_on_view_action("designs")
+	await get_tree().create_timer(1.0).timeout
+	_on_view_command({"verb": "open", "screen": Screens.DESIGN, "slot": int(listed.designs[0].slot)}, _view("design_list"))
+	await get_tree().create_timer(1.2).timeout
+	var panel := _view("design_panel")
+	panel._open_parts("weapons")
+	await get_tree().create_timer(0.5).timeout
+	var parts: Control = panel._parts
+	if shots != "":
+		await host.shot(shots + "/native-layering.png")
+	var below := maxi(colony_pane.get_index(), build.get_index())
+	print("smoke: layering: colony %d, build %d, design %d, parts %d, frame %d (of %d)" % [colony_pane.get_index(), build.get_index(),
+		panel.get_index(), parts.get_index() if parts != null else -1, _frame_view.get_index(), native_layer.get_child_count()])
+	if parts == null or not parts.visible or not panel.visible:
+		return false
+	if parts.get_index() < below or panel.get_index() < below or _frame_view.get_index() != native_layer.get_child_count() - 1:
+		return false
+	panel.close()
+	await get_tree().create_timer(0.5).timeout
+	return true
+
+
 func _smoke_design_panel(shots: String) -> bool:
 	_on_view_action("designs")
 	await get_tree().create_timer(1.0).timeout
@@ -3346,8 +3440,7 @@ func _popup_closed() -> void:
 func _open_design(slot: int) -> void:
 	var panel := _view("design_panel")
 	if not panel.built.is_connected(_on_design_built):
-		panel.built.connect(_on_design_built)
-		panel.help_requested.connect(show_help)
+		panel.built.connect(_on_design_built) # (help_requested: connected by _view)
 	_view("design_list").close()
 	_bring_up(panel)
 	panel.open_panel(_side_panel_area(), slot)
@@ -3400,8 +3493,7 @@ func _open_side_panel(action_name: String) -> void:
 			side_view.width_like = _view("colonies_panel") # the same width: the galaxy's zoom stays
 		if action_name == "info":
 			if not side_view.item_chosen.is_connected(_on_info_summary_item):
-				side_view.item_chosen.connect(_on_info_summary_item)
-				side_view.help_requested.connect(show_help)
+				side_view.item_chosen.connect(_on_info_summary_item) # (help_requested: connected by _view)
 		side_view.open_panel(_side_panel_area())
 	_view("side_tabs").show_open(action_name, true)
 	_fit_beside_panel(side_view)
@@ -5427,7 +5519,7 @@ func _smoke_native() -> void:
 		return
 	# The side panels' steps, any of them in one launch (one game start for several checks), with
 	# quick camera flights: the steps wait on the flights.
-	var panel_steps: Array = ["--colonies", "--planets", "--fleets", "--leaders", "--races", "--info", "--design"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
+	var panel_steps: Array = ["--colonies", "--planets", "--fleets", "--leaders", "--races", "--info", "--design", "--layering"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
 	if not panel_steps.is_empty():
 		galaxy.flight_time = 0.15
 		for step: String in panel_steps:
@@ -5444,6 +5536,8 @@ func _smoke_native() -> void:
 				passed = await _smoke_info_panel(shots)
 			elif step == "--design":
 				passed = await _smoke_design_panel(shots)
+			elif step == "--layering":
+				passed = await _smoke_layering(shots)
 			else:
 				passed = await _smoke_races_panel(shots)
 			if not passed:
