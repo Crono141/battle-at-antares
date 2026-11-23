@@ -284,6 +284,39 @@ DOCTEST_TEST_CASE("a request's text has the game's line breaks as newlines") {
     antares::native::Claim_Requests({});
 }
 
+namespace FMTPARA {
+    extern int32_t test_item_values[16];
+}
+
+// A capture's result (CMBTFIR2::Resolve_Capture; owner 2026-11-23: "B6", "B0B3" shown as text):
+// the paragraph inserts read their values, column moves keep the columns apart.
+DOCTEST_TEST_CASE("a message fills in its paragraph inserts and keeps its columns apart") {
+    antares::native::Claim_Requests({"message"});
+    antares::native::Attach_Control(true);
+    for (int i = 0; i < 8; ++i) {
+        FMTPARA::test_item_values[i] = 10 + i;
+    }
+    std::string text;
+    std::thread frontend([&text] {
+        antares::native::s_request request;
+        while (!antares::native::Take_Request(&request)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        text = request.text;
+        antares::native::Answer_Request(request.id, 0);
+    });
+    DOCTEST_CHECK(antares::native::Message("Capture", "\0322Attacker Bonus: \030B6\aX175.Defender Bonus: \030B7\n\0321\030B0\aX80.\0321\030B3\aX255.\0320\n", 0));
+    frontend.join();
+    DOCTEST_CHECK(text.find("Attacker Bonus: 16") != std::string::npos);
+    DOCTEST_CHECK(text.find("Defender Bonus: 17") != std::string::npos);
+    DOCTEST_CHECK(text.find("B6") == std::string::npos);
+    DOCTEST_CHECK(text.find("10") != std::string::npos);
+    DOCTEST_CHECK(text.find("13") != std::string::npos);
+    DOCTEST_CHECK(text.find("16Defender") == std::string::npos); // the column move keeps them apart
+    antares::native::Attach_Control(false);
+    antares::native::Claim_Requests({});
+}
+
 DOCTEST_TEST_CASE("a text request offers the current text and takes back the typed one (WP3.4)") {
     antares::native::Claim_Requests({"text"});
     antares::native::Attach_Control(true);

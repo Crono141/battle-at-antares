@@ -855,15 +855,51 @@ namespace antares::native {
         // The game's paragraph codes (fmtpara): "\a" settings up to a '.', and "\x1A" + a column
         // digit. A native box has no columns: the first column starts the line, the next is set
         // apart by a tab. Used for Text_Box texts like the planet's potential (owner, 2026-11-13).
+        // A paragraph item's argument: one hex digit (FMTPARA::Get_Insert_Argument_Next).
+        int Paragraph_Argument(char c) {
+            const int u = toupper((unsigned char)c);
+            if (u >= '0' && u <= '9') {
+                return u - '0';
+            }
+            if (u >= 'A' && u <= 'F') {
+                return u - 'A' + 10;
+            }
+            return -1;
+        }
+
         std::string Without_Paragraph_Codes(const char* text) {
             std::string out;
             for (const char* c = text; c != nullptr && *c != '\0'; ++c) {
-                if (*c == '\a') {
+                if (*c == '\x18' && c[1] != '\0') {
+                    // An item insert (FMTPARA::Insert_Item; owner 2026-11-23: a capture's result
+                    // showed "B6", "B0B3"): its value from the paragraph variables the caller set
+                    // just before the box. Numbers (B, C, D) and the plural endings read from a
+                    // value (F, H); other inserts are left out.
+                    const char kind = c[1];
+                    const int arg = Paragraph_Argument(c[2]);
+                    c += arg >= 0 ? 2 : 1;
+                    if (arg < 0) {
+                        continue;
+                    }
+                    const int32_t value = (int32_t)FMTPARA::Get_Item_Value((uint16_t)arg);
+                    if (kind == 'B' || kind == 'C' || kind == 'D') {
+                        out += std::to_string(value);
+                    } else if (kind == 'F' && value != 1) {
+                        out += "s";
+                    } else if (kind == 'H' && value != 1) {
+                        out += "es";
+                    }
+                } else if (*c == '\a') {
+                    // A column move (\aX<n>.) keeps the columns apart; other \a codes are style.
+                    const bool column = c[1] == 'X';
                     while (c[1] != '\0' && c[1] != '.') {
                         ++c;
                     }
                     if (c[1] == '.') {
                         ++c;
+                    }
+                    if (column && !out.empty() && out.back() != '\n' && out.back() != ' ') {
+                        out += "     ";
                     }
                 } else if (*c == '\r') {
                     // The game's line break (ESTRINGS' "%s destroyed\r", owner 2026-11-20: the

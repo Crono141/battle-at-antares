@@ -255,3 +255,11 @@ namespace sound {
     void __cdecl Pitch_Bend_Sound(int32_t, int32_t) {}
     void __cdecl Fadeout_Sound(int16_t, int8_t) {}
 } // namespace sound
+
+namespace FMTPARA {
+    // A message's paragraph inserts (native::Message expands "\x18B<n>"): the values a test sets.
+    int32_t test_item_values[16] = {};
+    uint32_t __cdecl Get_Item_Value(uint16_t index) {
+        return index < 16 ? (uint32_t)test_item_values[index] : 0;
+    }
+} // namespace FMTPARA
