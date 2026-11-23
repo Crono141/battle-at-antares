@@ -31,15 +31,100 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <ctime>
+#include <filesystem>
+#include <mutex>
+#include <vector>
 #include <string>
 #if defined(_WIN32)
 #include <direct.h>
+#include <process.h>
 #define chdir _chdir
 #else
 #include <unistd.h>
 #endif
 
 int antares_hosted_main(int argc, char** argv);
+
+namespace {
+    // The engine's log (SDL_Log), written as the SDL build's debug log is: <game folder>/logs/
+    // game.<pid>.log, beside what the console gets. The ten newest are kept.
+    FILE* s_game_log_file = nullptr;
+    SDL_LogOutputFunction s_console_log_output = nullptr;
+    void* s_console_log_userdata = nullptr;
+    std::mutex s_game_log_mutex;
+
+    const char* Log_Priority_Name(SDL_LogPriority priority) {
+        switch (priority) {
+            case SDL_LOG_PRIORITY_TRACE: return "TRACE";
+            case SDL_LOG_PRIORITY_VERBOSE: return "VERBOSE";
+            case SDL_LOG_PRIORITY_DEBUG: return "DEBUG";
+            case SDL_LOG_PRIORITY_INFO: return "INFO";
+            case SDL_LOG_PRIORITY_WARN: return "WARN";
+            case SDL_LOG_PRIORITY_ERROR: return "ERROR";
+            case SDL_LOG_PRIORITY_CRITICAL: return "CRITICAL";
+            default: return "UNKNOWN";
+        }
+    }
+
+    void SDLCALL Game_Log_Output(void* userdata, int category, SDL_LogPriority priority, const char* message) {
+        if (s_console_log_output != nullptr) {
+            s_console_log_output(s_console_log_userdata, category, priority, message);
+        }
+        FILE* file = static_cast<FILE*>(userdata);
+        if (file != nullptr) {
+            std::lock_guard<std::mutex> lock(s_game_log_mutex);
+            const auto now = std::chrono::system_clock::now();
+            const std::time_t t = std::chrono::system_clock::to_time_t(now);
+            std::tm tm_now{};
+#if defined(_WIN32)
+            localtime_s(&tm_now, &t);
+#else
+            localtime_r(&t, &tm_now);
+#endif
+            char stamp[16];
+            std::strftime(stamp, sizeof(stamp), "%H:%M:%S", &tm_now);
+            fprintf(file, "%s %s: %s\n", stamp, Log_Priority_Name(priority), message);
+            fflush(file);
+        }
+    }
+
+    void Open_Game_Log(const std::string& game_dir) {
+        if (s_game_log_file != nullptr) {
+            return;
+        }
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path logs = fs::path(game_dir) / "logs";
+        fs::create_directories(logs, ec);
+        // Keep the nine newest old logs; this run's makes ten.
+        std::vector<fs::directory_entry> old;
+        for (const auto& entry : fs::directory_iterator(logs, ec)) {
+            const std::string name = entry.path().filename().string();
+            if (entry.is_regular_file(ec) && name.rfind("game.", 0) == 0 && entry.path().extension() == ".log") {
+                old.push_back(entry);
+            }
+        }
+        std::sort(old.begin(), old.end(), [](const fs::directory_entry& a, const fs::directory_entry& b) {
+            std::error_code e;
+            return a.last_write_time(e) > b.last_write_time(e);
+        });
+        for (size_t i = 9; i < old.size(); ++i) {
+            fs::remove(old[i].path(), ec);
+        }
+#if defined(_WIN32)
+        const int pid = _getpid();
+#else
+        const int pid = getpid();
+#endif
+        const fs::path file = logs / ("game." + std::to_string(pid) + ".log");
+        s_game_log_file = fopen(file.string().c_str(), "w");
+        if (s_game_log_file != nullptr) {
+            SDL_GetLogOutputFunction(&s_console_log_output, &s_console_log_userdata);
+            SDL_SetLogOutputFunction(Game_Log_Output, s_game_log_file);
+        }
+    }
+} // namespace
 
 namespace godot {
 
@@ -226,6 +311,7 @@ namespace godot {
                 game_finished_ = true;
                 return;
             }
+            Open_Game_Log(game_dir);
             std::vector<char*> argv;
             for (const std::string& arg : args) {
                 argv.push_back(const_cast<char*>(arg.c_str()));
