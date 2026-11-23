@@ -11,6 +11,7 @@ namespace startup {
         std::string config_path = antares::CONFIG_FILE;
         bool config_selected = false;
         bool skip_intro = false;
+        bool log_requested = false;
         int32_t load_save = 0; // SAVE<n>.GAM, 1-10; zero means no request.
         std::string game_directory;
         std::string oracle_record;

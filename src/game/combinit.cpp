@@ -377,7 +377,7 @@ namespace COMBINIT {
         // Its boxes drawn over it, not sent to the frontend, from when the combat screen is up
         // (below); before, its setup's messages (the Artemis net, owner 2026-11-20) are native.
         std::optional<antares::native::Legacy_Combat_Scope> legacy_combat;
-        const string_overrides::s_message_cache_scope message_cache; // its texts read once, not every frame
+        string_overrides::s_combat_message_cache_scope message_cache;
         int8_t abort_tactical = 0;
         bool no_defender_ships = star_idx != MOX::NUM_STARS;
         int16_t has_tractor_beam = 0;

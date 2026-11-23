@@ -2,8 +2,8 @@
   id: "v150i",
   name: "Improved",
   description: "The full 1.50 Improved rules: rebalanced race picks, stronger AI and Antarans, and revised tactical combat.",
-  version: "26.11",
-  compatible_versions: "26.10",
+  version: "26.12",
+  compatible_versions: "<26.12",
 
   requires: {
     engine: ">=2.0.0 <3.0.0",

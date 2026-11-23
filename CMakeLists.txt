@@ -159,7 +159,7 @@ if(APPLE AND ORION2RE_BUILD_TESTS)
     set(ORION2RE_ENABLE_ASAN_DEFAULT ON)
 endif()
 option(ORION2RE_ENABLE_ASAN "Enable AddressSanitizer (and UBSan with GCC/Clang) for supported debug builds" ${ORION2RE_ENABLE_ASAN_DEFAULT})
-option(ORION2RE_RELEASE_DEBUG_INFO "Emit debug info for non-Debug MSVC builds" OFF)
+option(ORION2RE_RELEASE_DEBUG_INFO "Generate a PDB for the MSVC Release game build" OFF)
 if(APPLE AND ORION2RE_BUILD_TESTS AND NOT ORION2RE_ENABLE_ASAN)
     message(FATAL_ERROR
         "macOS tests require ASan and UBSan. Configure a Debug build with "
@@ -784,7 +784,10 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
     list(REMOVE_ITEM ORION2RE_SOURCES ${ORION2RE_SCALER_SOURCES})
     list(REMOVE_ITEM ORION2RE_SOURCES ${ORION2RE_SMACKER_FFMPEG_SOURCES})
     list(APPEND ORION2RE_SOURCES ${ORION2RE_CONFIG_GENERATED_FILES})
-    list(REMOVE_ITEM ORION2RE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+    list(REMOVE_ITEM ORION2RE_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/windows_crash_dump.cpp"
+    )
     # Battle at Antares: the launcher (WP5.1) is its own executable.
     list(FILTER ORION2RE_SOURCES EXCLUDE REGEX "/src/launcher/")
     list(FILTER ORION2RE_HEADERS EXCLUDE REGEX "/src/launcher/")
@@ -944,6 +947,16 @@ if(ORION2RE_BUILD_GAME)
         ${ORION2RE_LIBSMACKER_SOURCES}
         ${ORION2RE_YYJSON_SOURCES}
     )
+    if(WIN32)
+        set_source_files_properties(src/windows_crash_dump.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+        target_sources(orion2re PRIVATE src/windows_crash_dump.cpp)
+        target_link_libraries(orion2re PRIVATE dbghelp)
+
+        add_executable(test_windows_crash_dump EXCLUDE_FROM_ALL
+            tests/windows/crash_dump_smoke.cpp src/windows_crash_dump.cpp)
+        target_include_directories(test_windows_crash_dump PRIVATE src)
+        target_link_libraries(test_windows_crash_dump PRIVATE dbghelp)
+    endif()
 
     # Battle at Antares: the target keeps Redone's name so merges stay cheap; the binary is antares.
     set_target_properties(orion2re PROPERTIES OUTPUT_NAME antares)
@@ -1411,8 +1424,11 @@ if(ORION2RE_GAME_DIR AND TARGET orion2re)
 endif()
 
 if(MSVC)
+    # Keep debug info with the objects until the game links its final PDB.
+    set(ORION2RE_RELEASE_DEBUG_COMPILE_OPTION
+        $<$<AND:$<CONFIG:Release>,$<BOOL:${ORION2RE_RELEASE_DEBUG_INFO}>>:/Z7>)
     if(TARGET orion2re)
-        target_compile_options(orion2re PRIVATE /W3 /permissive-)
+        target_compile_options(orion2re PRIVATE /W3 /permissive- ${ORION2RE_RELEASE_DEBUG_COMPILE_OPTION})
     endif()
     target_compile_options(orion2re-router PRIVATE /W3 /permissive-)
     if(TARGET config-tool)
@@ -1422,7 +1438,7 @@ if(MSVC)
         target_compile_options(config-generator PRIVATE /W3 /permissive-)
     endif()
     if(TARGET orion2re_game_objects)
-        target_compile_options(orion2re_game_objects PRIVATE /W3 /permissive-)
+        target_compile_options(orion2re_game_objects PRIVATE /W3 /permissive- ${ORION2RE_RELEASE_DEBUG_COMPILE_OPTION})
         target_compile_definitions(orion2re_game_objects PRIVATE
             WIN32
             _CRT_SECURE_NO_DEPRECATE
@@ -1454,16 +1470,14 @@ if(MSVC)
             $<$<CONFIG:Release>:/Gy>
             $<$<CONFIG:Release>:/Oi>
             $<$<CONFIG:Release>:/GS>
-            $<$<AND:$<CONFIG:Release>,$<BOOL:${ORION2RE_RELEASE_DEBUG_INFO}>>:/Zi>
-            $<$<AND:$<CONFIG:Release>,$<BOOL:${ORION2RE_RELEASE_DEBUG_INFO}>>:/Zo>
         )
 
         target_link_options(orion2re PRIVATE
             /DYNAMICBASE
             /NXCOMPAT
+            $<$<AND:$<CONFIG:Release>,$<BOOL:${ORION2RE_RELEASE_DEBUG_INFO}>>:/DEBUG:FULL>
             $<$<CONFIG:Release>:/OPT:REF>
             $<$<CONFIG:Release>:/OPT:ICF>
-            $<$<AND:$<CONFIG:Release>,$<BOOL:${ORION2RE_RELEASE_DEBUG_INFO}>>:/DEBUG>
         )
     endif()
     if(TARGET config-tool)
