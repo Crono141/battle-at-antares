@@ -51,6 +51,7 @@ var _edits: Array = []
 var _names := {} # item id -> {name, picture} (the lists' items)
 var _tween: Tween
 var _shown_left := 0.0
+var _sliding_in := false # the running slide opens the pane (place_at retargets it)
 var _drop_gap := -1 # where a drag over the list would land (-1: no drag)
 var _marker: Control
 var _refit_popup: Popup
@@ -111,6 +112,14 @@ func place_at(x: float, right := INF) -> void:
 	var room := minf(edge, right) - x
 	offset_right = x + clampf(room, 0.0, WIDTH)
 	_shown_left = x
+	# Placed again while sliding in (owner 2026-11-23: the colony pane grew once its data came,
+	# and the slide went on to the old place, over it): the slide heads for the new place.
+	if _tween and _tween.is_running() and _sliding_in:
+		var left := modulate.a
+		_tween.kill()
+		_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		_tween.tween_method(func(at: float): preload("../themes.gd").move_x(self, at), position.x, _shown_left, SLIDE_TIME * (1.0 - left * 0.5))
+		_tween.tween_property(self, "modulate:a", 1.0, SLIDE_TIME * (1.0 - left * 0.5))
 
 
 ## Opens on a colony's queue (`bought`: its front item is bought and stays first).
@@ -889,6 +898,7 @@ func _sprite(lbx: String, entry: int, min_size: Vector2) -> TextureRect:
 func _slide(opening: bool) -> void:
 	if _tween:
 		_tween.kill()
+	_sliding_in = opening
 	var hidden_x := _shown_left - 80.0
 	if opening:
 		show()

@@ -1004,6 +1004,13 @@ func _view(scene_name: String) -> Control:
 		_raise_chrome() # the bar, the pockets, the tabs and the frame stay over every view
 		_views[scene_name] = view
 		_attach_view_help(scene_name, view)
+		if scene_name == "colony_pane":
+			# It grows to fit its rows once its colony's data arrives, after a build pane opened
+			# with it was placed (owner 2026-11-23: opened from the Colonies panel, the build pane
+			# overlapped it): the build pane moves along.
+			view.resized.connect(func():
+				if _views.has("build_pane") and _views.build_pane.visible:
+					_place_build_pane.call_deferred())
 		if scene_name == "side_tabs": # their column limits the scale
 			_apply_saved_scale.call_deferred()
 		if scene_name == "options_menu":
@@ -2025,6 +2032,17 @@ func _smoke_colonies(shots: String) -> bool:
 	if shots != "":
 		await host.shot(shots + "/native-colonies-build.png")
 	if panel.visible or not _view("build_pane").visible or back_button.text != "RETURN TO COLONIES":
+		return false
+	# Side by side once they have settled (owner 2026-11-23: the build pane overlapped the colony
+	# pane a little when opened from here).
+	await get_tree().create_timer(1.5).timeout
+	var colony_rect: Rect2 = _view("colony_pane").get_global_rect()
+	var build_rect: Rect2 = _view("build_pane").get_global_rect()
+	print("smoke: build detour panes: colony %s, build %s, gap %.1f" % [colony_rect, build_rect, build_rect.position.x - colony_rect.end.x])
+	if shots != "":
+		await host.shot(shots + "/native-colonies-build-settled.png")
+	if build_rect.position.x < colony_rect.end.x:
+		print("smoke: FAILED: the build pane overlaps the colony pane")
 		return false
 	back_button.pressed.emit()
 	await get_tree().create_timer(0.7).timeout
