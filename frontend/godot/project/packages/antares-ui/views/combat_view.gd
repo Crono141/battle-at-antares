@@ -504,6 +504,7 @@ func _open() -> void:
 	_death_played.clear() # ship indexes start again in each battle
 	_last_missiles.clear()
 	_gone.clear()
+	_officer_cry.clear()
 	_hp_view.clear()
 	_tl_base = []
 	_tl_shown = []
@@ -3050,6 +3051,9 @@ func _play_special(event: Dictionary) -> float:
 			parts.append({"type": "shake", "blast": type, "source": source, "at": at, "start": 0.0, "frame_time": TICK_S, "dur": (frames + 1) * TICK_S})
 			life = (frames + 1) * TICK_S
 			parts.append({"type": "sound", "id": 0x14 if type <= 2 else (0x2F if type == 3 else 0x19), "start": 0.0})
+			if _officer_cry.has(source):
+				_officer_cry.erase(source)
+				parts.append({"type": "sound", "id": 0x21, "start": 0.0})
 			if type >= 3:
 				parts.append({"type": "sound", "id": 8, "start": 0.0})
 		"lightning": # CMBTSFX 0 on the defending ship, 15 x 55 ms
@@ -3150,6 +3154,7 @@ func _add_sfx(parts: Array, life: float) -> float:
 
 var _death_played := {} # ship index -> its death is drawn (the destroyed event's)
 var _last_missiles := {} # stack index -> its last state (an attacking fighter stack has left the state)
+var _officer_cry := {} # ship index -> its officer's cry (sound 0x21) plays with its death, then erased
 var _gone := {} # ship index -> hidden by its death (owner 2026-11-22: a drive overload's ship came back for a frame)
 
 
@@ -3188,6 +3193,8 @@ func _play_death(event: Dictionary) -> float:
 		if int(event.get("monster_sound", -1)) >= 0:
 			parts.append({"type": "sound", "id": int(event.monster_sound), "start": 0.0})
 		return _add_sfx(parts, 16 * TICK_S)
+	if bool(event.get("officer_sound", false)):
+		_officer_cry[index] = true # Play_Leader_Death_SFX: with the explosion, or the blast that follows
 	if int(event.get("death", 1)) != 1:
 		return 0.0 # Do_Spherical_SFX: the blast event that follows
 	return _play_explosion(index, at, int(event.get("size", 0)))
@@ -3208,6 +3215,9 @@ func _play_explosion(index: int, at: Vector2, size: int) -> float:
 		parts.append({"type": "sound", "id": 0x2b, "start": 0.0})
 	else:
 		parts.append({"type": "sound", "id": 0x18, "start": 0.0})
+	if _officer_cry.has(index):
+		_officer_cry.erase(index)
+		parts.append({"type": "sound", "id": 0x21, "start": 0.0})
 	return _add_sfx(parts, float(frames) * TICK_S)
 
 

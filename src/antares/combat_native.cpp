@@ -692,6 +692,15 @@ namespace antares::combat {
             case 14: monster_entry = d.size_class == 2 ? 0x4E : 0x4D; monster_sound = 0x3E; break;
             default: break;
         }
+        // The officer's cry (sound 0x21, CMBTSPEC::Play_Leader_Death_SFX) as the original plays it:
+        // always in a drive-core blast (Do_Spherical_SFX type 3), with "leaders leader_dies_with_no"
+        // also in an ordinary explosion and a quantum detonation (owner 2026-11-23: missing in a
+        // native battle).
+        bool officer_sound = false;
+        if (d.previous_owner < 10 && d.officer_idx >= 0) {
+            officer_sound = death == 3 || ((death == 1 || death == 4) && CMBTSPEC::leader_dies_with_no != 0);
+        }
+        out.Bool("officer_sound", officer_sound);
         if (d.previous_owner >= 10) {
             out.Int("monster_entry", monster_entry);
             out.Int("monster_sound", monster_sound);

@@ -8417,6 +8417,28 @@ func _smoke_effects_gallery(view: Control, mine: int, enemy: int, shots: String)
 			await get_tree().process_frame
 		await host.shot(shots + "/gallery-%02d-%s%s.png" % [n, String(event.kind), ("-%d" % int(event.get("type", 0))) if event.has("type") else ""])
 		n += 1
+	# The officer's cry (sound 0x21, owner 2026-11-23): with an explosion, and with the drive blast
+	# that follows a drive-core death.
+	for pair: Array in [[{"kind": "destroyed", "ship": enemy, "death": 1, "size": 2, "officer_sound": true}, {}],
+			[{"kind": "destroyed", "ship": enemy, "death": 3, "size": 2, "officer_sound": true}, {"kind": "blast", "ship": enemy, "type": 3}]]:
+		view._effects.clear()
+		view._death_played.clear()
+		view._gone.clear()
+		view._officer_cry.clear()
+		view._play_death(pair[0])
+		if not (pair[1] as Dictionary).is_empty():
+			view._play_special(pair[1])
+		var cry := false
+		for effect: Dictionary in view._effects:
+			for part: Dictionary in effect.get("parts", []):
+				if String(part.type) == "sound" and int(part.get("id", -1)) == 0x21:
+					cry = true
+		if cry:
+			print("smoke: officer cry with death %d ok" % int(pair[0].death))
+		else:
+			print("smoke: FAILED: no officer cry with death %d" % int(pair[0].death))
+	view._death_played.clear()
+	view._officer_cry.clear()
 	view._effects.clear()
 	view._gone.clear()
 	# The lasting looks, set on the enemy in the shown state.

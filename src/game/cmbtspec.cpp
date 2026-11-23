@@ -1701,32 +1701,39 @@ namespace CMBTSPEC {
             Spherical_Effect_From_Type(sfx_type);
         bool draw_ships_collapsing_flag = true;
         void* remap_colors = nullptr;
+        // Antares: when the legacy screen doesn't draw, the frontend plays the blast's sounds with
+        // its animation (the blast and destroyed events); they had played twice (2026-11-23).
+        const bool sounds = antares::combat::Legacy_Draws();
 
         switch (sfx_type) {
             case 0:
             case 1:
                 draw_ships_collapsing_flag = true;
                 remap_colors = MOX::pulsar_remap_colors;
-                ERICNET::Mox_Play_Sound(0x14);
+                if (sounds) ERICNET::Mox_Play_Sound(0x14);
                 break;
             case 2:
                 draw_ships_collapsing_flag = true;
-                ERICNET::Mox_Play_Sound(0x14);
+                if (sounds) ERICNET::Mox_Play_Sound(0x14);
                 break;
             case 3:
                 remap_colors = MOX::warp_core_remap_colors;
                 draw_ships_collapsing_flag = false;
-                ERICNET::Mox_Play_Sound(0x2F);
-                ERICNET::Mox_Play_Sound(8);
-                Play_Leader_Death_SFX(source_ship_idx);
+                if (sounds) {
+                    ERICNET::Mox_Play_Sound(0x2F);
+                    ERICNET::Mox_Play_Sound(8);
+                    Play_Leader_Death_SFX(source_ship_idx);
+                }
                 break;
             case 4:
                 remap_colors = MOX::warp_core_remap_colors;
                 draw_ships_collapsing_flag = false;
-                ERICNET::Mox_Play_Sound(0x19);
-                ERICNET::Mox_Play_Sound(8);
-                if (leader_dies_with_no != 0) {
-                    Play_Leader_Death_SFX(source_ship_idx);
+                if (sounds) {
+                    ERICNET::Mox_Play_Sound(0x19);
+                    ERICNET::Mox_Play_Sound(8);
+                    if (leader_dies_with_no != 0) {
+                        Play_Leader_Death_SFX(source_ship_idx);
+                    }
                 }
                 break;
         }
