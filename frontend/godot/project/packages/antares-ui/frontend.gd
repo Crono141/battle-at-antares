@@ -1088,6 +1088,7 @@ var todo_auto: bool = Themes.saved_value("todo", "auto", false)
 # WP3.9: battles in the native scene (a preview, off by default; owner, 2026-11-21). The smoke's
 # battle steps turn it on for their run.
 var native_battles: bool = bool(Themes.saved_value("combat", "native", false)) or "--combat" in OS.get_cmdline_user_args() \
+	or "--torpedo" in OS.get_cmdline_user_args() \
 	or "--selfdestruct" in OS.get_cmdline_user_args()
 var _todo_auto_opened := {} # this turn's items opened, by key
 var _todo_auto_last := {} # the item opened last, and when: {item, at, open}
@@ -5630,6 +5631,13 @@ func _smoke_native() -> void:
 		await _smoke_pan(shots)
 		game.request_game_quit()
 		return
+	if "--torpedo" in OS.get_cmdline_user_args():
+		if await _smoke_torpedo(shots):
+			print("smoke: torpedo OK")
+		else:
+			print("smoke: FAILED: torpedo")
+		game.request_game_quit()
+		return
 	if "--combat" in OS.get_cmdline_user_args():
 		# WP3.9b: end the turn into a battle (SAVE10: Fortuna) and play it in the native scene.
 		var start: Dictionary = await _query("empire")
@@ -7350,6 +7358,48 @@ func _smoke_clear_todo() -> bool:
 ## A real mouse click at a screen point (the legacy screens take the mouse, not keys, to go on).
 ## WP3.9b: `-- --smoke --native --combat --shots=DIR` with SAVE10: the turn's battle opens as the
 ## native scene; one move to a legal square, the order ring, Always show health, then Auto to the end.
+## The torpedo hint (owner 2026-11-23: no warning before a Guardian's plasma torpedo hit; the
+## original's warning skips torpedoes): a battle with a torpedo flying at the player's ship (fixture
+## work/fixtures/owner-2026-11-23-guardian); the player ends their turns until the state lists
+## squares whose move meets it, then the pointer over one shows the TORPEDO WARNING toast.
+func _smoke_torpedo(shots: String) -> bool:
+	_send({"verb": "end_turn"})
+	var view: Control = null
+	var turns := 0
+	var waited := 0.0
+	while waited < 240.0 and turns < 12:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+		view = _combat
+		if view == null or not view.visible or not view._my_turn():
+			_smoke_answer()
+			continue
+		await get_tree().create_timer(0.6).timeout
+		var torps: Array = view.state.get("torpedo_squares", [])
+		var flying: Array = (view.state.get("missiles", []) as Array).map(func(m: Dictionary) -> String: return "%s->%s" % [m.get("name", m.get("weapon", "?")), m.get("target", "?")])
+		print("smoke: torpedo: turn %d, ship %d, %d legal, %d torpedo squares, flying %s" % [turns, int(view.state.ship),
+			(view.state.legal as Array).size(), torps.size(), flying])
+		if not torps.is_empty():
+			var code := int(torps[0])
+			view._hover_square = Vector2i(code / 1000, code % 1000)
+			view._update_warning()
+			await get_tree().create_timer(0.5).timeout
+			var shown: bool = view._warn_panel.visible and String(view._warn_label.text).begins_with("TORPEDO") and not view._missile_button.visible
+			print("smoke: torpedo: hint over %s: shown %s ('%s')" % [view._hover_square, shown, view._warn_label.text])
+			if shots != "":
+				await host.shot(shots + "/combat-torpedo-hint.png")
+			view._hover_square = Vector2i(-1, -1) # checked in the same frame: the view takes the real pointer's square each frame
+			view._update_warning()
+			var gone: bool = view._last_missile_warning == 0
+			print("smoke: torpedo: pointer off: toast gone %s" % gone)
+			return shown and gone
+		turns += 1
+		view._act({"action": "end_turn"})
+		await get_tree().create_timer(1.0).timeout
+	print("smoke: torpedo: no torpedo squares in %d turns" % turns)
+	return false
+
+
 func _smoke_combat(shots: String) -> bool:
 	_send({"verb": "end_turn"})
 	var waited := 0.0

@@ -142,7 +142,8 @@ var last_error := "" # the last request's refusal (smoke)
 var _board_mode := false # BOARD on the ring: the next click on an enemy ship boards it
 var _board_target := -1
 var _board_panel: PanelContainer
-var _last_missile_warning := 0
+var _last_missile_warning := 0 # 0 none, 1 the game's warning, 2 the torpedo hint
+var _torpedo_squares := {} # x * 1000 + y -> the move there runs into a torpedo (the state's)
 var _timeline: PanelContainer
 var _timeline_row: HBoxContainer
 var _strip: PanelContainer
@@ -263,6 +264,9 @@ func show_state(st: Dictionary) -> void:
 	_legal.clear()
 	for code in st.get("legal", []):
 		_legal[int(code)] = true
+	_torpedo_squares.clear()
+	for code in st.get("torpedo_squares", []):
+		_torpedo_squares[int(code)] = true
 	_order.clear()
 	for index in st.get("order", []):
 		_order[int(index)] = true
@@ -1272,6 +1276,36 @@ func _update_hover() -> void:
 	_hover_missile = _missile_at(world) if best < 0 else -1
 	_hover_square = _square_at(world)
 	_place_card()
+	_update_warning()
+
+
+## The missile warning toast. 1: the game's warning is up (a move stopped short of missiles); Clear
+## dismisses it as a click on the legacy lamp did (to 2: the next move goes ahead; owner 2026-11-22:
+## one button). 2: a hint (owner 2026-11-23): the square under the pointer is a move that runs into
+## a torpedo, which the original's warning skips (the battle state's torpedo_squares); the move
+## still goes ahead, so no button.
+func _update_warning() -> void:
+	var my_turn := _my_turn()
+	var warning := 0
+	if my_turn and int(state.get("missile_warning", 0)) == 1:
+		warning = 1
+	elif my_turn and _hover_square.x >= 0 and _torpedo_squares.has(_hover_square.x * 1000 + _hover_square.y):
+		warning = 2
+	if warning != _last_missile_warning:
+		if warning > 0:
+			_warn_label.text = "MISSILE WARNING: IMPACT IMMINENT" if warning == 1 else "TORPEDO WARNING: THIS MOVE RUNS INTO A TORPEDO"
+			_missile_button.visible = warning == 1
+			_warn_panel.reset_size()
+		var tween := create_tween()
+		if warning > 0 and _last_missile_warning == 0:
+			_warn_panel.show()
+			tween.tween_property(self, "_warn_anim", 1.0, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		elif warning == 0:
+			tween.tween_property(self, "_warn_anim", 0.0, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+			tween.tween_callback(func():
+				if _last_missile_warning == 0: # not shown again meanwhile (the pointer back on a square)
+					_warn_panel.hide())
+	_last_missile_warning = warning
 
 
 ## An enemy missile, torpedo or fighter stack whose pictures are under `world` (owner 2026-11-22:
@@ -2250,18 +2284,7 @@ func _refresh_hud() -> void:
 	_done_button.disabled = not my_turn
 	_end_button.disabled = not my_turn
 	_auto_button.disabled = false # always reachable (owner 2026-11-22), whoever's turn it is
-	# Shown while the warning is up (1); Clear dismisses it as a click on the legacy lamp did (to 2:
-	# the next move goes ahead). Owner 2026-11-22: one button, Clear.
-	var warning := 1 if my_turn and int(state.get("missile_warning", 0)) == 1 else 0
-	if warning != _last_missile_warning:
-		var tween := create_tween()
-		if warning > 0:
-			_warn_panel.show()
-			tween.tween_property(self, "_warn_anim", 1.0, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		else:
-			tween.tween_property(self, "_warn_anim", 0.0, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-			tween.tween_callback(_warn_panel.hide)
-	_last_missile_warning = warning
+	_update_warning()
 	if _auto_pending_on and _my_turn() and not _auto_mine():
 		_auto_pending_on = false
 		_act.call_deferred({"action": "auto"}) # asked for while the enemy moved

@@ -21,6 +21,7 @@
 // the legacy screen reads, or applies an action through COMBAT1::Apply_Tactical_Action.
 
 namespace antares::combat {
+    bool Torpedo_On_Path(int16_t ship_idx, int16_t gx, int16_t gy); // below: the battle state's torpedo_squares
 
     using commands::s_out;
 
@@ -384,6 +385,20 @@ namespace antares::combat {
             }
         }
 
+        // The legal squares whose move would meet a torpedo aimed at the acting ship (owner
+        // 2026-11-23): the original's missile warning (Test_Move_Until_Impact) skips torpedoes, so
+        // the frontend only warns; the move itself is unchanged.
+        s_out torpedo_squares = out.Add_List("torpedo_squares");
+        if (MOX::cur_ship >= 0 && MOX::cur_ship < MOX::combat_total_ship_count) {
+            for (int16_t x = 0; x < MOX::combat_grid_width; ++x) {
+                for (int16_t y = 0; y < MOX::combat_grid_height; ++y) {
+                    if (MOX::combat_grid[x][y] == 2000 && Torpedo_On_Path(MOX::cur_ship, x, y)) {
+                        torpedo_squares.Append_Int(x * 1000 + y);
+                    }
+                }
+            }
+        }
+
         // For the acting ship, the weapons that can fire at each enemy now (in arc, in range, a legal
         // target, ready): the legacy weapon list lit them for the ship under the pointer
         // (CMBTDRW1::Draw_Weapon_Status_Display).
@@ -707,6 +722,58 @@ namespace antares::combat {
             out.Int("facing", d.facing_dir);
         }
         Post_Effect(doc);
+    }
+
+    // Would `ship_idx` moving to grid square (gx, gy) meet a torpedo aimed at it on the way? As
+    // CMBTMOV1::Test_Move_Until_Impact steps the move (2 px, each missile moving its share), but for
+    // the torpedoes that test skips, on copies (Move_Missile has side effects), without the turn
+    // to face the square. Read only.
+    bool Torpedo_On_Path(int16_t ship_idx, int16_t gx, int16_t gy) {
+        struct s_torp {
+            int16_t x, y, dist;
+            uint8_t speed;
+        };
+        std::vector<s_torp> torps;
+        for (int16_t i = 0; i < MAX_COMBAT_FLYERS; ++i) {
+            const s_missile& m = MOX::missile[i];
+            const bool torpedo = m.type == WEAPON_ANTI_MATTER_TORP || m.type == WEAPON_PROTON_TORPEDO || m.type == WEAPON_PLASMA_TORPEDO;
+            if (torpedo && m.is_active == 1 && CMBTMIS::Missile_Targets_Ship(&m, ship_idx) && m.source_unit_idx != ship_idx) {
+                torps.push_back({m.x, m.y, m.travel_dist, m.speed});
+            }
+        }
+        if (torps.empty()) {
+            return false;
+        }
+        const s_combat_data& ship = MOX::combat_data[ship_idx];
+        int16_t center_x = 0, center_y = 0;
+        COMBINIT::Ship_Center_Offsets(ship_idx, &center_x, &center_y);
+        const int16_t start_x = ship.x * 20, start_y = ship.y * 20;
+        const int16_t target_x = gx * 20, target_y = gy * 20;
+        const int32_t radius = MOX::missile_hit_radius[ship.size_class];
+        int16_t x = start_x, y = start_y;
+        for (int steps = 0; steps < 4000 && (x != target_x || y != target_y); ++steps) {
+            special::Absolute_Interpolate_Line(&x, &y, start_x, start_y, target_x, target_y, 2);
+            const int16_t px = x + center_x, py = y + center_y;
+            for (s_torp& t : torps) {
+                int16_t step = 5;
+                if (ship.current_speed != 0) {
+                    step = (int16_t)((t.speed * 2) / ship.current_speed);
+                }
+                step = std::max<int16_t>(step, 2);
+                step = std::min<int16_t>(step, t.dist);
+                if (step > 0 && (t.x != px || t.y != py)) {
+                    int16_t dx = 0, dy = 0;
+                    CMBTMIS::Coord_Movement(t.x, t.y, px, py, (uint8_t)step, &dx, &dy);
+                    t.x += dx;
+                    t.y += dy;
+                }
+                const int32_t ddx = px - t.x, ddy = py - t.y;
+                if (ddx * ddx + ddy * ddy < radius * radius) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     void Missile_Launch(int16_t stack, int16_t from, int16_t to, bool at_missile, int16_t tx, int16_t ty) {
