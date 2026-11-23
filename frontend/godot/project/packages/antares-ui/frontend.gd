@@ -2791,6 +2791,18 @@ func _smoke_layering(shots: String) -> bool:
 		return false
 	if parts.get_index() < below or panel.get_index() < below or _frame_view.get_index() != native_layer.get_child_count() - 1:
 		return false
+	# A design saved with the build list open: the list asks for its options again (owner
+	# 2026-11-23: REFIT offered a new design only once the build list was opened again).
+	var refit_before: Dictionary = build.options.get("refit", {})
+	build.options["refit"] = {}
+	_on_design_built(int(listed.designs[0].slot))
+	await get_tree().create_timer(0.8).timeout
+	var refit_after: Dictionary = build.options.get("refit", {})
+	print("smoke: layering: build list options again after a design: refit %s (before %s)" % [not refit_after.is_empty(), not refit_before.is_empty()])
+	if refit_after.is_empty() and not refit_before.is_empty():
+		return false
+	_view("design_list").close()
+	await get_tree().create_timer(0.3).timeout
 	panel.close()
 	await get_tree().create_timer(0.5).timeout
 	return true
@@ -3595,6 +3607,10 @@ func _open_design(slot: int) -> void:
 
 
 func _on_design_built(_slot: int) -> void:
+	# An open build list offers the new design (to build, and to refit to).
+	var build: Control = _views.get("build_pane")
+	if build != null and build.visible:
+		build.refresh_options()
 	var designs := _view("design_list")
 	_bring_up(designs)
 	designs.fit_bottom(_side_panel_area().end.y)

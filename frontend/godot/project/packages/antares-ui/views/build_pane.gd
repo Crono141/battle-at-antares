@@ -413,9 +413,44 @@ func _show_refit_ships() -> void:
 		items_box.add_child(l)
 
 
+## The game's lists again, the pane's own queue and edits kept (owner 2026-11-23: a design saved
+## while REFIT was open wasn't offered until the build list was opened again): what can be built,
+## the refit ships and the designs they can become; an open refit popup shows the new designs.
+func refresh_options() -> void:
+	if visible:
+		command.emit({"verb": "query", "what": "build_options", "colony": colony_id, "_reply_to": "_on_options_refreshed"})
+
+
+func _on_options_refreshed(result: Dictionary) -> void:
+	if not result.get("ok", false) or not visible:
+		return
+	for key in ["buildings", "units", "refit"]:
+		if result.has(key):
+			options[key] = result[key]
+	_names.clear()
+	for list in [options.buildings, options.units]:
+		for item: Dictionary in list:
+			if item.has("id"):
+				_names[int(item.id)] = item
+	_show_items()
+	if is_instance_valid(_refit_popup) and _refit_popup.visible and _refit_popup_ship >= 0:
+		for ship: Dictionary in options.get("refit", {}).get("ships", []):
+			if int(ship.ship) == _refit_popup_ship and is_instance_valid(_refit_popup_at):
+				_open_refit_popup(ship, _refit_popup_at, _refit_popup_gap)
+				break
+
+
+var _refit_popup_ship := -1
+var _refit_popup_at: Control
+var _refit_popup_gap := -1
+
+
 ## The designs a ship can become (the original's second refit list), beside `at`.
 func _open_refit_popup(ship: Dictionary, at: Control, gap: int) -> void:
 	_close_refit_popup()
+	_refit_popup_ship = int(ship.ship)
+	_refit_popup_at = at
+	_refit_popup_gap = gap
 	var targets: Array = ship.get("targets", [])
 	_refit_popup = Popup.new()
 	_refit_popup.transparent_bg = true
