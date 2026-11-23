@@ -7462,6 +7462,19 @@ func _smoke_combat(shots: String) -> bool:
 		for effect: Dictionary in view._effects:
 			var kind := String(effect.kind)
 			counts[kind] = int(counts.get(kind, 0)) + (1 if effect.t <= 0.06 and effect.t > 0.0 else 0)
+			# The big ships' death (owner 2026-11-22: Doom Stars vanished), mid-explosion.
+			if shots != "" and kind == "sfx" and not shot_kinds.has("big_death") and float(effect.t) > 0.12:
+				for part: Dictionary in effect.parts:
+					if String(part.type) == "anim" and String(part.get("name", "")) == "cmbtsfx.lbx" and int(part.get("entry", -1)) == 5:
+						shot_kinds["big_death"] = true
+						view._cam = part.at
+						view.smoke_hold = true
+						await get_tree().process_frame
+						await get_tree().process_frame
+						await host.shot(shots + "/combat-death-big.png")
+						print("smoke: big ship death at t %.2f, art %s" % [float(effect.t), not view.art.sprite("cmbtsfx.lbx", 5).is_empty()])
+						view.smoke_hold = false
+						break
 			if kind == "volley" and not effect.get("_x2_counted", false):
 				effect["_x2_counted"] = true
 				x2_volleys[0 if bool(effect.get("speedx2", false)) else 1] += 1

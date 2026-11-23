@@ -1697,11 +1697,11 @@ func _build_hud() -> void:
 	var warn_row := HBoxContainer.new()
 	warn_row.add_theme_constant_override("separation", 10)
 	_warn_panel.add_child(warn_row)
-	_warn_label = _label("", 13, FIRE)
+	_warn_label = _label("Missile warning: the move stopped short of incoming missiles.", 13, FIRE)
 	_warn_label.custom_minimum_size = Vector2(300, 0)
 	_warn_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	warn_row.add_child(_warn_label)
-	_missile_button = _flat_button("Fly through", "", func(): _act({"action": "missile_warning"}))
+	_missile_button = _flat_button("Clear", "", func(): _act({"action": "missile_warning"}))
 	_missile_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	warn_row.add_child(_missile_button)
 	_bottom = _panel(&"BottomPocket")
@@ -2239,15 +2239,9 @@ func _refresh_hud() -> void:
 	_done_button.disabled = not my_turn
 	_end_button.disabled = not my_turn
 	_auto_button.disabled = false # always reachable (owner 2026-11-22), whoever's turn it is
-	var warning := int(state.get("missile_warning", 0)) if my_turn else 0
-	if warning == 1:
-		_warn_label.text = "Missile warning: the move stopped short of incoming missiles."
-		_missile_button.text = "Fly through"
-		_missile_button.tooltip_text = "Ignore the warning: move again and the ship flies through the missiles' path"
-	elif warning == 2:
-		_warn_label.text = "Missile warning off: moves fly through missiles' paths."
-		_missile_button.text = "Warn me"
-		_missile_button.tooltip_text = "Turn the missile warning back on"
+	# Shown while the warning is up (1); Clear dismisses it as a click on the legacy lamp did (to 2:
+	# the next move goes ahead). Owner 2026-11-22: one button, Clear.
+	var warning := 1 if my_turn and int(state.get("missile_warning", 0)) == 1 else 0
 	if warning != _last_missile_warning:
 		var tween := create_tween()
 		if warning > 0:
@@ -3008,6 +3002,7 @@ func _play_special(event: Dictionary) -> float:
 			life = 8 * TICK_S + 16 * TICK_S
 			parts.append({"type": "sound", "id": 11, "start": 0.0})
 		"blast": # Do_Spherical_SFX: 0 flux, 1 pulsar (CMBTSFX 52 glass), 2 compressor (6), 3 drive (SPHERSFX 0), 4 quantum (1)
+			print("combat: blast type %d from ship %d (sprite %s)" % [int(event.get("type", -1)), int(event.get("ship", -1)), _ships.has(int(event.get("ship", -1)))])
 			var type := int(event.get("type", 1))
 			var at := _centre(int(event.get("ship", -1)))
 			var name := SFX + "!glass=pulsar"
@@ -3148,6 +3143,9 @@ var _gone := {} # ship index -> hidden by its death (owner 2026-11-22: a drive o
 ## (the blast event that follows draws it), else the explosion by size.
 func _play_death(event: Dictionary) -> float:
 	var index := int(event.get("ship", -1))
+	print("combat: ship %d (%s, size %d) destroyed: death %d%s, sprite %s, already played %s" % [index, String(_ship(index).get("name", "?")),
+		int(event.get("size", -1)), int(event.get("death", 1)), (" monster entry %d" % int(event.monster_entry)) if event.has("monster_entry") else "",
+		_ships.has(index), _death_played.has(index)])
 	if index < 0 or _death_played.has(index):
 		return 0.0
 	_death_played[index] = true
