@@ -451,6 +451,17 @@ func _arm(kind: String) -> void:
 
 
 func _send(p: Dictionary) -> void:
+	# No free ship of that kind can get there (owner 2026-11-23: a black hole between the ship and
+	# the star, and nothing happened). The game's Send_Nearest_Ship does nothing then; the original
+	# screen showed "Blocked" in the row while armed, but select-then-send never shows that column.
+	if int(p.get("best_%s_eta" % send_kind, -1)) < 0:
+		var b: Button = colony_button if send_kind == "colony" else outpost_button
+		preload("info_popup.gd").open(self, b, "No %s ship can reach %s" % [send_kind, String(p.get("name", "it"))],
+			"A black hole blocks the way." if p.get("blocked", false) else "It is out of range of every free %s ship." % send_kind)
+		if _disarm_after_send:
+			_disarm_after_send = false
+			_arm("")
+		return
 	command.emit({"verb": "planets_send", "planet": int(p.planet), "kind": send_kind, "_reply_to": "_after_command"})
 
 

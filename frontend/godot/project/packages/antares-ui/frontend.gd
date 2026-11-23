@@ -2052,6 +2052,31 @@ func _smoke_planets(shots: String) -> bool:
 		await host.shot(shots + "/native-planets.png")
 	if not panel.visible or not tab.button_pressed or panel._all.is_empty() or far.x > area.position.x + 1.0:
 		return false
+	# A planet no free colony ship can reach (owner 2026-11-23: a black hole in the way): selected,
+	# then SEND COLONY SHIP says why in a popup and sends nothing. Only where the save has one.
+	if panel._result.get("colony_ships", false):
+		for p: Dictionary in panel.planets:
+			if int(p.get("best_colony_eta", -1)) < 0:
+				var star := int(p.get("star", -1))
+				panel._select(int(p.planet), star)
+				var sent := [false]
+				var watch := func(d: Dictionary) -> void:
+					if String(d.get("verb", "")) == "planets_send":
+						sent[0] = true
+				panel.command.connect(watch)
+				panel.colony_button.button_pressed = true
+				await get_tree().process_frame
+				panel.command.disconnect(watch)
+				var popup: Control = preload("views/info_popup.gd")._current
+				var shown := popup != null and is_instance_valid(popup) and popup.is_visible_in_tree()
+				print("smoke: planets: unreachable %s (blocked %s): popup %s, sent %s, armed '%s'" % [String(p.name), p.get("blocked", false),
+					shown, sent[0], panel.send_kind])
+				if shots != "":
+					await host.shot(shots + "/native-planets-unreachable.png")
+				preload("views/info_popup.gd").close_current()
+				if not shown or sent[0] or panel.send_kind != "":
+					return false
+				break
 	# The in-range toggle off shows more (or as many); every toggle on shows fewer (or as many).
 	var in_range: int = panel.planets.size()
 	var toggles: Array = panel.get_node("Box/Filters").get_children()
