@@ -186,6 +186,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("send_key", "godot_keycode", "shift", "alt", "ctrl"), &AntaresGame::send_key);
         ClassDB::bind_method(D_METHOD("request_game_quit"), &AntaresGame::request_game_quit);
         ClassDB::bind_method(D_METHOD("stop_auto_turns"), &AntaresGame::stop_auto_turns);
+        ClassDB::bind_method(D_METHOD("log_line", "text"), &AntaresGame::log_line);
         ClassDB::bind_method(D_METHOD("release_sounds"), &AntaresGame::release_sounds);
         ClassDB::bind_method(D_METHOD("click_sound"), &AntaresGame::click_sound);
         ClassDB::bind_method(D_METHOD("request_auto_off"), &AntaresGame::request_auto_off);
@@ -830,6 +831,12 @@ namespace godot {
 
     void AntaresGame::fade_game_sound(int64_t tag, int64_t ticks) {
         antares::native::Fade_Game_Sound((int32_t)tag, (int32_t)ticks);
+    }
+
+    // A frontend line in the engine's log (logs/game.<pid>.log; owner 2026-11-23: what the camera
+    // and the map's clicks did, for reports the tests can't reproduce).
+    void AntaresGame::log_line(const String& text) {
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "frontend: %s", text.utf8().get_data());
     }
 
     void AntaresGame::stop_auto_turns() {

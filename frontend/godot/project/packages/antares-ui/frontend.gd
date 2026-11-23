@@ -104,6 +104,8 @@ func _ready() -> void:
 	# 2026-11-13: a flag-coloured square until then).
 	art.loaded.connect(func(_key: String): galaxy.redraw())
 	game.native_screen_changed.connect(_on_native_screen)
+	if game.has_method("log_line"):
+		galaxy.log_sink = func(text: String): game.log_line(text)
 	game.command_result.connect(_on_result)
 	game.request.connect(_on_request)
 	game.snapshot.connect(_on_snapshot)
@@ -1421,6 +1423,7 @@ func show_help(topic: int, at: Control) -> void:
 
 ## A click on empty map in a system: back to the galaxy (owner, 2026-11-13).
 func _on_empty_clicked() -> void:
+	galaxy._log("empty map clicked: panel star %d, system pane %s" % [_panel_star, _view("system_pane").visible])
 	if _panel_star >= 0 and _view("system_pane").visible:
 		_view("system_pane").close()
 
@@ -1566,6 +1569,7 @@ func _on_view_action(action_name: String) -> void:
 
 func _on_view_closed(scene_name: String) -> void:
 	if scene_name == "system_pane":
+		galaxy._log("system pane closed: keep camera %s, colonies return %s" % [_keep_camera, _colonies_return])
 		_panel_star = -1 # first: the colony pane's closing doesn't re-frame a closing system
 		_view("colony_pane").close()
 		galaxy.selected = -1
@@ -4134,6 +4138,7 @@ func _open_fleet(ship_id: int) -> void:
 				leaders_view.select_fleet(ship_id) # a fleet without warships has no officers to show
 				return
 	var from_star := _panel_star if _view("system_pane").visible else -1
+	galaxy._log("open fleet %d from star %d" % [ship_id, from_star])
 	if from_star >= 0:
 		_keep_camera = true # the pane goes, the map stays at the system
 	_send({"verb": "open_fleet", "fleet": ship_id}, func(opened: Dictionary):
@@ -7667,8 +7672,18 @@ func _smoke_meklon_camera(shots: String) -> void:
 			t += 0.1
 			trail.append("(%.0f,%.0f z%.3f)" % [galaxy.camera.position.x, galaxy.camera.position.y, galaxy.camera.zoom.x])
 		print("smoke: meklon: %s: %s" % [label, " ".join(trail)])
+	var player_fleets: Array = fleets.filter(func(f: Dictionary) -> bool: return int(f.owner) == player)
+	if not player_fleets.is_empty() and not _view("fleet_panel").visible:
+		# As the owner's load: the fleet box over Meklon already open (the game's own box).
+		_open_fleet(int(player_fleets[0].ship))
+		await sample.call("fleet box open first", 1.5)
+		_view("fleet_panel").close() # the owner closes it before clicking Meklon (video, 4.5 s)
+		await sample.call("fleet box closed", 1.0)
+	print("smoke: meklon: fleet panel %s (ship %d) before the star click" % [_view("fleet_panel").visible, _fleet_ship])
 	_on_star_clicked(star)
 	await sample.call("system clicked", 2.5)
+	print("smoke: meklon: after the star click: fleet panel %s, system pane %s, keep_camera %s, fleet_from_system %d" % [_view("fleet_panel").visible,
+		_view("system_pane").visible, _keep_camera, _fleet_from_system])
 	print("smoke: meklon: in system %d, saved %s, panel view %s, fit %.3f, panned %s" % [galaxy.system_star, galaxy._saved_view, galaxy._panel_view, galaxy._fit_zoom, galaxy.panned])
 	if shots != "":
 		await host.shot(shots + "/meklon-1-system.png")

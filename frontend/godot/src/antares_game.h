@@ -49,6 +49,7 @@ namespace godot {
         Dictionary get_stats() const;
         // Sends a key as the game's SDL path would see it (for buttons that stand for hotkeys).
         void stop_auto_turns();
+        void log_line(const String& text);
         // The legacy screen's picture is shown: the sounds it started play (native::Release_Sounds).
         void release_sounds();
         void click_sound();

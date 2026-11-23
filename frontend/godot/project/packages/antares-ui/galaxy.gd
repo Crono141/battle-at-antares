@@ -268,6 +268,16 @@ func player_color(color_index: int) -> Color:
 
 # ---- Camera and input ----
 
+## Where camera flights and map clicks are logged (the frontend's engine-log line; owner
+## 2026-11-23: a camera report the tests didn't reproduce). Unset: nothing logged.
+var log_sink := Callable()
+
+
+func _log(text: String) -> void:
+	if log_sink.is_valid():
+		log_sink.call(text)
+
+
 func _screen_to_world(screen: Vector2) -> Vector2:
 	return camera.position + (screen - get_viewport_rect().size * 0.5) / camera.zoom.x
 
@@ -357,6 +367,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					# colony pane, as its row in the system pane does).
 					var stars_only := relocating or measuring or not relocation_pick.is_empty() # star clicks only
 					var planet: int = -1 if stars_only else $Orbits.pick(_screen_to_world(button.position))
+					_log("map click at %s: planet %d, fleet %d, star %d (system %d)" % [button.position, planet, fleet, star, system_star])
 					if planet >= 0:
 						planet_clicked.emit(planet)
 					elif fleet >= 0 and not stars_only:
@@ -518,6 +529,7 @@ func clear_system_view() -> void:
 ## Flies the camera to `world` at `zoom`, so that `world` ends at `screen` (a point in the area the
 ## panes leave free). The first flight remembers the view to come back to.
 func fly_to(world: Vector2, zoom: float, screen: Vector2) -> void:
+	_log("camera fly_to (saved %s, panel view %s)" % [_saved_view, _panel_view])
 	if _saved_view.is_empty():
 		_saved_view = {"position": camera.position, "zoom": camera.zoom.x, "anchor": world}
 	elif _saved_view.get("anchor", Vector2.INF) != world:
@@ -531,18 +543,21 @@ func fly_to(world: Vector2, zoom: float, screen: Vector2) -> void:
 
 ## Moves the camera smoothly to a point at the current zoom (the fleet buttons).
 func glide_to(world: Vector2) -> void:
+	_log("camera glide_to (saved %s, panel view %s)" % [_saved_view, _panel_view])
 	_fly(world, camera.zoom.x)
 
 
 ## Leaves a system for its fleet (WP3.3g, owner): the camera glides out a little round `world`
 ## (the system's star), keeping the view it will come back to.
 func step_back(world: Vector2, factor := 0.45) -> void:
+	_log("camera step_back (saved %s, panel view %s)" % [_saved_view, _panel_view])
 	_fly(world, maxf(camera.zoom.x * factor, furthest_zoom()), world)
 
 
 ## An empire panel opened (WP3.5, owner 2026-11-14): the whole galaxy fits `area` (the screen left
 ## of the panel). The view to come back to is the one before any system flight, else this one.
 func fit_in(area: Rect2) -> void:
+	_log("camera fit_in (saved %s, panel view %s)" % [_saved_view, _panel_view])
 	if data.is_empty() or area.size.x < 50.0:
 		return
 	if _panel_view.is_empty():
@@ -561,6 +576,7 @@ func fit_in(area: Rect2) -> void:
 
 ## The panel closed: back where the camera was before it opened.
 func unfit() -> void:
+	_log("camera unfit (saved %s, panel view %s)" % [_saved_view, _panel_view])
 	_fit_zoom = 0.0
 	if _panel_view.is_empty():
 		return
@@ -588,6 +604,7 @@ func forget_flight() -> void:
 
 ## Back to the view before the first flight.
 func fly_back() -> void:
+	_log("camera fly_back (saved %s, panel view %s)" % [_saved_view, _panel_view])
 	if _saved_view.is_empty():
 		return
 	var to_position: Vector2 = _saved_view.position
@@ -610,6 +627,8 @@ func fly_back() -> void:
 
 
 func _fly(center: Vector2, zoom: float, anchor := Vector2.INF) -> void:
+	_log("camera flight from (%.0f,%.0f z%.3f) to (%.0f,%.0f z%.3f) anchor %s, system %d, panned %s" % [camera.position.x, camera.position.y,
+		camera.zoom.x, center.x, center.y, zoom, anchor, system_star, panned])
 	if _flight:
 		_flight.kill()
 	_flying = true
