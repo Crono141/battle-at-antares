@@ -2964,6 +2964,7 @@ func _show_scan(index: int) -> void:
 # ---- Combat graphics: the specials (owner 2026-11-22; notes/antares/combat-effects-legacy.md) ----
 
 const TICK_S := 0.055 # Release_Time(1)
+const TELEPORT_S := 0.7 # a teleport's dissolve out and in (together)
 const SYNC_S := 0.033 # loops paced only by page flips: about two frames at 60 Hz
 const SFX := "cmbtsfx.lbx"
 
@@ -3146,10 +3147,13 @@ func _play_special(event: Dictionary) -> float:
 		"teleport": # the ship dissolves at its old place and forms at the new (10 steps each way)
 			var index := int(event.get("ship", -1))
 			var off := _center(_ship(index)) - Vector2(float(_ship(index).get("x", 0)), float(_ship(index).get("y", 0))) * SQUARE
+			# 0.7 s each way, together (owner 2026-11-23: at 10 frames of 33 ms the Loknar's ship just
+			# popped from place to place; the original's 10 steps each redrew the whole combat screen,
+			# well over 50 ms a step on its machines).
 			parts.append({"type": "ghost", "ship": index, "at": Vector2(float(event.get("x0", 0)), float(event.get("y0", 0))) * SQUARE + off,
-				"start": 0.0, "dur": 10 * SYNC_S, "out": true})
-			parts.append({"type": "fade", "ship": index, "start": 0.0, "dur": 10 * SYNC_S, "fade_in_after": true})
-			life = 20 * SYNC_S
+				"start": 0.0, "dur": TELEPORT_S, "out": true})
+			parts.append({"type": "fade", "ship": index, "start": 0.0, "dur": TELEPORT_S, "fade_in_after": true})
+			life = TELEPORT_S + 0.1
 			parts.append({"type": "sound", "id": 0x37, "start": 0.0})
 		"cloak": # Draw_Cloak: the ship darkens (on, phase out) or brightens (off, phase in)
 			var index := int(event.get("ship", -1))

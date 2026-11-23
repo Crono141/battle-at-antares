@@ -5795,6 +5795,10 @@ func _smoke_native() -> void:
 		await _smoke_pan(shots)
 		game.request_game_quit()
 		return
+	if "--fleet-camera" in OS.get_cmdline_user_args():
+		await _smoke_fleet_camera(shots)
+		game.request_game_quit()
+		return
 	if "--torpedo" in OS.get_cmdline_user_args():
 		if await _smoke_torpedo(shots):
 			print("smoke: torpedo OK")
@@ -7526,6 +7530,58 @@ func _smoke_clear_todo() -> bool:
 ## A real mouse click at a screen point (the legacy screens take the mouse, not keys, to go on).
 ## WP3.9b: `-- --smoke --native --combat --shots=DIR` with SAVE10: the turn's battle opens as the
 ## native scene; one move to a legal square, the order ring, Always show health, then Auto to the end.
+## A fleet clicked from a colony's view (owner 2026-11-23: an odd zoom out; after closing the fleet
+## and the system, two flights back): the camera after each step, sampled through the flights.
+func _smoke_fleet_camera(shots: String) -> void:
+	var player := int(galaxy.data.get("player", -1))
+	var star := -1
+	var colony := -1
+	var fleet := -1
+	for c in 64:
+		var data: Dictionary = await _query_args({"what": "colony", "colony": c})
+		if not data.get("ok", false) or data.get("outpost", false):
+			continue
+		for f: Dictionary in galaxy.fleets:
+			if int(f.get("star", -1)) == int(data.star) and int(f.owner) == player:
+				star = int(data.star)
+				colony = c
+				fleet = int(f.ship)
+				break
+		if fleet >= 0:
+			break
+	print("smoke: fleet-camera: colony %d at star %d, fleet %d; camera %s zoom %.3f" % [colony, star, fleet, galaxy.camera.position, galaxy.camera.zoom.x])
+	var sample := func(label: String, seconds: float) -> void:
+		var t := 0.0
+		var trail: Array = []
+		while t < seconds:
+			await get_tree().create_timer(0.25).timeout
+			t += 0.25
+			trail.append("(%.0f,%.0f z%.3f)" % [galaxy.camera.position.x, galaxy.camera.position.y, galaxy.camera.zoom.x])
+		print("smoke: fleet-camera: %s: %s" % [label, " ".join(trail)])
+	if "--via-colonies" in OS.get_cmdline_user_args():
+		_on_view_action("colonies")
+		await sample.call("colonies panel", 1.5)
+		var row: Dictionary = await _query_args({"what": "colony", "colony": colony})
+		_colonies_build(colony, star, int(row.get("planet", -1)), false, false)
+	else:
+		await _open_colony_at(star, colony, false)
+	await sample.call("colony open", 2.0)
+	if shots != "":
+		await host.shot(shots + "/fc-1-colony.png")
+	_open_fleet_from_pane(fleet)
+	await sample.call("fleet opened", 2.0)
+	if shots != "":
+		await host.shot(shots + "/fc-2-fleet.png")
+	_view("fleet_panel").close()
+	await sample.call("fleet closed", 2.0)
+	if shots != "":
+		await host.shot(shots + "/fc-3-back.png")
+	_view("system_pane").close()
+	await sample.call("system closed", 3.0)
+	if shots != "":
+		await host.shot(shots + "/fc-4-galaxy.png")
+
+
 ## The torpedo hint (owner 2026-11-23: no warning before a Guardian's plasma torpedo hit; the
 ## original's warning skips torpedoes): a battle with a torpedo flying at the player's ship (fixture
 ## work/fixtures/owner-2026-11-23-guardian); the player ends their turns until the state lists
@@ -8781,6 +8837,7 @@ func _smoke_effects_gallery(view: Control, mine: int, enemy: int, shots: String)
 		[{"kind": "blast", "ship": enemy, "type": 4}, 0.5],
 		[{"kind": "lightning", "ship": enemy}, 0.3],
 		[{"kind": "retreat", "ship": enemy}, 0.6],
+		[{"kind": "teleport", "ship": enemy, "x0": int(view._ship(enemy).get("x", 0)) - 3, "y0": int(view._ship(enemy).get("y", 0))}, 0.35],
 		[{"kind": "cloak", "ship": enemy, "kind_": 1}, 0.9],
 		[{"kind": "cloak", "ship": enemy, "kind_": 4}, 2.0],
 		[{"kind": "blast", "ship": enemy, "type": 3}, 0.12],
