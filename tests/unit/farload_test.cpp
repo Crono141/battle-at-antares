@@ -252,6 +252,52 @@ DOCTEST_TEST_SUITE("farload buffer vfs") {
         DOCTEST_CHECK(std::string(output) == "original");
     }
 
+    DOCTEST_TEST_CASE("tactical combat reuses resolved KENTEXT messages until the scope ends") {
+        using namespace test_farload_buffer_detail;
+        Scoped_Test_Directory test_dir;
+        test_dir.Write_Lbx_File("KENTEXT.LBX", {Records({"original"}, 32), Records({"other language"}, 32)});
+        test_dir.Write_Lbx_File("KENTEXT1.LBX", {Records({"other archive"}, 32)});
+        test_dir.Write_Lbx_File("custom.lbx", {Records({"custom original"}, 32)});
+        test_dir.Write_File("data/kentext.json5", "{1:'combat override'}");
+        DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()) == 1);
+
+        const auto check_message = [](const char* filename, int32_t entry, size_t id, const char* expected, char padding) {
+            char output[32];
+            memset(output, 'x', sizeof(output));
+            string_overrides::Load_Message(filename, entry, 0, 32, id, output, sizeof(output));
+            DOCTEST_CHECK(std::string_view(output, strlen(expected) + 1) == std::string_view(expected, strlen(expected) + 1));
+            DOCTEST_CHECK(output[sizeof(output) - 1] == padding);
+        };
+
+        {
+            string_overrides::s_combat_message_cache_scope scope;
+            check_message("KENTEXT.LBX", 0, 1, "combat override", '\0');
+            check_message("KENTEXT.LBX", 0, 2, "original", 'x');
+            check_message("KENTEXT.LBX", 1, 2, "other language", 'x');
+            check_message("KENTEXT1.LBX", 0, 1, "other archive", 'x');
+            check_message("custom.lbx", 0, 1, "custom original", 'x');
+
+            // Neither an invalid sidecar nor a missing LBX may affect a cache hit.
+            test_dir.Write_File("data/kentext.json5", "invalid JSON5");
+            check_message("KENTEXT.LBX", 0, 1, "combat override", '\0');
+            DOCTEST_REQUIRE(fs::remove(test_dir.root_path() / "KENTEXT.LBX"));
+            check_message("KENTEXT.LBX", 0, 1, "combat override", '\0');
+            check_message("KENTEXT.LBX", 0, 2, "original", 'x');
+
+            test_dir.Write_File("data/custom.json5", "{1:'live edit'}");
+            check_message("custom.lbx", 0, 1, "live edit", '\0');
+        }
+
+        test_dir.Write_Lbx_File("KENTEXT.LBX", {Records({"new original"}, 32)});
+        test_dir.Write_File("data/kentext.json5", "{1:'next combat'}");
+        check_message("KENTEXT.LBX", 0, 1, "next combat", '\0');
+        {
+            string_overrides::s_combat_message_cache_scope scope;
+            check_message("KENTEXT.LBX", 0, 1, "next combat", '\0');
+            check_message("KENTEXT.LBX", 0, 2, "new original", 'x');
+        }
+    }
+
     DOCTEST_TEST_CASE("JSON5 escapes preserve every nonzero byte in messages and packed tables") {
         using namespace test_farload_buffer_detail;
         Scoped_Test_Directory test_dir;
@@ -597,30 +643,6 @@ DOCTEST_TEST_SUITE("farload buffer vfs") {
         DOCTEST_CHECK(message() == "base two");
         test_dir.Write_File(lower_path, "{2:'again'}");
         DOCTEST_CHECK(message() == "again");
-    }
-
-    // A tactical combat reads each text once (owner, 2026-11-20: combat stuttered on hundreds of
-    // KENTEXT reads a frame); outside one an edit shows at once, as above.
-    DOCTEST_TEST_CASE("a message cache scope reads each message once and forgets them after") {
-        using namespace test_farload_buffer_detail;
-        Scoped_Test_Directory test_dir;
-        test_dir.Write_Lbx_File("custom.lbx", {Records({"base one", "base two"}, 32)});
-        const fs::path sidecar = "data/mods/lower/data/custom.json5";
-        test_dir.Write_File(sidecar, "{2:'first'}");
-        DOCTEST_REQUIRE(vfs::Init(test_dir.root_path().string().c_str()));
-        Mount_Packages({"lower"});
-        const auto message = [&]() {
-            char output[32] = {};
-            string_overrides::Load_Message("custom.lbx", 0, 1, 32, 2, output, sizeof(output));
-            return std::string(output);
-        };
-        {
-            const string_overrides::s_message_cache_scope combat;
-            DOCTEST_CHECK(message() == "first");
-            test_dir.Write_File(sidecar, "{2:'second'}");
-            DOCTEST_CHECK(message() == "first"); // read once
-        }
-        DOCTEST_CHECK(message() == "second"); // forgotten after
     }
 
     DOCTEST_TEST_CASE("higher package LBX files override lower JSON5 sidecars across mount changes") {

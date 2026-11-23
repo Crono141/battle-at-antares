@@ -53,10 +53,8 @@ namespace COMBAT1 {
                 int current_hits = MOX::combat_data[ship_idx].drive_current_hits;
                 int max_hits = MOX::combat_data[ship_idx].drive_max_hits;
 
-                // A ship without a drive to hit (max_hits 0) has no speed: SELF DESTRUCT marks the
-                // ship as having a drive while it blows up (combat1.cpp sets ftl_type 1), and a
-                // battlestation's 0 hits then divided by zero (owner, 2026-11-20: the game froze and
-                // crashed with signal 8).
+                // SELF DESTRUCT marks the ship as having a drive while it blows up (combat1.cpp sets
+                // ftl_type to 1); a battlestation has no drive hits, so there is no speed to scale.
                 if (max_hits <= 0) {
                     speed = 0;
                 } else if (owner <= 9) {
