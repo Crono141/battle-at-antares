@@ -47,4 +47,8 @@ set_target_properties(antares_godot PROPERTIES
 )
 if(WIN32)
     set_target_properties(antares_godot PROPERTIES PREFIX "")
+    # main.cpp installs Redone's crash-dump handler (dumps in crashes/ beside the executable).
+    target_sources(antares_godot PRIVATE "${CMAKE_SOURCE_DIR}/src/windows_crash_dump.cpp")
+    set_source_files_properties("${CMAKE_SOURCE_DIR}/src/windows_crash_dump.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+    target_link_libraries(antares_godot PRIVATE dbghelp)
 endif()
