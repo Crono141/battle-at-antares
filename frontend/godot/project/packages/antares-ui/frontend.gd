@@ -271,6 +271,8 @@ func _process(delta: float) -> void:
 	_check_orphan_system(delta)
 	if todo_auto:
 		_auto_todo_step()
+	elif _gain_discovery_step():
+		pass
 	elif _todo_pending and _todo_may_open():
 		_open_todo()
 	if _sounds_held and (legacy.visible or overlay.visible or native_screen != Screens.LEGACY):
@@ -1126,6 +1128,25 @@ func _auto_todo_step() -> void:
 	if not _todo_auto_listed:
 		_todo_auto_listed = true
 		_open_todo()
+
+
+## A discovery that gave the player something (a splinter colony joining, a pirate cache or space
+## debris, a marooned leader joining; the item's `gain`) opens its window as soon as the galaxy is
+## free, as the original's discovery popup came up (owner 2026-11-23: a splinter colony joined
+## unnoticed in the list). Once per item a turn; with AUTO ADDRESS TO-DOS every item opens anyway.
+func _gain_discovery_step() -> bool:
+	if not _todo_may_open():
+		return false
+	for item: Dictionary in _todo.get("items", []):
+		if String(item.get("kind", "")) != "new_system" or not item.get("gain", false) or item.get("done", false):
+			continue
+		var key := "%s:%s:%s:%s" % [item.get("kind", ""), item.get("item", -1), item.get("colony", -1), item.get("star", -1)]
+		if _todo_auto_opened.has(key):
+			continue
+		_todo_auto_opened[key] = true
+		_on_todo_item(item)
+		return true
+	return false
 
 
 func _todo_may_open() -> bool:
@@ -4523,11 +4544,40 @@ func _smoke_native() -> void:
 				return
 			_open_system(home)
 			await get_tree().create_timer(2.0).timeout
+			# A discovery that gave something opens its window by itself, once (owner 2026-11-23:
+			# a splinter colony joined unnoticed); here a made-up item, so only the opening counts.
+			var keep_todo := _todo
+			var fake := {"kind": "new_system", "item": 999, "star": home, "gain": true, "text": "smoke"}
+			_todo = keep_todo.duplicate()
+			_todo["items"] = [fake]
+			_todo["unread"] = 1 # as a real discovery is
+			print("smoke: system-endturn: may open: screen %s, overlay %s, legacy %s, galaxy %s" % [native_screen, overlay.visible, legacy.visible, galaxy.visible])
+			var opened_before := _todo_auto_opened.size()
+			var first := _gain_discovery_step()
+			var again := _gain_discovery_step()
+			_todo = keep_todo
+			print("smoke: system-endturn: gain discovery opened %s, again %s (may open %s)" % [first, again, _todo_may_open()])
+			_todo_auto_opened.erase("new_system:999:-1:%d" % home)
+			await get_tree().create_timer(0.5).timeout
+			_smoke_answer()
+			if not first or _todo_auto_opened.size() != opened_before or again:
+				print("smoke: FAILED: gain discovery")
+				return
 			_on_view_action("turn")
 			await get_tree().create_timer(1.0).timeout
 			var todo_list := _view("todo_panel")
 			print("smoke: system-endturn: system pane %s on %d, to-do list %s, END TURN %s" % [_view("system_pane").visible, galaxy.system_star,
 				todo_list.visible, (not todo_list._end_turn.disabled) if todo_list._end_turn else "none"])
+			# END TURN under the title (owner 2026-11-23), whatever the list's length.
+			if todo_list._end_turn != null:
+				var at: int = todo_list._end_turn.get_index()
+				var title_at: int = todo_list.get_node("Fit/Box/Title").get_index()
+				print("smoke: system-endturn: END TURN at %d, title at %d" % [at, title_at])
+				if at != title_at + 1:
+					print("smoke: FAILED: END TURN not under the title")
+					return
+			if shots != "" and todo_list.visible:
+				await host.shot(shots + "/todo-end-turn.png")
 			if todo_list.visible and todo_list._end_turn != null:
 				todo_list._end_turn.pressed.emit()
 			else:

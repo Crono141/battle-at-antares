@@ -3,7 +3,7 @@ extends "drop_panel.gd"
 ## bar's TO DO (n). What asks for a choice first (colonies with nothing to build, colony and
 ## outpost ships that arrived, a leader's offer): these hold the turn. Then the news, which
 ## doesn't (systems explored, leaders gaining a level, the turn summary's messages, serious ones
-## marked): read ones drop off. END TURN at the bottom ends the turn once nothing holds it. The
+## marked): read ones drop off. END TURN under the title ends the turn once nothing holds it. The
 ## frontend opens the list by itself at a turn's start when it has anything, and hides it once
 ## it is empty.
 
@@ -61,7 +61,7 @@ func show_todo(result: Dictionary) -> void:
 var _end_turn: Button
 
 
-## END TURN under the list: disabled while choices hold the turn (owner, 2026-11-21).
+## END TURN under the title, over the list: disabled while choices hold the turn (owner, 2026-11-21).
 func _show_end_turn(open: int) -> void:
 	if _end_turn == null:
 		_end_turn = Button.new()
@@ -70,6 +70,8 @@ func _show_end_turn(open: int) -> void:
 		_end_turn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		_end_turn.pressed.connect(func(): end_turn_requested.emit())
 		$Fit/Box.add_child(_end_turn)
+		# Under the title, over the items: in the same place however long the list (owner 2026-11-23).
+		$Fit/Box.move_child(_end_turn, $Fit/Box/Title.get_index() + 1)
 	_end_turn.text = "END TURN"
 	_end_turn.disabled = open > 0
 	_end_turn.tooltip_text = "%d %s still to answer" % [open, "item" if open == 1 else "items"] if open > 0 else "End the turn"

@@ -226,6 +226,11 @@ namespace antares::todo {
                         if (leader) {
                             commands::internal::Leader_Card(it.leader, MOX::PLAYER_NUM, item.Add_Object("leader"));
                         }
+                        // A discovery that gave the player something (owner 2026-11-23: a splinter
+                        // colony joined unnoticed): the frontend opens its window at once, as the
+                        // original's discovery popup came up.
+                        item.Bool("gain", it.special == SYSTEM_SPECIAL_SPLINTER_COLONY || it.special == SYSTEM_SPECIAL_PIRATE_CACHE ||
+                            it.special == SYSTEM_SPECIAL_SPACE_DEBRIS || (leader && it.joined));
                         break;
                     }
                     case e_kind::leader_level:
