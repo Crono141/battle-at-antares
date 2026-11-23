@@ -1137,7 +1137,7 @@ var todo_auto: bool = Themes.saved_value("todo", "auto", false)
 # WP3.9: battles in the native scene (a preview, off by default; owner, 2026-11-21). The smoke's
 # battle steps turn it on for their run.
 var native_battles: bool = bool(Themes.saved_value("combat", "native", false)) or "--combat" in OS.get_cmdline_user_args() \
-	or "--torpedo" in OS.get_cmdline_user_args() \
+	or "--torpedo" in OS.get_cmdline_user_args() or "--combat-speed" in OS.get_cmdline_user_args() \
 	or "--selfdestruct" in OS.get_cmdline_user_args()
 var _todo_auto_opened := {} # this turn's items opened, by key
 var _todo_auto_last := {} # the item opened last, and when: {item, at, open}
@@ -5795,6 +5795,10 @@ func _smoke_native() -> void:
 		await _smoke_pan(shots)
 		game.request_game_quit()
 		return
+	if "--combat-speed" in OS.get_cmdline_user_args():
+		await _smoke_combat_speed(shots)
+		game.request_game_quit()
+		return
 	if "--ground-combat" in OS.get_cmdline_user_args():
 		var ok := await _smoke_ground_combat(shots)
 		print("smoke: ground combat %s" % ("OK" if ok else "FAILED"))
@@ -7538,6 +7542,62 @@ func _smoke_clear_todo() -> bool:
 ## A real mouse click at a screen point (the legacy screens take the mouse, not keys, to go on).
 ## WP3.9b: `-- --smoke --native --combat --shots=DIR` with SAVE10: the turn's battle opens as the
 ## native scene; one move to a legal square, the order ring, Always show health, then Auto to the end.
+## Speeds changed on the enemy's turn (owner 2026-11-23: they took effect only next round): the
+## player ends their turn, and after the enemy's first animation Fast moves and Double speed are
+## set; each animation's kind and length logged.
+func _smoke_combat_speed(_shots: String) -> void:
+	_send({"verb": "end_turn"})
+	var view: Control = null
+	var waited := 0.0
+	while waited < 60.0:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+		view = _combat
+		if view != null and view.visible and view._my_turn():
+			break
+		var dialog: Control = _views.get("dialog")
+		if overlay.visible and dialog != null and String(dialog.popup_name) == "attack_target":
+			for i in dialog.options.size():
+				var item: Dictionary = dialog.options[i]
+				if int(item.get("planet", -1)) >= 0 and bool(item.get("enabled", true)):
+					dialog._answer(dialog.OPTION_ANSWER + i)
+					break
+			continue
+		_smoke_answer()
+	if view == null:
+		print("smoke: combat-speed: no battle")
+		return
+	view._move_speed = 1
+	view._set_speed_x2(false)
+	await get_tree().create_timer(1.0).timeout
+	view._act({"action": "end_turn"})
+	var last_id := -1
+	var counts: Dictionary = view.animated.duplicate()
+	var changed := false
+	var seen := 0
+	waited = 0.0
+	while waited < 60.0 and seen < 40:
+		await get_tree().process_frame
+		waited += get_process_delta_time()
+		if view._my_turn() and seen > 0:
+			break
+		if view._animating.is_empty() or int(view._animating.id) == last_id:
+			continue
+		last_id = int(view._animating.id)
+		var kind := "?"
+		for k in view.animated.keys():
+			if int(view.animated[k]) != int(counts.get(k, 0)):
+				kind = String(k)
+		counts = view.animated.duplicate()
+		seen += 1
+		print("smoke: combat-speed: %s dur %.2f (moves %s, x2 %s, round %s)" % [kind, float(view._animating.dur), view.MOVE_SPEEDS[view._move_speed][0], view._speedx2(), view.state.get("round", -1)])
+		if not changed and seen >= 2:
+			changed = true
+			view._move_speed = 2
+			view._set_speed_x2(true)
+			print("smoke: combat-speed: now Fast and Double")
+
+
 ## The invasion's battle screen in the films' window over the galaxy (owner 2026-11-23: it was
 ## full screen): a preview on an enemy colony, a click to speed it, a click to end it.
 func _smoke_ground_combat(shots: String) -> bool:
