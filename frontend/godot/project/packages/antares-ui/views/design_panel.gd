@@ -41,6 +41,8 @@ var _space_bar: Control
 var _space_label: Label
 var _cost_label: Label
 var _body: VBoxContainer
+var _add_weapon: Button # + ADD WEAPON and + ADD SPECIAL, under the space frame
+var _add_special: Button
 var _build: Button
 var _message: Label
 var _closing_quietly := false
@@ -158,6 +160,19 @@ func _ready() -> void:
 	_cost_label.tooltip_text = "The design's cost"
 	_cost_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	numbers_row.add_child(_cost_label)
+	# + ADD WEAPON and + ADD SPECIAL under the space, always in view (owner 2026-11-23: at the
+	# fitted list's end they could scroll out of sight).
+	var adds := HBoxContainer.new()
+	adds.add_theme_constant_override("separation", 8)
+	box.add_child(adds)
+	_add_weapon = _button("+ ADD WEAPON", "The parts list, its weapons")
+	_add_weapon.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_weapon.pressed.connect(func(): _open_parts("weapons"))
+	adds.add_child(_add_weapon)
+	_add_special = _button("+ ADD SPECIAL", "The parts list, its specials")
+	_add_special.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_special.pressed.connect(func(): _open_parts("systems"))
+	adds.add_child(_add_special)
 	# Weapons and specials (scrolls).
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -460,23 +475,13 @@ func _show_body() -> void:
 		_body.add_child(_special_row(sp))
 	if (design.weapons as Array).is_empty() and (design.specials as Array).is_empty():
 		_body.add_child(_dim("Nothing fitted yet: + ADD WEAPON or + ADD SPECIAL opens the parts list."))
-	var adds := HBoxContainer.new()
-	adds.add_theme_constant_override("separation", 8)
-	_body.add_child(adds)
-	var add_weapon := _button("+ ADD WEAPON", "The parts list, its weapons")
-	add_weapon.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_weapon.disabled = not design.get("weapon_slot_free", true)
-	add_weapon.pressed.connect(func(): _open_parts("weapons"))
-	adds.add_child(add_weapon)
+	_add_weapon.disabled = not design.get("weapon_slot_free", true)
 	var fit := 0
 	for sp: Dictionary in _specials:
 		if not sp.get("fitted", false) and not sp.has("excluded_by") and sp.get("fits", false):
 			fit += 1
-	var add_special := _button("+ ADD SPECIAL", "The parts list, its specials (%d fit now)" % fit)
-	add_special.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_special.disabled = not design.get("special_slot_free", true)
-	add_special.pressed.connect(func(): _open_parts("systems"))
-	adds.add_child(add_special)
+	_add_special.tooltip_text = "The parts list, its specials (%d fit now)" % fit
+	_add_special.disabled = not design.get("special_slot_free", true)
 
 
 func _mark(kind: String) -> Label:
