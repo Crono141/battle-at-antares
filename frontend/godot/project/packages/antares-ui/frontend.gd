@@ -2338,6 +2338,32 @@ func _smoke_fleets_panel(shots: String) -> bool:
 		await host.shot(shots + "/native-fleets-detail.png")
 	if detail_lines == 0:
 		return false
+	# The ship's card in the battle scan's look (owner 2026-11-23): drive, armour and computer named.
+	var texts: Array = panel._detail.find_children("*", "Label", true, false).map(func(l: Label) -> String: return l.text)
+	var named := ["DRIVE", "ARMOUR", "COMPUTER", "SHIELD"].all(func(t: String) -> bool: return t in texts)
+	print("smoke: fleets detail card: systems named %s" % named)
+	if not named:
+		return false
+	# A right click on a warship's tile: its card beside it.
+	var warship := -1
+	for s: Dictionary in panel.fleet.ships:
+		if s.get("combat", false) and panel._tiles.has(int(s.id)):
+			warship = int(s.id)
+			break
+	if warship >= 0:
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_RIGHT
+		click.pressed = true
+		(panel._tiles[warship] as Control).gui_input.emit(click)
+		await get_tree().create_timer(0.6).timeout
+		var popup: Control = preload("views/info_popup.gd")._current
+		var shown := popup != null and is_instance_valid(popup) and popup.is_visible_in_tree() and not popup.find_children("*", "VBoxContainer", true, false).filter(func(n: Node) -> bool: return n.get_script() == preload("views/ship_card.gd")).is_empty()
+		print("smoke: fleets right click on ship %d: card popup %s" % [warship, shown])
+		if shots != "":
+			await host.shot(shots + "/native-fleets-card.png")
+		preload("views/info_popup.gd").close_current()
+		if not shown:
+			return false
 	# ALL, a move to a nearby star and back (the fleet's own star).
 	panel._on_all()
 	var picked: Array = panel.selected_ships()

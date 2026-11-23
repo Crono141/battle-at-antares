@@ -11,6 +11,8 @@ extends PanelContainer
 ## method here that gets its result.
 
 signal command(dict: Dictionary)
+## A part's help record asked for (a right click on a ship card's rows).
+signal help_requested(topic: int, at: Control)
 signal closed
 signal selection_changed
 ## Colonize / Outpost: the fleet's system opens, its planets with the buttons (owner, 2026-11-19).
@@ -87,6 +89,13 @@ func show_fleet(result: Dictionary, auto_select := false) -> void:
 		button.toggled.connect(func(_on): _on_selection())
 		button.mouse_entered.connect(func(): _show_status(ship.name, false))
 		button.mouse_exited.connect(func(): _show_fleet_status())
+		if true: # ship_detail answers for the player's ships only; another's right click shows nothing
+			var ship_id := int(ship.id)
+			button.gui_input.connect(func(event: InputEvent):
+				var b := event as InputEventMouseButton
+				if b != null and b.pressed and b.button_index == MOUSE_BUTTON_RIGHT:
+					_open_card(ship_id, button)
+					button.accept_event())
 		grid.add_child(button)
 		_buttons[int(ship.id)] = button
 	# Room for three rows of ships, then a scroll bar (the legacy box shows nine).
@@ -273,6 +282,31 @@ func _refresh_icons() -> void:
 				button.add_child(picture)
 			if picture.lbx != lbx or picture.entry != int(ship.picture):
 				picture.show_sprite(lbx, int(ship.picture))
+
+
+var _card_at: Control
+
+
+## A right click on one of the player's ships: its card beside it, in the battle scan's look
+## (owner 2026-11-23).
+func _open_card(ship: int, at: Control) -> void:
+	_card_at = at
+	command.emit({"verb": "query", "what": "ship_detail", "ship": ship, "_reply_to": "_on_card"})
+
+
+func _on_card(result: Dictionary) -> void:
+	if not result.get("ok", false) or not is_instance_valid(_card_at) or not _card_at.is_visible_in_tree():
+		return
+	if not result.has("card"):
+		preload("info_popup.gd").open(self, _card_at, String(result.get("name", "")), String(result.get("help", "")))
+		return
+	var card := preload("ship_card.gd").new()
+	card.scale_factor = 0.9
+	card.art = art
+	card.custom_minimum_size.x = 460
+	card.help_requested.connect(func(topic: int, at: Control): help_requested.emit(topic, at))
+	card.show_card(result.card, String(result.name))
+	preload("info_popup.gd").open_content(self, _card_at.get_global_rect(), "", card)
 
 
 func _owner_color() -> Color:

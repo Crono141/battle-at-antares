@@ -22,6 +22,79 @@ namespace antares::commands::internal {
         int16_t s_relocate_from = -1;
         int16_t s_relocate_to = -1;
 
+        // A ship's card, the battle scan's facts outside a battle (owner 2026-11-23: the fleets
+        // panel's ship info and a right click on a ship, in the scan's look): its parts with their
+        // help records, what its damage leaves (armour, structure, systems), combat values, crew,
+        // officer, weapons with their arcs, specials, and its picture.
+        void Ship_Card(int16_t s, int16_t attack, int16_t defense, int16_t missile_defense, s_out card) {
+            s_ship_data& ship = MOX::ship[s];
+            s_ship_design& d = ship.d;
+            card.Str("hull", Utf8(TECHDATA::hull_data[SDL_clamp((int)d.size, 0, 5)].name, 40));
+            card.Str("drive", Utf8(TECHDATA::drives[d.ftl_type].name, 40));
+            card.Int("speed", d.combat_speed);
+            card.Str("crew", Utf8(FLT2::Crew_Description_String(s), 60));
+            card.Str("shield", d.shield_type == SHIELD_NO_SHIELD ? Utf8(HAROLD::H_Message(HESTR_036_NO_SHIELD), 40) : Utf8(TECHDATA::shields[d.shield_type].name, 40));
+            card.Int("shield_class", d.shield_type == SHIELD_NO_SHIELD ? 0 : TECHDATA::shields[d.shield_type].shield_class);
+            card.Str("computer", Utf8(TECHDATA::computers[d.computer_type].name, 40));
+            card.Str("armor_name", Utf8(TECHDATA::armor[d.armor_type].name, 40));
+            s_out help = card.Add_Object("help");
+            help.Int("shield", d.shield_type == SHIELD_NO_SHIELD ? -1 : TECHDATA::shields[d.shield_type].tech_app_id);
+            help.Int("computer", TECHDATA::computers[d.computer_type].tech_app_id);
+            help.Int("armor", TECHDATA::armor[d.armor_type].tech_app_id);
+            help.Int("drive", TECHDATA::drives[d.ftl_type].tech_app_id);
+            card.Int("attack", attack);
+            card.Int("defense", defense);
+            card.Int("evade", missile_defense);
+            card.Str("attack_label", Utf8(HAROLD::H_Message(0x99), 40));
+            card.Str("defense_label", Utf8(HAROLD::H_Message(0x9A), 40));
+            if (ship.officer_index >= 0 && ship.officer_index < MAX_LEADERS) {
+                card.Str("officer", Utf8(OFFICER::Leader_Name(ship.officer_index, 1), 80));
+            }
+            const int16_t armor_max = INITSHIP::Get_Ship_Armor_Hits(s);
+            const int16_t structure_max = INITSHIP::Get_Ship_Structure(s);
+            s_out armor = card.Add_Object("armor");
+            armor.Int("now", std::max(0, armor_max - ship.armor_damage));
+            armor.Int("max", armor_max);
+            s_out structure = card.Add_Object("structure");
+            structure.Int("now", std::max(0, structure_max - ship.structural_damage));
+            structure.Int("max", structure_max);
+            // The systems' share still working: shield and drive by their damage, the computer whole or not.
+            const int systems_hurt = (int)ship.shield_damage_percent + (int)ship.drive_damage_percent + (ship.computer_damage > 0 ? 100 : 0);
+            s_out systems = card.Add_Object("systems");
+            systems.Int("now", std::max(0, 300 - systems_hurt));
+            systems.Int("max", 300);
+            s_out damaged = card.Add_Object("damaged");
+            damaged.Int("shield", ship.shield_damage_percent);
+            damaged.Int("drive", ship.drive_damage_percent);
+            damaged.Bool("computer", ship.computer_damage > 0);
+            const int16_t color = MOX::player[ship.owner].color;
+            card.Str("lbx", "SHIPS.LBX");
+            card.Int("picture", d.picture_num + color * 50); // as the fleet query's
+            s_out weapons = card.Add_List("weapons");
+            for (s_ship_weapons& weapon : d.ship_weapon) {
+                if (weapon.type == 0) {
+                    continue;
+                }
+                char text[200];
+                COLBLDG::Build_Weapon_String(&weapon, text, sizeof(text), 0, (uint8_t)weapon.count);
+                s_out item = weapons.Append_Object();
+                item.Str("name", Utf8(text, sizeof(text)));
+                item.Int("count", weapon.count);
+                item.Int("arc", weapon.firing_arc);
+                item.Int("ammo", weapon.ammo);
+                item.Int("help", TECHDATA::weapons[weapon.type].tech_app_id);
+            }
+            s_out specials = card.Add_List("specials");
+            for (int k = 0; k < 39; ++k) {
+                if (struct_::Test_Bit_Field(d.special_device_flags, k)) {
+                    s_out special = specials.Append_Object();
+                    special.Str("name", Utf8(TECHDATA::specials[k].name, 60));
+                    special.Bool("damaged", struct_::Test_Bit_Field(ship.special_device_damage_flags, k) != 0);
+                    special.Int("help", TECHDATA::specials[k].tech_app_id);
+                }
+            }
+        }
+
         void Query_Ship_Detail(int16_t, const s_args& args, s_out& out) {
             if (!Have_Game(out)) {
                 return;
@@ -64,6 +137,7 @@ namespace antares::commands::internal {
                 officer.Int("entry", k_officer_portraits + MOX::leaders[ship.officer_index].pict_num);
             }
             Design_Parts(ship.d, out.Add_Object("design"));
+            Ship_Card(s, attack, defense, missile_defense, out.Add_Object("card"));
         }
 
         // The select-combat window's sides (owner, 2026-11-20): the player's ships in orbit there

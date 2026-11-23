@@ -14,6 +14,8 @@ extends "side_panel.gd"
 ## original Leaders screen until the Leaders panel exists.
 
 signal command(dict: Dictionary)
+## A part's help record asked for (a right click on the ship card's rows).
+signal help_requested(topic: int, at: Control)
 ## The fleet shown (its first ship), for the galaxy's mark; -1: none.
 signal fleet_marked(ship: int)
 ## The panel's width changed: the galaxy fits the space left of it again.
@@ -278,6 +280,11 @@ func _fill_grid(keep: Array) -> void:
 			_watch_art()
 		var id := int(ship.id)
 		tile.mouse_entered.connect(func(): _show_detail(id))
+		tile.gui_input.connect(func(event: InputEvent):
+			var b := event as InputEventMouseButton
+			if b != null and b.pressed and b.button_index == MOUSE_BUTTON_RIGHT:
+				_open_card(id, tile)
+				tile.accept_event())
 		tile.toggled.connect(func(_on: bool): _on_pick())
 		_grid.add_child(tile)
 		_tiles[id] = tile
@@ -390,6 +397,10 @@ func _on_detail(result: Dictionary) -> void:
 	if not result.get("ok", false) or int(result.ship) != _detail_ship:
 		return
 	_clear(_detail)
+	if result.has("card"):
+		# The battle scan's look, a little smaller (owner 2026-11-23).
+		_detail.add_child(_ship_card(result, 0.78))
+		return
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 14)
 	_detail.add_child(top)
@@ -432,6 +443,35 @@ func _on_detail(result: Dictionary) -> void:
 			line.mouse_filter = Control.MOUSE_FILTER_PASS
 		if items.is_empty():
 			_line(column, "None", &"Dim")
+
+
+func _ship_card(result: Dictionary, scale: float) -> Control:
+	var card := preload("ship_card.gd").new()
+	card.scale_factor = scale
+	card.art = art
+	card.help_requested.connect(func(topic: int, at: Control): help_requested.emit(topic, at))
+	card.show_card(result.card, String(result.name))
+	return card
+
+
+var _card_at: Control
+
+
+## A right click on a ship: its card beside it (owner 2026-11-23).
+func _open_card(ship: int, at: Control) -> void:
+	_card_at = at
+	command.emit({"verb": "query", "what": "ship_detail", "ship": ship, "_reply_to": "_on_card"})
+
+
+func _on_card(result: Dictionary) -> void:
+	if not result.get("ok", false) or not is_instance_valid(_card_at) or not _card_at.is_visible_in_tree():
+		return
+	if not result.has("card"):
+		preload("info_popup.gd").open(self, _card_at, String(result.get("name", "")), String(result.get("help", "")))
+		return
+	var card := _ship_card(result, 0.9)
+	card.custom_minimum_size.x = 460
+	preload("info_popup.gd").open_content(self, _card_at.get_global_rect(), "", card)
 
 
 ## A label shown whole (a row's fixed parts: a trimmed label has no width of its own in a row).
