@@ -881,6 +881,13 @@ namespace antares::combat {
                 out.Int("size", d.size_class);
                 out.Int("facing", d.facing_dir);
                 out.Int("owner", d.owner);
+                // The shield hit's size (BEAMS::Draw_Shield_Hit): a planet's by its size (owner
+                // 2026-11-23: a large planet's shield flash was a small ship's), a ship's by its hull.
+                if (ship == 0 && MOX::cmbt_colony_id != -1) {
+                    out.Int("shield_size", BEAMS::Planet_Size_To_Shield_Size(MOX::planet[MOX::colony[MOX::cmbt_colony_id].planet].size));
+                } else {
+                    out.Int("shield_size", BEAMS::Ship_Size_To_Shield_Size(d.size_class));
+                }
             }
         }
     } // namespace

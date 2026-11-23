@@ -3754,7 +3754,7 @@ func _play_volley(event: Dictionary) -> float:
 		fragments.append(BeamVolley.to_colors(f))
 	var target_center: Array = event.target.get("center", [0, 0])
 	var effect := {"kind": "volley", "t": 0.0, "life": float(ticks.size()) * BeamVolley.TICK, "ticks": ticks, "fragments": fragments,
-		"tick": -1, "strands": [], "at": Vector2(float(target_center[0]), float(target_center[1])), "target_size": int(event.target.get("size", 0))}
+		"tick": -1, "strands": [], "at": Vector2(float(target_center[0]), float(target_center[1])), "target_size": int(event.target.get("size", 0)), "target_shield": int(event.target.get("shield_size", -1))}
 	_native_volleys = true # the original's shield hits now: no 3.9c arc flashes
 	effect["speedx2"] = bool(event.get("speedx2", false))
 	var afters: Array = []
@@ -3785,7 +3785,7 @@ func _request_volley_art(effect: Dictionary) -> void:
 				"ball":
 					wanted[[_slot_sprite(_first_ramp(effect, 0), 0), 88]] = true
 				"shield":
-					wanted[[SHIELD_ART, _shield_entry(op, int(op.get("size", effect.get("target_size", 0))))]] = true
+					wanted[[SHIELD_ART, _shield_entry(op, int(op.get("size", effect.get("target_size", 0))), -1 if op.has("size") else int(effect.get("target_shield", -1)))]] = true
 	_art_wait = []
 	for key: Array in wanted.keys():
 		if art.sprite(String(key[0]), int(key[1])).is_empty():
@@ -3924,8 +3924,8 @@ func _first_ramp(effect: Dictionary, slot: int) -> Array:
 
 
 ## BEAMS::Shield_Anims: the shield hit's entry for its size, direction, special and heavy.
-func _shield_entry(op: Dictionary, target_size: int) -> int:
-	var size_idx := BeamVolley.shield_size(target_size)
+func _shield_entry(op: Dictionary, target_size: int, shield_idx := -1) -> int:
+	var size_idx := shield_idx if shield_idx >= 0 else BeamVolley.shield_size(target_size)
 	var base_rot: int = SHIELD_BASE_ROT[int(op.rotation) & 15]
 	if size_idx >= 4:
 		return 113 + size_idx * 5 + base_rot
@@ -3941,12 +3941,14 @@ func _shield_entry(op: Dictionary, target_size: int) -> int:
 ## blended over the ship). Not yet: the ship brightened under it (Mask_Brighten_Bitmap).
 func _draw_shield_hit(op: Dictionary, effect: Dictionary) -> void:
 	var target_size := int(op.get("size", effect.get("target_size", 0))) # a reflected beam's: the attacker's
-	var entry := _shield_entry(op, target_size)
+	# The target's own shield size (a planet's by its size) unless the hit is on the attacker.
+	var shield_idx := -1 if op.has("size") else int(effect.get("target_shield", -1))
+	var entry := _shield_entry(op, target_size, shield_idx)
 	var s: Dictionary = art.sprite(SHIELD_ART, entry)
 	_note_art(SHIELD_ART, entry, s)
 	if s.is_empty():
 		return
-	var diam: float = BeamVolley.SHIELD_DIAMETERS[BeamVolley.shield_size(target_size)]
+	var diam: float = BeamVolley.SHIELD_DIAMETERS[shield_idx if shield_idx >= 0 else BeamVolley.shield_size(target_size)]
 	var method: int = SHIELD_ROT_METHOD[int(op.rotation) & 15]
 	var flip := Vector2(-1.0 if method == 1 or method == 2 else 1.0, -1.0 if method == 2 or method == 3 else 1.0)
 	var frame := int(op.frame) % maxi(s.frames.size(), 1)
