@@ -1222,12 +1222,16 @@ func _check_orphan_system(delta: float) -> void:
 	var pane: Control = _views.get("system_pane")
 	var orphan: bool = native_screen == Screens.MAIN and galaxy.visible and pane != null and not pane.visible and \
 		(galaxy.system_star >= 0 or galaxy.others_alpha < 0.99) and not overlay.visible and _popup_zoom < 0 and \
-		_popup_map_ending < 0 and not (_scene_window != null and _scene_window.is_open()) and not legacy.visible
+		_popup_map_ending < 0 and not (_scene_window != null and _scene_window.is_open()) and not legacy.visible and \
+		_fleet_from_system < 0 # a fleet from the system: the map stays there on purpose (owner 2026-11-23)
 	if not orphan:
 		_orphan_system_time = 0.0
 		return
 	_orphan_system_time += delta
-	if _orphan_system_time < 1.0:
+	# Longer than the system's own fade back (the other stars return over the flight time: owner
+	# 2026-11-23, with a slow flight time the fade was still running at 1 s and this flew the camera
+	# back out to the galaxy right after a fleet opened from the system).
+	if _orphan_system_time < maxf(1.0, galaxy.flight_time + 0.5):
 		return
 	_orphan_system_time = 0.0
 	print("frontend: a system (%d) was left on the map with no pane: back to the galaxy" % galaxy.system_star)
@@ -7655,6 +7659,9 @@ func _smoke_ground_combat(shots: String) -> bool:
 ## The owner's slot 1 (fixture owner-2026-11-23-meklon-camera): Meklon clicked, then the fleet
 ## beside its star: a partial zoom out, then a full one. The camera sampled every 0.1 s.
 func _smoke_meklon_camera(shots: String) -> void:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--flight-time="):
+			galaxy.flight_time = float(arg.substr(14)) # the owner's slower flights (Options)
 	var star := -1
 	for st: Dictionary in galaxy.stars:
 		if String(st.get("label", "")).to_lower().trim_prefix("(").begins_with("meklon"):
@@ -7707,8 +7714,11 @@ func _smoke_meklon_camera(shots: String) -> void:
 	var release := press.duplicate()
 	release.pressed = false
 	galaxy._unhandled_input(release)
-	await sample.call("fleet %d clicked" % ship, 3.0)
-	print("smoke: meklon: system %d open %s, fleet panel %s" % [galaxy.system_star, _view("system_pane").visible, _view("fleet_panel").visible])
+	var zoom_after_step := 0.0
+	await sample.call("fleet %d clicked" % ship, maxf(3.0, galaxy.flight_time * 2.0 + 1.5))
+	print("smoke: meklon: system %d open %s, fleet panel %s, zoom %.3f" % [galaxy.system_star, _view("system_pane").visible, _view("fleet_panel").visible, galaxy.camera.zoom.x])
+	if _view("fleet_panel").visible and galaxy.camera.zoom.x < 1.0:
+		print("smoke: FAILED: the camera left the fleet's system (a second, full zoom out)")
 	print("smoke: meklon: after, saved %s, panel view %s, fit %.3f" % [galaxy._saved_view, galaxy._panel_view, galaxy._fit_zoom])
 	if shots != "":
 		await host.shot(shots + "/meklon-2-fleet.png")
