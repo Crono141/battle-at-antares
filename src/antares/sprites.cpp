@@ -512,7 +512,11 @@ namespace antares::sprites {
         for (char& ch : upper) {
             ch = (char)toupper((unsigned char)ch);
         }
-        const bool shade_masks = upper == "SHIPS.LBX" || upper == "CMBTSFX.LBX" || upper == "SPHERSFX.LBX" || !overrides.empty();
+        // Combat ships too (owner 2026-11-23: the player's blue ships came out red in a native
+        // battle, the pack's art colour): each colour set's pixels are their own palette indices,
+        // so the masked markings take the set's colours.
+        const bool shade_masks = upper == "SHIPS.LBX" || upper == "CMBTSHP.LBX" || upper == "CMBTSFX.LBX" || upper == "SPHERSFX.LBX" ||
+            !overrides.empty();
         bool still_decoding = false;
         // "LBX:1": the original pixels, not the pack's art (the colony landing's pods, whose HD
         // frames have the smear baked in).
