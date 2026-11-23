@@ -351,7 +351,12 @@ func on_animate(id: int, request: Dictionary) -> void:
 				dur = 0.0 # drawn as its beam volley (weapon 46, the beam event before it)
 			"missiles_step":
 				dur = 0.055 # one legacy frame: the missiles' positions are in the state
-			"missile_launch", "missile_arrive", "damage":
+			"missile_launch":
+				# Missile_Launch_FX's sound (the event carries it; pitch as Pitch_Bend_Sound).
+				if game != null and int(event.get("sound", -1)) >= 0:
+					game.play_game_sound(int(event.sound), -1, int(event.get("pitch", 0)))
+				dur = 0.25
+			"missile_arrive", "damage":
 				dur = 0.25
 			_:
 				dur = 0.0

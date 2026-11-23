@@ -719,6 +719,20 @@ namespace antares::combat {
         out.Int("y", msl.y);
         out.Int("tx", tx);
         out.Int("ty", ty);
+        // The launch sound, as CMBTSPEC::Missile_Launch_FX plays it on the legacy screen (only
+        // when that screen draws, so a native battle played none: owner 2026-11-23).
+        int32_t launch_sound = 0x20, launch_pitch = 0;
+        switch (msl.type) {
+            case WEAPON_NUCLEAR_MISSILE: launch_pitch = 500; break;
+            case WEAPON_PULSON_MISSILE: launch_pitch = -1500; break;
+            case WEAPON_ZEON_MISSILE: launch_pitch = -2500; break;
+            case WEAPON_ANTI_MATTER_TORP: launch_sound = 0x3D; break;
+            case WEAPON_PROTON_TORPEDO: launch_sound = 0x3C; break;
+            case WEAPON_PLASMA_TORPEDO: launch_sound = 0x3B; break;
+            default: break;
+        }
+        out.Int("sound", launch_sound);
+        out.Int("pitch", launch_pitch);
         Post_Effect(doc);
     }
 
