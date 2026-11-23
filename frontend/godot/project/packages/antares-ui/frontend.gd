@@ -7681,10 +7681,56 @@ func _smoke_fleet_camera(shots: String) -> void:
 	await sample.call("colony open", 2.0)
 	if shots != "":
 		await host.shot(shots + "/fc-1-colony.png")
-	_open_fleet_from_pane(fleet)
+	if "--pan" in OS.get_cmdline_user_args():
+		# As a drag in the system (galaxy.gd's motion), then zoomed out to see another star.
+		var k := get_window().content_scale_factor
+		var start := Vector2(1100, 700)
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = true
+		ev.position = start * k
+		Input.parse_input_event(ev)
+		for i in 12:
+			await get_tree().process_frame
+			var m := InputEventMouseMotion.new()
+			m.position = (start + Vector2(-25.0 * (i + 1), 15.0 * (i + 1))) * k
+			m.relative = Vector2(-25, 15) * k
+			m.button_mask = MOUSE_BUTTON_MASK_LEFT
+			Input.parse_input_event(m)
+		var up := ev.duplicate()
+		up.pressed = false
+		up.position = (start + Vector2(-300, 180)) * k
+		Input.parse_input_event(up)
+		await get_tree().create_timer(0.3).timeout
+		for i in 6:
+			var w := InputEventMouseButton.new()
+			w.button_index = MOUSE_BUTTON_WHEEL_DOWN
+			w.pressed = true
+			w.position = Vector2(900, 600) * k
+			Input.parse_input_event(w)
+			await get_tree().create_timer(0.08).timeout
+		await sample.call("panned and zoomed out (real input), panned %s" % galaxy.panned, 1.5)
+	if "--map-click" in OS.get_cmdline_user_args():
+		_open_fleet(fleet)
+	else:
+		_open_fleet_from_pane(fleet)
 	await sample.call("fleet opened", 2.0)
 	if shots != "":
 		await host.shot(shots + "/fc-2-fleet.png")
+	if "--send" in OS.get_cmdline_user_args():
+		# A destination: the nearest other star, clicked as on the map (preview, then the order).
+		var here: Vector2 = galaxy.star_position(star)
+		var best := -1
+		var best_d := INF
+		for st: Dictionary in galaxy.stars:
+			var d := here.distance_to(galaxy.star_position(int(st.id)))
+			if int(st.id) != star and d < best_d:
+				best_d = d
+				best = int(st.id)
+		_on_star_clicked(best)
+		await get_tree().create_timer(0.6).timeout
+		_on_star_clicked(best)
+		await sample.call("sent to star %d" % best, 2.0)
 	_view("fleet_panel").close()
 	await sample.call("fleet closed", 2.0)
 	if shots != "":
