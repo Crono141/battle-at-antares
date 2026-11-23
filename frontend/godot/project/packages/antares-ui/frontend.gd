@@ -8351,6 +8351,19 @@ func _smoke_effects_gallery(view: Control, mine: int, enemy: int, shots: String)
 	print("smoke: gallery: enemy stack picked %d (77 wanted), own stack picked %d" % [picked, picked_own])
 	(view.state["missiles"] as Array).erase(fake)
 	(view.state["missiles"] as Array).erase(own)
+	# The gyro destabilizer spins its target a facing at a time (owner 2026-11-23: it jumped to the
+	# final facing): start facing held, 8 slow steps, then the rest fast, ending at start + steps.
+	view._effects.clear()
+	view._play_special({"kind": "gyro", "from": mine, "to": enemy, "facing": 3, "steps": 20})
+	var spin_fx: Dictionary = view._effects.back()
+	var spun := []
+	for t in [0.0, 8 * 0.055 + 0.001, 24 * 0.055 + 0.001, float(spin_fx.life) + 0.01]:
+		spin_fx["t"] = t
+		spun.append(view._spin_facing(enemy))
+	view._effects.clear()
+	print("smoke: gallery: gyro spin facings %s" % [spun])
+	if spun != [3, 3, 11, 7]:
+		print("smoke: FAILED: the gyro spin went %s, not [3, 3, 11, 7]" % [spun])
 	var cases := [
 		[{"kind": "stellar", "from": mine, "to": enemy}, 1.4],
 		[{"kind": "stasis", "from": mine, "to": enemy}, 0.4],

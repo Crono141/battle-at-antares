@@ -51,6 +51,7 @@ var _cam := Vector2(810, 680)
 var _cam_goal := Vector2.INF
 var _zoom_goal := -1.0 # the zoom the camera eases to (-1: none)
 # The camera frames an enemy's beam (owner 2026-11-22): the effect waits until it is in place.
+const GYRO_SPIN_S := 1.0 / 60.0 # one facing of the gyro spin a refresh
 const FRAMED_KINDS := ["beam", "stasis", "tractor", "plasma_web", "stellar", "black_hole", "absorber", "gyro"]
 const FRAME_MARGIN := 110.0 # screen pixels between the framed ships and the clear area's edges (a constant)
 const FRAME_WAIT_MAX := 2.5 # seconds the effect waits for the camera at most (a safety: it waits until the camera settles)
@@ -688,6 +689,9 @@ func _process(delta: float) -> void:
 		elif e.has("travel_angle"):
 			e.erase("travel_angle")
 		e.angle = lerp_angle(e.angle, goal_angle, minf(1.0, delta * 14.0))
+		var spin := _spin_facing(index)
+		if spin >= 0:
+			e.angle = -float(spin) * PI / 8.0 # the gyro destabilizer's spin, a facing at a time
 		e.sprite.position = e.shown + _ship_shake(index)
 		e.sprite.rotation = e.angle
 		var look := _ship_effect_look(index)
@@ -3000,7 +3004,12 @@ func _play_special(event: Dictionary) -> float:
 			parts.append({"type": "strip", "name": SFX, "entry": 8, "from": _centre(from), "to": _centre(to), "start": 0.0, "frame_time": TICK_S, "frames": 8})
 			parts.append({"type": "strip", "name": SFX, "entry": 8, "from": _centre(from), "to": _centre(to), "start": 8 * TICK_S, "frame_time": 2 * TICK_S,
 				"frames": 3, "first": 5, "loop": true, "until": 8 * TICK_S + 16 * TICK_S})
-			life = 8 * TICK_S + 16 * TICK_S
+			# The target turns a facing each 110 ms frame of the cycling beam (8 steps), then spins
+			# the rolled rest one facing a screen refresh (the legacy loop draws each without a wait).
+			var steps := int(event.get("steps", 8))
+			parts.append({"type": "spin", "ship": to, "facing": int(event.get("facing", 0)), "steps": steps, "start": 8 * TICK_S,
+				"frame_time": 2 * TICK_S, "fast": GYRO_SPIN_S})
+			life = 8 * TICK_S + 16 * TICK_S + maxf(0.0, float(steps - 8)) * GYRO_SPIN_S
 			parts.append({"type": "sound", "id": 11, "start": 0.0})
 		"blast": # Do_Spherical_SFX: 0 flux, 1 pulsar (CMBTSFX 52 glass), 2 compressor (6), 3 drive (SPHERSFX 0), 4 quantum (1)
 			print("combat: blast type %d from ship %d (sprite %s)" % [int(event.get("type", -1)), int(event.get("ship", -1)), _ships.has(int(event.get("ship", -1)))])
@@ -3116,7 +3125,7 @@ func _add_sfx(parts: Array, life: float) -> float:
 		return 0.0
 	if _speedx2():
 		for part: Dictionary in parts:
-			for key in ["start", "frame_time", "dur", "until", "grow"]:
+			for key in ["start", "frame_time", "dur", "until", "grow", "fast"]:
 				if part.has(key):
 					part[key] = float(part[key]) * 0.5
 		life *= 0.5
@@ -3285,6 +3294,28 @@ func _draw_sfx(effect: Dictionary) -> void:
 						_marks.draw_set_transform(part.at, e.angle, e.sprite.scale)
 						_marks.draw_texture(tex, e.sprite.offset + Vector2(e.get("pad", 0.0), e.get("pad", 0.0)), Color(1, 1, 1, 1.0 - local / float(part.dur)))
 						_marks.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## The facing a gyro destabilizer's spin shows for a ship (its start facing until the spin begins,
+## so the state's final facing doesn't show early), or -1 when no spin holds it.
+func _spin_facing(index: int) -> int:
+	for effect: Dictionary in _effects:
+		if String(effect.kind) != "sfx":
+			continue
+		for part: Dictionary in effect.parts:
+			if String(part.type) != "spin" or int(part.ship) != index:
+				continue
+			var local := float(effect.t) - float(part.start)
+			var steps := int(part.steps)
+			var done := 0
+			if local > 0.0:
+				var slow := float(part.frame_time)
+				done = mini(int(local / maxf(slow, 0.001)), 8)
+				if done >= 8:
+					done = 8 + int((local - 8.0 * slow) / maxf(float(part.fast), 0.001))
+				done = mini(done, steps)
+			return posmod(int(part.facing) + done, 16)
+	return -1
 
 
 ## A ship's look during a fade, retreat, death or collapse (the ship sprite's modulate).

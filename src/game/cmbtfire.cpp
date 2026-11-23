@@ -377,7 +377,22 @@ namespace CMBTFIRE {
         MOX::combat_data[ship_idx].stasis_source_idx = COMBAT_SHIP_NONE;
     }
 
+    // Ships whose destruction is under way. A ship counts as destroyed (unit_status 5) only after
+    // its drive or quantum blast has hit the ships around it, so two ships blowing up in each
+    // other's range destroyed each other again and again until the block stack overflowed
+    // (owner 2026-11-23, "Mark Block Stack Size Exceeded"). The blast still hits a ship that is
+    // exploding; it just isn't destroyed a second time.
+    static bool s_destroying[MAX_COMBAT_SHIPS];
+
     void __cdecl Destroy_Ship_By(int16_t ship_idx, int16_t draw_x, int16_t draw_y, int16_t death_state, int16_t killer_ship_idx) {
+        if (ship_idx < 0 || ship_idx >= MAX_COMBAT_SHIPS || s_destroying[ship_idx]) {
+            return;
+        }
+        struct Destroying {
+            int16_t idx;
+            ~Destroying() { s_destroying[idx] = false; }
+        } destroying{ship_idx};
+        s_destroying[ship_idx] = true;
         s_combat_data& ship = MOX::combat_data[ship_idx];
         const bool publish_destroyed = ship.unit_status == 0;
         int8_t new_owner;
