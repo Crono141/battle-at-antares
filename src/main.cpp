@@ -12,6 +12,7 @@
 #include "startup_directory.h"
 #include "startup_options.h"
 #include "antares/identity.h"
+#include "antares/host.h"
 
 #if defined(_WIN32)
 #include <io.h>
@@ -173,7 +174,9 @@ int main(int argc, char** argv) {
 #else
     const bool logging_enabled = startup_options_valid && startup_options.log_requested;
 #endif
-    if (!logging_enabled) {
+    // Antares: a host (the Godot build) owns the engine's log (frontend/godot, Open_Game_Log).
+    const bool hosted = antares::host::Active();
+    if (!logging_enabled && !hosted) {
         SDL_SetLogOutputFunction(nullptr, nullptr);
     }
 
@@ -183,7 +186,7 @@ int main(int argc, char** argv) {
     const char* installed_datadir = nullptr;
 #endif
     user_paths::Init(SDL_GetBasePath(), user_paths::PLATFORM_USES_XDG, installed_datadir);
-    if (logging_enabled) {
+    if (logging_enabled && !hosted) {
         Configure_Game_Log_();
     }
 #if defined(_WIN32) && !defined(ORION2RE_ASAN_BUILD)
