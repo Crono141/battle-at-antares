@@ -1694,16 +1694,17 @@ func _build_hud() -> void:
 	_warn_panel = _panel(&"Pane")
 	_warn_panel.hide()
 	add_child(_warn_panel) # before the buttons' tab: it slides out from behind it
-	var warn_row := HBoxContainer.new()
-	warn_row.add_theme_constant_override("separation", 10)
-	_warn_panel.add_child(warn_row)
-	_warn_label = _label("Missile warning: the move stopped short of incoming missiles.", 13, FIRE)
-	_warn_label.custom_minimum_size = Vector2(300, 0)
-	_warn_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	warn_row.add_child(_warn_label)
+	var warn_col := VBoxContainer.new()
+	warn_col.add_theme_constant_override("separation", 8)
+	warn_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	_warn_panel.add_child(warn_col)
+	_warn_label = _label("MISSILE WARNING: IMPACT IMMINENT", 15, FIRE)
+	_warn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	warn_col.add_child(_warn_label)
 	_missile_button = _flat_button("Clear", "", func(): _act({"action": "missile_warning"}))
-	_missile_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	warn_row.add_child(_missile_button)
+	_missile_button.custom_minimum_size = Vector2(96, 0)
+	_missile_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	warn_col.add_child(_missile_button)
 	_bottom = _panel(&"BottomPocket")
 	add_child(_bottom)
 	var actions_pad := MarginContainer.new() # a little taller: the buttons' lower edge showed cut
