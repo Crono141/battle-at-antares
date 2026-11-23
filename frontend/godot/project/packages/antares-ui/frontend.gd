@@ -5795,6 +5795,14 @@ func _smoke_native() -> void:
 		await _smoke_pan(shots)
 		game.request_game_quit()
 		return
+	if "--ground-combat" in OS.get_cmdline_user_args():
+		var ok := await _smoke_ground_combat(shots)
+		print("smoke: ground combat %s" % ("OK" if ok else "FAILED"))
+		if not ok:
+			await host.smoke_fail("the invasion's screen did not play in its window")
+			return
+		game.request_game_quit()
+		return
 	if "--fleet-camera" in OS.get_cmdline_user_args():
 		await _smoke_fleet_camera(shots)
 		game.request_game_quit()
@@ -7530,6 +7538,51 @@ func _smoke_clear_todo() -> bool:
 ## A real mouse click at a screen point (the legacy screens take the mouse, not keys, to go on).
 ## WP3.9b: `-- --smoke --native --combat --shots=DIR` with SAVE10: the turn's battle opens as the
 ## native scene; one move to a legal square, the order ring, Always show health, then Auto to the end.
+## The invasion's battle screen in the films' window over the galaxy (owner 2026-11-23: it was
+## full screen): a preview on an enemy colony, a click to speed it, a click to end it.
+func _smoke_ground_combat(shots: String) -> bool:
+	var enemy_colony := -1
+	for star: Dictionary in galaxy.stars:
+		var sys: Dictionary = await _query_args({"what": "system", "star": int(star.id)})
+		for planet: Dictionary in sys.get("planets", []):
+			var colony: Dictionary = planet.get("colony", {})
+			if not colony.is_empty() and not colony.get("mine", false):
+				enemy_colony = int(colony.id)
+				break
+		if enemy_colony >= 0:
+			break
+	var box := {}
+	_send({"verb": "preview_popup", "popup": "ground_combat", "colony": enemy_colony}, func(r: Dictionary): box["r"] = r)
+	var waited := 0.0
+	while not _film_active and waited < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(2.0).timeout
+	var framed: bool = _film_active and legacy.visible and galaxy.visible and _film_frame != null and _film_frame.visible
+	var rect: Rect2 = legacy.get_global_rect()
+	print("smoke: ground combat on colony %d: in its window %s, legacy at %s (screen %s)" % [enemy_colony, framed, rect, get_viewport().get_visible_rect().size])
+	if shots != "":
+		await host.shot(shots + "/ground-combat.png")
+	var click := func() -> void: # a real press and release on the window, as the film smoke's
+		var press := InputEventMouseButton.new()
+		press.button_index = MOUSE_BUTTON_LEFT
+		press.pressed = true
+		press.position = rect.get_center() * get_window().content_scale_factor
+		Input.parse_input_event(press)
+		await get_tree().create_timer(0.15).timeout
+		var release := press.duplicate()
+		release.pressed = false
+		Input.parse_input_event(release)
+	waited = 0.0
+	while (_film_active or not box.has("r")) and waited < 20.0:
+		if _film_active:
+			await click.call()
+		await get_tree().create_timer(1.0).timeout
+		waited += 1.0
+	print("smoke: ground combat over: window closed %s, legacy hidden %s, answer %s" % [not _film_active, not legacy.visible, box.get("r", {})])
+	return framed and rect.size.x < get_viewport().get_visible_rect().size.x * 0.9 and not _film_active and box.has("r")
+
+
 ## A fleet clicked from a colony's view (owner 2026-11-23: an odd zoom out; after closing the fleet
 ## and the system, two flights back): the camera after each step, sampled through the flights.
 func _smoke_fleet_camera(shots: String) -> void:

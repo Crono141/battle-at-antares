@@ -30,7 +30,7 @@ namespace antares::commands::internal {
             }
             std::string popup;
             if (!args.Str("popup", &popup)) {
-                out.Fail("bad_args", "popup: new_system, planet_pick, outpost_pick, attack_target, monster_tribute or colony_combat");
+                out.Fail("bad_args", "popup: new_system, ground_combat, planet_pick, outpost_pick, attack_target, monster_tribute or colony_combat");
                 return;
             }
             const int16_t player = MOX::PLAYER_NUM;
@@ -107,6 +107,38 @@ namespace antares::commands::internal {
             } else if (popup == "antarans") {
                 // WP3.11c: the Antarans' message (the attack's message set).
                 ANTAROOM::Main_Antaran_Room_Screen(0);
+                answer = 0;
+            } else if (popup == "ground_combat") {
+                // The invasion's battle screen (COLGCBT::Colony_Combat_Screen, display only: the
+                // invasion was resolved before it) on `colony`, with made-up sides: the player's 4
+                // marines against the colony's troops.
+                int64_t colony = -1;
+                if (!args.Int("colony", &colony) || colony < 0 || colony >= MOX::NUM_COLONIES || MOX::colony[colony].owner < 0) {
+                    out.Fail("bad_args", "colony: a colony id");
+                    return;
+                }
+                s_invasion_side_info attacker{};
+                s_invasion_side_info defender{};
+                attacker.player_id = player;
+                attacker.colony_id = (int16_t)colony;
+                attacker.opponent_player_id = MOX::colony[colony].owner;
+                attacker.unit_counts[UNIT_MARINES] = 4;
+                attacker.unit_strengths[UNIT_MARINES] = 10;
+                attacker.unit_hps[UNIT_MARINES] = 1;
+                attacker.current_troop_type_idx = UNIT_MARINES;
+                defender.player_id = MOX::colony[colony].owner;
+                defender.colony_id = (int16_t)colony;
+                defender.opponent_player_id = player;
+                defender.unit_counts[UNIT_MARINES] = std::max<int16_t>(1, MOX::colony[colony].military[1]);
+                defender.unit_strengths[UNIT_MARINES] = 10;
+                defender.unit_hps[UNIT_MARINES] = 1;
+                defender.current_troop_type_idx = UNIT_MARINES;
+                const int16_t screen = MOX::current_screen;
+                const int16_t back = MOX::return_screen;
+                MOX::return_screen = screen;
+                COLGCBT::Colony_Combat_Screen(&attacker, &defender, 0, (int16_t)colony);
+                MOX::current_screen = screen;
+                MOX::return_screen = back;
                 answer = 0;
             } else if (popup == "film") {
                 // WP3.11b: a film in its box (the amoeba's: no rules run in it).

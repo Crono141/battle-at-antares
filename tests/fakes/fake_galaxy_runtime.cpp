@@ -395,6 +395,10 @@ namespace MSG_ {
     }
 } // namespace MSG_
 
+namespace COLGCBT {
+    void __cdecl Colony_Combat_Screen(s_invasion_side_info*, s_invasion_side_info*, uint32_t, int16_t) {} // popup_preview's "ground_combat"
+} // namespace COLGCBT
+
 namespace ERIC {
     void __cdecl Play_Amoeba_Flic() {} // popup_preview's "film" (WP3.11b)
     void __cdecl Play_Planetary_Destruction_Flic() {} // native Planet_Destroyed_Notice

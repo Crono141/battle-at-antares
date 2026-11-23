@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/native.h"
 
 namespace COLGCBT {
 
@@ -165,6 +166,9 @@ namespace COLGCBT {
         MOX2::action_func_t auto_function_ptr;
 
         MOX::at_least_one_tactical_combat = 1;
+        // Antares (owner 2026-11-23): shown in the films' window over the native galaxy, the
+        // whole 640x480 screen, not full screen.
+        antares::native::Set_Film(0, 0, 640, 480);
         start_combat = 0;
         display_fast = 0;
         title_changed_flag = 0;
@@ -267,6 +271,7 @@ namespace COLGCBT {
 
         MOX::current_screen = MOX::return_screen;
         COLONY::using_colony_screen_palette = 0;
+        antares::native::Set_Film(0, 0, 0, 0); // Antares: its window closes
     }
 
     void __cdecl Set_Help_List() {
