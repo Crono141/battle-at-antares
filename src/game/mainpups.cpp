@@ -1730,6 +1730,18 @@ namespace MAINPUPS {
                 if (state == 0 || state == 1) {
                     buttons.emplace_back("DROP ALL", k_bomb_all);
                 }
+                // As Add_Colony_Combat_Fields adds them in the bombing window too (owner 2026-11-23:
+                // after stopping the bombs, INVADE and DESTROY stayed greyed): each ends the
+                // bombing with its choice, which the orbit's loop then carries out.
+                if (data->attacker_unit_counts[UNIT_MARINES] > 0 && (data->n_pops > 0 || data->n_bldgs > 0)) {
+                    buttons.emplace_back("INVADE", 3);
+                }
+                if (MOX::player[data->attacker_player_id].traits[TRAIT_TELEPATHIC] != 0 && data->n_pops > 0) {
+                    buttons.emplace_back("MIND CONTROL", 4);
+                }
+                if (data->has_stellar_converter != 0 && data->n_pops > 0) {
+                    buttons.emplace_back("DESTROY", 1); // the stellar converter
+                }
                 buttons.emplace_back("CLOSE", -1);
             }
             if (popup_mode != 1) {
@@ -1797,6 +1809,14 @@ namespace MAINPUPS {
                     break; // CLOSE: what hasn't fallen stays unapplied
                 }
                 const int16_t pick = buttons[(size_t)answer].second;
+                if (pick == 1 || pick == 3 || pick == 4) {
+                    // INVADE, MIND CONTROL, DESTROY: what has fallen stands, the rest doesn't fall.
+                    if (pick == 4 && !ERIC::Player_Can_Mind_Control_Colony_With_Help(data->attacker_player_id, data->colony_idx)) {
+                        continue; // the window says why and stays
+                    }
+                    result = pick;
+                    break;
+                }
                 if (pick == k_bomb_stop) {
                     state = 1;
                 } else if (pick == k_bomb_continue) {

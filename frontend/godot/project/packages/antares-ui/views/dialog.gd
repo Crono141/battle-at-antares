@@ -532,8 +532,8 @@ func _bombing_pressed(b: Button) -> void:
 	var bombing: bool = _bombing_buttons.get_meta("bombing", false)
 	var last: bool = value == int(_bombing_buttons.get_meta("count", 0)) - 1
 	if bombing:
-		if last:
-			_answer(value) # CLOSE
+		if last or not b.text in ["STOP", "BOMB", "DROP ALL"]:
+			_answer(value) # CLOSE, or INVADE / MIND CONTROL / DESTROY: the bombing ends with it
 		else:
 			_step(value) # STOP / BOMB / DROP ALL: the window stays
 	elif b.text == "BOMB":

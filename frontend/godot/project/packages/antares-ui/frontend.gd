@@ -5450,6 +5450,12 @@ func _smoke_native() -> void:
 			await get_tree().create_timer(1.0).timeout
 			var still: int = left.call()
 			var stopped_buttons: Array = labels.call()
+			# After STOP, INVADE is open (owner 2026-11-23: it stayed greyed after a partial run).
+			var stopped_open: Array = dialog._bombing_buttons.get_children().filter(func(b: Button) -> bool: return not b.disabled).map(func(b: Button) -> String: return b.text)
+			print("smoke: bombing stopped: open %s" % [stopped_open])
+			if not "INVADE" in stopped_open:
+				await host.smoke_fail("INVADE stayed greyed after the bombs were stopped")
+				return
 			(dialog._bombing_buttons.get_child(0) as Button).pressed.emit() # CONTINUE
 			await get_tree().create_timer(0.7).timeout
 			var after_continue: int = left.call()
@@ -5471,7 +5477,7 @@ func _smoke_native() -> void:
 				enemy_colony, at_start, after_second, running_buttons, at_stop, still, stopped_buttons, after_continue, done_buttons, visible_while, box.get("r", "none")])
 			# One step every 5 frames of 55 ms; a step may take several hits, as in the original.
 			var paced: bool = after_second < at_start and after_second > 0 and steady
-			if enemy_colony < 0 or not paced or still != at_stop or after_continue >= still or done_enabled != ["CLOSE"] or not box.has("r") or overlay.visible \
+			if enemy_colony < 0 or not paced or still != at_stop or after_continue >= still or not "CLOSE" in done_enabled or done_enabled.any(func(t: String) -> bool: return t in ["STOP", "BOMB", "DROP ALL"]) or not box.has("r") or overlay.visible \
 					or dialog.blast_count == 0 or running_buttons.slice(0, 2) != ["STOP", "DROP ALL"] or stopped_buttons[0] != "BOMB":
 				await host.smoke_fail("bombing was not paced, stoppable and closable")
 				return

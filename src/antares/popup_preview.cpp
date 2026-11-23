@@ -198,6 +198,7 @@ namespace antares::commands::internal {
                     s_invasion_side_info bomb_attacker{};
                     s_invasion_side_info bomb_defender{};
                     bomb_attacker.player_id = player;
+                    bomb_attacker.unit_counts[UNIT_MARINES] = 8; // the choice's attacker, as combfind.cpp passes it on
                     bomb_defender.player_id = MOX::colony[colony].owner;
                     MAINPUPS::Colony_Bombing_Popup(&bomb, &bomb_attacker, &bomb_defender, game_random::Get_Random_Seed(), (int16_t)colony,
                         (int16_t)then_bomb, 0);
