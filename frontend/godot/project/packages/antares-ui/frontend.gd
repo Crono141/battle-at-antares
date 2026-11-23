@@ -1071,8 +1071,44 @@ var _todo_pending := false
 var _todo_seen := -1
 
 
+## Turns passing by themselves (End Of Turn Wait off; owner 2026-11-23): each turn's summary
+## messages came as their own list, and the lists opened one after another once the turns stopped.
+## A turn's unread messages the player never had the list open for are carried into the next
+## turn's list, marked with their stardate, so the turns since the list was last seen make one.
+var _todo_backlog: Array = [] # carried report items (copies), oldest turns last
+var _todo_shown_stardate := -1 # the stardate whose list the player last had open
+
+
+func _carry_todo_reports() -> void:
+	var stardate := int(_todo.get("stardate", -1))
+	if _todo.is_empty() or stardate < 0 or stardate == _todo_shown_stardate:
+		_todo_backlog = [] # that turn's list was seen
+		return
+	var carried: Array = []
+	for item: Dictionary in _todo.get("items", []):
+		if String(item.get("kind", "")) != "report" or item.get("done", false):
+			continue
+		var copy: Dictionary = item.duplicate()
+		if not copy.get("carried", false):
+			copy["carried"] = true
+			copy["text"] = "%d.%d: %s" % [stardate / 10, stardate % 10, String(copy.get("text", ""))]
+		carried.append(copy)
+	_todo_backlog = carried
+
+
+func _with_todo_backlog(result: Dictionary) -> Dictionary:
+	var open_backlog: Array = _todo_backlog.filter(func(item: Dictionary) -> bool: return not item.get("done", false))
+	if open_backlog.is_empty():
+		return result
+	var merged: Dictionary = result.duplicate()
+	merged["items"] = (result.get("items", []) as Array) + open_backlog
+	merged["unread"] = int(result.get("unread", 0)) + open_backlog.size()
+	return merged
+
+
 func _open_todo() -> void:
 	var todo := _view("todo_panel")
+	_todo_shown_stardate = int(_todo.get("stardate", -1))
 	if not todo.item_chosen.is_connected(_on_todo_item):
 		todo.item_chosen.connect(_on_todo_item)
 		todo.end_turn_requested.connect(func():
@@ -1267,6 +1303,14 @@ func _on_todo_item(item: Dictionary) -> void:
 			_send({"verb": "todo_read", "item": int(item.item)})
 			_send({"verb": "open", "screen": Screens.TURN_SUMMARY})
 		"report":
+			if item.get("carried", false):
+				# An earlier turn's message (the game's keys are this turn's): read here.
+				for carried: Dictionary in _todo_backlog:
+					if String(carried.get("text", "")) == String(item.get("text", "")):
+						carried["done"] = true
+				_send({"verb": "query", "what": "todo"}, func(r: Dictionary): _on_snapshot("todo", r))
+				_on_summary_item(item)
+				return
 			# A turn summary message (owner, 2026-11-21: in this list): read, and its colony opens.
 			_send({"verb": "todo_read", "report": String(item.get("report", ""))}, func(_r: Dictionary):
 				_send({"verb": "query", "what": "todo"}, func(r: Dictionary): _on_snapshot("todo", r)))
@@ -1622,11 +1666,13 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 			galaxy.set_fleets(result)
 		"todo":
 			if int(result.get("stardate", -1)) != int(_todo.get("stardate", -1)):
+				_carry_todo_reports()
 				_todo_seen = -1 # a new turn's list
 				_todo_auto_opened = {}
 				_todo_auto_last = {}
 				_todo_auto_listed = false
 				_refresh_summary() # and its summary
+			result = _with_todo_backlog(result)
 			_todo = result
 			var open := _todo_total()
 			_view("galaxy_bar").show_todo(open)
@@ -1636,6 +1682,10 @@ func _on_snapshot(snapshot_name: String, result: Dictionary) -> void:
 					todo_view.close() # everything answered (owner, 2026-11-14)
 				else:
 					todo_view.show_todo(result)
+					# Shown as it came (owner 2026-11-23: a new turn's list arriving while the list
+					# was open made it open again as soon as it was closed).
+					_todo_seen = open
+					_todo_shown_stardate = int(result.get("stardate", -1))
 			_todo_pending = open > 0 and open != _todo_seen
 			if _fleet_ship >= 0 and native_screen == Screens.MAIN:
 				_refresh_fleet() # a turn, or an order, changed the fleets
@@ -4597,10 +4647,17 @@ func _smoke_native() -> void:
 					return
 			if shots != "" and todo_list.visible:
 				await host.shot(shots + "/todo-end-turn.png")
+			# A turn's messages never seen are carried into the next turn's list (owner 2026-11-23):
+			# a made-up unread one in this turn's list, as if the list had stayed closed.
+			var carried_turn := int(_todo.get("stardate", -1))
+			var fake_items: Array = (_todo.get("items", []) as Array).duplicate()
+			fake_items.append({"kind": "report", "item": -1, "report": "msg:smoke", "text": "smoke carried message", "news": true, "done": false, "star": -1, "colony": -1})
+			_todo["items"] = fake_items
 			if todo_list.visible and todo_list._end_turn != null:
 				todo_list._end_turn.pressed.emit()
 			else:
 				_send({"verb": "end_turn"})
+			_todo_shown_stardate = -1
 			var waited := 0.0
 			while waited < 3.0 and native_screen == Screens.MAIN:
 				await get_tree().create_timer(0.1).timeout
@@ -4618,6 +4675,14 @@ func _smoke_native() -> void:
 			var state := "system_star %d, system empty %s, others_alpha %.2f, system pane %s, panel star %d, to-do %s" % [galaxy.system_star,
 				galaxy.system.is_empty(), galaxy.others_alpha, _view("system_pane").visible, _panel_star, _view("todo_panel").visible]
 			print("smoke: system-endturn after the turn: %s" % state)
+			var carried_text := "%d.%d: smoke carried message" % [carried_turn / 10, carried_turn % 10]
+			var carried_now: Array = (_todo.get("items", []) as Array).filter(func(i: Dictionary) -> bool: return String(i.get("text", "")) == carried_text)
+			print("smoke: system-endturn carried: stardate %s -> %s, '%s' in the list %s (carried flag %s)" % [carried_turn, _todo.get("stardate", -1),
+				carried_text, not carried_now.is_empty(), carried_now[0].get("carried", false) if not carried_now.is_empty() else false])
+			if carried_now.is_empty():
+				await host.smoke_fail("an unseen turn's message was not carried into the next list")
+				return
+			_todo_backlog = [] # the made-up message goes
 			if shots != "":
 				await host.shot(shots + "/system-endturn.png")
 			if (galaxy.others_alpha < 0.99 or galaxy.system_star >= 0) and not _view("system_pane").visible:
