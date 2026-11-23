@@ -126,6 +126,7 @@ func place_at(x: float, right := INF) -> void:
 func open(id: int, is_bought: bool) -> void:
 	colony_id = id
 	bought = is_bought
+	_committing = false
 	_edits.clear()
 	_refitting.clear()
 	tabs_refit.set_pressed_no_signal(false)
@@ -166,7 +167,7 @@ func cancel() -> void:
 ## Closed by a click away from it (the galaxy, another colony, a side panel): the changes are kept,
 ## as OK (owner, 2026-11-19: clicking outside after adding things acted as Cancel).
 func close_keeping() -> void:
-	if not visible:
+	if not visible or _committing:
 		return
 	if _edits.is_empty() and auto_button.button_pressed == bool(options.get("auto", false)):
 		cancel()
@@ -183,13 +184,30 @@ func dismiss() -> void:
 		closed.emit()
 
 
+## Sent once (owner 2026-11-23: queues with every item twice and a refitting ship lost): until the
+## game answers, another OK or a click away (close_keeping) sends nothing. The game replays the
+## edits on its own queue, so a second copy added every item again, and a repeated delete took
+## out whatever had moved into that slot, a refit included (whose ship the game then scraps).
+var _committing := false
+
+
 func _ok() -> void:
-	command.emit({"verb": "build_commit", "colony": colony_id, "edits": _edits, "auto": auto_button.button_pressed,
+	if _committing:
+		return
+	_committing = true
+	_sent_edits = _edits.duplicate(true)
+	command.emit({"verb": "build_commit", "colony": colony_id, "edits": _sent_edits, "auto": auto_button.button_pressed,
 		"_reply_to": "_on_committed"})
+	_edits.clear()
+
+
+var _sent_edits: Array = [] # the edits in flight: back in the pane if the game refuses them
 
 
 func _on_committed(result: Dictionary) -> void:
+	_committing = false
 	if not result.get("ok", false):
+		_edits = _sent_edits + _edits
 		return
 	_slide(false)
 	closed.emit()

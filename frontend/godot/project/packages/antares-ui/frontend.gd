@@ -6345,6 +6345,10 @@ func _smoke_colony(pane: Control, shots: String) -> bool:
 		await host.smoke_fail("a queued building stayed in the BUILDINGS list, or did not come back")
 		return false
 	build._add(pick)
+	# OK, a click away and OK again before the game answers (owner 2026-11-23: queues with every
+	# item twice, a refitting ship lost): the edits go to the game once.
+	build._ok()
+	build.close_keeping()
 	build._ok()
 	waited = 0.0
 	while build.visible and waited < 5.0:
