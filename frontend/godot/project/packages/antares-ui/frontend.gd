@@ -452,7 +452,13 @@ func _on_native_screen(screen: int) -> void:
 		if todo_back != null and todo_back.get_meta("was_open", false):
 			todo_back.set_meta("was_open", false)
 			if _todo_total() > 0:
+				# With what came while it was hidden (owner 2026-11-23: it came back with the 2
+				# items it had, and the turn's full list opened only once that was closed).
+				todo_back.show_todo(_todo)
 				todo_back.show()
+				_todo_seen = _todo_total()
+				_todo_shown_stardate = int(_todo.get("stardate", -1))
+				_todo_pending = false
 	else:
 		system_pane.hide() # hidden, not closed: it comes back with the galaxy
 		_view("colony_pane").dismiss()
@@ -4631,6 +4637,33 @@ func _smoke_native() -> void:
 			_smoke_answer()
 			if not first or _todo_auto_opened.size() != opened_before or again:
 				print("smoke: FAILED: gain discovery")
+				return
+			# The list open when another screen takes over, a fuller list arriving meanwhile, the
+			# galaxy back (owner 2026-11-23: it came back with its old 2 items, and the full list
+			# opened only once that was closed): it comes back with the full list, nothing pending.
+			preload("views/info_popup.gd").close_current()
+			_open_todo()
+			await get_tree().create_timer(0.6).timeout
+			var list_view := _view("todo_panel")
+			var keep_list := _todo
+			_on_native_screen(Screens.LEGACY)
+			var fuller: Dictionary = keep_list.duplicate()
+			var more: Array = (keep_list.get("items", []) as Array).duplicate()
+			more.append({"kind": "report", "item": -1, "report": "msg:smoke-late", "text": "smoke late message", "news": true, "done": false, "star": -1, "colony": -1})
+			fuller["items"] = more
+			fuller["unread"] = int(keep_list.get("unread", 0)) + 1
+			_on_snapshot("todo", fuller)
+			_on_native_screen(Screens.MAIN)
+			await get_tree().create_timer(0.3).timeout
+			var rows: int = (list_view.items_box.get_children() as Array).filter(func(r: Node) -> bool: return r is Button and String((r as Button).text).contains("smoke late message")).size()
+			print("smoke: system-endturn: list back after a screen: visible %s, late message shown %s, pending %s" % [list_view.visible, rows > 0, _todo_pending])
+			list_view.close()
+			_on_snapshot("todo", keep_list)
+			await get_tree().create_timer(0.5).timeout
+			if not list_view.visible and rows == 0:
+				pass
+			if rows == 0 or _todo_pending:
+				print("smoke: FAILED: the list came back without what arrived while it was hidden")
 				return
 			_on_view_action("turn")
 			await get_tree().create_timer(1.0).timeout
