@@ -82,7 +82,9 @@ DOCTEST_TEST_CASE("every released savegame version loads through the game runtim
         DOCTEST_CHECK((state.ships[0].prior_jump_gate_destination == (version >= 4 ? 3 : -1)));
         DOCTEST_CHECK((state.ships[0].prior_jump_gate_stardate == (version >= 4 ? 35122 : 0)));
         DOCTEST_CHECK((state.colonies[0].buildings_scrapped_this_turn == (version >= 7 ? 3 : 1)));
+        // Antares: a save from before the config record says it keeps the original rules
+        // (savegame.cpp, the classic-save notice); Redone shows nothing.
         DOCTEST_CHECK(SAVEGAME::Consume_Loaded_Config_Message() ==
-            (version >= 3 ? "Loaded config: base_game" : ""));
+            (version >= 3 ? "Loaded config: base_game" : "Original save: it keeps the original rules. Rule mods don't apply to it."));
     }
 }

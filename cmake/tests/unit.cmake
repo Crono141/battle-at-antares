@@ -509,6 +509,7 @@ orion2re_add_unit_test(test_startup_options
         src/startup_directory.cpp
     FAKE_SOURCES
         tests/fakes/fake_host_inactive.cpp
+        tests/fakes/fake_directory_indexes.cpp
     LINK_SDL
 )
 
