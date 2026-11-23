@@ -5807,6 +5807,10 @@ func _smoke_native() -> void:
 			return
 		game.request_game_quit()
 		return
+	if "--meklon-camera" in OS.get_cmdline_user_args():
+		await _smoke_meklon_camera(shots)
+		game.request_game_quit()
+		return
 	if "--fleet-camera" in OS.get_cmdline_user_args():
 		await _smoke_fleet_camera(shots)
 		game.request_game_quit()
@@ -7641,6 +7645,58 @@ func _smoke_ground_combat(shots: String) -> bool:
 		waited += 1.0
 	print("smoke: ground combat over: window closed %s, legacy hidden %s, answer %s" % [not _film_active, not legacy.visible, box.get("r", {})])
 	return framed and rect.size.x < get_viewport().get_visible_rect().size.x * 0.9 and not _film_active and box.has("r")
+
+
+## The owner's slot 1 (fixture owner-2026-11-23-meklon-camera): Meklon clicked, then the fleet
+## beside its star: a partial zoom out, then a full one. The camera sampled every 0.1 s.
+func _smoke_meklon_camera(shots: String) -> void:
+	var star := -1
+	for st: Dictionary in galaxy.stars:
+		if String(st.get("label", "")).to_lower().trim_prefix("(").begins_with("meklon"):
+			star = int(st.id)
+	var player := int(galaxy.data.get("player", -1))
+	var fleets: Array = galaxy.fleets.filter(func(f: Dictionary) -> bool: return int(f.get("star", -1)) == star)
+	print("smoke: meklon: star %d, fleets there %s; camera (%.0f,%.0f z%.3f), saved %s, panel view %s" % [star,
+		fleets.map(func(f: Dictionary) -> String: return "%d(owner %d)" % [int(f.ship), int(f.owner)]), galaxy.camera.position.x, galaxy.camera.position.y,
+		galaxy.camera.zoom.x, galaxy._saved_view, galaxy._panel_view])
+	var sample := func(label: String, seconds: float) -> void:
+		var t := 0.0
+		var trail: Array = []
+		while t < seconds:
+			await get_tree().create_timer(0.1).timeout
+			t += 0.1
+			trail.append("(%.0f,%.0f z%.3f)" % [galaxy.camera.position.x, galaxy.camera.position.y, galaxy.camera.zoom.x])
+		print("smoke: meklon: %s: %s" % [label, " ".join(trail)])
+	_on_star_clicked(star)
+	await sample.call("system clicked", 2.5)
+	print("smoke: meklon: in system %d, saved %s, panel view %s, fit %.3f, panned %s" % [galaxy.system_star, galaxy._saved_view, galaxy._panel_view, galaxy._fit_zoom, galaxy.panned])
+	if shots != "":
+		await host.shot(shots + "/meklon-1-system.png")
+	var mine: Array = fleets.filter(func(f: Dictionary) -> bool: return int(f.owner) == player)
+	var ship := int((mine[0] if not mine.is_empty() else fleets[0]).ship) if not fleets.is_empty() else -1
+	# A real click on the fleet's icon beside the star (as the owner clicks it).
+	var fleet_dict: Dictionary = {}
+	for f: Dictionary in galaxy.fleets:
+		if int(f.ship) == ship:
+			fleet_dict = f
+	var world_at: Vector2 = (galaxy.get_node("Fleets").icon_rect(fleet_dict) as Rect2).get_center()
+	var screen_at: Vector2 = (world_at - galaxy.camera.position) * galaxy.camera.zoom.x + galaxy.get_viewport_rect().size * 0.5
+	print("smoke: meklon: fleet %d icon at world %s, screen %s, alpha %.2f, picks fleet %d, star %d" % [ship, world_at, screen_at,
+		galaxy.fleet_alpha(fleet_dict), galaxy._pick_fleet(screen_at), galaxy.pick(screen_at)])
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = screen_at
+	galaxy._unhandled_input(press)
+	await get_tree().create_timer(0.1).timeout
+	var release := press.duplicate()
+	release.pressed = false
+	galaxy._unhandled_input(release)
+	await sample.call("fleet %d clicked" % ship, 3.0)
+	print("smoke: meklon: system %d open %s, fleet panel %s" % [galaxy.system_star, _view("system_pane").visible, _view("fleet_panel").visible])
+	print("smoke: meklon: after, saved %s, panel view %s, fit %.3f" % [galaxy._saved_view, galaxy._panel_view, galaxy._fit_zoom])
+	if shots != "":
+		await host.shot(shots + "/meklon-2-fleet.png")
 
 
 ## A fleet clicked from a colony's view (owner 2026-11-23: an odd zoom out; after closing the fleet
