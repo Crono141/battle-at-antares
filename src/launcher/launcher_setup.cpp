@@ -116,7 +116,9 @@ namespace launcher {
         setup_.required = !files_.ok;
         setup_.target = gi::Target_Folder(game_dir_);
         setup_.page = SETUP_WELCOME;
-        if (folder == "find") {
+        if (folder == "get") {
+            setup_.page = SETUP_GET;
+        } else if (folder == "find") {
             Setup_Find_();
         } else if (!folder.empty()) {
             Setup_Check_(folder);
@@ -188,6 +190,12 @@ namespace launcher {
         setup_.imported = gi::Import_Saves(setup_.saves, antares::user_folder::Saves_Directory(game_dir_), setup_.replace_taken, &setup_.import_error);
         saves_dirty_ = true;
         setup_.page = SETUP_DONE;
+    }
+
+    bool c_launcher::Start_Setup_Copy() {
+        if (!setup_.active || setup_.page != SETUP_CHECK || !setup_.check.ok()) return false;
+        Setup_Start_Copy_();
+        return true;
     }
 
     bool c_launcher::Run_Setup(const std::string& folder, bool stop_at_saves) {

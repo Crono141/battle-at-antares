@@ -107,25 +107,28 @@ namespace antares::game_install {
     }
 
     std::vector<s_root> Detect_Roots(const std::string& home_text, const std::vector<s_root>& registry_roots) {
+        // The exact places first (the registry, Heroic's list, Steam's libraries), then the broad
+        // folders searched deeper.
         std::vector<s_root> roots = registry_roots;
+        std::vector<s_root> broad;
         const fs::path home = Path_(home_text);
         std::vector<fs::path> steam_dirs;
 #if defined(_WIN32)
         for (const s_root& root : registry_roots) {
             if (root.source == "Steam") steam_dirs.push_back(Path_(root.path));
         }
-        roots.push_back({"C:/GOG Games/", "GOG", 2});
-        roots.push_back({"C:/Program Files (x86)/GOG Galaxy/Games/", "GOG Galaxy", 2});
-        roots.push_back({"C:/Program Files/GOG Galaxy/Games/", "GOG Galaxy", 2});
+        broad.push_back({"C:/GOG Games/", "GOG", 2});
+        broad.push_back({"C:/Program Files (x86)/GOG Galaxy/Games/", "GOG Galaxy", 2});
+        broad.push_back({"C:/Program Files/GOG Galaxy/Games/", "GOG Galaxy", 2});
         steam_dirs.push_back("C:/Program Files (x86)/Steam");
 #else
         if (!home_text.empty()) {
             steam_dirs.push_back(home / ".local/share/Steam");
             steam_dirs.push_back(home / ".steam/steam");
             steam_dirs.push_back(home / ".var/app/com.valvesoftware.Steam/.local/share/Steam");
-            roots.push_back({Folder_Text_(home / "GOG Games"), "GOG", 2});
-            roots.push_back({Folder_Text_(home / "Games"), "Heroic or Lutris", 5});
-            roots.push_back({Folder_Text_(home / ".wine/drive_c"), "Wine", 4});
+            broad.push_back({Folder_Text_(home / "GOG Games"), "GOG", 2});
+            broad.push_back({Folder_Text_(home / "Games"), "Heroic or Lutris", 5});
+            broad.push_back({Folder_Text_(home / ".wine/drive_c"), "Wine", 4});
             for (const char* config : {".config/heroic/gog_store/installed.json",
                      ".var/app/com.heroicgameslauncher.hgl/config/heroic/gog_store/installed.json"}) {
                 for (const std::string& path : Heroic_Paths_(Read_File_(home / config))) {
@@ -134,8 +137,8 @@ namespace antares::game_install {
             }
 #if defined(__APPLE__)
             roots.push_back({Folder_Text_(home / "Library/Application Support/Steam/steamapps/common"), "Steam", 2});
-            roots.push_back({"/Applications/", "GOG", 6});
-            roots.push_back({Folder_Text_(home / "Applications"), "GOG", 6});
+            broad.push_back({"/Applications/", "GOG", 6});
+            broad.push_back({Folder_Text_(home / "Applications"), "GOG", 6});
 #endif
         }
 #endif
@@ -149,15 +152,16 @@ namespace antares::game_install {
         for (const std::string& library : libraries) {
             roots.push_back({Folder_Text_(Path_(library) / "steamapps/common"), "Steam", 2});
         }
+        roots.insert(roots.end(), broad.begin(), broad.end());
         return roots;
     }
 
     std::vector<s_candidate> Detect(const std::vector<s_root>& roots) {
         std::vector<s_candidate> found;
         std::set<std::string> seen;
-        size_t visited = 0;
-        constexpr size_t VISIT_LIMIT = 20000;
+        constexpr size_t VISIT_LIMIT = 4000; // folders per root: a huge ~/Games can't starve the rest
         for (const s_root& root : roots) {
+            size_t visited = 0;
             struct s_item {
                 fs::path path;
                 int depth;
@@ -260,10 +264,14 @@ namespace antares::game_install {
             return true;
         }
         const auto existing = Files_(target);
+        // Tests only: slow the copy down so its page can be seen (milliseconds per file).
+        const char* delay_text = SDL_getenv("ANTARES_SETUP_COPY_DELAY_MS");
+        const int delay_ms = delay_text != nullptr ? SDL_atoi(delay_text) : 0;
         for (const std::string& name : check.to_copy) {
+            if (delay_ms > 0) SDL_Delay(static_cast<Uint32>(delay_ms));
             if (progress->cancel) {
                 std::lock_guard<std::mutex> lock(progress->mutex);
-                progress->error = "Cancelled.";
+                progress->error = "Stopped. The files copied so far are kept: Try again carries on from there.";
                 progress->failed = true;
                 progress->finished = true;
                 return false;
@@ -314,7 +322,7 @@ namespace antares::game_install {
         }
         if (progress->cancel) {
             std::lock_guard<std::mutex> lock(progress->mutex);
-            progress->error = "Cancelled.";
+            progress->error = "Stopped. The files copied so far are kept: Try again carries on from there.";
             progress->failed = true;
         }
         progress->finished = true;
@@ -327,6 +335,9 @@ namespace antares::game_install {
         std::vector<fs::path> folders = {Path_(folder_text), Path_(folder_text) / "cloud_saves"};
         if (!virtual_store.empty()) folders.push_back(Path_(virtual_store));
         for (const fs::path& folder : folders) {
+            std::error_code same_error;
+            if (fs::equivalent(folder, Path_(saves_dir), same_error)) continue; // Antares's own saves
+
             for (const auto& [name, entry] : Files_(folder)) {
                 int slot = 0;
                 if (sscanf(name.c_str(), "SAVE%d.GAM", &slot) != 1 || slot < 1 || slot > 10 ||

@@ -89,7 +89,7 @@ namespace launcher {
 
         /** The setup wizard (WP5.11): finds the player's Master of Orion II, checks it, copies its
          *  files and imports its saves. It opens by itself when the files are missing; with a
-         *  `folder` it starts on that folder's checklist, with "find" on the search (the -setup-folder
+         *  `folder` it starts on that folder's checklist, with "find" on the search, "get" on the store page (the -setup-folder
          *  option). */
         void Open_Setup(const std::string& folder = "");
         /** The whole wizard without a window (the -setup-run option): check `folder`, copy, import
@@ -97,6 +97,15 @@ namespace launcher {
         bool Run_Setup(const std::string& folder, bool stop_at_saves = false);
         bool Setup_Open() const {
             return setup_.active;
+        }
+        /** Presses "Copy the files" on the checklist when it allows it (the -setup-copy option). */
+        bool Start_Setup_Copy();
+        bool Setup_Copying() const {
+            return setup_.active && setup_.page == SETUP_COPY && setup_.progress && !setup_.progress->failed;
+        }
+        /** Presses Cancel on the copy page. */
+        void Cancel_Setup_Copy() {
+            if (setup_.progress) setup_.progress->cancel = true;
         }
 
       private:

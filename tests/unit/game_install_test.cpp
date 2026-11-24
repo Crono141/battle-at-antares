@@ -81,6 +81,24 @@ DOCTEST_TEST_SUITE("setup wizard (WP5.11)") {
         DOCTEST_CHECK(found.back().path == gog->path); // the partial copy last
     }
 
+    DOCTEST_TEST_CASE("detection: Heroic's installed list, a Wine prefix, the registry's folders first") {
+        s_tree tree;
+        const std::string home = tree.Path("home");
+        tree.Game("elsewhere/heroic/Master of Orion 2");
+        tree.Write("home/.config/heroic/gog_store/installed.json",
+            "{ \"installed\": [ { \"appName\": \"1207661633\", \"install_path\": \"" + tree.Path("elsewhere/heroic/Master of Orion 2") + "\" } ] }");
+        tree.Game("home/.wine/drive_c/GOG Games/Master of Orion 2");
+        tree.Game("registry/MOO2");
+        const std::vector<gi::s_root> roots = gi::Detect_Roots(home, {{tree.Path("registry/MOO2"), "GOG", 1}});
+        DOCTEST_REQUIRE_FALSE(roots.empty());
+        DOCTEST_CHECK(roots.front().path == tree.Path("registry/MOO2")); // exact places before broad ones
+        const std::vector<gi::s_candidate> found = gi::Detect(roots);
+        DOCTEST_REQUIRE(found.size() == 3);
+        DOCTEST_CHECK(found[0].path == tree.Path("registry/MOO2") + "/");
+        DOCTEST_CHECK(Find_(found, tree.Path("elsewhere/heroic/Master of Orion 2"))->source == "Heroic");
+        DOCTEST_CHECK(Find_(found, tree.Path("home/.wine/drive_c/GOG Games/Master of Orion 2"))->source == "Wine");
+    }
+
     DOCTEST_TEST_CASE("the checklist: missing, empty, 1.31, a bundle's inner folder") {
         s_tree tree;
         tree.Game("bundle/MOO2");
