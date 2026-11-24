@@ -5,6 +5,7 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlrenderer3.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -90,6 +91,40 @@ namespace {
             }
         }
         return true;
+    }
+
+    // The setup wizard is laid out for a canvas about 860x580 and drawn scaled up to the window
+    // (owner 2026-11-24 at 2560x1440, 100 %: "font size is super small"). It grows with the window.
+    constexpr float SETUP_CANVAS_WIDTH = 860.0f;
+    constexpr float SETUP_CANVAS_HEIGHT = 580.0f;
+
+    float Setup_Scale_(SDL_Window* window) {
+        int width = 0, height = 0;
+        SDL_GetWindowSize(window, &width, &height);
+        if (width <= 0 || height <= 0) return 1.0f;
+        return std::clamp(std::min(width / SETUP_CANVAS_WIDTH, height / SETUP_CANVAS_HEIGHT), 1.0f, 4.0f);
+    }
+
+    // Mouse positions from window coordinates to the wizard's canvas.
+    void Scale_Mouse_Event_(SDL_Event* event, float scale) {
+        switch (event->type) {
+            case SDL_EVENT_MOUSE_MOTION:
+                event->motion.x /= scale;
+                event->motion.y /= scale;
+                event->motion.xrel /= scale;
+                event->motion.yrel /= scale;
+                break;
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+                event->button.x /= scale;
+                event->button.y /= scale;
+                break;
+            case SDL_EVENT_MOUSE_WHEEL:
+                event->wheel.mouse_x /= scale;
+                event->wheel.mouse_y /= scale;
+                break;
+            default: break;
+        }
     }
 
     void Apply_Style_(float scale) {
@@ -257,7 +292,9 @@ int main(int argc, char** argv) {
     bool running = true;
     while (running) {
         SDL_Event event;
+        const float setup_scale = app.Setup_Open() ? Setup_Scale_(window) : 1.0f;
         while (SDL_PollEvent(&event)) {
+            if (setup_scale != 1.0f) Scale_Mouse_Event_(&event, setup_scale);
             ImGui_ImplSDL3_ProcessEvent(&event);
             if (event.type == SDL_EVENT_QUIT ||
                 (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window))) {
@@ -286,6 +323,12 @@ int main(int argc, char** argv) {
         }
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
+        if (setup_scale != 1.0f) { // the wizard's canvas, scaled up by the renderer, fonts rasterised sharp
+            io.DisplaySize.x /= setup_scale;
+            io.DisplaySize.y /= setup_scale;
+            io.DisplayFramebufferScale.x *= setup_scale;
+            io.DisplayFramebufferScale.y *= setup_scale;
+        }
         ImGui::NewFrame();
         if (!app.Draw()) {
             running = false;
