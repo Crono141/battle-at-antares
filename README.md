@@ -147,15 +147,66 @@ A theme is an ordinary package (`data/mods/antares-ui-chrome.zip`, `antares-ui-g
 copy of one to make your own. Themes never affect saves. Changing the layout itself is possible
 too: [UI packages](docs/content/authoring-mods/ui-packages.md) explains how.
 
-## Getting started
+## Installing
 
-1. Make a new folder and copy your Master of Orion II 1.31 folder into it (the one with
-   `ORION95.EXE` and the `.LBX` files).
-2. Extract the Battle at Antares download into it.
-3. Start `antares-launcher` and press Play.
+You need your own copy of **Master of Orion II, version 1.31**: GOG or Steam (both are 1.31), or a CD
+install patched to 1.31. Battle at Antares comes without the original game's files and reads them
+from your copy.
 
-`INSTALL.txt` in the download has the details, including macOS and Linux notes. Saves from the
-original game and from Orion2 Redone load.
+1. **Download** the archive for your system from the
+   [releases page](https://github.com/Crono141/battle-at-antares/releases) and extract it. You get a
+   folder such as `battle-at-antares-0.7.0-windows-x86_64` holding `antares-launcher`, `antares`,
+   `antares-godot` and a `data` folder. Move it wherever you like the game to live, somewhere you can
+   write to (on Windows not inside `Program Files`). This folder is your game folder: saves and
+   settings are kept in it.
+2. **Find your Master of Orion II folder**: the one with `ORION95.EXE` and a few hundred `.LBX`
+   files.
+   - GOG: usually `C:\GOG Games\Master of Orion 2`.
+   - Steam: right-click the game in your library, then Manage > Browse local files.
+   - On Linux or macOS without a Windows install: unpack GOG's Windows installer with
+     [innoextract](https://constexpr.org/innoextract/) (`brew install innoextract` on a Mac).
+3. **Copy everything in it into the game folder**, so `ORION95.EXE` and the `.LBX` files sit right
+   next to `antares-launcher`. Not into `data`, and not in a folder of their own.
+4. **Start `antares-launcher`** (`antares-launcher.exe` on Windows) and press **Play**.
+
+When you're done, the game folder looks like this:
+
+```
+battle-at-antares-0.7.0-windows-x86_64/
+    antares-launcher.exe     from the download
+    antares-godot.exe        from the download (the game; the launcher starts it)
+    antares.exe              from the download
+    data/                    from the download: settings, themes, mods (leave the original files out of it)
+    ORION95.EXE              from Master of Orion II
+    DIPLOMAT.LBX             from Master of Orion II, and every other .LBX
+    ...
+```
+
+**macOS** (Apple Silicon, experimental): the build isn't signed by Apple, so macOS blocks it at
+first. After step 3, open Terminal and run `xattr -dr com.apple.quarantine` followed by the game
+folder's path (drag the folder into the Terminal window to fill it in), then open
+`Battle at Antares.app` in the game folder. **Linux:** `./install-desktop-entry.sh` adds the game to
+your application menu.
+
+**Upgrading:** extract the new download and copy everything in its folder over your game folder,
+replacing the files. Your saves, settings and HD packs stay as they are.
+
+**Saves** from the original game (`SAVE1.GAM` to `SAVE10.GAM`) and from Orion2 Redone load: copy them
+into the game folder.
+
+**If it doesn't start:**
+
+- *A message that an `.LBX` file "could not be found"* (often `fonts.lbx` or `diplomat.lbx`), or
+  *"Cannot locate all game files"*: the original files aren't next to the game. Check that `ORION95.EXE` and the `.LBX` files are in the game folder itself, not
+  in `data` or a subfolder.
+- *"ORIONCD.INI not found"* (versions before 0.7): the same cause. Copy the original files as in
+  step 3, `ORIONCD.INI` included. Since 0.7 the game no longer needs that file.
+- *Windows says "Windows protected your PC"*: the programs aren't signed. Click More info, then Run
+  anyway.
+- *Nothing happens on Linux*: run `./antares-launcher` from a terminal to see why. If the files lost
+  their execute permission, `chmod +x antares antares-godot antares-launcher`.
+- Still stuck? The game writes a log to `logs/` in the game folder. Please
+  [open an issue](https://github.com/Crono141/battle-at-antares/issues) and attach it.
 
 **HD art** (optional, recommended): the art packs from
 [battle-at-antares-hd](https://github.com/Crono141/battle-at-antares-hd/releases) go into
