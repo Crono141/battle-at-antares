@@ -218,34 +218,47 @@ namespace antares {
         if (!state.initialized) {
             return packages;
         }
-        const std::filesystem::path root = std::filesystem::path(state.base_path) / vfs_detail::VFS_MODS_PATH;
-        std::error_code error;
+        // The player's packages (installed builds, WP5.9) come first and win over a bundled one of
+        // the same id, as in the game's VFS (vfs::Mount_Package).
+        std::vector<std::pair<std::filesystem::path, bool>> roots;
+        if (state.user_mods_path[0] != '\0') {
+            roots.emplace_back(std::filesystem::path(state.user_mods_path), true);
+        }
+        roots.emplace_back(std::filesystem::path(state.base_path) / vfs_detail::VFS_MODS_PATH, false);
         std::map<std::string, s_package_info> found; // sorted by id
-        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(root, error)) {
-            const std::string name = entry.path().filename().string();
-            if (name.empty() || name[0] == '.') {
-                continue;
+        for (const auto& [root, user] : roots) {
+            std::map<std::string, s_package_info> in_root;
+            std::error_code error;
+            for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(root, error)) {
+                const std::string name = entry.path().filename().string();
+                if (name.empty() || name[0] == '.') {
+                    continue;
+                }
+                std::error_code type_error;
+                s_package_info package;
+                package.user_folder = user;
+                if (entry.is_directory(type_error)) {
+                    package.id = name;
+                    package.source_path = entry.path().string() + "/";
+                } else if (entry.is_regular_file(type_error) && name.size() > 4 &&
+                    SDL_strcasecmp(name.c_str() + name.size() - 4, ".zip") == 0) {
+                    package.id = name.substr(0, name.size() - 4);
+                    package.source_path = entry.path().string();
+                    package.archive = true;
+                } else {
+                    continue;
+                }
+                const auto existing = in_root.find(package.id);
+                if (existing != in_root.end()) {
+                    existing->second.valid = false;
+                    existing->second.error = "package '" + package.id + "' has both directory and ZIP forms";
+                    continue;
+                }
+                in_root.emplace(package.id, std::move(package));
             }
-            std::error_code type_error;
-            s_package_info package;
-            if (entry.is_directory(type_error)) {
-                package.id = name;
-                package.source_path = entry.path().string() + "/";
-            } else if (entry.is_regular_file(type_error) && name.size() > 4 &&
-                SDL_strcasecmp(name.c_str() + name.size() - 4, ".zip") == 0) {
-                package.id = name.substr(0, name.size() - 4);
-                package.source_path = entry.path().string();
-                package.archive = true;
-            } else {
-                continue;
+            for (auto& [id, package] : in_root) {
+                found.emplace(id, std::move(package)); // a user package already there stays
             }
-            const auto existing = found.find(package.id);
-            if (existing != found.end()) {
-                existing->second.valid = false;
-                existing->second.error = "package '" + package.id + "' has both directory and ZIP forms";
-                continue;
-            }
-            found.emplace(package.id, std::move(package));
         }
         for (auto& [id, package] : found) {
             if (package.error.empty()) {

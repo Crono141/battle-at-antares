@@ -13,6 +13,8 @@
 
 #include "antares/identity.h"
 #include "antares/profile_file.h"
+#include "antares/user_folder.h"
+#include "game/user_paths.h"
 #include "command_line.h"
 #include "version.h"
 #include "yyjson.h"
@@ -38,6 +40,8 @@ namespace launcher {
         // Writes through a temporary file, so a crash never leaves half a profile.
         bool Write_Text_(const std::string& path, const std::string& text, std::string* error) {
             const std::string temporary = path + ".tmp";
+            std::error_code directory_error; // the user folder's profiles/ may not exist yet
+            std::filesystem::create_directories(std::filesystem::path(path).parent_path(), directory_error);
             {
                 std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
                 if (!file || !file.write(text.data(), static_cast<std::streamsize>(text.size()))) {
@@ -83,6 +87,10 @@ namespace launcher {
             game_dir_ += '/';
         }
         data_dir_ = game_dir_ + "data/";
+        // Installed builds keep profiles, antares.cfg and launcher.json in the user folder; the
+        // bundled copies in data/ are read until the player changes one (WP5.9).
+        config_dir_ = antares::user_folder::Config_Directory(game_dir_);
+        settings_path_ = user_paths::Is_Enabled() ? config_dir_ + SETTINGS_FILE : game_dir_ + SETTINGS_FILE;
         Load_Settings_();
         Init_Settings_();
         if (!start_profile.empty()) {
@@ -110,7 +118,7 @@ namespace launcher {
 
     void c_launcher::Load_Settings_() {
         std::string text;
-        if (!Read_Text_(game_dir_ + SETTINGS_FILE, &text)) {
+        if (!Read_Text_(settings_path_, &text)) {
             return;
         }
         yyjson_doc* document = yyjson_read(text.data(), text.size(), 0);
@@ -141,7 +149,7 @@ namespace launcher {
         yyjson_mut_doc_free(document);
         if (json != nullptr) {
             std::string error;
-            (void)Write_Text_(game_dir_ + SETTINGS_FILE, std::string(json, length) + "\n", &error);
+            (void)Write_Text_(settings_path_, std::string(json, length) + "\n", &error);
             free(json);
         }
     }
@@ -156,22 +164,31 @@ namespace launcher {
         profiles_.clear();
         profiles_.push_back({"Default (antares.cfg)", antares::CONFIG_FILE, "", true});
         std::vector<std::string> names;
-        std::error_code code;
-        for (const auto& entry : std::filesystem::directory_iterator(data_dir_ + "profiles", code)) {
-            const std::string file = entry.path().filename().string();
-            if (entry.is_regular_file() && file.size() > 4 && file.compare(file.size() - 4, 4, ".cfg") == 0 &&
-                file[0] != '.') {
-                names.push_back(file.substr(0, file.size() - 4));
+        for (const std::string& folder : {config_dir_, data_dir_}) {
+            std::error_code code;
+            for (const auto& entry : std::filesystem::directory_iterator(folder + "profiles", code)) {
+                const std::string file = entry.path().filename().string();
+                if (entry.is_regular_file() && file.size() > 4 && file.compare(file.size() - 4, 4, ".cfg") == 0 &&
+                    file[0] != '.') {
+                    names.push_back(file.substr(0, file.size() - 4));
+                }
             }
         }
         std::sort(names.begin(), names.end());
+        names.erase(std::unique(names.begin(), names.end()), names.end());
         for (const std::string& name : names) {
             profiles_.push_back({name, "profiles/" + name + ".cfg", name, false});
         }
     }
 
     std::string c_launcher::Profile_File_Path_(const s_profile_entry& entry) const {
-        return data_dir_ + entry.vfs_path;
+        return config_dir_ + entry.vfs_path;
+    }
+
+    std::string c_launcher::Profile_Read_Path_(const s_profile_entry& entry) const {
+        std::error_code code;
+        const std::string own = Profile_File_Path_(entry);
+        return std::filesystem::exists(own, code) ? own : data_dir_ + entry.vfs_path;
     }
 
     const antares::s_package_info* c_launcher::Find_Package_(const std::string& id) const {
@@ -184,7 +201,7 @@ namespace launcher {
     void c_launcher::Select_Profile_(size_t index) {
         profile_index_ = std::min(index, profiles_.size() - 1);
         profile_text_.clear();
-        if (!Read_Text_(Profile_File_Path_(profiles_[profile_index_]), &profile_text_)) {
+        if (!Read_Text_(Profile_Read_Path_(profiles_[profile_index_]), &profile_text_)) {
             profile_text_.clear(); // a missing base config is fine: the game uses defaults
         }
         enabled_ = antares::profile::Enabled_Packages(profile_text_);
@@ -307,7 +324,7 @@ namespace launcher {
         const auto start = std::chrono::steady_clock::now();
         const s_profile_entry& entry = profiles_[profile_index_];
         std::error_code code;
-        if (entry.is_base && !std::filesystem::exists(Profile_File_Path_(entry), code)) {
+        if (entry.is_base && !std::filesystem::exists(Profile_Read_Path_(entry), code)) {
             check_ = {};
             check_.ok = true; // the game starts with defaults
         } else {
@@ -536,9 +553,9 @@ namespace launcher {
             }
             Select_Profile_(index);
         }
-        Help_Marker_("Profiles are files in data/profiles/. The game starts with one through "
+        Help_Marker_("Profiles are files in profiles/ (in data/, or in your user folder when installed). The game starts with one through "
                      "-config profiles/<name>.cfg. The launcher only changes their enable lines; "
-                     "anything else you write in them is kept. Rescan reads data/mods/ and the "
+                     "anything else you write in them is kept. Rescan reads the packages and the "
                      "profiles again.");
     }
 
@@ -554,7 +571,7 @@ namespace launcher {
         bool close = false;
         if (popup_ == 4) {
             ImGui::Text("Delete the profile \"%s\"?", name_buffer_);
-            ImGui::TextColored(COLOUR_DIM, "data/profiles/%s.cfg is removed. Packages are not touched.", name_buffer_);
+            ImGui::TextColored(COLOUR_DIM, "%s is removed. Packages are not touched.", Profile_File_Path_(profiles_[profile_index_]).c_str());
             if (ImGui::Button("Delete", ImVec2(ImGui::GetFontSize() * 7.0f, 0.0f))) {
                 std::error_code code;
                 std::filesystem::remove(Profile_File_Path_(profiles_[profile_index_]), code);
@@ -572,17 +589,19 @@ namespace launcher {
             const bool entered = ImGui::InputText("Name", name_buffer_, sizeof(name_buffer_), ImGuiInputTextFlags_EnterReturnsTrue);
             const std::string name = name_buffer_;
             if (ImGui::Button("OK", ImVec2(ImGui::GetFontSize() * 7.0f, 0.0f)) || entered) {
-                const std::string path = data_dir_ + "profiles/" + name + ".cfg";
+                const std::string path = config_dir_ + "profiles/" + name + ".cfg";
                 std::error_code code;
                 if (!antares::profile::Is_Valid_Profile_Name(name)) {
                     popup_error_ = "Use letters, digits, spaces, '-', '_' and '.'.";
-                } else if (std::filesystem::exists(path, code)) {
+                } else if (std::filesystem::exists(path, code) || std::filesystem::exists(data_dir_ + "profiles/" + name + ".cfg", code)) {
                     popup_error_ = "A profile with that name already exists.";
                 } else {
-                    std::filesystem::create_directories(data_dir_ + "profiles", code);
+                    std::filesystem::create_directories(config_dir_ + "profiles", code);
                     std::string error;
                     bool done = false;
-                    if (popup_ == 3) {
+                    if (popup_ == 3 && Profile_Read_Path_(profiles_[profile_index_]) != Profile_File_Path_(profiles_[profile_index_])) {
+                        done = Write_Text_(path, profile_text_, &error); // a bundled profile: rename a copy
+                    } else if (popup_ == 3) {
                         std::filesystem::rename(Profile_File_Path_(profiles_[profile_index_]), path, code);
                         done = !code;
                         if (code) error = code.message();

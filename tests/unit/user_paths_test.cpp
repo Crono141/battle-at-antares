@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "doctest/doctest.h"
+#include "antares/user_folder.h"
 #include "game/user_paths.h"
 #include "startup_directory.h"
 
@@ -23,6 +24,9 @@ namespace {
         "XDG_CACHE_HOME",
         "XDG_DATA_DIRS",
         "ORION2RE_XDG",
+        "ANTARES_XDG",
+        "ANTARES_USER_FOLDER",
+        "APPDATA",
     };
 
     void Set_Variable_(const char* name, const std::string& value) {
@@ -142,7 +146,7 @@ DOCTEST_TEST_SUITE("user paths") {
     DOCTEST_TEST_CASE("XDG mode uses home defaults and private directories") {
         s_user_environment environment;
         DOCTEST_REQUIRE(environment.Init());
-        const char* defaults[] = {"home/.config/orion2re/", "home/.local/share/orion2re/", "home/.local/state/orion2re/", "home/.cache/orion2re/"};
+        const char* defaults[] = {"home/.config/antares/", "home/.local/share/antares/", "home/.local/state/antares/", "home/.cache/antares/"};
         for (int index = 0; index < user_paths::USER_DIRECTORY_COUNT; ++index) {
             const char* path = user_paths::Get_Directory(static_cast<user_paths::e_user_directory>(index));
             DOCTEST_CHECK(std::string(path) == environment.Path(defaults[index]));
@@ -163,16 +167,16 @@ DOCTEST_TEST_SUITE("user paths") {
         Set_Variable_("XDG_CACHE_HOME", "");
         Set_Variable_("XDG_DATA_DIRS", environment.Path("first") + ":relative::" + environment.Path("second") + "/");
         DOCTEST_REQUIRE(environment.Init());
-        DOCTEST_CHECK(std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_CONFIG)) == environment.Path("config/orion2re/"));
-        DOCTEST_CHECK(std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_DATA)) == environment.Path("data/orion2re/"));
-        DOCTEST_CHECK(std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_STATE)) == environment.Path("home/.local/state/orion2re/"));
-        DOCTEST_CHECK(std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_CACHE)) == environment.Path("home/.cache/orion2re/"));
+        DOCTEST_CHECK(std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_CONFIG)) == environment.Path("config/antares/"));
+        DOCTEST_CHECK(std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_DATA)) == environment.Path("data/antares/"));
+        DOCTEST_CHECK(std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_STATE)) == environment.Path("home/.local/state/antares/"));
+        DOCTEST_CHECK(std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_CACHE)) == environment.Path("home/.cache/antares/"));
         const auto& paths = user_paths::Get_Game_Asset_Directories();
         DOCTEST_REQUIRE(paths.size() == 4);
-        DOCTEST_CHECK(paths[0] == environment.Path("data/orion2re/game/"));
-        DOCTEST_CHECK(paths[1] == environment.Path("data/orion2re/"));
-        DOCTEST_CHECK(paths[2] == environment.Path("first/orion2re/game/"));
-        DOCTEST_CHECK(paths[3] == environment.Path("second/orion2re/game/"));
+        DOCTEST_CHECK(paths[0] == environment.Path("data/antares/game/"));
+        DOCTEST_CHECK(paths[1] == environment.Path("data/antares/"));
+        DOCTEST_CHECK(paths[2] == environment.Path("first/antares/game/"));
+        DOCTEST_CHECK(paths[3] == environment.Path("second/antares/game/"));
     }
 
     DOCTEST_TEST_CASE("environment override takes precedence over marker and clears all XDG state") {
@@ -206,12 +210,12 @@ DOCTEST_TEST_SUITE("user paths") {
     DOCTEST_TEST_CASE("legacy names map to the right directories and explicit paths are untouched") {
         s_user_environment environment;
         DOCTEST_REQUIRE(environment.Init());
-        DOCTEST_CHECK(Redirect_("SAVE10.GAM", true) == environment.Path("home/.local/share/orion2re/SAVE10.GAM"));
-        DOCTEST_CHECK(Redirect_("save?.gam") == environment.Path("home/.local/share/orion2re/save?.gam"));
-        DOCTEST_CHECK(Redirect_("HOF.M2") == environment.Path("home/.local/share/orion2re/HOF.M2"));
-        DOCTEST_CHECK(Redirect_("ORION2RE.RAC", true) == environment.Path("home/.local/share/orion2re/ORION2RE.RAC"));
-        DOCTEST_CHECK(Redirect_("ORION2RE.SET", true) == environment.Path("home/.config/orion2re/ORION2RE.SET"));
-        DOCTEST_CHECK(Redirect_("TEMP.TMP", true) == environment.Path("home/.cache/orion2re/TEMP.TMP"));
+        DOCTEST_CHECK(Redirect_("SAVE10.GAM", true) == environment.Path("home/.local/share/antares/SAVE10.GAM"));
+        DOCTEST_CHECK(Redirect_("save?.gam") == environment.Path("home/.local/share/antares/save?.gam"));
+        DOCTEST_CHECK(Redirect_("HOF.M2") == environment.Path("home/.local/share/antares/HOF.M2"));
+        DOCTEST_CHECK(Redirect_("ORION2RE.RAC", true) == environment.Path("home/.local/share/antares/ORION2RE.RAC"));
+        DOCTEST_CHECK(Redirect_("ORION2RE.SET", true) == environment.Path("home/.config/antares/ORION2RE.SET"));
+        DOCTEST_CHECK(Redirect_("TEMP.TMP", true) == environment.Path("home/.cache/antares/TEMP.TMP"));
         DOCTEST_CHECK(Redirect_("ORION2.LBX").empty());
         DOCTEST_CHECK(Redirect_("saves/SAVE1.GAM", true).empty());
         DOCTEST_CHECK(Redirect_("C:SAVE1.GAM", true).empty());
@@ -225,15 +229,15 @@ DOCTEST_TEST_SUITE("user paths") {
 
     DOCTEST_TEST_CASE("installation INI files use executable installed and XDG fallback directories") {
         s_user_environment environment;
-        environment.Write_File("home/.local/share/orion2re/game/ORIONCD.INI", "game");
-        environment.Write_File("home/.local/share/orion2re/ORIONCD.INI", "root");
-        environment.Write_File("system/orion2re/game/LANGUAGE.INI", "1");
+        environment.Write_File("home/.local/share/antares/game/ORIONCD.INI", "game");
+        environment.Write_File("home/.local/share/antares/ORIONCD.INI", "root");
+        environment.Write_File("system/antares/game/LANGUAGE.INI", "1");
         DOCTEST_REQUIRE(environment.Init());
-        DOCTEST_CHECK(strcasecmp(Redirect_("orioncd.ini").c_str(), environment.Path("home/.local/share/orion2re/game/ORIONCD.INI").c_str()) == 0);
-        DOCTEST_CHECK(strcasecmp(Redirect_("language.ini").c_str(), environment.Path("system/orion2re/game/LANGUAGE.INI").c_str()) == 0);
-        DOCTEST_CHECK(Redirect_("language.ini", true) == environment.Path("home/.config/orion2re/language.ini"));
-        environment.Write_File("home/.config/orion2re/language.ini", "2");
-        DOCTEST_CHECK(Redirect_("language.ini") == environment.Path("home/.config/orion2re/language.ini"));
+        DOCTEST_CHECK(strcasecmp(Redirect_("orioncd.ini").c_str(), environment.Path("home/.local/share/antares/game/ORIONCD.INI").c_str()) == 0);
+        DOCTEST_CHECK(strcasecmp(Redirect_("language.ini").c_str(), environment.Path("system/antares/game/LANGUAGE.INI").c_str()) == 0);
+        DOCTEST_CHECK(Redirect_("language.ini", true) == environment.Path("home/.config/antares/language.ini"));
+        environment.Write_File("home/.config/antares/language.ini", "2");
+        DOCTEST_CHECK(Redirect_("language.ini") == environment.Path("home/.config/antares/language.ini"));
 
         environment.Write_File("installed/ORIONCD.INI", "installed");
         DOCTEST_REQUIRE(user_paths::Init((environment.Path("install") + "/").c_str(), true, environment.Path("installed").c_str()));
@@ -251,7 +255,7 @@ DOCTEST_TEST_SUITE("user paths") {
         fputs("save", file);
         fclose(file);
         DOCTEST_CHECK(File_Exists("save3.gam"));
-        DOCTEST_CHECK(fs::is_regular_file(environment.Path("home/.local/share/orion2re/SAVE3.GAM")));
+        DOCTEST_CHECK(fs::is_regular_file(environment.Path("home/.local/share/antares/SAVE3.GAM")));
         file = fopen_case("save3.gam", "rb");
         DOCTEST_REQUIRE(file != nullptr);
         char contents[5] = {};
@@ -269,7 +273,7 @@ DOCTEST_TEST_SUITE("user paths") {
 
     DOCTEST_TEST_CASE("runtime data never selects an XDG runtime tree regardless of mode") {
         s_user_environment environment;
-        environment.Write_File("home/.local/share/orion2re/data/base.zip", "user runtime marker");
+        environment.Write_File("home/.local/share/antares/data/base.zip", "user runtime marker");
         environment.Write_File("installed/data/base.zip", "installed runtime marker");
         const std::string installed = environment.Path("installed");
         for (const char* mode : {"0", "1"}) {
@@ -322,4 +326,73 @@ DOCTEST_TEST_SUITE("user paths") {
         DOCTEST_CHECK(fs::equivalent(resolved, environment.Path("assets/SECOND.LBX")));
     }
 #endif
+}
+
+DOCTEST_TEST_SUITE("user folder (WP5.9)") {
+    namespace uf = antares::user_folder;
+
+    DOCTEST_TEST_CASE("Windows keeps everything in APPDATA\\Battle at Antares") {
+        s_user_environment environment;
+        Set_Variable_("APPDATA", environment.Path("roaming"));
+        uf::s_layout layout;
+        DOCTEST_REQUIRE(uf::Resolve(environment.Path("install"), uf::PLATFORM_WINDOWS, &layout));
+        const std::string root = environment.Path("roaming") + "/Battle at Antares/";
+        DOCTEST_CHECK(layout.config == root);
+        DOCTEST_CHECK(layout.data == root);
+        DOCTEST_CHECK(layout.state == root);
+        DOCTEST_CHECK(layout.cache == root + "cache/");
+        DOCTEST_REQUIRE(layout.game_asset_directories.size() == 2);
+        DOCTEST_CHECK(layout.game_asset_directories[0] == root + "game/");
+
+        Set_Variable_("APPDATA", "C:\\Users\\x\\AppData\\Roaming");
+        DOCTEST_REQUIRE(uf::Resolve(environment.Path("install"), uf::PLATFORM_WINDOWS, &layout));
+        DOCTEST_CHECK(layout.data == "C:\\Users\\x\\AppData\\Roaming/Battle at Antares/");
+        Set_Variable_("APPDATA", "relative");
+        DOCTEST_CHECK_FALSE(uf::Resolve(environment.Path("install"), uf::PLATFORM_WINDOWS, &layout));
+    }
+
+    DOCTEST_TEST_CASE("macOS uses Application Support") {
+        s_user_environment environment;
+        uf::s_layout layout;
+        DOCTEST_REQUIRE(uf::Resolve(environment.Path("install"), uf::PLATFORM_MACOS, &layout));
+        const std::string root = environment.Path("home") + "/Library/Application Support/Battle at Antares/";
+        DOCTEST_CHECK(layout.config == root);
+        DOCTEST_CHECK(layout.data == root);
+        DOCTEST_CHECK(layout.game_asset_directories[0] == root + "game/");
+    }
+
+    DOCTEST_TEST_CASE("the user-folder marker, the overrides and portable folders") {
+        s_user_environment environment;
+        Unset_Variable_("ORION2RE_XDG");
+        uf::s_layout layout;
+        // A writable folder with no marker is portable, on every platform.
+        DOCTEST_CHECK_FALSE(uf::Resolve(environment.Path("install"), uf::PLATFORM_LINUX, &layout));
+        DOCTEST_CHECK_FALSE(uf::Resolve(environment.Path("install"), uf::PLATFORM_MACOS, &layout));
+        DOCTEST_CHECK(uf::Logs_Directory(environment.Path("install")) == environment.Path("install") + "/logs/");
+        // The installers' marker.
+        environment.Write_File("install/user-folder", "");
+        DOCTEST_CHECK(uf::Resolve(environment.Path("install"), uf::PLATFORM_LINUX, &layout));
+        DOCTEST_CHECK(layout.data == environment.Path("home/.local/share/antares/"));
+        DOCTEST_CHECK(uf::Logs_Directory(environment.Path("install")) == environment.Path("home/.local/state/antares/logs/"));
+        // The overrides beat the marker, in order.
+        Set_Variable_("ORION2RE_XDG", "0");
+        DOCTEST_CHECK_FALSE(uf::Selected(environment.Path("install")));
+        Set_Variable_("ANTARES_XDG", "1");
+        DOCTEST_CHECK(uf::Selected(environment.Path("install")));
+        Set_Variable_("ANTARES_USER_FOLDER", "0");
+        DOCTEST_CHECK_FALSE(uf::Selected(environment.Path("install")));
+        // Never for the portable-only platform.
+        Unset_Variable_("ANTARES_USER_FOLDER");
+        DOCTEST_CHECK_FALSE(uf::Resolve(environment.Path("install"), uf::PLATFORM_PORTABLE_ONLY, &layout));
+    }
+
+    DOCTEST_TEST_CASE("saves and config folders follow user_paths") {
+        s_user_environment environment;
+        const std::string install = environment.Path("install") + "/";
+        DOCTEST_CHECK(uf::Saves_Directory(install) == install);
+        DOCTEST_CHECK(uf::Config_Directory(install) == install + "data/");
+        DOCTEST_REQUIRE(environment.Init());
+        DOCTEST_CHECK(uf::Saves_Directory(install) == environment.Path("home/.local/share/antares/"));
+        DOCTEST_CHECK(uf::Config_Directory(install) == environment.Path("home/.config/antares/"));
+    }
 }

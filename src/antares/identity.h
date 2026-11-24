@@ -29,6 +29,10 @@ namespace antares {
     // executable is the host's, which has already changed into the game folder: keep that.
     bool Set_Game_Directory(std::string* directory, std::string* error);
 
+    /** The folder that decides portable or user folder (WP5.9): the executable's, or hosted the
+     *  host's game folder (its working directory), since a macOS app's executable sits deeper. */
+    std::string Install_Directory();
+
     /** Reads ANTARES_<name>, falling back to the legacy ORION2RE_<name> for one release. */
     const char* Get_Env(const char* name);
 } // namespace antares

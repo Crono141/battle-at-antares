@@ -9,9 +9,11 @@
 #include <vector>
 
 #include "antares/identity.h"
+#include "antares/user_folder.h"
 #include "command_line.h"
 #include "config/config_loader.h"
 #include "config/config_runtime.h"
+#include "game/user_paths.h"
 #include "game/vfs.h"
 #include "launcher/launcher_app.h"
 #include "launcher_font.h"
@@ -137,7 +139,9 @@ int main(int argc, char** argv) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: SDL_Init failed: %s", SDL_GetError());
         return 1;
     }
-    if (vfs::Init(options.game_dir.c_str()) == 0) {
+    // The same portable-or-user-folder decision as the game's (WP5.9).
+    user_paths::Init(options.game_dir.c_str(), user_paths::PLATFORM_USES_XDG);
+    if (vfs::Init(options.game_dir.c_str()) == 0 || !antares::user_folder::Mount(options.game_dir)) {
         const std::string message = "Unable to read the game folder " + options.game_dir;
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Battle at Antares launcher", message.c_str(), nullptr);
         SDL_Quit();

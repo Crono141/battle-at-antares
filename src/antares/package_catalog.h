@@ -16,6 +16,7 @@ namespace antares {
         std::string id;          // folder name, or the zip's name without ".zip"
         std::string source_path; // the folder (ending in '/') or the zip on disk
         bool archive = false;
+        bool user_folder = false; // in the player's own mods/ (installed builds), not the bundled data/mods/
         bool valid = false;    // the manifest parsed and passed the game's checks
         std::string error;     // why not, when !valid ("file:line:column: message")
         bool art_only = false; // D18: not recorded in saves
@@ -26,8 +27,10 @@ namespace antares {
         config::s_mod_manifest manifest;
     };
 
-    /** Lists every package in <vfs base>/data/mods/, sorted by id. Needs vfs::Init. A package that
-     *  exists both as a folder and as a zip is listed once, with the game's error. */
+    /** Lists every package in the player's mods/ (installed builds) and <vfs base>/data/mods/,
+     *  sorted by id; the player's copy wins over a bundled one of the same id, as in the game.
+     *  Needs vfs::Init. A package that exists both as a folder and as a zip in one folder is listed
+     *  once, with the game's error. */
     std::vector<s_package_info> Discover_Packages();
 
     /** One mounted package's copy of a file. */
