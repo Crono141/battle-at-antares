@@ -931,6 +931,8 @@ func _view(scene_name: String) -> Control:
 			view.art = art
 		if view.has_signal("closed"):
 			view.closed.connect(_on_view_closed.bind(scene_name))
+		if scene_name == "colony_pane":
+			view.resized.connect(_on_colony_pane_resized)
 		if view.has_signal("action"):
 			view.action.connect(_on_view_action)
 		if view.has_signal("fleet_chosen"):
@@ -3696,6 +3698,15 @@ func _clear_map_controls() -> void:
 		if pane != null:
 			var gap := maxf(get_theme_constant_from(pane, "pane_gap"), 6.0)
 			pane.set_bottom_clear(get_viewport().get_visible_rect().size.y - controls.get_global_rect().position.y + gap)
+
+
+## The colony pane grows to fit its colony's rows, and a colony's rows come after the build list
+## opened beside the last one's width (screenshots, 2026-11-20: over a wider pane, a gap beside a
+## narrower one): the build list follows its edge.
+func _on_colony_pane_resized() -> void:
+	var build: Control = _views.get("build_pane")
+	if build != null and build.visible:
+		_place_build_pane() # sliding out too: it may be about to slide back in for the next colony
 
 
 ## Beside the colony pane, clear of the side tabs (Glass keeps them on the screen's right edge,
