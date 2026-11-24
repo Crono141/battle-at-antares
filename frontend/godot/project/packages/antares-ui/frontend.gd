@@ -8153,7 +8153,7 @@ func _smoke_combat(shots: String) -> bool:
 				print("smoke: FAILED: the %s layout moved the initiative bar or Options: %s, was %s" % [layout_name, fixed_after, fixed_before])
 			var screen := Rect2(Vector2.ZERO, view.size)
 			var panels := {"card": view._bridge_card, "minimap": view._minimap, "buttons": view._bottom, "round": view._top_left,
-				"initiative": view._timeline, "options": view._options_tab}
+				"initiative": view._timeline, "options": view._options_tab, "console": view._console, "fleets": view._fleets_panel, "log": view._log_panel}
 			var rects := {}
 			for key in panels.keys():
 				var c: Control = panels[key]
@@ -8499,6 +8499,7 @@ func _smoke_combat(shots: String) -> bool:
 			planet_rose = true
 	var bare_not_empty := planet_trace.any(func(e: Array) -> bool: return int(e[2]) == 0 and int(e[0]) != 0)
 	print("smoke: planet structure [now, max, defences] %s" % [planet_trace])
+	print("smoke: combat log %d lines, last %s" % [view._log_lines.size(), view._log_lines.slice(maxi(0, view._log_lines.size() - 3))])
 	if planet_rose or bare_not_empty:
 		print("smoke: FAILED: the planet's structure rose or stayed above zero with no defences")
 		return false

@@ -236,6 +236,7 @@ func _ready() -> void:
 	_world.add_child(_marks)
 	_build_hud()
 	_build_bridge()
+	_build_console()
 	_battle_layout = String(_load_setting("layout", "clear"))
 	if not LAYOUT_NAMES.has(_battle_layout):
 		_battle_layout = "clear"
@@ -319,6 +320,7 @@ func on_animate(id: int, request: Dictionary) -> void:
 	var dur := 0.0
 	var event_kind := String(event.get("kind", ""))
 	animated[event_kind] = int(animated.get(event_kind, 0)) + 1
+	_log_event(event)
 	if event.has("capture"):
 		_captures_seen = true # before the state: its damage and shield hits are in the capture
 	if not st.is_empty():
@@ -387,10 +389,14 @@ func _clear_area() -> Rect2:
 	if _bottom != null:
 		bottom = _bottom.get_rect().position.y - 12.0
 	var left := 24.0
+	var right_edge := size.x - 24.0
 	if _bridge() and _minimap != null:
 		left = _minimap.get_rect().end.x + 12.0 # the card, the buttons and the minimap down the left
 		bottom = size.y - 24.0
-	return Rect2(Vector2(left, top), Vector2(size.x - 24.0 - left, maxf(bottom - top, 100.0)))
+	if _console_mode() and _console != null:
+		bottom = _console.get_rect().position.y - 12.0
+		right_edge = _fleets_panel.get_rect().position.x - 12.0
+	return Rect2(Vector2(left, top), Vector2(right_edge - left, maxf(bottom - top, 100.0)))
 
 
 ## The camera frames the action (owner 2026-11-22) on the enemy's turn and on the player's while
@@ -534,6 +540,10 @@ func _open() -> void:
 	for key: Array in [[SFX, 3], [SFX, 4], [SFX, 5], ["sphersfx.lbx!glass=warp", 0], ["sphersfx.lbx!glass=warp", 1], [SFX + "!glass=pulsar", 52], [SFX, 6]]:
 		art.sprite(String(key[0]), int(key[1]))
 	_death_played.clear() # ship indexes start again in each battle
+	_log_lines.clear()
+	_fleets_key = ""
+	if _log_text != null:
+		_log_text.text = ""
 	_last_missiles.clear()
 	_gone.clear()
 	_officer_cry.clear()
@@ -942,7 +952,7 @@ func _fit_fleets() -> void:
 	# whole battle when it fits at that size, else the middle of it; the wheel goes wider.
 	_zoom = clampf(minf(view.x / box.size.x, view.y / box.size.y), 1.2, 2.0)
 	_cam = box.get_center() + Vector2(0, 50) / _zoom
-	if _bridge():
+	if _battle_layout != "clear":
 		# The fleets in the field the side panels leave open, not under the ship's card.
 		var area := _clear_area()
 		_zoom = clampf(minf(area.size.x / box.size.x, area.size.y / box.size.y), 1.0, 2.0)
@@ -1954,8 +1964,10 @@ func _layout() -> void:
 		_bottom.theme_type_variation = bottom_variation
 		if not _bridge():
 			_bottom.custom_minimum_size.x = 0.0
-	for pocket: PanelContainer in [_timeline, _strip, _top_left]:
-		var wanted: StringName = &"Pocket" if pocket == _timeline or (pocket == _top_left and _bridge()) else &"BottomPocket"
+	for pocket: PanelContainer in [_timeline, _strip, _top_left, _console]:
+		if pocket == null:
+			continue
+		var wanted: StringName = &"Pocket" if pocket == _timeline or (pocket == _top_left and _battle_layout != "clear") else &"BottomPocket"
 		var bare := get_theme_stylebox("panel", wanted) is StyleBoxEmpty
 		var variation: StringName = &"Pane" if bare else wanted
 		if pocket.theme_type_variation != variation:
@@ -2001,7 +2013,7 @@ func _layout() -> void:
 		var box := _top_left.get_theme_stylebox("panel")
 		var inner := box.get_content_margin(SIDE_LEFT) if box != null else 0.0
 		clear = maxf(0.0, 2.0 * float(tee.bar_center) + 12.0 - (edge + inner))
-	var right_side := _round_on_right() or _bridge()
+	var right_side := _bridge() or (_battle_layout == "clear" and _round_on_right())
 	_round_margin.add_theme_constant_override("margin_left", 0 if right_side else int(clear))
 	_round_margin.add_theme_constant_override("margin_right", int(clear) if right_side else 0)
 	_top_left.reset_size()
@@ -2026,6 +2038,8 @@ func _layout() -> void:
 		_scan_panel.modulate.a = lerpf(0.2, 1.0, k)
 	if _bridge():
 		_layout_bridge()
+	elif _console_mode():
+		_layout_console()
 	_frame_overlay.queue_redraw()
 
 
@@ -2050,13 +2064,13 @@ func _draw_frame() -> void:
 		return
 	var c: float = tee.bar_center
 	# The edge pockets meet the screen frame (as the galaxy's bars do).
-	for pocket: Control in [_timeline, _strip, _top_left]:
-		if not pocket.visible:
+	for pocket: Control in [_timeline, _strip, _top_left, _console]:
+		if pocket == null or not pocket.visible:
 			continue
 		var r := pocket.get_rect()
 		var top := pocket == _timeline
 		if pocket == _top_left:
-			_corner_tees(pocket, _round_on_right() or _bridge(), _bridge())
+			_corner_tees(pocket, _bridge() or (_battle_layout == "clear" and _round_on_right()), _battle_layout != "clear")
 			continue
 		for x in [r.position.x - _grow(pocket, 0) + c, r.end.x + _grow(pocket, 2) - c]:
 			if top:
@@ -2332,7 +2346,7 @@ func _build_options() -> void:
 		b.toggle_mode = true
 		b.button_group = layout_group
 		b.button_pressed = key == current
-		b.tooltip_text = "The battle's layout: Clear Field keeps the field open; Bridge puts your ship's card and a map of the field on the left"
+		b.tooltip_text = "The battle's layout: Clear Field keeps the field open; Bridge puts your ship's card and a map of the field on the left; Command Console puts your ship and its weapons along the bottom and both fleets on the right"
 		Themes.glowing(b)
 		layouts.add_child(b)
 		_layout_buttons[key] = b
@@ -2451,6 +2465,7 @@ func _arc_name(arc: int) -> String:
 ## (the legacy weapon list's lit lines). A click cycles on, fire once, off.
 func _refresh_strip() -> void:
 	_refresh_bridge()
+	_refresh_console()
 	var acting := _ship(int(state.get("ship", -1)))
 	if not _alive(acting) or not _mine(acting):
 		_strip_row.hide()
@@ -2722,6 +2737,8 @@ func _place_card() -> void:
 	_card.position = Vector2(x, size.y - corner - _card.size.y)
 	if _bridge(): # the target's card on the right, halfway down (the acting ship's is on the left)
 		_card.position = Vector2(size.x - corner - 6.0 - _card.size.x, roundf((size.y - _card.size.y) / 2.0))
+	elif _console_mode(): # beside the Fleets column, over the console
+		_card.position = Vector2(_fleets_panel.position.x - 10.0 - _card.size.x, _console.position.y - _grow(_console, 1) - 10.0 - _card.size.y)
 
 
 ## A colony's lines as the original's planet view lists them (owner 2026-11-23): its defences still
@@ -4162,7 +4179,7 @@ func _save_setting(key: String, value: Variant) -> void:
 # One battle, three arrangements of the same widgets and facts, picked in Options (saved as
 # [combat] layout). Clear Field is the default; the others move the pockets and add their panels.
 
-const LAYOUT_NAMES := {"clear": "Clear Field", "bridge": "Bridge"}
+const LAYOUT_NAMES := {"clear": "Clear Field", "bridge": "Bridge", "console": "Command Console"}
 var _battle_layout := "clear"
 var _layout_buttons := {}
 var _bridge_card: PanelContainer
@@ -4199,9 +4216,15 @@ func _apply_battle_layout() -> void:
 	if _strip == null:
 		return
 	var bridge := _bridge()
-	_strip.visible = not bridge
+	var console := _console_mode()
+	_strip.visible = not bridge and not console
 	_minimap.visible = bridge
-	_arrange_actions(bridge)
+	_console.visible = console
+	_fleets_panel.visible = console
+	_bottom.visible = not console
+	if not console:
+		_log_panel.hide()
+	_arrange_actions(_actions_grid if bridge else (_console_buttons if console else _actions))
 	if not bridge:
 		_bridge_card.hide()
 	if not state.is_empty():
@@ -4278,17 +4301,16 @@ var _bridge_box: VBoxContainer
 var _actions_grid: GridContainer
 
 
-## The action buttons in a row (Clear Field) or two by two (Bridge).
-func _arrange_actions(grid: bool) -> void:
-	var into: Container = _actions_grid if grid else _actions
+## The action buttons in a row (Clear Field), two by two (Bridge) or a column (Command Console).
+func _arrange_actions(into: Container) -> void:
 	if _wait_button.get_parent() == into:
 		return
 	for b: Button in [_wait_button, _done_button, _end_button, _auto_button]:
 		b.get_parent().remove_child(b)
 		into.add_child(b)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL if grid else Control.SIZE_FILL
-	_actions_grid.visible = grid
-	_actions.visible = not grid
+		b.size_flags_horizontal = Control.SIZE_FILL if into == _actions else Control.SIZE_EXPAND_FILL
+	_actions_grid.visible = into == _actions_grid
+	_actions.visible = into == _actions
 
 
 ## The left column's inner width (the card's contents and the minimap).
@@ -4506,4 +4528,374 @@ func _layout_bridge() -> void:
 	if _warn_panel.visible:
 		var tab_top := _bottom.position.y - _grow(_bottom, 1)
 		_warn_panel.position = Vector2(clampf(_bottom.position.x + (_bottom.size.x - _warn_panel.size.x) / 2.0, 0.0, size.x - _warn_panel.size.x),
+			lerpf(tab_top + 4.0, tab_top - _warn_panel.size.y - 6.0, clampf(_warn_anim, 0.0, 1.0)))
+
+
+# ---- C Command Console (owner 2026-11-24) ----
+# A console along the bottom: the acting ship, its weapons as a table with each one's fire setting
+# (On, Once, Off), its systems, the buttons. The Fleets column on the right lists both sides (a click
+# looks at the ship); the round box sits top left with a short log of the battle under it.
+
+var _console: PanelContainer
+var _console_name: Label
+var _console_sub: Label
+var _console_picture: TextureRect
+var _console_arcs: Control
+var _console_bars: Control
+var _console_weapons: VBoxContainer
+var _console_scroll: ScrollContainer
+var _console_systems: Label
+var _console_buttons: VBoxContainer
+var _console_ship := -1
+var _fleets_panel: PanelContainer
+var _fleets_scroll: ScrollContainer
+var _fleets_box: VBoxContainer
+var _fleets_key := ""
+var _log_panel: PanelContainer
+var _log_text: RichTextLabel
+var _log_lines: Array = []
+const CONSOLE_HEIGHT := 150.0
+const LOG_SHOWN := 6
+
+
+func _console_mode() -> bool:
+	return _battle_layout == "console"
+
+
+func _build_console() -> void:
+	_console = _panel(&"BottomPocket")
+	_console.hide()
+	add_child(_console)
+	var pad := MarginContainer.new() # clear of the frame's edge
+	pad.add_theme_constant_override("margin_left", 10)
+	pad.add_theme_constant_override("margin_right", 10)
+	_console.add_child(pad)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.custom_minimum_size = Vector2(0, CONSOLE_HEIGHT)
+	pad.add_child(row)
+	# The ship.
+	var who := VBoxContainer.new()
+	who.add_theme_constant_override("separation", 3)
+	who.custom_minimum_size = Vector2(190, 0)
+	row.add_child(who)
+	_console_name = _label("", 15, AMBER)
+	_console_name.clip_text = true
+	who.add_child(_console_name)
+	_console_sub = _label("", 11, DIM)
+	_console_sub.clip_text = true
+	who.add_child(_console_sub)
+	_console_picture = TextureRect.new()
+	_console_picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_console_picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_console_picture.custom_minimum_size = Vector2(190, 78)
+	who.add_child(_console_picture)
+	_console_arcs = Control.new()
+	_console_arcs.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_console_arcs.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_console_arcs.draw.connect(func(): _draw_arcs_of(_console_arcs, _console_ship))
+	_console_picture.add_child(_console_arcs)
+	_console_bars = _bars_control(Vector2(190, 8))
+	who.add_child(_console_bars)
+	row.add_child(VSeparator.new())
+	# The weapon table.
+	var table := VBoxContainer.new()
+	table.add_theme_constant_override("separation", 2)
+	table.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(table)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	table.add_child(head)
+	for col: Array in [["WEAPON", 0.0], ["ARC", 28.0], ["STATUS", 150.0], ["FIRE", 168.0]]:
+		var l := _label(String(col[0]), 11, DIM)
+		if float(col[1]) > 0.0:
+			l.custom_minimum_size.x = float(col[1])
+		else:
+			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head.add_child(l)
+	_console_scroll = ScrollContainer.new()
+	_console_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_console_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	table.add_child(_console_scroll)
+	_console_weapons = VBoxContainer.new()
+	_console_weapons.add_theme_constant_override("separation", 2)
+	_console_weapons.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_console_scroll.add_child(_console_weapons)
+	row.add_child(VSeparator.new())
+	# Systems and specials.
+	_console_systems = _label("", 11, DIM)
+	_console_systems.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_console_systems.custom_minimum_size = Vector2(260, 0)
+	_console_systems.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	row.add_child(_console_systems)
+	# The buttons (moved here from their tab while the console shows).
+	_console_buttons = VBoxContainer.new()
+	_console_buttons.add_theme_constant_override("separation", 6)
+	_console_buttons.custom_minimum_size = Vector2(120, 0)
+	row.add_child(_console_buttons)
+
+	_fleets_panel = _panel(&"Pane")
+	_fleets_panel.hide()
+	add_child(_fleets_panel)
+	var fv := VBoxContainer.new()
+	fv.add_theme_constant_override("separation", 6)
+	fv.custom_minimum_size = Vector2(230, 0)
+	_fleets_panel.add_child(fv)
+	var title := _label("FLEETS")
+	title.theme_type_variation = &"Section"
+	fv.add_child(title)
+	_fleets_scroll = ScrollContainer.new()
+	_fleets_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	fv.add_child(_fleets_scroll)
+	_fleets_box = VBoxContainer.new()
+	_fleets_box.add_theme_constant_override("separation", 3)
+	_fleets_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_fleets_scroll.add_child(_fleets_box)
+
+	_log_panel = _panel(&"Pane")
+	_log_panel.hide()
+	add_child(_log_panel)
+	var lv := VBoxContainer.new()
+	lv.add_theme_constant_override("separation", 4)
+	_log_panel.add_child(lv)
+	var log_title := _label("COMBAT LOG")
+	log_title.theme_type_variation = &"Section"
+	lv.add_child(log_title)
+	_log_text = RichTextLabel.new()
+	_log_text.bbcode_enabled = true
+	_log_text.fit_content = true
+	_log_text.scroll_active = false
+	_log_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_log_text.custom_minimum_size = Vector2(300, 0)
+	_log_text.add_theme_font_size_override("normal_font_size", 12)
+	lv.add_child(_log_text)
+
+
+## The acting ship in the console (shown while one of the player's ships acts).
+func _refresh_console() -> void:
+	if _console == null or not _console_mode():
+		return
+	var index := int(state.get("ship", -1))
+	var acting := _ship(index)
+	var mine := _alive(acting) and _mine(acting)
+	for c in [_console_name, _console_sub, _console_picture, _console_bars, _console_scroll, _console_systems]:
+		(c as CanvasItem).modulate.a = 1.0 if mine else 0.0
+	_refresh_fleets()
+	if not mine:
+		return
+	_console_ship = index
+	var scan: Dictionary = acting.get("scan", {})
+	_console_name.text = String(acting.get("name", ""))
+	var sub := []
+	for key in ["hull", "crew"]:
+		if scan.has(key) and String(scan[key]) != "":
+			sub.append(String(scan[key]))
+	_console_sub.text = "   ·   ".join(sub)
+	var sprite_info: Dictionary = acting.get("sprite", {})
+	_console_picture.texture = art.texture(String(sprite_info.get("lbx", "")), int(sprite_info.get("entry", -1)), 0)
+	_console_arcs.queue_redraw()
+	_set_bars(_console_bars, _view_ship(acting))
+	for child in _console_weapons.get_children():
+		_console_weapons.remove_child(child)
+		child.queue_free()
+	var in_arc := _slots_against(_hover_ship)
+	var targeted := _hover_ship >= 0 and not _mine(_ship(_hover_ship))
+	for weapon: Dictionary in acting.get("weapons", []):
+		var slot := int(weapon.get("slot", 0))
+		var count := int(weapon.get("count", 0))
+		var lit := targeted and in_arc.has(slot)
+		var info := _weapon_status(weapon, targeted, lit)
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 8)
+		var name := _label("%d × %s" % [count, String(weapon.get("name", ""))], 13, FIRE if lit else (SYSTEMS_COLOR if count == 0 else TEXT))
+		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name.clip_text = true
+		line.add_child(name)
+		var glyph := preload("arc_glyph.gd").new()
+		glyph.arc = _arc_glyph_index(int(weapon.get("arc", 0)))
+		glyph.custom_minimum_size = Vector2(28, 20)
+		glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		line.add_child(glyph)
+		var status := _label(String(info[0]), 12, FIRE if lit else DIM)
+		status.custom_minimum_size.x = 150
+		status.clip_text = true
+		line.add_child(status)
+		var fire := HBoxContainer.new()
+		fire.add_theme_constant_override("separation", 2)
+		fire.custom_minimum_size.x = 168
+		line.add_child(fire)
+		var active := int(weapon.get("active", 1))
+		for setting: Array in [[1, "On"], [0, "Once"], [-1, "Off"]]:
+			var want := int(setting[0])
+			var b := _flat_button(String(setting[1]), "", func(): _set_fire(slot, active, want))
+			b.theme_type_variation = &"Toggle"
+			b.toggle_mode = true
+			b.button_pressed = active == want
+			b.disabled = count == 0
+			b.custom_minimum_size = Vector2(54, 24)
+			b.add_theme_font_size_override("font_size", 12)
+			Themes.glowing(b)
+			fire.add_child(b)
+		_console_weapons.add_child(line)
+	var lines := []
+	var armor: Dictionary = acting.get("armor", {})
+	var structure: Dictionary = acting.get("structure", {})
+	lines.append("Armour %d / %d   Structure %d / %d" % [int(armor.get("now", 0)), int(armor.get("max", 0)), int(structure.get("now", 0)), int(structure.get("max", 0))])
+	lines.append("%d moves%s" % [int(acting.get("moves", 0)), ("   ·   marines %d" % int(acting.get("marines", 0))) if int(acting.get("marines", 0)) > 0 else ""])
+	for key: Array in [["computer", "Computer"], ["drive", "Drive"], ["shield", "Shield"]]:
+		if scan.has(key[0]) and String(scan[key[0]]) != "":
+			lines.append("%s: %s" % [key[1], String(scan[key[0]])])
+	var specials: Array = (scan.get("specials", []) as Array).map(func(s: Dictionary) -> String:
+		return String(s.get("name", "")) + (" (damaged)" if bool(s.get("damaged", false)) else ""))
+	if not specials.is_empty():
+		lines.append(", ".join(specials))
+	_console_systems.text = "\n".join(lines)
+
+
+## A weapon's fire setting: the game's toggle steps On -> Once -> Off -> On, one step a message.
+func _set_fire(slot: int, now: int, want: int) -> void:
+	var order := [1, 0, -1]
+	var steps := posmod(order.find(want) - order.find(now), 3)
+	for i in steps:
+		_act({"action": "toggle_weapon", "slot": slot})
+
+
+## The Fleets column: each side's ships still fighting, with their bars; a click looks at one.
+func _refresh_fleets() -> void:
+	var ships := _ships_list()
+	var key_parts := [int(state.get("ship", -1))]
+	for i in ships.size():
+		var ship: Dictionary = ships[i]
+		if _alive(ship):
+			var a: Dictionary = ship.get("armor", {})
+			var st: Dictionary = ship.get("structure", {})
+			key_parts.append("%d:%d:%d" % [i, int(a.get("now", 0)), int(st.get("now", 0))])
+	var key := str(key_parts)
+	if key == _fleets_key:
+		return
+	_fleets_key = key
+	for child in _fleets_box.get_children():
+		_fleets_box.remove_child(child)
+		child.queue_free()
+	var me := int(state.get("player", -1))
+	for mine_side in [true, false]:
+		var rows: Array = []
+		var owner := -1
+		for i in ships.size():
+			var ship: Dictionary = ships[i]
+			if _alive(ship) and _mine(ship) == mine_side:
+				rows.append(i)
+				if not bool(ship.get("planet", false)):
+					owner = int(ship.get("owner", -1))
+		if rows.is_empty():
+			continue
+		if owner < 0:
+			owner = me if mine_side else (int(state.get("defender", -1)) if me == int(state.get("attacker", -1)) else int(state.get("attacker", -1)))
+		var head := _label("%s   %d" % [_side_name(owner), rows.size()], 13, AMBER if mine_side else _color(_ship(rows[0])).lightened(0.25))
+		_fleets_box.add_child(head)
+		for i: int in rows:
+			var ship: Dictionary = ships[i]
+			var row_style: StringName = &"RowOpen" if i == int(state.get("ship", -1)) else &"Row"
+			var row := _panel(row_style)
+			var row_box: StyleBox = row.get_theme_stylebox("panel", row_style)
+			if row_box != null: # compact rows: a long fleet still shows most of its ships
+				row_box = row_box.duplicate()
+				row_box.content_margin_top = 2
+				row_box.content_margin_bottom = 3
+				row.add_theme_stylebox_override("panel", row_box)
+			row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+			row.tooltip_text = "Look at it"
+			var v := VBoxContainer.new()
+			v.add_theme_constant_override("separation", 2)
+			row.add_child(v)
+			var name := _label(String(ship.get("name", "")), 11, AMBER if i == int(state.get("ship", -1)) else TEXT)
+			name.clip_text = true
+			v.add_child(name)
+			var bars := _bars_control(Vector2(200, 5))
+			v.add_child(bars)
+			_set_bars(bars, _view_ship(ship))
+			row.gui_input.connect(func(event: InputEvent):
+				var b := event as InputEventMouseButton
+				if b != null and b.button_index == MOUSE_BUTTON_LEFT and b.pressed and _ships.has(i):
+					_cam = _ships[i].shown
+					_cam_goal = Vector2.INF
+					_place_world()
+					row.accept_event())
+			_fleets_box.add_child(row)
+
+
+## A line of the battle's log from an effect the rules played (beams, launches, deaths, retreats).
+func _log_event(event: Dictionary) -> void:
+	var kind := String(event.get("kind", ""))
+	var line := ""
+	match kind:
+		"beam":
+			if bool(event.get("missile", false)):
+				return
+			var shots: Array = event.get("shots", [])
+			var names: Array = []
+			for shot: Dictionary in shots:
+				var n := "%d %s" % [int(shot.get("count", 0)), String(shot.get("name", ""))]
+				if not names.has(n):
+					names.append(n)
+			var damage := 0
+			var before: Dictionary = event.get("before", {})
+			if not before.is_empty() and not shots.is_empty():
+				var after: Dictionary = (shots.back() as Dictionary).get("after", before)
+				damage = (int(before.get("armor", 0)) + int(before.get("structure", 0))) - (int(after.get("armor", 0)) + int(after.get("structure", 0)))
+			line = "%s fires %s at %s%s" % [_log_name(int(event.get("from", -1))), ", ".join(names), _log_name(int(event.get("to", -1))),
+				(": %d damage" % damage) if damage > 0 else ": no damage"]
+		"missile_launch":
+			if bool(event.get("at_missile", false)):
+				return
+			line = "%s launches %d %s at %s" % [_log_name(int(event.get("from", -1))), int(event.get("count", 0)), String(event.get("name", "")),
+				_log_name(int(event.get("to", -1)))]
+		"destroyed":
+			line = "%s destroyed" % _log_name(int(event.get("ship", -1)))
+		"retreat":
+			line = "%s retreats" % _log_name(int(event.get("ship", -1)))
+		_:
+			return
+	_log_lines.append(line)
+	if _log_lines.size() > 40:
+		_log_lines.pop_front()
+	if _log_text != null:
+		var shown := _log_lines.slice(maxi(0, _log_lines.size() - LOG_SHOWN))
+		_log_text.text = "\n".join(shown)
+
+
+func _log_name(index: int) -> String:
+	var ship := _ship(index)
+	if ship.is_empty():
+		return "?"
+	var c := AMBER if _mine(ship) else _color(ship).lightened(0.3)
+	return "[color=#%s]%s[/color]" % [c.to_html(false), String(ship.get("name", "")).replace("[", "(")]
+
+
+## Console placement, after Clear Field's: the console along the bottom between the frame's
+## corners, the Fleets column on the right above it, the round box top left, the log under it.
+func _layout_console() -> void:
+	var edge := _edge()
+	var inset := float(get_theme_constant("inset", "Screen"))
+	var corner := (inset if inset > 0.0 else 6.0) + 6.0
+	_console.custom_minimum_size.x = size.x - 2.0 * edge
+	_console.reset_size()
+	_console.position = Vector2(edge, size.y - edge - _console.size.y)
+	_top_left.reset_size()
+	_top_left.position = Vector2(edge, edge)
+	var top := corner
+	var bottom := _console.position.y - _grow(_console, 1) - 10.0
+	var head := _fleets_panel.get_combined_minimum_size().y - _fleets_scroll.get_combined_minimum_size().y
+	_fleets_scroll.custom_minimum_size = Vector2(0, clampf(_fleets_box.get_combined_minimum_size().y, 40.0, maxf(bottom - top - head, 40.0)))
+	_fleets_panel.reset_size()
+	_fleets_panel.position = Vector2(size.x - corner - _fleets_panel.size.x, top)
+	_log_panel.visible = not _log_lines.is_empty()
+	if _log_panel.visible:
+		var log_w := _timeline.position.x - _grow(_timeline, 0) - 12.0 - corner
+		_log_text.custom_minimum_size.x = clampf(log_w - (_log_panel.get_combined_minimum_size().x - _log_text.custom_minimum_size.x), 180.0, 340.0)
+		_log_panel.reset_size()
+		_log_panel.position = Vector2(corner, _top_left.position.y + _top_left.size.y + _grow(_top_left, 3) + 10.0)
+	if _warn_panel.visible:
+		var tab_top := _console.position.y - _grow(_console, 1)
+		_warn_panel.position = Vector2(roundf((size.x - _warn_panel.size.x) / 2.0),
 			lerpf(tab_top + 4.0, tab_top - _warn_panel.size.y - 6.0, clampf(_warn_anim, 0.0, 1.0)))
