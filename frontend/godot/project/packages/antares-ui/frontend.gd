@@ -7705,6 +7705,8 @@ func _smoke_retreat(shots: String) -> void:
 	if view == null or not view._my_turn():
 		print("smoke: FAILED: retreat: no battle")
 		return
+	if "--instant" in OS.get_cmdline_user_args():
+		view._move_speed = view.MOVE_SPEEDS.size() - 1 # the owner's: Instant ship speed
 	var ordered: Array = []
 	for i in 2:
 		var acting := int(view.state.get("ship", -1))
@@ -7725,9 +7727,17 @@ func _smoke_retreat(shots: String) -> void:
 		waited += 0.25
 		if not view.visible or (int(view.state.get("round", 0)) > round0 and view._my_turn()):
 			break
+	await get_tree().create_timer(2.0).timeout # any warp-out played out
 	var left: Array = ordered.filter(func(i: int) -> bool: return view._alive(view._ship(i)) or view._ships.has(i))
-	print("smoke: retreat: round %s, retreat effects %d, still on the field %s, battle on %s" % [view.state.get("round", -1),
-		int(view.animated.get("retreat", 0)) - retreats_before, left, view.visible])
+	for i: int in ordered:
+		if view._ships.has(i):
+			var sp: Sprite2D = view._ships[i].sprite
+			print("smoke: retreat: ship %d sprite visible %s alpha %.2f status %s" % [i, sp.visible, sp.modulate.a, view._ship(i).get("status", "?")])
+	var exploded: Array = ordered.filter(func(i: int) -> bool: return view.explosions_played.has(i))
+	print("smoke: retreat: round %s, retreat effects %d, still on the field %s, exploded %s, battle on %s" % [view.state.get("round", -1),
+		int(view.animated.get("retreat", 0)) - retreats_before, left, exploded, view.visible])
+	if not exploded.is_empty():
+		print("smoke: FAILED: retreating ships exploded")
 	if shots != "":
 		await host.shot(shots + "/combat-retreated.png")
 	if view.visible and not left.is_empty():

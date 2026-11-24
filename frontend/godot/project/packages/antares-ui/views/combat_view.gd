@@ -731,7 +731,7 @@ func _process(delta: float) -> void:
 		var spin := _spin_facing(index)
 		if spin >= 0:
 			e.angle = -float(spin) * PI / 8.0 # the gyro destabilizer's spin, a facing at a time
-		e.sprite.position = e.shown + _ship_shake(index)
+		e.sprite.position = e.shown + _ship_shake(index) + _ship_slide(index)
 		e.sprite.rotation = e.angle
 		var look := _ship_effect_look(index)
 		var ship_now := _ship(index)
@@ -3355,7 +3355,11 @@ func _play_death(event: Dictionary) -> float:
 
 ## Destroy_Ship_FX's explosion: CMBTSFX 3 (size 0, 18 frames), 4 (sizes 1-2), 5 (3-5; 12 frames),
 ## 55 ms a frame, the ship gone from the middle frame; Play_Ship_Explosion_SFX's sound.
+var explosions_played := {} # ship index -> true (the smokes)
+
+
 func _play_explosion(index: int, at: Vector2, size: int) -> float:
+	explosions_played[index] = true
 	var entry := 3 if size == 0 else (4 if size <= 2 else 5)
 	var frames := 18 if entry == 3 else 12
 	var parts: Array = [{"type": "anim", "name": SFX, "entry": entry, "at": at, "start": 0.0, "frame_time": TICK_S, "frames": frames},
@@ -3484,6 +3488,20 @@ func _spin_facing(index: int) -> int:
 				done = mini(done, steps)
 			return posmod(int(part.facing) + done, 16)
 	return -1
+
+
+## A retreating ship's way into its portal (owner 2026-11-23: the portal opened and the ship just
+## vanished): it slides the part's `slide` ahead as it fades, speeding up (CMBTDRW1's warp-out).
+func _ship_slide(index: int) -> Vector2:
+	for effect: Dictionary in _effects:
+		if String(effect.kind) != "sfx" or float(effect.t) <= 0.0:
+			continue
+		for part: Dictionary in effect.parts:
+			if int(part.get("ship", -999)) != index or String(part.type) != "fade" or not part.has("slide"):
+				continue
+			var k := clampf((float(effect.t) - float(part.get("start", 0.0))) / maxf(float(part.get("dur", 1.0)), 0.001), 0.0, 1.0)
+			return (part.slide as Vector2) * k * k
+	return Vector2.ZERO
 
 
 ## A ship's look during a fade, retreat, death or collapse (the ship sprite's modulate).
@@ -3731,7 +3749,9 @@ func _diff_effects(before: Dictionary, after: Dictionary) -> void:
 		var at: Vector2 = _ships[index].shown if _ships.has(index) else _center(old)
 		if int(ship.get("status", 0)) != 0:
 			# A death without its event (an older engine): the ordinary explosion.
-			if int(ship.get("status", 0)) == 5 and not _death_played.has(index):
+			# Not a ship that left (owner 2026-11-23: retreating ships exploded as they warped out).
+			if int(ship.get("status", 0)) == 5 and not _death_played.has(index) and not bool(ship.get("retreating", false)) \
+					and not bool(old.get("retreating", false)):
 				_death_played[index] = true
 				_play_explosion(index, at, int(old.get("size", 0)))
 			continue
