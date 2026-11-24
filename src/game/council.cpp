@@ -198,7 +198,6 @@ namespace council {
         JIM::Play_Streaming_Music(0x77 /* MUSIC_COUNCIL */, -1, 1);
         if (!native_council) {
             ERIC::Set_Fade_Percent(0);
-            ERIC::Set_Fade_Speed_Percent(10);
             ERIC::Fast_Fade_Out();
         }
         fields::Set_Input_Delay(1);
@@ -237,7 +236,6 @@ namespace council {
         JIM::Play_Background_Music();
         if (!was_native) {
             ERIC::Set_Fade_Percent(0);
-            ERIC::Set_Fade_Speed_Percent(10);
             ERIC::Fast_Fade_Out();
         }
         RUSS::Release_All_Blocks(MOX::screen_seg);

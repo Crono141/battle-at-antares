@@ -949,6 +949,8 @@ func _view(scene_name: String) -> Control:
 			view.art = art
 		if view.has_signal("closed"):
 			view.closed.connect(_on_view_closed.bind(scene_name))
+		if scene_name == "colony_pane":
+			view.resized.connect(_on_colony_pane_resized)
 		if view.has_signal("action"):
 			view.action.connect(_on_view_action)
 		if view.has_signal("fleet_chosen"):
@@ -1012,13 +1014,6 @@ func _view(scene_name: String) -> Control:
 		_raise_chrome() # the bar, the pockets, the tabs and the frame stay over every view
 		_views[scene_name] = view
 		_attach_view_help(scene_name, view)
-		if scene_name == "colony_pane":
-			# It grows to fit its rows once its colony's data arrives, after a build pane opened
-			# with it was placed (owner 2026-11-23: opened from the Colonies panel, the build pane
-			# overlapped it): the build pane moves along.
-			view.resized.connect(func():
-				if _views.has("build_pane") and _views.build_pane.visible:
-					_place_build_pane.call_deferred())
 		if scene_name == "side_tabs": # their column limits the scale
 			_apply_saved_scale.call_deferred()
 		if scene_name == "options_menu":
@@ -3615,10 +3610,9 @@ func _open_design(slot: int) -> void:
 
 
 func _on_design_built(_slot: int) -> void:
-	# An open build list offers the new design (to build, and to refit to).
 	var build: Control = _views.get("build_pane")
-	if build != null and build.visible:
-		build.refresh_options()
+	if build != null:
+		build.refresh_choices() # an open build list shows the new design
 	var designs := _view("design_list")
 	_bring_up(designs)
 	designs.fit_bottom(_side_panel_area().end.y)
@@ -3985,6 +3979,15 @@ func _clear_map_controls() -> void:
 		if pane != null:
 			var gap := maxf(get_theme_constant_from(pane, "pane_gap"), 6.0)
 			pane.set_bottom_clear(get_viewport().get_visible_rect().size.y - controls.get_global_rect().position.y + gap)
+
+
+## The colony pane grows to fit its colony's rows, and a colony's rows come after the build list
+## opened beside the last one's width (screenshots, 2026-11-20: over a wider pane, a gap beside a
+## narrower one): the build list follows its edge.
+func _on_colony_pane_resized() -> void:
+	var build: Control = _views.get("build_pane")
+	if build != null and build.visible:
+		_place_build_pane() # sliding out too: it may be about to slide back in for the next colony
 
 
 ## Beside the colony pane, clear of the side tabs (Glass keeps them on the screen's right edge,

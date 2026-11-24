@@ -147,7 +147,7 @@ function(orion2re_add_game_test TARGET_NAME)
             ${ORION2RE_LIBSMACKER_SOURCES}
             ${ORION2RE_YYJSON_SOURCES}
         LIBRARIES
-            ${ORION2RE_LIBUV_TARGET} ${ORION2RE_LZ4_TARGET} webpdecoder orion2re_stb_vorbis orion2re_lua orion2re_scalers ${ORION2RE_MINIZ_TARGET} orion2re_imgui
+            ${ORION2RE_LIBUV_TARGET} ${ORION2RE_LZ4_TARGET} ${ORION2RE_LIBWEBP_TARGET} orion2re_stb_vorbis orion2re_lua orion2re_scalers ${ORION2RE_MINIZ_TARGET} orion2re_imgui
         LINK_SDL
     )
     target_include_directories(${TARGET_NAME} PRIVATE
@@ -809,6 +809,10 @@ orion2re_add_unit_test(test_production_rules
 
 orion2re_add_game_test(test_design_weapon_damage
     tests/unit/design_test.cpp
+)
+
+orion2re_add_game_test(test_ship_stats
+    tests/unit/ship_stats_test.cpp
 )
 
 orion2re_add_game_test(test_list_navigation

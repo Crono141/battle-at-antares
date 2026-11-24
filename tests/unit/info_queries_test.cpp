@@ -52,4 +52,14 @@ DOCTEST_TEST_CASE("the Info panel: its tab and graph choices, the history, the t
     const std::string review = Run_("{\"verb\":\"query\",\"what\":\"tech_review\"}");
     DOCTEST_CHECK(Has_(review, "\"apps\":[{\"app\":8,"));
     DOCTEST_CHECK(!Has_(review, "\"app\":7"));
+    // Another empire's review: each application says whether the player has it too.
+    i_players_[1].tech_applications[7] = TECH_RESEARCH_STATUS_RESEARCHED;
+    i_players_[1].tech_applications[8] = TECH_RESEARCH_STATUS_RESEARCHED;
+    const std::string theirs = Run_("{\"verb\":\"query\",\"what\":\"tech_review\",\"player\":1}");
+    const size_t app7 = theirs.find("\"app\":7,");
+    const size_t app8 = theirs.find("\"app\":8,");
+    DOCTEST_REQUIRE(app7 != std::string::npos);
+    DOCTEST_REQUIRE(app8 != std::string::npos);
+    DOCTEST_CHECK(theirs.find("\"player_has\":false", app7) < app8); // the player lacks 7
+    DOCTEST_CHECK(theirs.find("\"player_has\":true", app8) != std::string::npos); // and has 8
 }

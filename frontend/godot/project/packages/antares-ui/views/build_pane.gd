@@ -50,8 +50,9 @@ var _queue: Array = [] # [{id, name, picture}], REPEAT entries included
 var _edits: Array = []
 var _names := {} # item id -> {name, picture} (the lists' items)
 var _tween: Tween
+## Sliding out: still visible until the slide ends, but new contents slide it back in.
+var _sliding_out := false
 var _shown_left := 0.0
-var _sliding_in := false # the running slide opens the pane (place_at retargets it)
 var _drop_gap := -1 # where a drag over the list would land (-1: no drag)
 var _marker: Control
 var _refit_popup: Popup
@@ -107,19 +108,14 @@ func set_bottom_clear(room: float) -> void:
 ## Its left edge at `x` (the colony pane's actual right edge plus the gap: that pane grows with its
 ## contents), its right edge no further than `right` (the side tabs) or the screen's inset.
 func place_at(x: float, right := INF) -> void:
-	offset_left = x
 	var edge := get_viewport_rect().size.x - get_theme_constant("inset", "Screen") - get_theme_constant("pane_gap", "Screen")
-	var room := minf(edge, right) - x
-	offset_right = x + clampf(room, 0.0, WIDTH)
+	var width := clampf(minf(edge, right) - x, 0.0, WIDTH)
 	_shown_left = x
-	# Placed again while sliding in (owner 2026-11-23: the colony pane grew once its data came,
-	# and the slide went on to the old place, over it): the slide heads for the new place.
-	if _tween and _tween.is_running() and _sliding_in:
-		var left := modulate.a
-		_tween.kill()
-		_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		_tween.tween_method(func(at: float): preload("../themes.gd").move_x(self, at), position.x, _shown_left, SLIDE_TIME * (1.0 - left * 0.5))
-		_tween.tween_property(self, "modulate:a", 1.0, SLIDE_TIME * (1.0 - left * 0.5))
+	if _tween and _tween.is_running():
+		offset_right = offset_left + width # mid-slide: the slide carries it to x
+	else:
+		offset_left = x
+		offset_right = x + width
 
 
 ## Opens on a colony's queue (`bought`: its front item is bought and stays first).
@@ -135,6 +131,8 @@ func open(id: int, is_bought: bool) -> void:
 
 
 func show_options(result: Dictionary) -> void:
+	if int(result.get("colony", colony_id)) != colony_id:
+		return # an answer for a colony asked for before this one
 	if not result.get("ok", false):
 		return
 	options = result
@@ -153,8 +151,42 @@ func show_options(result: Dictionary) -> void:
 	_show_items()
 	_show_queue()
 	_show_detail(_queue[0] if not _queue.is_empty() else {})
-	if not visible:
+	if not visible or _sliding_out:
 		_slide(true)
+
+
+## The ship designs changed (a design built in the Ship Design panel): the choices are asked for
+## again; the working queue and its edits stay, its ships under their new names.
+func refresh_choices() -> void:
+	if visible and colony_id >= 0:
+		command.emit({"verb": "query", "what": "build_options", "colony": colony_id, "_reply_to": "_show_new_choices"})
+
+
+func _show_new_choices(result: Dictionary) -> void:
+	if not result.get("ok", false) or int(result.get("colony", colony_id)) != colony_id or options.is_empty():
+		return
+	options.buildings = result.buildings
+	options.units = result.units
+	if result.has("refit"):
+		options.refit = result.refit # REFIT's designs too (owner 2026-11-23: a new design wasn't offered)
+	_names.clear()
+	for list in [result.buildings, result.units]:
+		for item: Dictionary in list:
+			if item.has("id"):
+				_names[int(item.id)] = item
+	for q: Dictionary in _queue:
+		var entry: Dictionary = _names.get(int(q.get("id", -1)), {})
+		if not entry.is_empty():
+			q.name = entry.get("name", q.get("name", "?"))
+			q.picture = entry.get("picture", q.get("picture", {}))
+	_show_items()
+	_show_queue()
+	# An open refit popup shows the new designs.
+	if is_instance_valid(_refit_popup) and _refit_popup.visible and _refit_popup_ship >= 0:
+		for ship: Dictionary in options.get("refit", {}).get("ships", []):
+			if int(ship.ship) == _refit_popup_ship and is_instance_valid(_refit_popup_at):
+				_open_refit_popup(ship, _refit_popup_at, _refit_popup_gap)
+				break
 
 
 func cancel() -> void:
@@ -245,6 +277,13 @@ func _refit(ship: Dictionary, target: Dictionary, gap := -1) -> void:
 	_place_last(gap)
 	_show_items()
 	_show_queue()
+
+
+## Where "first" is: the top, or after a bought front item (it stays first) and its repeat.
+func _first_gap() -> int:
+	if bought and not _queue.is_empty():
+		return _pair(0).y
+	return 0
 
 
 ## The item just added at the end goes to `gap` (between items; -1 or the end: stays).
@@ -368,7 +407,9 @@ func _fill(box: VBoxContainer, list: Array) -> void:
 		b.add_theme_font_size_override("font_size", 19)
 		var id := int(item.id)
 		b.mouse_entered.connect(func(): _show_detail(item))
-		b.pressed.connect(func(): _add(id))
+		b.tooltip_text = "Click: add at the end\nShift+click: add first"
+		# Shift: first in the list (a new tech built at once, ahead of a queue or Trade Goods).
+		b.pressed.connect(func(): _add(id, _first_gap() if Input.is_key_pressed(KEY_SHIFT) else -1))
 		_arm_drag(b, {"kind": "item", "id": id, "item": item})
 		box.add_child(b)
 
@@ -411,33 +452,6 @@ func _show_refit_ships() -> void:
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		l.custom_minimum_size.x = 200
 		items_box.add_child(l)
-
-
-## The game's lists again, the pane's own queue and edits kept (owner 2026-11-23: a design saved
-## while REFIT was open wasn't offered until the build list was opened again): what can be built,
-## the refit ships and the designs they can become; an open refit popup shows the new designs.
-func refresh_options() -> void:
-	if visible:
-		command.emit({"verb": "query", "what": "build_options", "colony": colony_id, "_reply_to": "_on_options_refreshed"})
-
-
-func _on_options_refreshed(result: Dictionary) -> void:
-	if not result.get("ok", false) or not visible:
-		return
-	for key in ["buildings", "units", "refit"]:
-		if result.has(key):
-			options[key] = result[key]
-	_names.clear()
-	for list in [options.buildings, options.units]:
-		for item: Dictionary in list:
-			if item.has("id"):
-				_names[int(item.id)] = item
-	_show_items()
-	if is_instance_valid(_refit_popup) and _refit_popup.visible and _refit_popup_ship >= 0:
-		for ship: Dictionary in options.get("refit", {}).get("ships", []):
-			if int(ship.ship) == _refit_popup_ship and is_instance_valid(_refit_popup_at):
-				_open_refit_popup(ship, _refit_popup_at, _refit_popup_gap)
-				break
 
 
 var _refit_popup_ship := -1
@@ -951,17 +965,24 @@ func _sprite(lbx: String, entry: int, min_size: Vector2) -> TextureRect:
 func _slide(opening: bool) -> void:
 	if _tween:
 		_tween.kill()
-	_sliding_in = opening
 	var hidden_x := _shown_left - 80.0
+	_sliding_out = not opening
 	if opening:
 		show()
 		modulate.a = 0.0
 		preload("../themes.gd").move_x(self, hidden_x)
 	_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_tween.tween_method(func(x: float): preload("../themes.gd").move_x(self, x), position.x, _shown_left if opening else hidden_x, SLIDE_TIME)
+	# Towards where it rests now, not where it rested when the slide began: place_at moves it while
+	# it slides in (the colony pane beside it widened as its colony's rows came).
+	var from_x := position.x
+	_tween.tween_method(func(t: float):
+		var to_x := _shown_left if opening else _shown_left - 80.0
+		preload("../themes.gd").move_x(self, lerpf(from_x, to_x, t)), 0.0, 1.0, SLIDE_TIME)
 	_tween.tween_property(self, "modulate:a", 1.0 if opening else 0.0, SLIDE_TIME)
 	if not opening:
-		_tween.chain().tween_callback(hide)
+		_tween.chain().tween_callback(func():
+			hide()
+			_sliding_out = false)
 
 
 func _unhandled_key_input(event: InputEvent) -> void:

@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -142,6 +143,27 @@ namespace COLONY {
 } // namespace COLONY
 
 namespace COLCALC {
+    // The breakdowns: each writes the legacy text (tab stops, two rows, a blank line, the total)
+    // and scribbles on the colony, as the real calculators rewrite it.
+    char* bc_summary_msg = const_cast<char*>("BC Summary");
+    char* food_summary_msg = const_cast<char*>("Food Summary");
+    char* industry_summary_msg = const_cast<char*>("Industry Summary");
+    char* research_summary_msg = const_cast<char*>("Research Summary");
+    char* morale_summary_msg = const_cast<char*>("Morale Summary");
+
+    static void Fake_Breakdown(s_colony* colony, STRBUILD::s_builder* out, const char* what) {
+        colony->production[ECON_FOOD] = 999;
+        if (out != nullptr) {
+            out->cur += snprintf(out->cur, (size_t)(out->end - out->cur),
+                "\x07T+15,+65.\x1A" "0\t+3\tProduced by %s\r\t-1\tGravity penalty\r\r\t+2\tTotal %s\r", what, what);
+        }
+    }
+    void __cdecl Colony_BC_Production(s_colony* c, STRBUILD::s_builder* out) { Fake_Breakdown(c, out, "bc"); }
+    void __cdecl Colony_Food_Production(s_colony* c, STRBUILD::s_builder* out) { Fake_Breakdown(c, out, "food"); }
+    void __cdecl Colony_Industry_Production(s_colony* c, STRBUILD::s_builder* out) { Fake_Breakdown(c, out, "industry"); }
+    void __cdecl Colony_Research_Production(s_colony* c, STRBUILD::s_builder* out) { Fake_Breakdown(c, out, "research"); }
+    void __cdecl Colony_Morale(s_colony* c, STRBUILD::s_builder* out) { Fake_Breakdown(c, out, "morale"); }
+
     int32_t __cdecl Colony_Product_Cost(s_colony*, int16_t id) {
         return id > 0 ? 100 * id : 250;
     }

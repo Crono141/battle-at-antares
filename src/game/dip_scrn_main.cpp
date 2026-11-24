@@ -1297,7 +1297,6 @@ namespace DIP_SCRN {
 
         if (!Native_Diplomacy_Wanted()) { // a native window opens over what is there
             ERIC::Set_Fade_Percent(0);
-            ERIC::Set_Fade_Speed_Percent(10);
             ERIC::Fast_Fade_Out();
         }
 
@@ -1370,7 +1369,6 @@ namespace DIP_SCRN {
         RUSS::Release_All_Blocks(MOX::screen_seg);
         if (!was_native) {
             ERIC::Set_Fade_Percent(0);
-            ERIC::Set_Fade_Speed_Percent(10);
             ERIC::Fast_Fade_Out();
         }
     }
@@ -1392,7 +1390,6 @@ namespace DIP_SCRN {
         old_response_message = -1;
         if (!Native_Diplomacy_Wanted()) { // a native window opens over what is there
             ERIC::Set_Fade_Percent(0);
-            ERIC::Set_Fade_Speed_Percent(10);
             ERIC::Fast_Fade_Out();
         }
         fields::Set_Input_Delay(1);
@@ -1574,7 +1571,6 @@ namespace DIP_SCRN {
         RUSS::Release_All_Blocks(MOX::screen_seg);
         if (!was_native) {
             ERIC::Set_Fade_Percent(0);
-            ERIC::Set_Fade_Speed_Percent(10);
             ERIC::Fast_Fade_Out();
         }
         JIM::jim_current_stream = -1;
