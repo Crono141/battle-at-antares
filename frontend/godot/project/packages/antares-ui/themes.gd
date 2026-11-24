@@ -123,8 +123,18 @@ static func see_through(pane: Control, pane_alpha := 0.62, frame_alpha := 0.55) 
 ## Glass the colony pane's rows ran right up to the bar). ScrollContainer has no such spacing, so
 ## the bar is made `gap` wider with its styles drawn only in its right part; the content gives up
 ## that room only while the bar shows. Taken again from the theme whenever it changes.
-static func scroll_gap(scroll: ScrollContainer, gap := 10.0) -> void:
-	var bar := scroll.get_v_scroll_bar()
+##
+## Since 2026-11-24 (owner: the Options flyout's bar touched its rows, "sweep for it") the frontend
+## gives every scroll area this gap as it enters the tree (`gap_all_scrolls`): ScrollContainers and
+## RichTextLabels (their own bar). Applied once per area.
+const SCROLL_GAP := 10.0
+
+
+static func scroll_gap(scroll: Control, gap := SCROLL_GAP) -> void:
+	if scroll.has_meta("_scroll_gap"):
+		return
+	scroll.set_meta("_scroll_gap", true)
+	var bar: VScrollBar = scroll.call("get_v_scroll_bar")
 	var apply := func() -> void:
 		if bar.has_meta("_gapping"):
 			return

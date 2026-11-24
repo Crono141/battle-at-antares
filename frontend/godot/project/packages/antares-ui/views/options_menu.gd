@@ -17,7 +17,6 @@ signal scale_auto_changed(on: bool)
 signal flight_changed(seconds: float)
 ## AUTO ADDRESS TO-DOS switched (owner, 2026-11-20).
 signal todo_auto_changed(on: bool)
-signal native_battles_changed(on: bool) # WP3.9: battles in the native scene (preview)
 ## A right click's help on a row (a HELP.LBX record; the frontend shows it).
 signal help_requested(topic: int, at: Control)
 
@@ -79,7 +78,10 @@ func _ready() -> void:
 		scale_changed.emit(v, true))
 	_add_flight_row()
 	_add_todo_row()
-	_add_native_battles_row()
+	# Sound first, above the map (owner 2026-11-24).
+	var box: VBoxContainer = $Fit/Box
+	for i in 3:
+		box.move_child([$Fit/Box/SoundTitle, $Fit/Box/Music, $Fit/Box/Sound][i], $Fit/Box/Header.get_index() + 1 + i)
 	theme_button.item_selected.connect(func(index: int):
 		if index >= 0 and index < _theme_ids.size():
 			theme_chosen.emit(_theme_ids[index]))
@@ -290,9 +292,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	elif key.alt_pressed and key.keycode == KEY_V:
 		action.emit("influence")
-	elif key.keycode == KEY_F4 and not key.alt_pressed:
+	elif key.keycode == KEY_F4 and not key.alt_pressed and not $Fit/Box/Map/Relocations.disabled:
 		action.emit("merge_relocations")
-	elif key.keycode == KEY_F9 and not key.alt_pressed:
+	elif key.keycode == KEY_F9 and not key.alt_pressed and not $Fit/Box/Map/Distance.disabled:
 		action.emit("distance")
 	elif key.alt_pressed and key.keycode >= KEY_F1 and key.keycode <= KEY_F8:
 		command.emit({"verb": "toggle_option", "option": key.keycode - KEY_F1})
@@ -336,9 +338,10 @@ static func shortcut_for(text: String) -> Shortcut:
 	return shortcut
 
 
-## SYSTEM ZOOM (owner, 2026-11-13): how long the flight into and out of a system takes.
-const FLIGHT_CHOICES := [["SLOW", 1.5], ["MEDIUM", 1.0], ["FAST", 0.5], ["INSTANT", 0.0]]
-var _flight_buttons: Array[Button] = []
+## SYSTEM ZOOM (owner, 2026-11-13): how long the flight into and out of a system takes; a
+## drop-down as the theme's (owner 2026-11-24).
+const FLIGHT_CHOICES := [["Slow", 1.5], ["Medium", 1.0], ["Fast", 0.5], ["Instant", 0.0]]
+var _flight_pick: OptionButton
 
 
 func _add_flight_row() -> void:
@@ -348,56 +351,51 @@ func _add_flight_row() -> void:
 	title.text = "SYSTEM ZOOM"
 	box.add_child(title)
 	box.move_child(title, $Fit/Box/ThemeTitle.get_index())
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 4)
-	box.add_child(row)
-	box.move_child(row, $Fit/Box/ThemeTitle.get_index())
-	var group := ButtonGroup.new()
+	_flight_pick = OptionButton.new()
+	_flight_pick.focus_mode = Control.FOCUS_NONE
+	_flight_pick.custom_minimum_size = Vector2(0, 32)
+	_flight_pick.tooltip_text = "How long the flight into and out of a system takes"
 	for choice: Array in FLIGHT_CHOICES:
-		var b := Button.new()
-		b.text = String(choice[0])
-		b.toggle_mode = true
-		b.button_group = group
-		b.focus_mode = Control.FOCUS_NONE
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.add_theme_font_size_override("font_size", 12)
-		var seconds: float = choice[1]
-		b.pressed.connect(func(): flight_changed.emit(seconds))
-		Themes.glowing(b)
-		row.add_child(b)
-		_flight_buttons.append(b)
+		_flight_pick.add_item(String(choice[0]))
+	_flight_pick.item_selected.connect(func(i: int): flight_changed.emit(float(FLIGHT_CHOICES[i][1])))
+	box.add_child(_flight_pick)
+	box.move_child(_flight_pick, $Fit/Box/ThemeTitle.get_index())
 
 
 ## AUTO ADDRESS TO-DOS (owner, 2026-11-20): the stock game's way with the turn's to-dos, each
 ## opened in turn as the last is dealt with, instead of the list.
 var todo_auto_button: Button
-var native_battles_button: Button # WP3.9
 
 
 func _add_todo_row() -> void:
 	var box: VBoxContainer = $Fit/Box
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	# A row as the game options' (owner 2026-11-24): its name in plain text, an ON / OFF switch;
+	# under them, with the game's own options.
+	var row := PanelContainer.new()
+	row.theme_type_variation = &"Row"
+	var line := HBoxContainer.new()
+	row.add_child(line)
 	var label := Label.new()
-	label.text = "AUTO ADDRESS TO-DOS"
-	label.theme_type_variation = &"Section"
+	label.text = "Auto address to-dos"
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.tooltip_text = "Each turn's to-do items open one after another, as the original game does,\ninstead of the TO DO list"
 	label.mouse_filter = Control.MOUSE_FILTER_PASS
-	row.add_child(label)
+	line.add_child(label)
 	todo_auto_button = Button.new()
+	todo_auto_button.theme_type_variation = &"Toggle"
 	todo_auto_button.toggle_mode = true
 	todo_auto_button.text = "OFF"
 	todo_auto_button.focus_mode = Control.FOCUS_NONE
-	todo_auto_button.custom_minimum_size.x = 64
+	todo_auto_button.custom_minimum_size = Vector2(60, 26)
+	todo_auto_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	todo_auto_button.add_theme_font_size_override("font_size", 12)
 	Themes.glowing(todo_auto_button)
 	todo_auto_button.toggled.connect(func(on: bool):
 		todo_auto_button.text = "ON" if on else "OFF"
 		todo_auto_changed.emit(on))
-	row.add_child(todo_auto_button)
+	line.add_child(todo_auto_button)
 	box.add_child(row)
-	box.move_child(row, $Fit/Box/ThemeTitle.get_index())
+	box.move_child(row, options_box.get_index() + 1)
 
 
 func show_todo_auto(on: bool) -> void:
@@ -408,38 +406,14 @@ func show_todo_auto(on: bool) -> void:
 
 ## The flight length in use, shown armed.
 func show_flight(seconds: float) -> void:
+	var best := 0
 	for i in FLIGHT_CHOICES.size():
-		_flight_buttons[i].set_pressed_no_signal(is_equal_approx(float(FLIGHT_CHOICES[i][1]), seconds))
+		if absf(float(FLIGHT_CHOICES[i][1]) - seconds) < absf(float(FLIGHT_CHOICES[best][1]) - seconds):
+			best = i
+	_flight_pick.select(best)
 
 
-## WP3.9: battles in the native scene, a preview (off by default, owner 2026-11-21).
-func _add_native_battles_row() -> void:
-	var box: VBoxContainer = $Fit/Box
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	var label := Label.new()
-	label.text = "NATIVE BATTLES (PREVIEW)"
-	label.theme_type_variation = &"Section"
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label.tooltip_text = "Space combat in the new battle scene instead of the original screen.\nUnfinished: beams are native; shield hits, missiles, fighters and explosions are placeholders. Takes effect from the next battle."
-	label.mouse_filter = Control.MOUSE_FILTER_PASS
-	row.add_child(label)
-	native_battles_button = Button.new()
-	native_battles_button.toggle_mode = true
-	native_battles_button.text = "OFF"
-	native_battles_button.focus_mode = Control.FOCUS_NONE
-	native_battles_button.custom_minimum_size.x = 64
-	native_battles_button.add_theme_font_size_override("font_size", 12)
-	Themes.glowing(native_battles_button)
-	native_battles_button.toggled.connect(func(on: bool):
-		native_battles_button.text = "ON" if on else "OFF"
-		native_battles_changed.emit(on))
-	row.add_child(native_battles_button)
-	box.add_child(row)
-	box.move_child(row, $Fit/Box/ThemeTitle.get_index())
-
-
-func show_native_battles(on: bool) -> void:
-	native_battles_button.set_pressed_no_signal(on)
-	native_battles_button.text = "ON" if on else "OFF"
-	Themes.glow(native_battles_button)
+## While a battle's question is up (owner 2026-11-24): MERGE RELOC. and DISTANCE greyed out.
+func set_map_tools_enabled(on: bool) -> void:
+	for b: Button in [$Fit/Box/Map/Relocations, $Fit/Box/Map/Distance]:
+		b.disabled = not on

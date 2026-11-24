@@ -96,6 +96,11 @@ var _built := {} # the theme in use, as its package built it
 
 
 func _ready() -> void:
+	# Every scroll area keeps a clear strip before its bar (owner 2026-11-24: the Options flyout's
+	# rows ran into the bar, as the colony pane's had): the ones made later too.
+	get_tree().node_added.connect(_gap_scroll)
+	for node in find_children("*", "", true, false):
+		_gap_scroll(node)
 	game = host.game
 	legacy = host.legacy
 	art = host.art
@@ -245,22 +250,10 @@ func _set_native(on: bool) -> void:
 	mode_button.text = "Legacy galaxy (Ctrl+G)" if on else "Native galaxy (Ctrl+G)"
 
 
-## The request kinds claimed: battles ("combat", "animate") only while native battles are on (WP3.9:
-## a preview, off by default; the smoke's battle steps turn it on).
+## The request kinds claimed (battles too: native battles are on whenever the native interface
+## is, owner 2026-11-24, ahead of their release; the legacy view keeps the original's).
 func _request_kinds() -> PackedStringArray:
-	var kinds := PackedStringArray()
-	for kind in claimed_requests:
-		if kind in ["combat", "animate"] and not native_battles:
-			continue
-		kinds.append(kind)
-	return kinds
-
-
-func _set_native_battles(on: bool) -> void:
-	native_battles = on
-	Themes.save_value("combat", "native", on)
-	if native:
-		game.claim_requests(_request_kinds()) # from the next battle on
+	return claimed_requests
 
 
 ## The game holds the sounds a legacy screen starts until its picture shows (owner, 2026-11-13:
@@ -978,8 +971,6 @@ func _view(scene_name: String) -> Control:
 			view.flight_changed.connect(func(seconds: float):
 				galaxy.flight_time = seconds
 				Themes.save_flight_time(seconds))
-		if view.has_signal("native_battles_changed"):
-			view.native_battles_changed.connect(_set_native_battles)
 		if view.has_signal("todo_auto_changed"):
 			view.todo_auto_changed.connect(func(on: bool):
 				todo_auto = on
@@ -1034,7 +1025,6 @@ func _view(scene_name: String) -> Control:
 		if scene_name == "options_menu":
 			view.show_flight(galaxy.flight_time)
 			view.show_todo_auto(todo_auto)
-			view.show_native_battles(native_battles)
 			view.show_themes(_themes, theme_id)
 			view.show_scale(ui_scale, max_ui_scale(), MIN_UI_SCALE, is_ui_scale_automatic())
 		if scene_name == "build_pane": # the colony's landscape moves aside for it, and back
@@ -1146,11 +1136,6 @@ func _open_todo() -> void:
 ## once, as the original goes from one build screen to the next). An item left as it was isn't
 ## opened again this turn; with all of them opened and some still open, the list comes up.
 var todo_auto: bool = Themes.saved_value("todo", "auto", false)
-# WP3.9: battles in the native scene (a preview, off by default; owner, 2026-11-21). The smoke's
-# battle steps turn it on for their run.
-var native_battles: bool = bool(Themes.saved_value("combat", "native", false)) or "--combat" in OS.get_cmdline_user_args() \
-	or "--torpedo" in OS.get_cmdline_user_args() or "--combat-speed" in OS.get_cmdline_user_args() or "--retreat" in OS.get_cmdline_user_args() \
-	or "--selfdestruct" in OS.get_cmdline_user_args()
 var _todo_auto_opened := {} # this turn's items opened, by key
 var _todo_auto_last := {} # the item opened last, and when: {item, at, open}
 var _todo_auto_listed := false # this turn's leftovers shown in the list
@@ -1485,8 +1470,71 @@ func _bring_up(view: Control) -> void:
 	_raise_chrome()
 
 
+func _gap_scroll(node: Node) -> void:
+	if (node is ScrollContainer or node is RichTextLabel) and not node.has_meta("no_scroll_gap"):
+		Themes.scroll_gap(node as Control)
+
+
+## A battle's question is up (owner 2026-11-24: a side panel opened behind the select-combat
+## window): only Options opens, over the question, with the map tools in it greyed out.
+const COMBAT_POPUPS := ["attack_target", "monster_target", "player_attacked", "colony_combat", "colony_bombing"]
+const COMBAT_LOCK_ACTIONS := ["options", "influence", "influence_off", "influence_filled", "influence_borders", "recenter"]
+var _combat_lock := false
+var _lock_host: Control # in the overlay: the tabs and Options sit over the question while it lasts
+
+
+func _set_combat_lock(on: bool) -> void:
+	if on == _combat_lock:
+		return
+	_combat_lock = on
+	if on:
+		for scene_name in FLYOUTS:
+			var open_view: Control = _views.get(scene_name)
+			if scene_name != "options_menu" and open_view != null and open_view.visible:
+				open_view.close()
+	for chrome in ["side_tabs", "galaxy_bar", "map_controls"]:
+		var holder: Control = _views.get(chrome)
+		if holder == null:
+			continue
+		for b: Button in holder.find_children("*", "Button", true, false):
+			if chrome == "side_tabs" and String(b.get_meta("action", "")) == "options":
+				continue
+			if on:
+				b.set_meta("lock_was", b.disabled)
+				b.disabled = true
+			elif b.has_meta("lock_was"):
+				b.disabled = bool(b.get_meta("lock_was"))
+				b.remove_meta("lock_was")
+	var options: Control = _views.get("options_menu")
+	if options != null:
+		options.set_map_tools_enabled(not on)
+	for scene_name in ["side_tabs", "options_menu"]:
+		_lift_over_question(_views.get(scene_name), on)
+	if not on:
+		_raise_chrome()
+
+
+## Moves a view into the overlay over the question (or back into the native layer).
+func _lift_over_question(view: Control, on: bool) -> void:
+	if view == null:
+		return
+	if _lock_host == null:
+		_lock_host = Control.new()
+		_lock_host.name = "OverQuestion"
+		_lock_host.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_lock_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		$Overlay.add_child(_lock_host)
+	_lock_host.theme = native_layer.theme
+	_lock_host.move_to_front()
+	var home: Control = _lock_host if on else native_layer
+	if view.get_parent() != home:
+		view.reparent(home, false)
+
+
 ## The map controls' view-only actions.
 func _on_view_action(action_name: String) -> void:
+	if _combat_lock and not action_name in COMBAT_LOCK_ACTIONS:
+		return
 	match action_name:
 		"recenter":
 			if galaxy.system_star >= 0 and native_screen == Screens.MAIN:
@@ -1555,6 +1603,9 @@ func _on_view_action(action_name: String) -> void:
 				_view("side_tabs").show_open("designs", true)
 		"options":
 			var options := _view("options_menu")
+			if _combat_lock: # made now: over the question too, its map tools off
+				_lift_over_question(options, true)
+				options.set_map_tools_enabled(false)
 			if options.visible:
 				options.close()
 			else:
@@ -1824,6 +1875,7 @@ func _on_request(id: int, kind: String, request: Dictionary) -> void:
 		_on_research_pick(id, request)
 		return
 	_start_popup_map(dialog, request)
+	_set_combat_lock(kind == "popup" and String(request.get("popup", "")) in COMBAT_POPUPS)
 	if kind == "popup" and String(request.get("popup", "")) == "occupation" and not request.has("scene_state"):
 		# After an invasion (owner, 2026-11-19): the captured colony's pane once answered.
 		_occupation_open = [int(request.get("star", -1)), int(request.get("colony", -1))]
@@ -3588,6 +3640,7 @@ func _popup_closed() -> void:
 	galaxy.lit_owner = -1
 	overlay.hide()
 	_end_popup_map()
+	_set_combat_lock(false)
 	if _question_over_galaxy:
 		_question_over_galaxy = false
 		if native_screen == Screens.LEGACY and not _turn_over_galaxy:
@@ -5051,8 +5104,29 @@ func _smoke_native() -> void:
 			_views.dialog._fleet_rows.erase(1)
 			probe.free()
 			print("smoke: select combat links: a ships row frames its fleets %s, a fleet lights its row %s" % [map_lit, row_lit])
+			# Panels locked while it waits (owner 2026-11-24): a side tab does nothing; Options opens
+			# over the window, MERGE RELOC. and DISTANCE greyed out.
+			_on_view_action("colonies")
+			_on_view_action("options")
+			await get_tree().create_timer(0.6).timeout
+			var opts: Control = _view("options_menu")
+			var colonies_shut: bool = not _views.has("colonies_panel") or not (_views.colonies_panel as Control).visible
+			var over: bool = opts.visible and opts.get_parent() == _lock_host
+			var tools_off: bool = opts.get_node("Fit/Box/Map/Relocations").disabled and opts.get_node("Fit/Box/Map/Distance").disabled
+			var tabs_off: bool = (_view("side_tabs").find_children("*", "Button", true, false) as Array).all(func(b: Button) -> bool:
+				return b.disabled != (String(b.get_meta("action", "")) == "options"))
+			print("smoke: select combat lock: colonies stayed shut %s, options over the window %s, map tools off %s, other tabs off %s" % [colonies_shut, over, tools_off, tabs_off])
+			if shots != "":
+				await host.shot(shots + "/select-combat-options.png")
+			opts.close()
+			await get_tree().create_timer(0.4).timeout
 			_views.dialog._answer(-1)
 			await get_tree().create_timer(0.3).timeout
+			var unlocked: bool = opts.get_parent() == native_layer and not opts.get_node("Fit/Box/Map/Distance").disabled
+			print("smoke: select combat unlocked after: %s" % unlocked)
+			if not (colonies_shut and over and tools_off and tabs_off and unlocked):
+				await host.smoke_fail("the panels weren't locked (or unlocked) around the select-combat window")
+				return
 			if not map_lit or not row_lit or galaxy.lit_owner != -1:
 				await host.smoke_fail("the select-combat window's ships rows and the map's fleets did not light each other")
 				return

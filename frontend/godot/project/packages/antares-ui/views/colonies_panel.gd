@@ -149,7 +149,7 @@ func shared_width(area: Rect2) -> float:
 		table += float(column.width)
 	var style := get_theme_stylebox("panel")
 	var frame := style.get_minimum_size().x if style != null else 0.0
-	var width := maxf(clampf(area.size.x * 0.45, 700.0, 960.0), table + 14.0 + frame) # the scroll bar
+	var width := maxf(clampf(area.size.x * 0.45, 700.0, 960.0), table + 14.0 + preload("../themes.gd").SCROLL_GAP + frame) # the scroll bar and its gap
 	return minf(width, area.size.x - 16.0)
 
 
