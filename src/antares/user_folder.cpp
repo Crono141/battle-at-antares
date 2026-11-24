@@ -70,7 +70,7 @@ namespace antares::user_folder {
         bool Writable_(const std::string& directory) {
 #if defined(_WIN32)
             // access() says nothing useful about Program Files; try a file.
-            const std::filesystem::path probe = std::filesystem::u8path(directory) / ".antares-write-test";
+            const std::filesystem::path probe = std::filesystem::path(std::u8string(directory.begin(), directory.end())) / ".antares-write-test";
             {
                 std::ofstream file(probe, std::ios::binary);
                 if (!file.good()) return false;

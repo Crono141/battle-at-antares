@@ -97,7 +97,7 @@ namespace {
         namespace fs = std::filesystem;
         std::error_code ec;
         // <game folder>/logs/, or the user folder's when installed (WP5.9).
-        const fs::path logs = fs::u8path(antares::user_folder::Logs_Directory(game_dir));
+        const fs::path logs = [&] { const std::string folder = antares::user_folder::Logs_Directory(game_dir); return fs::path(std::u8string(folder.begin(), folder.end())); }();
         fs::create_directories(logs, ec);
         // Keep the nine newest old logs; this run's makes ten.
         std::vector<fs::directory_entry> old;

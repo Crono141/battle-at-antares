@@ -32,6 +32,12 @@ namespace {
         std::string disable;    // untick this package first
         bool confirm = false;   // answer OK to the popup listing what that switches off
         bool wait_game = false; // press Play, then (with -screenshot) wait for the game to stop first
+        bool setup = false;     // open the setup wizard (WP5.11)
+        std::string setup_folder; // ... on this folder's checklist
+        std::string setup_run;    // run the whole wizard on this folder, no questions
+        std::string setup_copy;   // check this folder and press Copy, as a player would
+        int shot_after = 0;       // with -screenshot: draw this many ms after the start (mid-copy)
+        int cancel_after = 0;     // press Cancel on the copy page after this many ms
     };
 
     bool Parse_Options_(int argc, char** argv, s_launcher_options* options, std::string* error) {
@@ -48,6 +54,12 @@ namespace {
             {"disable", true},
             {"confirm", false},
             {"wait-game", false},
+            {"setup", false},
+            {"setup-folder", true},
+            {"setup-run", true},
+            {"setup-copy", true},
+            {"shot-after", true},
+            {"cancel-after", true},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -67,6 +79,12 @@ namespace {
                 case 9: options->disable = option.value; break;
                 case 10: options->confirm = true; break;
                 case 11: options->wait_game = true; break;
+                case 12: options->setup = true; break;
+                case 13: options->setup_folder = option.value; break;
+                case 14: options->setup_run = option.value; break;
+                case 15: options->setup_copy = option.value; break;
+                case 16: options->shot_after = SDL_atoi(option.value.c_str()); break;
+                case 17: options->cancel_after = SDL_atoi(option.value.c_str()); break;
                 default: break;
             }
         }
@@ -188,6 +206,19 @@ int main(int argc, char** argv) {
         return started ? 0 : 1;
     }
 
+    if (!options.setup_run.empty()) {
+        const bool done = app.Run_Setup(options.setup_run, options.setup); // -setup too: stop on the saves page
+        SDL_Log("launcher: setup %s", done ? "done" : "failed");
+        if (!done && options.screenshot.empty()) {
+            SDL_Quit();
+            return 1;
+        }
+    } else if (!options.setup_copy.empty()) {
+        app.Open_Setup(options.setup_copy);
+        if (!app.Start_Setup_Copy()) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: setup: the checklist doesn't allow a copy");
+    } else if (!options.setup_folder.empty() || options.setup) {
+        app.Open_Setup(options.setup_folder);
+    }
     if (options.wait_game) {
         (void)app.Play(); // refused with a reason when the files or the profile won't do
     }
@@ -237,6 +268,16 @@ int main(int argc, char** argv) {
             continue;
         }
         app.Update();
+        const Uint64 elapsed = SDL_GetTicks() - (wait_deadline - 180000);
+        if (options.cancel_after > 0 && app.Setup_Copying() && elapsed >= static_cast<Uint64>(options.cancel_after)) {
+            app.Cancel_Setup_Copy();
+        }
+        // Headless: wait for the copy (the page moves on by itself) unless asked for a mid-copy frame.
+        if (headless && app.Setup_Copying() && SDL_GetTicks() < wait_deadline &&
+            (options.shot_after == 0 || elapsed < static_cast<Uint64>(options.shot_after))) {
+            SDL_Delay(50);
+            continue;
+        }
         if (headless && app.Game_Running() && SDL_GetTicks() < wait_deadline) {
             SDL_Delay(100); // -wait-game: the screenshot shows the launcher after the game
             continue;

@@ -100,6 +100,7 @@ namespace launcher {
         Refresh_Packages_();
         Refresh_Profiles_();
         Check_Files_();
+        if (!files_.ok) Open_Setup(); // first run, or the files went missing (WP5.11)
         size_t index = 0;
         for (size_t candidate = 0; candidate < profiles_.size(); ++candidate) {
             if (profiles_[candidate].name == last_profile_ || (last_profile_.empty() && profiles_[candidate].is_base)) {
@@ -111,6 +112,7 @@ namespace launcher {
     }
 
     void c_launcher::Shutdown() {
+        Setup_Close_(); // stops a copy in progress
         Save_Settings_();
         if (game_ != nullptr) {
             SDL_DestroyProcess(game_); // the game keeps running
@@ -538,6 +540,7 @@ namespace launcher {
     }
 
     void c_launcher::Update() {
+        Setup_Poll_();
         if (game_ == nullptr) return;
         int exit_code = 0;
         if (SDL_WaitProcess(game_, false, &exit_code)) {
@@ -557,6 +560,11 @@ namespace launcher {
         ImGui::SetNextWindowPos(viewport->WorkPos);
         ImGui::SetNextWindowSize(viewport->WorkSize);
         ImGui::Begin("Launcher", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
+        if (setup_.active) { // the setup wizard has the whole window (WP5.11)
+            Draw_Setup_();
+            ImGui::End();
+            return !quit_;
+        }
 
         ImGui::TextUnformatted(antares::PRODUCT_NAME);
         ImGui::SameLine();
@@ -649,6 +657,8 @@ namespace launcher {
         ImGui::SameLine();
         if (ImGui::Button("Delete")) open(4, profiles_[profile_index_].name);
         ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Game files")) Open_Setup();
         ImGui::SameLine();
         if (ImGui::Button("Rescan")) {
             const std::string current = profiles_[profile_index_].vfs_path;
