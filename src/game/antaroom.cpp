@@ -68,7 +68,6 @@ namespace ANTAROOM {
         mouse::Set_Mouse_List(antaran_room_blank_mouse, 1);
         JIM::Play_Streaming_Music(120, -1, 1);
         ERIC::Set_Fade_Percent(0);
-        ERIC::Set_Fade_Speed_Percent(10);
         ERIC::Fast_Fade_Out();
         fields::Clear_Fields();
         video::Set_Refresh_Stencil();
@@ -107,7 +106,6 @@ namespace ANTAROOM {
         mouse::Set_Mouse_List(antaran_room_blank_mouse, 1);
         JIM::Play_Background_Music();
         ERIC::Set_Fade_Percent(0);
-        ERIC::Set_Fade_Speed_Percent(10);
         ERIC::Fast_Fade_Out();
 
         RUSS::Release_All_Blocks(MOX::screen_seg);

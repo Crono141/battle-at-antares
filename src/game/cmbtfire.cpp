@@ -378,7 +378,24 @@ namespace CMBTFIRE {
     }
 
     void __cdecl Destroy_Ship_By(int16_t ship_idx, int16_t draw_x, int16_t draw_y, int16_t death_state, int16_t killer_ship_idx) {
+        if (ship_idx < 0 || ship_idx >= MAX_COMBAT_SHIPS) {
+            return;
+        }
+
         s_combat_data& ship = MOX::combat_data[ship_idx];
+        // A spherical blast can re-enter before the source is marked destroyed.
+        if (ship.combat_status_flags & COMBAT_STATUS_DESTRUCTION_IN_PROGRESS) {
+            return;
+        }
+        struct s_destruction_guard {
+            s_combat_data* ship;
+            ~s_destruction_guard() {
+                ship->combat_status_flags &= ~COMBAT_STATUS_DESTRUCTION_IN_PROGRESS;
+            }
+        };
+        ship.combat_status_flags |= COMBAT_STATUS_DESTRUCTION_IN_PROGRESS;
+        const s_destruction_guard guard{&ship};
+
         const bool publish_destroyed = ship.unit_status == 0;
         int8_t new_owner;
 
