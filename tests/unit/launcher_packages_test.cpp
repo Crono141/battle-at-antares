@@ -21,6 +21,7 @@
 #include "lua/lua_registry.h"
 #include "miniz.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <iterator>
@@ -599,6 +600,19 @@ DOCTEST_TEST_CASE("launcher with a user folder: the player's packages win; saves
     const antares::s_config_check check = antares::Check_Config("profiles/p.cfg");
     DOCTEST_CHECK_MESSAGE(check.ok, check.error);
     DOCTEST_CHECK(antares::user_folder::Config_Directory(game) == home + "/.config/antares/");
+    // A new profile includes ../antares.cfg: the bundled one until the player has a copy.
+    files.Write("home/.config/antares/profiles/inc.cfg", "include ../antares.cfg;\n");
+    const auto loads = [](const antares::s_config_check& result, const std::string& id) {
+        return std::find(result.package_order.begin(), result.package_order.end(), id) != result.package_order.end();
+    };
+    antares::s_config_check included = antares::Check_Config("profiles/inc.cfg");
+    DOCTEST_CHECK_MESSAGE(included.ok, included.error);
+    DOCTEST_CHECK(loads(included, "bundled-only"));
+    files.Write("home/.config/antares/antares.cfg", "enable mine;\n");
+    included = antares::Check_Config("profiles/inc.cfg");
+    DOCTEST_CHECK_MESSAGE(included.ok, included.error);
+    DOCTEST_CHECK(loads(included, "mine"));
+    DOCTEST_CHECK_FALSE(loads(included, "bundled-only"));
     DOCTEST_CHECK(antares::saves::Load_Save_Summary(2).exists);
     DOCTEST_CHECK_FALSE(antares::saves::Load_Save_Summary(3).exists);
 
