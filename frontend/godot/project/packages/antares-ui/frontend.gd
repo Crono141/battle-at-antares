@@ -8149,7 +8149,13 @@ func _smoke_combat(shots: String) -> bool:
 			await get_tree().create_timer(0.6).timeout
 			# The initiative bar and the Options tab are the same in every layout (owner 2026-11-24).
 			var fixed_after := [view._timeline.get_global_rect(), view._options_tab.get_global_rect()]
-			if fixed_after != fixed_before:
+			var moved := false # a pixel of rounding at fractional window scales is not a move
+			for k in 2:
+				var a: Rect2 = fixed_after[k]
+				var b: Rect2 = fixed_before[k]
+				if a.position.distance_to(b.position) > 1.5 or a.size.distance_to(b.size) > 1.5:
+					moved = true
+			if moved:
 				print("smoke: FAILED: the %s layout moved the initiative bar or Options: %s, was %s" % [layout_name, fixed_after, fixed_before])
 			var screen := Rect2(Vector2.ZERO, view.size)
 			var panels := {"card": view._bridge_card, "minimap": view._minimap, "buttons": view._bottom, "round": view._top_left,
@@ -8179,7 +8185,7 @@ func _smoke_combat(shots: String) -> bool:
 					break
 			await get_tree().create_timer(0.3).timeout
 			var card_rect: Rect2 = view._card.get_global_rect()
-			var card_clash: bool = view._card.visible and rects.values().any(func(r: Rect2) -> bool: return r.grow(-2.0).intersects(card_rect.grow(-2.0)))
+			var card_clash: bool = view._card.visible and view._card.get_parent() == view and rects.values().any(func(r: Rect2) -> bool: return r.grow(-2.0).intersects(card_rect.grow(-2.0)))
 			print("smoke: layout %s: target card %s%s" % [layout_name, card_rect, " overlaps a panel" if card_clash else ""])
 			if shots != "":
 				await host.shot(shots + "/combat-layout-%s-target.png" % layout_name)

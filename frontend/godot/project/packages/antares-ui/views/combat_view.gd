@@ -1853,18 +1853,19 @@ func _build_hud() -> void:
 	_actions = HBoxContainer.new()
 	_actions.add_theme_constant_override("separation", 6)
 	actions_pad.add_child(_actions)
-	_wait_button = _flat_button("Wait", "W", func(): _act({"action": "wait"}))
-	_actions.add_child(_wait_button)
-	_done_button = _flat_button("Done", "D", func(): _act({"action": "done"}))
-	_actions.add_child(_done_button)
-	_end_button = _flat_button("End turn", "T", func(): _act({"action": "end_turn"}), true)
-	_actions.add_child(_end_button)
+	# Auto, Wait, Done, End turn (owner 2026-11-24), in every layout.
 	_auto_button = _flat_button("Auto", "A", _toggle_auto)
 	_auto_button.tooltip_text = "The computer fights the rest of this battle for you (key: A)"
 	_auto_button.theme_type_variation = &"Toggle"
 	_auto_button.toggle_mode = true
 	_auto_button.button_pressed = false
 	_actions.add_child(_auto_button)
+	_wait_button = _flat_button("Wait", "W", func(): _act({"action": "wait"}))
+	_actions.add_child(_wait_button)
+	_done_button = _flat_button("Done", "D", func(): _act({"action": "done"}))
+	_actions.add_child(_done_button)
+	_end_button = _flat_button("End turn", "T", func(): _act({"action": "end_turn"}), true)
+	_actions.add_child(_end_button)
 	for b: Button in [_wait_button, _done_button, _end_button, _auto_button]:
 		b.custom_minimum_size = Vector2(96, 0)
 	# Bridge: the same buttons two by two over the minimap (owner 2026-11-24).
@@ -2084,6 +2085,11 @@ func _draw_frame() -> void:
 		var bar_y := _timeline.get_rect().end.y + _grow(_timeline, 3) - c
 		for x in [r.position.x - _grow(_options_tab, 0) + c, r.end.x + _grow(_options_tab, 2) - c]:
 			_draw_tee(Vector2(x, bar_y), true)
+	if _bridge():
+		_corner_tees(_bridge_card, false, true)
+		_corner_tees(_minimap, false, false)
+	if _console_mode() and _fleets_panel.visible:
+		_corner_tees(_fleets_panel, true, true)
 	if _bottom.visible and _strip.visible:
 		var r := _bottom.get_rect()
 		var bar_y := _strip.get_rect().position.y - _grow(_strip, 1) + c
@@ -2727,6 +2733,15 @@ func _place_card() -> void:
 	_card_fire.visible = _card_fire.text != ""
 	if was_hidden:
 		_refresh_strip() # the chips light for this target
+	# Command Console: as wide as the round box above it (owner 2026-11-24); elsewhere its own width.
+	var inner_w := 230.0
+	_card.custom_minimum_size.x = 0.0
+	if _console_mode():
+		var chrome := _card.get_combined_minimum_size().x - (_card.get_child(0) as Control).get_combined_minimum_size().x
+		inner_w = maxf(_top_left.size.x - chrome, 150.0)
+		_card.custom_minimum_size.x = _top_left.size.x
+	for c: Control in [_card.get_child(0) as Control, _card_bars, _card_body, _card_fire]:
+		c.custom_minimum_size.x = inner_w
 	_card.reset_size()
 	# Docked in the bottom corner opposite the round box (owner 2026-11-22: beside the ship it
 	# covered a large part of the battlefield).
@@ -2735,10 +2750,10 @@ func _place_card() -> void:
 	var attacking := int(state.get("player", -1)) == int(state.get("attacker", -2))
 	var x := corner if attacking else size.x - corner - _card.size.x
 	_card.position = Vector2(x, size.y - corner - _card.size.y)
-	if _bridge(): # the target's card on the right, halfway down (the acting ship's is on the left)
-		_card.position = Vector2(size.x - corner - 6.0 - _card.size.x, roundf((size.y - _card.size.y) / 2.0))
-	elif _console_mode(): # beside the Fleets column, over the console
-		_card.position = Vector2(_fleets_panel.position.x - 10.0 - _card.size.x, _console.position.y - _grow(_console, 1) - 10.0 - _card.size.y)
+	if _bridge(): # always the bottom right corner (owner 2026-11-24)
+		_card.position = Vector2(size.x - corner - _card.size.x, size.y - corner - _card.size.y)
+	elif _console_mode(): # docked to the left edge under the round box (owner 2026-11-24)
+		_card.position = Vector2(_edge(), _top_left.position.y + _top_left.size.y + _grow(_top_left, 3) + 8.0)
 
 
 ## A colony's lines as the original's planet view lists them (owner 2026-11-23): its defences still
@@ -4221,10 +4236,11 @@ func _apply_battle_layout() -> void:
 	_minimap.visible = bridge
 	_console.visible = console
 	_fleets_panel.visible = console
-	_bottom.visible = not console
+	_bottom.visible = not console and not bridge
 	if not console:
 		_log_panel.hide()
-	_arrange_actions(_actions_grid if bridge else (_console_buttons if console else _actions))
+	_arrange_actions(_bridge_grid if bridge else (_console_buttons if console else _actions))
+
 	if not bridge:
 		_bridge_card.hide()
 	if not state.is_empty():
@@ -4238,13 +4254,15 @@ func _apply_battle_layout() -> void:
 ## A: the acting ship's card on the left (picture with its shield arcs, hull, weapons, systems), a
 ## minimap of the field under it; the target card on the right; the buttons in the bottom right.
 func _build_bridge() -> void:
-	_bridge_card = _panel(&"Pane")
+	_bridge_card = _panel(&"Pocket")
 	_bridge_card.hide()
 	add_child(_bridge_card)
+	_bridge_pad = MarginContainer.new()
+	_bridge_card.add_child(_bridge_pad)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 6)
 	v.custom_minimum_size = Vector2(BRIDGE_WIDTH, 0)
-	_bridge_card.add_child(v)
+	_bridge_pad.add_child(v)
 	_bridge_box = v
 	_bridge_name = _label("", 0, AMBER)
 	_bridge_name.theme_type_variation = &"Heading"
@@ -4274,6 +4292,7 @@ func _build_bridge() -> void:
 	v.add_child(weapons_head)
 	_bridge_scroll = ScrollContainer.new()
 	_bridge_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_bridge_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL # the card's fixed height goes to the weapons
 	v.add_child(_bridge_scroll)
 	_bridge_weapons = VBoxContainer.new()
 	_bridge_weapons.add_theme_constant_override("separation", 3)
@@ -4284,32 +4303,46 @@ func _build_bridge() -> void:
 	_bridge_systems.custom_minimum_size = Vector2(BRIDGE_WIDTH, 0)
 	v.add_child(_bridge_systems)
 
-	_minimap = _panel(&"Pane")
+	_minimap = _panel(&"BottomPocket")
 	_minimap.hide()
 	add_child(_minimap)
+	_minimap_pad = MarginContainer.new()
+	_minimap.add_child(_minimap_pad)
+	var map_col := VBoxContainer.new()
+	map_col.add_theme_constant_override("separation", 8)
+	_minimap_pad.add_child(map_col)
+	# The buttons two by two over the map, in the same pocket (owner 2026-11-24: docked, not floating).
+	_bridge_grid = GridContainer.new()
+	_bridge_grid.columns = 2
+	_bridge_grid.add_theme_constant_override("h_separation", 6)
+	_bridge_grid.add_theme_constant_override("v_separation", 6)
+	map_col.add_child(_bridge_grid)
 	_minimap_draw = Control.new()
 	_minimap_draw.custom_minimum_size = Vector2(BRIDGE_WIDTH, 170)
 	_minimap_draw.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_minimap_draw.tooltip_text = "The whole field: click or drag to look there"
 	_minimap_draw.draw.connect(_draw_minimap)
 	_minimap_draw.gui_input.connect(_minimap_input)
-	_minimap.add_child(_minimap_draw)
+	map_col.add_child(_minimap_draw)
 
 
 const BRIDGE_WIDTH := 290.0
 var _bridge_box: VBoxContainer
 var _actions_grid: GridContainer
+var _bridge_grid: GridContainer
+var _bridge_pad: MarginContainer
+var _minimap_pad: MarginContainer
+var _fleets_pad: MarginContainer
 
 
 ## The action buttons in a row (Clear Field), two by two (Bridge) or a column (Command Console).
 func _arrange_actions(into: Container) -> void:
 	if _wait_button.get_parent() == into:
 		return
-	for b: Button in [_wait_button, _done_button, _end_button, _auto_button]:
+	for b: Button in [_auto_button, _wait_button, _done_button, _end_button]:
 		b.get_parent().remove_child(b)
 		into.add_child(b)
 		b.size_flags_horizontal = Control.SIZE_FILL if into == _actions else Control.SIZE_EXPAND_FILL
-	_actions_grid.visible = into == _actions_grid
 	_actions.visible = into == _actions
 
 
@@ -4500,35 +4533,56 @@ func _minimap_look(at: Vector2) -> void:
 ## Bridge placement, after Clear Field's (`_layout`): the card and minimap down the left, the round
 ## box in the top right, the buttons in the bottom right.
 func _layout_bridge() -> void:
-	var inset := float(get_theme_constant("inset", "Screen"))
-	var corner := (inset if inset > 0.0 else 6.0) + 6.0
+	var edge := _edge()
+	_dock_style(_bridge_card, &"Pocket")
+	_dock_style(_minimap, &"BottomPocket")
+	_pad_from_frame(_bridge_pad, _bridge_card, false)
+	_pad_from_frame(_minimap_pad, _minimap, false)
 	# The initiative bar and the Options tab keep their place and size in every layout (owner
 	# 2026-11-24: the constant space the layouts build around), so the left column narrows to end
 	# short of the bar (at 4:3 half the screen leaves it about 340 px).
 	var chrome := _bridge_card.get_combined_minimum_size().x - _bridge_box.custom_minimum_size.x
-	var room_x := _timeline.position.x - _grow(_timeline, 0) - 12.0 - corner - chrome
+	var room_x := _timeline.position.x - _grow(_timeline, 0) - 14.0 - edge - _grow(_bridge_card, 2) - chrome
 	_bridge_set_width(clampf(room_x, 200.0, BRIDGE_WIDTH))
-	_minimap.custom_minimum_size.x = _bridge_box.custom_minimum_size.x + chrome # as wide as the card
+	# Docked as Clear Field's pockets are (owner 2026-11-24): the buttons and the map in the bottom
+	# left corner, the ship's card from the top left corner down to them, a fixed height.
+	_minimap.custom_minimum_size.x = _bridge_box.custom_minimum_size.x + chrome
 	_minimap.reset_size()
-	_minimap.position = Vector2(corner, size.y - corner - _minimap.size.y)
-	# The buttons, two by two, over the minimap and as wide (owner 2026-11-24).
-	_bottom.custom_minimum_size.x = _minimap.size.x
-	_bottom.reset_size()
-	_bottom.position = Vector2(corner, _minimap.position.y - 8.0 - _bottom.size.y)
-	if _bridge_card.visible:
-		var top := corner
-		var room := _bottom.position.y - 10.0 - top
-		var head := _bridge_card.get_combined_minimum_size().y - _bridge_scroll.get_combined_minimum_size().y
-		_bridge_scroll.custom_minimum_size = Vector2(0, clampf(_bridge_weapons.get_combined_minimum_size().y, 30.0, maxf(room - head, 30.0)))
-		_bridge_card.reset_size()
-		_bridge_card.position = Vector2(corner, top)
-	var edge := _edge()
+	_minimap.position = Vector2(edge, size.y - edge - _minimap.size.y)
+	var card_bottom := _minimap.position.y - _grow(_minimap, 1) - _grow(_bridge_card, 3) - 8.0
+	_bridge_card.custom_minimum_size.y = maxf(card_bottom - edge, 120.0)
+	_bridge_scroll.custom_minimum_size = Vector2(0, 30)
+	_bridge_card.reset_size()
+	_bridge_card.position = Vector2(edge, edge)
 	_top_left.reset_size()
 	_top_left.position = Vector2(size.x - edge - _top_left.size.x, edge)
 	if _warn_panel.visible:
-		var tab_top := _bottom.position.y - _grow(_bottom, 1)
-		_warn_panel.position = Vector2(clampf(_bottom.position.x + (_bottom.size.x - _warn_panel.size.x) / 2.0, 0.0, size.x - _warn_panel.size.x),
+		var tab_top := _minimap.position.y - _grow(_minimap, 1)
+		_warn_panel.position = Vector2(clampf(_minimap.position.x + (_minimap.size.x - _warn_panel.size.x) / 2.0, 0.0, size.x - _warn_panel.size.x),
 			lerpf(tab_top + 4.0, tab_top - _warn_panel.size.y - 6.0, clampf(_warn_anim, 0.0, 1.0)))
+
+
+## How far a docked pocket's contents keep from the screen frame's side bar (the round box's rule).
+func _frame_clear(panel: PanelContainer) -> int:
+	if tee.is_empty():
+		return 0
+	var box := panel.get_theme_stylebox("panel")
+	var inner := box.get_content_margin(SIDE_LEFT) if box != null else 0.0
+	return int(maxf(0.0, 2.0 * float(tee.bar_center) + 12.0 - (_edge() + inner)))
+
+
+## A docked pocket's padding: clear of the frame on its side, a little on the other.
+func _pad_from_frame(pad: MarginContainer, panel: PanelContainer, right: bool) -> void:
+	var clear := _frame_clear(panel)
+	pad.add_theme_constant_override("margin_left", 4 if right else clear)
+	pad.add_theme_constant_override("margin_right", clear if right else 4)
+
+
+## An edge pocket's style, or the theme's Pane where it has none (Glass: no screen frame).
+func _dock_style(panel: PanelContainer, wanted: StringName) -> void:
+	var variation: StringName = &"Pane" if get_theme_stylebox("panel", wanted) is StyleBoxEmpty else wanted
+	if panel.theme_type_variation != variation:
+		panel.theme_type_variation = variation
 
 
 # ---- C Command Console (owner 2026-11-24) ----
@@ -4546,6 +4600,9 @@ var _console_weapons: VBoxContainer
 var _console_scroll: ScrollContainer
 var _console_systems: Label
 var _console_buttons: VBoxContainer
+var _console_target: MarginContainer
+var _console_target_hint: Label
+var _console_log_box: VBoxContainer
 var _console_ship := -1
 var _fleets_panel: PanelContainer
 var _fleets_scroll: ScrollContainer
@@ -4601,12 +4658,12 @@ func _build_console() -> void:
 	# The weapon table.
 	var table := VBoxContainer.new()
 	table.add_theme_constant_override("separation", 2)
-	table.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	table.custom_minimum_size.x = 440 # compact: the room right of it is the systems' and the target's
 	row.add_child(table)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	table.add_child(head)
-	for col: Array in [["WEAPON", 0.0], ["ARC", 28.0], ["STATUS", 150.0], ["FIRE", 168.0]]:
+	for col: Array in [["WEAPON", 0.0], ["ARC", 28.0], ["STATUS", 120.0], ["FIRE", 64.0]]:
 		var l := _label(String(col[0]), 11, DIM)
 		if float(col[1]) > 0.0:
 			l.custom_minimum_size.x = float(col[1])
@@ -4625,48 +4682,62 @@ func _build_console() -> void:
 	# Systems and specials.
 	_console_systems = _label("", 11, DIM)
 	_console_systems.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_console_systems.custom_minimum_size = Vector2(260, 0)
+	_console_systems.custom_minimum_size = Vector2(200, 0)
+	_console_systems.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_console_systems.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	row.add_child(_console_systems)
+	row.add_child(VSeparator.new())
+	# The combat log's permanent box (owner 2026-11-24, CommandConsoleMarkup.png; first meant for the
+	# target's card, which went to the log's old place instead).
+	_console_target = MarginContainer.new()
+	_console_target.custom_minimum_size = Vector2(300, 0)
+	row.add_child(_console_target)
+	_console_log_box = VBoxContainer.new()
+	_console_log_box.add_theme_constant_override("separation", 4)
+	_console_target.add_child(_console_log_box)
+	row.add_child(VSeparator.new())
 	# The buttons (moved here from their tab while the console shows).
 	_console_buttons = VBoxContainer.new()
 	_console_buttons.add_theme_constant_override("separation", 6)
 	_console_buttons.custom_minimum_size = Vector2(120, 0)
 	row.add_child(_console_buttons)
 
-	_fleets_panel = _panel(&"Pane")
+	_fleets_panel = _panel(&"Pocket")
 	_fleets_panel.hide()
 	add_child(_fleets_panel)
+	_fleets_pad = MarginContainer.new()
+	_fleets_panel.add_child(_fleets_pad)
 	var fv := VBoxContainer.new()
 	fv.add_theme_constant_override("separation", 6)
 	fv.custom_minimum_size = Vector2(230, 0)
-	_fleets_panel.add_child(fv)
+	_fleets_pad.add_child(fv)
 	var title := _label("FLEETS")
 	title.theme_type_variation = &"Section"
 	fv.add_child(title)
 	_fleets_scroll = ScrollContainer.new()
 	_fleets_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_fleets_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	fv.add_child(_fleets_scroll)
 	_fleets_box = VBoxContainer.new()
 	_fleets_box.add_theme_constant_override("separation", 3)
 	_fleets_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_fleets_scroll.add_child(_fleets_box)
 
-	_log_panel = _panel(&"Pane")
+	_log_panel = _panel(&"Pane") # unused since the log moved into the console
 	_log_panel.hide()
 	add_child(_log_panel)
-	var lv := VBoxContainer.new()
-	lv.add_theme_constant_override("separation", 4)
-	_log_panel.add_child(lv)
+	var lv := _console_log_box
 	var log_title := _label("COMBAT LOG")
 	log_title.theme_type_variation = &"Section"
 	lv.add_child(log_title)
 	_log_text = RichTextLabel.new()
 	_log_text.bbcode_enabled = true
-	_log_text.fit_content = true
-	_log_text.scroll_active = false
-	_log_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_log_text.custom_minimum_size = Vector2(300, 0)
+	_log_text.fit_content = false # a fixed box: the newest line kept in view, the wheel scrolls back
+	_log_text.scroll_active = true
+	_log_text.scroll_following = true
+	_log_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_log_text.mouse_filter = Control.MOUSE_FILTER_PASS
+	_log_text.custom_minimum_size = Vector2(290, 0)
 	_log_text.add_theme_font_size_override("normal_font_size", 12)
 	lv.add_child(_log_text)
 
@@ -4714,28 +4785,25 @@ func _refresh_console() -> void:
 		var glyph := preload("arc_glyph.gd").new()
 		glyph.arc = _arc_glyph_index(int(weapon.get("arc", 0)))
 		glyph.custom_minimum_size = Vector2(28, 20)
+		line.add_theme_constant_override("separation", 6)
 		glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		line.add_child(glyph)
 		var status := _label(String(info[0]), 12, FIRE if lit else DIM)
-		status.custom_minimum_size.x = 150
+		status.custom_minimum_size.x = 120
 		status.clip_text = true
 		line.add_child(status)
-		var fire := HBoxContainer.new()
-		fire.add_theme_constant_override("separation", 2)
-		fire.custom_minimum_size.x = 168
-		line.add_child(fire)
+		# One button that steps through the game's settings: On -> Once -> Off (owner 2026-11-24).
 		var active := int(weapon.get("active", 1))
-		for setting: Array in [[1, "On"], [0, "Once"], [-1, "Off"]]:
-			var want := int(setting[0])
-			var b := _flat_button(String(setting[1]), "", func(): _set_fire(slot, active, want))
-			b.theme_type_variation = &"Toggle"
-			b.toggle_mode = true
-			b.button_pressed = active == want
-			b.disabled = count == 0
-			b.custom_minimum_size = Vector2(54, 24)
-			b.add_theme_font_size_override("font_size", 12)
-			Themes.glowing(b)
-			fire.add_child(b)
+		var fire := _flat_button({1: "On", 0: "Once", -1: "Off"}.get(active, "On"), "", func(): _act({"action": "toggle_weapon", "slot": slot}))
+		fire.tooltip_text = "Click: on, fire once, off"
+		fire.theme_type_variation = &"Toggle"
+		fire.toggle_mode = true
+		fire.button_pressed = active == 1
+		fire.disabled = count == 0
+		fire.custom_minimum_size = Vector2(64, 24)
+		fire.add_theme_font_size_override("font_size", 12)
+		Themes.glowing(fire)
+		line.add_child(fire)
 		_console_weapons.add_child(line)
 	var lines := []
 	var armor: Dictionary = acting.get("armor", {})
@@ -4857,11 +4925,10 @@ func _log_event(event: Dictionary) -> void:
 		_:
 			return
 	_log_lines.append(line)
-	if _log_lines.size() > 40:
+	if _log_lines.size() > 200:
 		_log_lines.pop_front()
 	if _log_text != null:
-		var shown := _log_lines.slice(maxi(0, _log_lines.size() - LOG_SHOWN))
-		_log_text.text = "\n".join(shown)
+		_log_text.text = "\n".join(_log_lines)
 
 
 func _log_name(index: int) -> String:
@@ -4883,18 +4950,15 @@ func _layout_console() -> void:
 	_console.position = Vector2(edge, size.y - edge - _console.size.y)
 	_top_left.reset_size()
 	_top_left.position = Vector2(edge, edge)
-	var top := corner
-	var bottom := _console.position.y - _grow(_console, 1) - 10.0
-	var head := _fleets_panel.get_combined_minimum_size().y - _fleets_scroll.get_combined_minimum_size().y
-	_fleets_scroll.custom_minimum_size = Vector2(0, clampf(_fleets_box.get_combined_minimum_size().y, 40.0, maxf(bottom - top - head, 40.0)))
+	# The Fleets column docked in the top right corner, down to the console (owner 2026-11-24).
+	_dock_style(_fleets_panel, &"Pocket")
+	_pad_from_frame(_fleets_pad, _fleets_panel, true)
+	var bottom := _console.position.y - _grow(_console, 1) - _grow(_fleets_panel, 3) - 8.0
+	_fleets_scroll.custom_minimum_size = Vector2(0, 40)
+	_fleets_panel.custom_minimum_size.y = maxf(bottom - edge, 120.0)
 	_fleets_panel.reset_size()
-	_fleets_panel.position = Vector2(size.x - corner - _fleets_panel.size.x, top)
-	_log_panel.visible = not _log_lines.is_empty()
-	if _log_panel.visible:
-		var log_w := _timeline.position.x - _grow(_timeline, 0) - 12.0 - corner
-		_log_text.custom_minimum_size.x = clampf(log_w - (_log_panel.get_combined_minimum_size().x - _log_text.custom_minimum_size.x), 180.0, 340.0)
-		_log_panel.reset_size()
-		_log_panel.position = Vector2(corner, _top_left.position.y + _top_left.size.y + _grow(_top_left, 3) + 10.0)
+	_fleets_panel.position = Vector2(size.x - edge - _fleets_panel.size.x, edge)
+	_log_panel.hide()
 	if _warn_panel.visible:
 		var tab_top := _console.position.y - _grow(_console, 1)
 		_warn_panel.position = Vector2(roundf((size.x - _warn_panel.size.x) / 2.0),
