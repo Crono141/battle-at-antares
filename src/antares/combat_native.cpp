@@ -74,15 +74,51 @@ namespace antares::combat {
             return total;
         }
 
-        // A ship's structure pool's top: a defended planet's is its ground defence
-        // (Draw_Grey_Damage_Bars, ship 0).
+        // A colony's ground defences still standing (missile base, ground batteries, stellar
+        // converter, fighter garrison): each takes one ground defence's structure to destroy.
+        int32_t Planet_Defences() {
+            const int16_t bits = CMBTFIRE::Does_Combat_Planet_Have_Defenses();
+            int32_t n = 0;
+            for (int16_t b = bits; b != 0; b &= (int16_t)(b - 1)) {
+                ++n;
+            }
+            return n;
+        }
+        int32_t s_planet_defences_at_start = -1; // the battle's first count (Begin)
+
+        int32_t Ground_Defence_Pool() {
+            const int16_t best = INITSHIP::Best_Armor(MOX::combat_data[0].owner);
+            return CMBTFIRE::Ground_Defense_Structure(TECHDATA::armor[best].ships_bonus);
+        }
+
+        bool Colony_Planet(int16_t i) {
+            return i == 0 && MOX::cmbt_colony_id != -1;
+        }
+
+        // A ship's structure pool's top. A colony's is all its ground defences together, as many as
+        // it had when the battle began (owner 2026-11-24: the original's bar, one defence at a time,
+        // filled again each time one fell, and read the colony hit count once none were left).
         int32_t Structure_Max(int16_t i) {
             const s_combat_data& ship = MOX::combat_data[i];
-            if (i == 0 && MOX::cmbt_colony_id != -1 && CMBTFIRE::Does_Combat_Planet_Have_Defenses() != 0) {
-                const int16_t best = INITSHIP::Best_Armor(ship.owner);
-                return CMBTFIRE::Ground_Defense_Structure(TECHDATA::armor[best].ships_bonus);
+            if (Colony_Planet(i)) {
+                const int32_t now = Planet_Defences();
+                if (now > s_planet_defences_at_start) {
+                    s_planet_defences_at_start = now; // never fewer than stand now
+                }
+                const int32_t count = s_planet_defences_at_start;
+                return Ground_Defence_Pool() * (count > 0 ? count : 1);
             }
             return ship.structure_max;
+        }
+
+        // What is left of it: a colony's standing defences less the damage towards the next to fall
+        // (structure_damage wraps as each falls), nothing once none stand.
+        int32_t Structure_Now(int16_t i, int32_t structure_damage) {
+            if (Colony_Planet(i)) {
+                const int32_t standing = Planet_Defences();
+                return standing > 0 ? Ground_Defence_Pool() * standing - structure_damage : 0;
+            }
+            return MOX::combat_data[i].structure_max - structure_damage;
         }
 
         bool In_Grid(int64_t x, int64_t y) {
@@ -151,7 +187,7 @@ namespace antares::combat {
             armor.Int("max", Armor_Total(i));
             const int32_t structure_max = Structure_Max(i);
             s_out structure = item.Add_Object("structure");
-            structure.Int("now", structure_max - ship.structure_damage);
+            structure.Int("now", Structure_Now(i, ship.structure_damage));
             structure.Int("max", structure_max);
             s_out systems = item.Add_Object("systems");
             systems.Int("now", CMBTFIR2::Total_Internal_Space(i));
@@ -295,7 +331,7 @@ namespace antares::combat {
 
         struct s_health {
             bool valid = false;
-            int32_t armor = 0, structure_damage = 0, systems = 0;
+            int32_t armor = 0, structure_damage = 0, structure_now = 0, systems = 0;
         };
         s_health s_volley_before;
         s_health s_volley_after[10];
@@ -307,6 +343,7 @@ namespace antares::combat {
                 h.valid = true;
                 h.armor = ship.armor_remaining;
                 h.structure_damage = ship.structure_damage;
+                h.structure_now = Structure_Now(ship_idx, ship.structure_damage); // the defences standing then
                 h.systems = CMBTFIR2::Total_Internal_Space(ship_idx);
             }
             return h;
@@ -314,7 +351,7 @@ namespace antares::combat {
 
         void Health_Json(s_out out, int16_t ship_idx, const s_health& h) {
             out.Int("armor", h.armor);
-            out.Int("structure", Structure_Max(ship_idx) - h.structure_damage);
+            out.Int("structure", h.structure_now);
             out.Int("systems", h.systems);
         }
     } // namespace
@@ -531,6 +568,7 @@ namespace antares::combat {
         }
         s_active = true;
         s_star = star_idx;
+        s_planet_defences_at_start = -1; // counted at the first state with the colony set
         native::Set_Scene(State_Json);
         native::Post_Scene_Snapshot("combat");
     }

@@ -8119,6 +8119,19 @@ func _smoke_combat(shots: String) -> bool:
 		print("smoke: no native battle (combat view %s)" % [view != null and view.visible])
 		return false
 	await get_tree().create_timer(1.5).timeout # art arrives, ships ease in
+	# The colony's structure through the battle (owner 2026-11-24: its bar filled again each time it
+	# reached zero, even with every defence gone): it only goes down, and is empty with none left.
+	var planet_trace: Array = []
+	var planet_sampler := func() -> void:
+		var planet: Dictionary = view._ship(0)
+		if not bool(planet.get("planet", false)):
+			return
+		var st: Dictionary = planet.get("structure", {})
+		var defences := (planet.get("scan", {}).get("colony", {}).get("defences", []) as Array).size()
+		var entry := [int(st.get("now", 0)), int(st.get("max", 0)), defences]
+		if planet_trace.is_empty() or planet_trace.back() != entry:
+			planet_trace.append(entry)
+	get_tree().process_frame.connect(planet_sampler)
 	print("smoke: battle open, round %d, %d ships, acting %d, %d legal squares" % [int(view.state.round), (view.state.ships as Array).size(),
 		int(view.state.ship), (view.state.legal as Array).size()])
 	if shots != "":
@@ -8479,6 +8492,16 @@ func _smoke_combat(shots: String) -> bool:
 	print("smoke: volley art late on its first tick: %d of %d %s" % [view.art_late.size(), view.art_late.size() + view.art_drawn.size(), view.art_late.keys()])
 	print("smoke: battle over after %.0f s (scene shown: %s)" % [waited, view.visible])
 	print("smoke: volleys at x2 %d, at normal speed %d" % x2_volleys)
+	get_tree().process_frame.disconnect(planet_sampler)
+	var planet_rose := false
+	for i in range(1, planet_trace.size()):
+		if int(planet_trace[i][0]) > int(planet_trace[i - 1][0]) or int(planet_trace[i][1]) != int(planet_trace[0][1]):
+			planet_rose = true
+	var bare_not_empty := planet_trace.any(func(e: Array) -> bool: return int(e[2]) == 0 and int(e[0]) != 0)
+	print("smoke: planet structure [now, max, defences] %s" % [planet_trace])
+	if planet_rose or bare_not_empty:
+		print("smoke: FAILED: the planet's structure rose or stayed above zero with no defences")
+		return false
 	view._set_speed_x2(false)
 	if x2_volleys[0] == 0 or x2_volleys[0] < x2_volleys[1]:
 		print("smoke: Double combat speed did not reach the volleys")
