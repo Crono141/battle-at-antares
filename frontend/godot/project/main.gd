@@ -29,9 +29,21 @@ var _chosen := false # a frontend has been chosen once
 var loaded_packs := {} # pack path -> loaded
 
 
+## The game stopped. A fatal error (missing original files, a broken package) is shown here: the
+## game's own message box can't appear under the Godot host. Exit code 1 tells the launcher.
+func _on_game_exited() -> void:
+	var status: int = game.get_exit_status()
+	var message: String = game.get_exit_message()
+	if status != 0:
+		printerr("game: stopped: %s" % message)
+		if message != "" and not ("--smoke" in OS.get_cmdline_user_args()):
+			OS.alert(message, "Battle at Antares")
+	get_tree().quit(1 if status != 0 else 0)
+
+
 func _ready() -> void:
 	art.setup(game)
-	game.game_exited.connect(func(): get_tree().quit())
+	game.game_exited.connect(_on_game_exited)
 	game.resource_packs_changed.connect(_load_packs)
 	var args := OS.get_cmdline_user_args()
 	if "--smoke" in args:

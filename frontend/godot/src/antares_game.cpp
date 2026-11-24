@@ -205,6 +205,8 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("get_resource_packs"), &AntaresGame::get_resource_packs);
         ClassDB::bind_method(D_METHOD("get_packages"), &AntaresGame::get_packages);
         ClassDB::bind_method(D_METHOD("get_native_ui"), &AntaresGame::get_native_ui);
+        ClassDB::bind_method(D_METHOD("get_exit_message"), &AntaresGame::get_exit_message);
+        ClassDB::bind_method(D_METHOD("get_exit_status"), &AntaresGame::get_exit_status);
         ClassDB::bind_method(D_METHOD("get_frame_image"), &AntaresGame::get_frame_image);
         ClassDB::bind_method(D_METHOD("request_sprite", "lbx", "entry"), &AntaresGame::request_sprite);
         ADD_PROPERTY(PropertyInfo(Variant::STRING, "game_dir", PROPERTY_HINT_GLOBAL_DIR), "set_game_dir", "get_game_dir");
@@ -561,6 +563,16 @@ namespace godot {
             out.push_back(String::utf8(id.c_str()));
         }
         return out;
+    }
+
+    // Why the game stopped (WP5.10): hosted, the game's own message box goes to SDL's dummy window,
+    // where nobody sees it, so the frontend shows this instead.
+    String AntaresGame::get_exit_message() const {
+        return String::utf8(antares::host::Exit_Message().c_str());
+    }
+
+    int64_t AntaresGame::get_exit_status() const {
+        return antares::host::Exit_Failed() ? 1 : 0;
     }
 
     bool AntaresGame::get_native_ui() const {

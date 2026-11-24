@@ -66,6 +66,28 @@ namespace antares::host {
         return s_active;
     }
 
+    namespace {
+        std::mutex s_exit_mutex;
+        std::string s_exit_message;
+        bool s_exit_failed = false;
+    } // namespace
+
+    void Set_Exit_Message(const char* message, bool error) {
+        std::lock_guard<std::mutex> lock(s_exit_mutex);
+        s_exit_message = message != nullptr ? message : "";
+        s_exit_failed = error;
+    }
+
+    std::string Exit_Message() {
+        std::lock_guard<std::mutex> lock(s_exit_mutex);
+        return s_exit_message;
+    }
+
+    bool Exit_Failed() {
+        std::lock_guard<std::mutex> lock(s_exit_mutex);
+        return s_exit_failed;
+    }
+
     void Request_Quit() {
         platform::Request_Exit();
     }

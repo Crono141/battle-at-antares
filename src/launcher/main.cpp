@@ -31,6 +31,7 @@ namespace {
         std::string enable;     // tick this package first, as the Packages tab does
         std::string disable;    // untick this package first
         bool confirm = false;   // answer OK to the popup listing what that switches off
+        bool wait_game = false; // press Play, then (with -screenshot) wait for the game to stop first
     };
 
     bool Parse_Options_(int argc, char** argv, s_launcher_options* options, std::string* error) {
@@ -46,6 +47,7 @@ namespace {
             {"enable", true},
             {"disable", true},
             {"confirm", false},
+            {"wait-game", false},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -64,6 +66,7 @@ namespace {
                 case 8: options->enable = option.value; break;
                 case 9: options->disable = option.value; break;
                 case 10: options->confirm = true; break;
+                case 11: options->wait_game = true; break;
                 default: break;
             }
         }
@@ -185,7 +188,11 @@ int main(int argc, char** argv) {
         return started ? 0 : 1;
     }
 
+    if (options.wait_game) {
+        (void)app.Play(); // refused with a reason when the files or the profile won't do
+    }
     const bool headless = !options.screenshot.empty();
+    const Uint64 wait_deadline = SDL_GetTicks() + 180000;
     float scale = headless ? 1.0f : SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
     if (scale <= 0.0f) scale = 1.0f;
     const std::string title = std::string(antares::PRODUCT_NAME) + " launcher";
@@ -230,6 +237,10 @@ int main(int argc, char** argv) {
             continue;
         }
         app.Update();
+        if (headless && app.Game_Running() && SDL_GetTicks() < wait_deadline) {
+            SDL_Delay(100); // -wait-game: the screenshot shows the launcher after the game
+            continue;
+        }
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();

@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "antares/game_files.h"
 #include "antares/package_catalog.h"
 #include "antares/save_summary.h"
 #include "antares/settings_docs.h"
@@ -77,6 +78,9 @@ namespace launcher {
         bool Native_UI_On_() const;
         bool Toggle_Pending() const { return !pending_toggle_.id.empty(); }
         const std::string& Message() const { return message_; }
+        bool Game_Running() const {
+            return game_ != nullptr;
+        }
         /** Polls the running game, if any. */
         void Update();
 
@@ -165,6 +169,21 @@ namespace launcher {
 
         SDL_Process* game_ = nullptr;
         bool quit_ = false;
+
+        // WP5.10: the original files (checked at start, on Rescan and after a game), and why the
+        // last game stopped when it stopped with an error (its message and the end of its log).
+        antares::game_files::s_files_check files_;
+        int64_t game_pid_ = 0;
+        struct s_game_exit {
+            bool show = false;
+            int code = 0;
+            std::string reason;   // the game's fatal message, from its log
+            std::string log_tail; // the last lines of the log
+            std::string log_path;
+        } exit_;
+        void Check_Files_();
+        void Read_Exit_Log_(int exit_code);
+        void Draw_Exit_Popup_();
 
         // Saves: read and checked again when the profile, its packages or the files change.
         std::vector<s_save_row> saves_; // slots 1-10 in order

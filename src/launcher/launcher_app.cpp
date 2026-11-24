@@ -9,6 +9,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <cstring>
 #include <sstream>
 
 #include "antares/identity.h"
@@ -98,6 +99,7 @@ namespace launcher {
         }
         Refresh_Packages_();
         Refresh_Profiles_();
+        Check_Files_();
         size_t index = 0;
         for (size_t candidate = 0; candidate < profiles_.size(); ++candidate) {
             if (profiles_[candidate].name == last_profile_ || (last_profile_.empty() && profiles_[candidate].is_base)) {
@@ -274,6 +276,98 @@ namespace launcher {
         return package != nullptr && package->valid ? package->manifest.name : package_id;
     }
 
+    void c_launcher::Check_Files_() {
+        files_ = antares::game_files::Check_Original_Files();
+        if (!files_.ok) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "launcher: %s", antares::game_files::Describe(files_).c_str());
+        }
+    }
+
+    // The game logs to logs/game.<pid>.log (the user folder's when installed). A fatal message is
+    // "CRITICAL: fatal exit: <message>", and the message may run over several lines; the Godot
+    // build puts the time first ("15:59:20 INFO: ...").
+    void c_launcher::Read_Exit_Log_(int exit_code) {
+        exit_ = {};
+        exit_.show = true;
+        exit_.code = exit_code;
+        exit_.log_path = antares::user_folder::Logs_Directory(game_dir_) + "game." + std::to_string(game_pid_) + ".log";
+        std::string text;
+        if (game_pid_ == 0 || !Read_Text_(exit_.log_path, &text)) {
+            exit_.reason = "It left no log at " + exit_.log_path + ".";
+            exit_.log_path.clear();
+            return;
+        }
+        std::vector<std::string> lines;
+        std::istringstream stream(text);
+        for (std::string line; std::getline(stream, line);) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            lines.push_back(line);
+        }
+        const auto starts_entry = [](const std::string& line) {
+            size_t at = 0;
+            if (line.size() > 9 && line[2] == ':' && line[5] == ':' && line[8] == ' ') at = 9;
+            for (const char* level : {"TRACE: ", "VERBOSE: ", "DEBUG: ", "INFO: ", "WARN: ", "WARNING: ", "ERROR: ", "CRITICAL: "}) {
+                if (line.compare(at, strlen(level), level) == 0) return true;
+            }
+            return false;
+        };
+        for (size_t index = 0; index < lines.size(); ++index) {
+            const size_t found = lines[index].find("fatal exit: ");
+            if (found == std::string::npos) continue;
+            exit_.reason = lines[index].substr(found + strlen("fatal exit: "));
+            for (size_t next = index + 1; next < lines.size() && !starts_entry(lines[next]); ++next) {
+                exit_.reason += "\n" + lines[next];
+            }
+            break;
+        }
+        while (!exit_.reason.empty() && exit_.reason.back() == '\n') exit_.reason.pop_back();
+        const size_t first = lines.size() > 25 ? lines.size() - 25 : 0;
+        for (size_t index = first; index < lines.size(); ++index) exit_.log_tail += lines[index] + "\n";
+    }
+
+    void c_launcher::Draw_Exit_Popup_() {
+        if (!exit_.show) return;
+        const char* title = "The game stopped";
+        ImGui::OpenPopup(title);
+        const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSizeConstraints(ImVec2(ImGui::GetFontSize() * 26.0f, 0.0f), ImVec2(ImGui::GetFontSize() * 40.0f, FLT_MAX));
+        if (!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            return;
+        }
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 38.0f);
+        if (!exit_.reason.empty()) {
+            ImGui::TextUnformatted(exit_.reason.c_str());
+        } else {
+            ImGui::Text("The game stopped with an error (code %d) without saying why.", exit_.code);
+        }
+        ImGui::PopTextWrapPos();
+        if (!exit_.log_tail.empty()) {
+            ImGui::Spacing();
+            if (ImGui::CollapsingHeader("The end of the game's log")) {
+                ImGui::BeginChild("log", ImVec2(ImGui::GetFontSize() * 38.0f, ImGui::GetFontSize() * 14.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::TextUnformatted(exit_.log_tail.c_str());
+                ImGui::EndChild();
+            }
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 38.0f);
+            ImGui::TextColored(COLOUR_DIM, "%s", exit_.log_path.c_str());
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::Spacing();
+        if (ImGui::Button("OK", ImVec2(ImGui::GetFontSize() * 7.0f, 0.0f))) {
+            exit_.show = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (!exit_.log_path.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Open the logs folder")) {
+                const std::string folder = antares::user_folder::Logs_Directory(game_dir_);
+                (void)SDL_OpenURL(("file://" + folder).c_str());
+            }
+        }
+        ImGui::EndPopup();
+    }
+
     void c_launcher::Draw_Toggle_Popup_() {
         if (pending_toggle_.id.empty()) return;
         const char* title = pending_toggle_.on ? "Conflicting packages" : "Packages that need it";
@@ -371,6 +465,9 @@ namespace launcher {
         const std::string prefix(1, command_line::OPTION_PREFIX);
         // Both builds take the same options in the platform's style (/config on Windows).
         std::vector<std::string> arguments = {executable};
+        if (!godot) {
+            arguments.push_back(prefix + "log"); // a log to explain an error (the Godot build always writes one)
+        }
         if (!entry.is_base) {
             arguments.push_back(prefix + "config");
             arguments.push_back(entry.vfs_path);
@@ -398,6 +495,7 @@ namespace launcher {
             message_is_error_ = true;
             return;
         }
+        game_pid_ = SDL_GetNumberProperty(SDL_GetProcessProperties(game_), SDL_PROP_PROCESS_PID_NUMBER, 0);
         const char* name = godot ? "antares-godot" : "antares";
         SDL_Log("launcher: started %s%s", name, command.c_str());
         message_ = std::string("Game running: ") + name + command;
@@ -409,6 +507,12 @@ namespace launcher {
     }
 
     bool c_launcher::Play() {
+        if (!files_.ok) {
+            const std::string text = antares::game_files::Describe(files_);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: %s", text.c_str());
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Battle at Antares launcher", text.c_str(), nullptr);
+            return false;
+        }
         if (!check_.ok) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: %s: %s", profiles_[profile_index_].vfs_path.c_str(), check_.error.c_str());
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Battle at Antares launcher", check_.error.c_str(), nullptr);
@@ -439,8 +543,10 @@ namespace launcher {
         if (SDL_WaitProcess(game_, false, &exit_code)) {
             SDL_DestroyProcess(game_);
             game_ = nullptr;
-            message_ = exit_code == 0 ? "The game closed." : "The game exited with code " + std::to_string(exit_code) + ".";
+            message_ = exit_code == 0 ? "The game closed." : "The game stopped with an error (code " + std::to_string(exit_code) + ").";
             message_is_error_ = exit_code != 0;
+            if (exit_code != 0) Read_Exit_Log_(exit_code);
+            Check_Files_();      // a player may have fixed the files while it ran
             Refresh_Profiles_(); // the game doesn't write profiles, but a player may have
             saves_dirty_ = true; // it may have saved
         }
@@ -506,6 +612,7 @@ namespace launcher {
         Draw_Launch_Bar_();
         Draw_Profile_Popups_();
         Draw_Toggle_Popup_();
+        Draw_Exit_Popup_();
         ImGui::End();
         return !quit_;
     }
@@ -545,6 +652,7 @@ namespace launcher {
         ImGui::SameLine();
         if (ImGui::Button("Rescan")) {
             const std::string current = profiles_[profile_index_].vfs_path;
+            Check_Files_();
             Refresh_Packages_();
             Refresh_Profiles_();
             size_t index = 0;
@@ -855,7 +963,11 @@ namespace launcher {
 
     void c_launcher::Draw_Check_() {
         ImGui::PushTextWrapPos(0.0f);
-        if (check_.ok) {
+        if (!files_.ok) {
+            ImGui::TextColored(COLOUR_ERROR, "Can't play yet.");
+            ImGui::SameLine();
+            ImGui::TextUnformatted(antares::game_files::Describe(files_).c_str());
+        } else if (check_.ok) {
             ImGui::TextColored(COLOUR_OK, "Ready.");
             ImGui::SameLine();
             if (check_.package_order.empty()) {
@@ -907,7 +1019,7 @@ namespace launcher {
         ImGui::SameLine(ImGui::GetContentRegionMax().x - button_width);
         const s_save_row* save = Find_Save_(load_save_);
         const bool save_fails = load_save_ > 0 && (save == nullptr || !Save_Problem_(*save).empty());
-        ImGui::BeginDisabled(!check_.ok || save_fails || game_ != nullptr);
+        ImGui::BeginDisabled(!files_.ok || !check_.ok || save_fails || game_ != nullptr);
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.45f, 0.25f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.55f, 0.30f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.62f, 0.35f, 1.0f));
