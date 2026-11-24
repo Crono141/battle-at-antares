@@ -1608,6 +1608,7 @@ orion2re_add_unit_test(test_fields
         src/game/fields.cpp
         src/game/mouse_wheel.cpp
     FAKE_SOURCES
+        tests/fakes/fake_host_inactive.cpp
         tests/fakes/fake_animate.cpp
         tests/fakes/fake_fields_runtime.cpp
         tests/fakes/fake_native_requests.cpp

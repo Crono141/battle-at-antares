@@ -7,4 +7,6 @@ namespace antares::host {
     bool Active() {
         return false;
     }
+
+    void Set_Exit_Message(const char*, bool) {}
 } // namespace antares::host
