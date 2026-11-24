@@ -388,7 +388,8 @@ func _clear_area() -> Rect2:
 		bottom = _bottom.get_rect().position.y - 12.0
 	var left := 24.0
 	if _bridge() and _minimap != null:
-		left = _minimap.get_rect().end.x + 12.0 # the card and the minimap down the left
+		left = _minimap.get_rect().end.x + 12.0 # the card, the buttons and the minimap down the left
+		bottom = size.y - 24.0
 	return Rect2(Vector2(left, top), Vector2(size.x - 24.0 - left, maxf(bottom - top, 100.0)))
 
 
@@ -1856,6 +1857,13 @@ func _build_hud() -> void:
 	_actions.add_child(_auto_button)
 	for b: Button in [_wait_button, _done_button, _end_button, _auto_button]:
 		b.custom_minimum_size = Vector2(96, 0)
+	# Bridge: the same buttons two by two over the minimap (owner 2026-11-24).
+	_actions_grid = GridContainer.new()
+	_actions_grid.columns = 2
+	_actions_grid.add_theme_constant_override("h_separation", 6)
+	_actions_grid.add_theme_constant_override("v_separation", 6)
+	_actions_grid.hide()
+	actions_pad.add_child(_actions_grid)
 
 	# The weapons pocket on the bottom edge, about half the screen wide; its weapons scroll.
 	_strip = _panel(&"BottomPocket")
@@ -1941,6 +1949,11 @@ func _layout() -> void:
 		return
 	# A theme without edge pockets (Glass: empty, no screen frame) gives the content pockets its
 	# Pane, so the ship, its weapons and the round don't float on the battlefield.
+	var bottom_variation: StringName = &"Pane" if _bridge() else &"BottomPocket"
+	if _bottom.theme_type_variation != bottom_variation:
+		_bottom.theme_type_variation = bottom_variation
+		if not _bridge():
+			_bottom.custom_minimum_size.x = 0.0
 	for pocket: PanelContainer in [_timeline, _strip, _top_left]:
 		var wanted: StringName = &"Pocket" if pocket == _timeline or (pocket == _top_left and _bridge()) else &"BottomPocket"
 		var bare := get_theme_stylebox("panel", wanted) is StyleBoxEmpty
@@ -2057,9 +2070,7 @@ func _draw_frame() -> void:
 		var bar_y := _timeline.get_rect().end.y + _grow(_timeline, 3) - c
 		for x in [r.position.x - _grow(_options_tab, 0) + c, r.end.x + _grow(_options_tab, 2) - c]:
 			_draw_tee(Vector2(x, bar_y), true)
-	if _bottom.visible and not _strip.visible:
-		_corner_tees(_bottom, true, false) # Bridge: the buttons in the bottom right corner
-	elif _bottom.visible:
+	if _bottom.visible and _strip.visible:
 		var r := _bottom.get_rect()
 		var bar_y := _strip.get_rect().position.y - _grow(_strip, 1) + c
 		for x in [r.position.x - _grow(_bottom, 0) + c, r.end.x + _grow(_bottom, 2) - c]:
@@ -4190,6 +4201,7 @@ func _apply_battle_layout() -> void:
 	var bridge := _bridge()
 	_strip.visible = not bridge
 	_minimap.visible = bridge
+	_arrange_actions(bridge)
 	if not bridge:
 		_bridge_card.hide()
 	if not state.is_empty():
@@ -4263,6 +4275,20 @@ func _build_bridge() -> void:
 
 const BRIDGE_WIDTH := 290.0
 var _bridge_box: VBoxContainer
+var _actions_grid: GridContainer
+
+
+## The action buttons in a row (Clear Field) or two by two (Bridge).
+func _arrange_actions(grid: bool) -> void:
+	var into: Container = _actions_grid if grid else _actions
+	if _wait_button.get_parent() == into:
+		return
+	for b: Button in [_wait_button, _done_button, _end_button, _auto_button]:
+		b.get_parent().remove_child(b)
+		into.add_child(b)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL if grid else Control.SIZE_FILL
+	_actions_grid.visible = grid
+	_actions.visible = not grid
 
 
 ## The left column's inner width (the card's contents and the minimap).
@@ -4463,16 +4489,18 @@ func _layout_bridge() -> void:
 	_minimap.custom_minimum_size.x = _bridge_box.custom_minimum_size.x + chrome # as wide as the card
 	_minimap.reset_size()
 	_minimap.position = Vector2(corner, size.y - corner - _minimap.size.y)
+	# The buttons, two by two, over the minimap and as wide (owner 2026-11-24).
+	_bottom.custom_minimum_size.x = _minimap.size.x
+	_bottom.reset_size()
+	_bottom.position = Vector2(corner, _minimap.position.y - 8.0 - _bottom.size.y)
 	if _bridge_card.visible:
 		var top := corner
-		var room := _minimap.position.y - 10.0 - top
+		var room := _bottom.position.y - 10.0 - top
 		var head := _bridge_card.get_combined_minimum_size().y - _bridge_scroll.get_combined_minimum_size().y
 		_bridge_scroll.custom_minimum_size = Vector2(0, clampf(_bridge_weapons.get_combined_minimum_size().y, 30.0, maxf(room - head, 30.0)))
 		_bridge_card.reset_size()
 		_bridge_card.position = Vector2(corner, top)
 	var edge := _edge()
-	_bottom.reset_size()
-	_bottom.position = Vector2(size.x - edge - _bottom.size.x, size.y - edge - _bottom.size.y)
 	_top_left.reset_size()
 	_top_left.position = Vector2(size.x - edge - _top_left.size.x, edge)
 	if _warn_panel.visible:
