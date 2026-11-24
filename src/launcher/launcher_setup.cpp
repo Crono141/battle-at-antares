@@ -143,15 +143,16 @@ namespace launcher {
 
         // The steps along the top: FIND, CHECK, COPY, SAVES, DONE (`current` -1: none yet).
         void Steps_(ImDrawList* draw, float centre_x, float y, int current) {
-            const char* names[] = {"FIND", "CHECK", "COPY", "SAVES", "DONE"};
-            const float font = 13.0f, box = 22.0f, gap = 7.0f, bar = 40.0f, bar_gap = 9.0f;
+            const char* names[] = {"FIND", "CHECK", "COPY", "SAVES", "HD ART", "DONE"};
+            constexpr int COUNT = 6;
+            const float font = 13.0f, box = 22.0f, gap = 7.0f, bar = 28.0f, bar_gap = 8.0f;
             float total = 0.0f;
-            for (int index = 0; index < 5; ++index) {
+            for (int index = 0; index < COUNT; ++index) {
                 total += box + gap + ch::Title_Font()->CalcTextSizeA(font, FLT_MAX, 0.0f, names[index]).x;
-                if (index < 4) total += bar + bar_gap * 2;
+                if (index < COUNT - 1) total += bar + bar_gap * 2;
             }
             float x = centre_x - total * 0.5f;
-            for (int index = 0; index < 5; ++index) {
+            for (int index = 0; index < COUNT; ++index) {
                 const bool done = index < current, now = index == current;
                 const ImVec4 colour = now ? ch::AMBER : done ? ch::DIM
                                                              : ImVec4(120 / 255.0f, 122 / 255.0f, 130 / 255.0f, 1.0f);
@@ -171,7 +172,7 @@ namespace launcher {
                 const ImVec2 label = ch::Title_Font()->CalcTextSizeA(font, FLT_MAX, 0.0f, names[index]);
                 draw->AddText(ch::Title_Font(), font, ImVec2(x, y + (box - label.y) * 0.5f), U32_(colour), names[index]);
                 x += label.x;
-                if (index < 4) {
+                if (index < COUNT - 1) {
                     draw->AddLine(ImVec2(x + bar_gap, y + box * 0.5f), ImVec2(x + bar_gap + bar, y + box * 0.5f), IM_COL32(58, 61, 69, 255), 2.0f);
                     x += bar + bar_gap * 2;
                 }
@@ -221,6 +222,8 @@ namespace launcher {
         setup_.page = SETUP_WELCOME;
         if (folder == "get") {
             setup_.page = SETUP_GET;
+        } else if (folder == "hd") {
+            setup_.page = SETUP_HD;
         } else if (folder == "find") {
             Setup_Find_();
         } else if (!folder.empty()) {
@@ -284,7 +287,7 @@ namespace launcher {
         if (setup_.worker.joinable()) setup_.worker.join();
         Check_Files_();
         setup_.saves = gi::Find_Saves(setup_.check.folder, gi::Virtual_Store_For(setup_.check.folder), antares::user_folder::Saves_Directory(game_dir_));
-        setup_.page = setup_.saves.empty() ? SETUP_DONE : SETUP_SAVES;
+        setup_.page = setup_.saves.empty() ? SETUP_HD : SETUP_SAVES;
         SDL_Log("setup: copied to %s; %zu saves found; files %s", setup_.target.c_str(), setup_.saves.size(), files_.ok ? "ok" : "still missing");
     }
 
@@ -292,7 +295,7 @@ namespace launcher {
         setup_.import_error.clear();
         setup_.imported = gi::Import_Saves(setup_.saves, antares::user_folder::Saves_Directory(game_dir_), setup_.replace_taken, &setup_.import_error);
         saves_dirty_ = true;
-        setup_.page = SETUP_DONE;
+        setup_.page = SETUP_HD;
     }
 
     bool c_launcher::Start_Setup_Copy() {
@@ -311,6 +314,7 @@ namespace launcher {
         }
         Setup_After_Copy_();
         if (setup_.page == SETUP_SAVES && !stop_at_saves) Setup_Import_();
+        if (setup_.page == SETUP_HD) setup_.page = SETUP_DONE; // headless: no downloads
         return files_.ok;
     }
 
@@ -350,7 +354,8 @@ namespace launcher {
             : setup_.page == SETUP_CHECK                            ? 1
             : setup_.page == SETUP_COPY                             ? 2
             : setup_.page == SETUP_SAVES                            ? 3
-                                                                    : 4;
+            : setup_.page == SETUP_HD                               ? 4
+                                                                    : 5;
         Steps_(back, centre, window_min.y + 58, step);
 
         const float bezel_top = window_min.y + 98;
@@ -358,7 +363,7 @@ namespace launcher {
         ch::Bezel(back, ImVec2(left, bezel_top), ImVec2(left + column, bezel_bottom));
 
         // The page, inside the bezel.
-        const char* titles[] = {"Welcome", "Where is your Master of Orion II?", "Get Master of Orion II", "Checking your copy", "Copying the game files", "Your saved games", "All set"};
+        const char* titles[] = {"Welcome", "Where is your Master of Orion II?", "Get Master of Orion II", "Checking your copy", "Copying the game files", "Your saved games", "HD art (optional)", "All set"};
         ImGui::SetCursorScreenPos(ImVec2(left + 30, bezel_top + 22));
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(10 / 255.0f, 11 / 255.0f, 14 / 255.0f, 0.85f));
@@ -538,6 +543,17 @@ namespace launcher {
                 right_label = "Next";
                 break;
             }
+            case SETUP_HD:
+                Text_("Battle at Antares can show the whole game in high resolution with these free packs of upscaled art. "
+                      "They download from GitHub while you carry on, and switch on by themselves when they're ready. "
+                      "They never affect your saves.");
+                ImGui::Spacing();
+                Text_("Tick the ones you want, or skip: the launcher's HD art button offers them any time.", ch::DIM, SMALL);
+                ImGui::Spacing();
+                Draw_Hd_List_();
+                left_label = "Skip";
+                right_label = Hd_Any_Ticked_() ? "Download" : "Next";
+                break;
             case SETUP_DONE:
                 if (files_.ok) {
                     Text_("Battle at Antares has everything it needs.");
@@ -546,6 +562,10 @@ namespace launcher {
                 } else {
                     Text_("Something is still missing:", ch::RED);
                     Text_(antares::game_files::Describe(files_));
+                }
+                if (hd_.busy) {
+                    ImGui::Spacing();
+                    Text_(Hd_Status_() + ". The HD art switches on by itself when it's ready; keep the launcher open until then.", ch::AMBER, SMALL);
                 }
                 if (setup_.imported > 0) {
                     ImGui::Spacing();
@@ -627,8 +647,12 @@ namespace launcher {
                 if (setup_.import_saves) {
                     Setup_Import_();
                 } else {
-                    setup_.page = SETUP_DONE;
+                    setup_.page = SETUP_HD;
                 }
+                break;
+            case SETUP_HD:
+                if (action == RIGHT && Hd_Any_Ticked_()) Hd_Start_();
+                setup_.page = SETUP_DONE;
                 break;
             case SETUP_DONE:
                 if (action == LEFT && !files_.ok) {

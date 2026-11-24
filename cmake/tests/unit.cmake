@@ -586,7 +586,10 @@ orion2re_add_unit_test(test_config_loader
         tests/unit/config_loader_test.cpp
         tests/unit/launcher_packages_test.cpp
         tests/unit/game_install_test.cpp
+        tests/unit/hd_packs_test.cpp
     PRODUCTION_SOURCES
+        src/antares/hd_packs.cpp
+        src/launcher/launcher_fetch.cpp
         src/antares/game_install.cpp
         src/antares/game_files.cpp
         src/antares/package_catalog.cpp
