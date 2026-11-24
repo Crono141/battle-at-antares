@@ -2,6 +2,7 @@
 #include "antares/native.h"
 #include "antares/todo.h"
 #include "officer_roster.h"
+#include "typed_format.h"
 #include "string_overrides.h"
 
 #include "lua/lua_game_ship_identity.h"
@@ -595,7 +596,9 @@ namespace OFFICER {
                 } else {
                     format = HAROLD::H_Message(HESTR_093_S_S_D_TURNS);
                 }
-                snprintf(buffer, sizeof(buffer), format, ship->d.name, leader->name, (int)eta);
+                const int numbers[] = {(int)eta};
+                const char* texts[] = {ship->d.name, leader->name};
+                TYPED_FORMAT::Format(buffer, sizeof(buffer), format, numbers, 1, texts, 2); // any translation's order
             }
         }
 
@@ -696,7 +699,9 @@ namespace OFFICER {
                     snprintf(buffer, sizeof(buffer), MOX::s_fmt_scanned_star_info, MOX::star[star_idx].name, leader->name);
                 } else {
                     int msg_id = (leader->eta == 1) ? HESTR_092_S_S_D_TURN : HESTR_093_S_S_D_TURNS;
-                    snprintf(buffer, sizeof(buffer), HAROLD::H_Message(msg_id), MOX::star[star_idx].name, leader->name, (int)leader->eta);
+                    const int numbers[] = {(int)leader->eta};
+                    const char* texts[] = {MOX::star[star_idx].name, leader->name};
+                    TYPED_FORMAT::Format(buffer, sizeof(buffer), HAROLD::H_Message(msg_id), numbers, 1, texts, 2); // any translation's order
                 }
             }
             MISC::Set_Fitted_Font_Style(buffer, &OFFICER::normal_text_colors, 3, 2, 0, 203, 1);
@@ -1520,11 +1525,11 @@ namespace OFFICER {
                 snprintf(display_buf, sizeof(display_buf), format_buf, Leader_Name(leader_idx, 0), target_ship);
             } else {
                 strlcpy(format_buf, HAROLD::H_Message(HESTR_118_IT_WILL_TAKE_D_TURNS_F), sizeof(format_buf));
-                if (MOX::settings.language == 4) {
-                    snprintf(display_buf, sizeof(display_buf), format_buf, Leader_Name(leader_idx, 0), (int)eta, target_ship);
-                } else {
-                    snprintf(display_buf, sizeof(display_buf), format_buf, (int)eta, Leader_Name(leader_idx, 0), target_ship);
-                }
+                // By type, not position (TYPED_FORMAT): the translations move the number (a German
+                // game crashed here, 2026-11-23); the original swapped it for language 4 only.
+                const int numbers[] = {(int)eta};
+                const char* texts[] = {Leader_Name(leader_idx, 0), target_ship->d.name};
+                TYPED_FORMAT::Format(display_buf, sizeof(display_buf), format_buf, numbers, 1, texts, 2);
             }
 
             if (Officer_Screen_User_Box(display_buf, 1)) {
@@ -1558,11 +1563,11 @@ namespace OFFICER {
                 snprintf(display_buf, sizeof(display_buf), format_buf, Leader_Name(leader_idx, 0), target_star);
             } else {
                 strlcpy(format_buf, HAROLD::H_Message(HESTR_118_IT_WILL_TAKE_D_TURNS_F), sizeof(format_buf));
-                if (MOX::settings.language == 4) {
-                    snprintf(display_buf, sizeof(display_buf), format_buf, Leader_Name(leader_idx, 0), (int)eta, target_star);
-                } else {
-                    snprintf(display_buf, sizeof(display_buf), format_buf, (int)eta, Leader_Name(leader_idx, 0), target_star);
-                }
+                // By type, not position (TYPED_FORMAT): the translations move the number (a German
+                // game crashed here, 2026-11-23); the original swapped it for language 4 only.
+                const int numbers[] = {(int)eta};
+                const char* texts[] = {Leader_Name(leader_idx, 0), target_star->name};
+                TYPED_FORMAT::Format(display_buf, sizeof(display_buf), format_buf, numbers, 1, texts, 2);
             }
 
             if (Officer_Screen_User_Box(display_buf, 1)) {

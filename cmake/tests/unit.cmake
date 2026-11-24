@@ -165,6 +165,13 @@ orion2re_add_unit_test(test_user_paths
     LINK_SDL
 )
 
+orion2re_add_unit_test(test_typed_format
+    SOURCES
+        tests/unit/typed_format_test.cpp
+    PRODUCTION_SOURCES
+        src/game/typed_format.cpp
+)
+
 orion2re_add_unit_test(test_fields_helpers
     SOURCES
         tests/unit/fields_helpers_test.cpp
