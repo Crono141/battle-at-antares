@@ -146,6 +146,22 @@ DOCTEST_TEST_CASE("the colony query reads the colony screen's values (WP3.4)") {
     DOCTEST_CHECK(Has_(c, "\"buildings\":[{\"building\":22,\"name\":\"B22\",\"sellable\":true,\"refund\":150,"));
 }
 
+DOCTEST_TEST_CASE("colony_breakdowns gives the legacy right-click breakdowns and leaves the colony as it was") {
+    Set_Up_();
+    DOCTEST_CHECK(Has_(Run_("{\"verb\":\"query\",\"what\":\"colony_breakdowns\",\"colony\":1}"), "bad_args")); // not the player's
+    const int32_t food_before = MOX::colony[0].production[ECON_FOOD];
+    const std::string b = Run_("{\"verb\":\"query\",\"what\":\"colony_breakdowns\",\"colony\":0}");
+    // The tab stops are gone; each line a row; the one after the blank line is the total.
+    DOCTEST_CHECK(Has_(b, "\"food\":{\"title\":\"Food Summary\",\"rows\":[{\"total\":false,\"value\":\"+3\",\"label\":\"Produced by food\"},"
+                          "{\"total\":false,\"value\":\"-1\",\"label\":\"Gravity penalty\"},{\"total\":true,\"value\":\"+2\",\"label\":\"Total food\"}]}"));
+    for (const char* kind : {"\"bc\":", "\"industry\":", "\"research\":", "\"morale\":"}) {
+        DOCTEST_CHECK(Has_(b, kind));
+    }
+    // The calculators rewrote the colony; the query put it back.
+    const int32_t food_after = MOX::colony[0].production[ECON_FOOD]; // a copy: s_colony is packed
+    DOCTEST_CHECK(food_after == food_before);
+}
+
 DOCTEST_TEST_CASE("the occupation policy: shown for captured people, set by set_occupation (owner, 2026-11-19)") {
     Set_Up_();
     TEST_COLONY::captured_people = false;
