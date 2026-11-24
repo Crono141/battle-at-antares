@@ -13,6 +13,7 @@
 #include "startup_options.h"
 #include "antares/identity.h"
 #include "antares/host.h"
+#include "antares/user_folder.h"
 
 #if defined(_WIN32)
 #include <io.h>
@@ -185,7 +186,7 @@ int main(int argc, char** argv) {
 #else
     const char* installed_datadir = nullptr;
 #endif
-    user_paths::Init(SDL_GetBasePath(), user_paths::PLATFORM_USES_XDG, installed_datadir);
+    user_paths::Init(antares::Install_Directory().c_str(), user_paths::PLATFORM_USES_XDG, installed_datadir); // Antares: hosted, the host's folder (WP5.9)
     if (logging_enabled && !hosted) {
         Configure_Game_Log_();
     }
@@ -253,21 +254,12 @@ int main(int argc, char** argv) {
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "original game directory: %s", original_game_directory.c_str());
     }
 
-    if (user_paths::Is_Enabled()) {
-        const std::string user_mods_path = std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_DATA)) + "mods/";
-        bool paths_valid = vfs::Set_User_Config_Path(user_paths::Get_Directory(user_paths::USER_DIRECTORY_CONFIG)) != 0 &&
-            vfs::Set_User_Mods_Path(user_mods_path.c_str()) != 0 &&
-            vfs::Add_Raw_Search_Path(game_directory.c_str()) != 0;
-        for (const std::string& directory : user_paths::Get_Game_Asset_Directories()) {
-            paths_valid = vfs::Add_Raw_Search_Path(directory.c_str()) != 0 && paths_valid;
-        }
-        if (!paths_valid) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: XDG search path exceeds the supported path length");
-            vfs::Shutdown();
-            Shutdown_Game_Log_();
-            user_paths::Shutdown();
-            return -1;
-        }
+    if (!antares::user_folder::Mount(game_directory)) { // Antares: shared with the launcher (WP5.9)
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: XDG search path exceeds the supported path length");
+        vfs::Shutdown();
+        Shutdown_Game_Log_();
+        user_paths::Shutdown();
+        return -1;
     }
 
     config::s_effective_config effective_config;

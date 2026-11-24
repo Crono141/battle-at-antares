@@ -90,7 +90,8 @@ namespace launcher {
         void Apply_Enabled_(const std::vector<std::string>& enabled);
         void Run_Check_();
         void Launch_(int load_save); // 0: main menu, 1-10: -load-save
-        std::string Profile_File_Path_(const s_profile_entry& entry) const;
+        std::string Profile_File_Path_(const s_profile_entry& entry) const; // written here
+        std::string Profile_Read_Path_(const s_profile_entry& entry) const; // the player's copy, else bundled
         const antares::s_package_info* Find_Package_(const std::string& id) const;
 
         void Draw_Profile_Bar_();
@@ -138,7 +139,9 @@ namespace launcher {
         bool Profile_Sets_(config::t_variable_id id) const;
 
         std::string game_dir_;
-        std::string data_dir_;
+        std::string data_dir_;      // <game folder>/data/: the bundled antares.cfg and profiles
+        std::string config_dir_;    // where the player's own copies go (data_dir_ when portable)
+        std::string settings_path_; // launcher.json
         std::vector<antares::s_package_info> packages_;
         std::vector<s_profile_entry> profiles_;
         size_t profile_index_ = 0;

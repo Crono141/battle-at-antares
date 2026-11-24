@@ -2,6 +2,8 @@
 
 #include "antares/save_summary.h"
 
+#include "antares/user_folder.h"
+
 #include <filesystem>
 
 #include "config/config_snapshot.h"
@@ -155,8 +157,9 @@ namespace antares::saves {
         summary.slot = slot;
         const vfs_detail::s_vfs_state& state = vfs_detail::g_vfs_state;
         if (!state.initialized || slot < 1 || slot > k_slot_count) return summary;
-        // The game opens saves case-insensitively in its working folder, the game folder.
-        const std::filesystem::path folder(state.base_path);
+        // The game opens saves case-insensitively in the game folder, or in the user folder when
+        // installed (user_paths redirects SAVE?.GAM; WP5.9).
+        const std::filesystem::path folder(antares::user_folder::Saves_Directory(state.base_path));
         const std::string wanted = "save" + std::to_string(slot) + ".gam";
         std::error_code error;
         std::filesystem::path path;

@@ -4,6 +4,7 @@
 #include "antares/profile_file.h"
 #include "antares/save_summary.h"
 #include "antares/settings_docs.h"
+#include "antares/user_folder.h"
 #include "config/cfg_parser.h"
 #include "config/config_decode.h"
 #include "config/config_runtime.h"
@@ -14,6 +15,7 @@
 #include "game/save_sections.h"
 #include "game/savegame.h"
 #include "game/serialization.h"
+#include "game/user_paths.h"
 #include "game/vfs.h"
 #include "lua/lua_mod_runtime.h"
 #include "lua/lua_registry.h"
@@ -44,6 +46,9 @@ namespace {
             vfs::Shutdown();
             std::error_code error;
             fs::remove_all(root_, error);
+        }
+        const fs::path& Root() const {
+            return root_;
         }
         void Init_Vfs() const {
             DOCTEST_REQUIRE(vfs::Init(root_.string().c_str()) == 1);
@@ -554,6 +559,52 @@ DOCTEST_TEST_CASE("launcher saves: the header and the recorded packages are read
     DOCTEST_CHECK(summary.error.find("newer") != std::string::npos);
     const std::string text = "hello, this is not a save at all, honestly not";
     DOCTEST_CHECK_FALSE(antares::saves::Read_Save_Summary(reinterpret_cast<const uint8_t*>(text.data()), text.size(), &summary));
+}
+
+DOCTEST_TEST_CASE("launcher with a user folder: the player's packages win; saves and profiles are theirs (WP5.9)") {
+    s_launcher_test_directory files;
+    files.Package("shared", "", "combat bombardment_hit_frames = 3;\n");
+    files.Package("bundled-only");
+    files.Write("data/antares.cfg", "enable bundled-only;\n");
+    // The player's folder (XDG, under the test folder).
+    const std::string home = (files.Root() / "home").string();
+    for (const char* name : {"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"}) {
+        SDL_UnsetEnvironmentVariable(SDL_GetEnvironment(), name);
+    }
+    const char* old_home = SDL_getenv("HOME");
+    const std::string saved_home = old_home != nullptr ? old_home : "";
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "HOME", home.c_str(), true);
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "ANTARES_USER_FOLDER", "1", true);
+    files.Write("home/.local/share/antares/mods/shared/mod.json5", "{ id: \"shared\", name: \"Package shared\", version: \"2.0.0\", requires: { engine: \">=2.0.0 <3.0.0\" }, config: \"config/main.cfg\" }\n");
+    files.Write("home/.local/share/antares/mods/shared/config/main.cfg", "combat bombardment_hit_frames = 4;\n");
+    files.Write("home/.local/share/antares/mods/mine/mod.json5", s_launcher_test_directory::Manifest("mine"));
+    files.Write("home/.local/share/antares/mods/mine/config/main.cfg", "");
+    files.Write("home/.config/antares/profiles/p.cfg", "enable mine;\nenable shared;\n");
+    files.Write("home/.local/share/antares/SAVE2.GAM", std::string(100, 'x'));
+
+    const std::string game = files.Root().string() + "/";
+    DOCTEST_REQUIRE(user_paths::Init(game.c_str(), true));
+    files.Init_Vfs();
+    DOCTEST_REQUIRE(antares::user_folder::Mount(game));
+
+    const std::vector<antares::s_package_info> packages = antares::Discover_Packages();
+    std::vector<std::string> ids;
+    for (const auto& package : packages) ids.push_back(package.id);
+    DOCTEST_CHECK(ids == std::vector<std::string>{"bundled-only", "mine", "shared"});
+    DOCTEST_CHECK(Find_(packages, "shared")->user_folder);
+    DOCTEST_CHECK(Find_(packages, "shared")->manifest.version_text == "2.0.0");
+    DOCTEST_CHECK_FALSE(Find_(packages, "bundled-only")->user_folder);
+
+    // The profile in the user folder loads the player's packages, as the game would.
+    const antares::s_config_check check = antares::Check_Config("profiles/p.cfg");
+    DOCTEST_CHECK_MESSAGE(check.ok, check.error);
+    DOCTEST_CHECK(antares::user_folder::Config_Directory(game) == home + "/.config/antares/");
+    DOCTEST_CHECK(antares::saves::Load_Save_Summary(2).exists);
+    DOCTEST_CHECK_FALSE(antares::saves::Load_Save_Summary(3).exists);
+
+    user_paths::Shutdown();
+    SDL_UnsetEnvironmentVariable(SDL_GetEnvironment(), "ANTARES_USER_FOLDER");
+    SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "HOME", saved_home.c_str(), true);
 }
 
 DOCTEST_TEST_CASE("launcher saves: the check stages the save's packages like the game's load") {

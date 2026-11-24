@@ -73,7 +73,7 @@ function(orion2re_add_unit_test TARGET_NAME)
     cmake_parse_arguments(ORION2RE_TEST "LINK_SDL" "" "SOURCES;PRODUCTION_SOURCES;FAKE_SOURCES;LIBRARIES" ${ARGN})
 
     if("src/game/compat.cpp" IN_LIST ORION2RE_TEST_PRODUCTION_SOURCES)
-        list(APPEND ORION2RE_TEST_PRODUCTION_SOURCES src/game/user_paths.cpp src/game/legacy_sort.cpp)
+        list(APPEND ORION2RE_TEST_PRODUCTION_SOURCES src/game/user_paths.cpp src/antares/user_folder.cpp src/game/legacy_sort.cpp)
     endif()
 
     orion2re_test_shared_sources(ORION2RE_TEST_OBJECTS
@@ -587,6 +587,7 @@ orion2re_add_unit_test(test_config_loader
         tests/unit/launcher_packages_test.cpp
     PRODUCTION_SOURCES
         src/antares/package_catalog.cpp
+        src/antares/user_folder_vfs.cpp
         src/antares/profile_file.cpp
         src/antares/save_summary.cpp
         src/antares/settings_docs.cpp

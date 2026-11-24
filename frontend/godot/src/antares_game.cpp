@@ -4,6 +4,7 @@
 #include "antares/native.h"
 #include "antares/combat_native.h"
 #include "antares/stall_trace.h"
+#include "antares/user_folder.h"
 #include "pch.h"
 #include "command_line.h"
 
@@ -95,7 +96,8 @@ namespace {
         }
         namespace fs = std::filesystem;
         std::error_code ec;
-        const fs::path logs = fs::path(game_dir) / "logs";
+        // <game folder>/logs/, or the user folder's when installed (WP5.9).
+        const fs::path logs = fs::u8path(antares::user_folder::Logs_Directory(game_dir));
         fs::create_directories(logs, ec);
         // Keep the nine newest old logs; this run's makes ten.
         std::vector<fs::directory_entry> old;
