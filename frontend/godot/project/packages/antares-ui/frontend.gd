@@ -3326,6 +3326,9 @@ func _open_design(slot: int) -> void:
 
 
 func _on_design_built(_slot: int) -> void:
+	var build: Control = _views.get("build_pane")
+	if build != null:
+		build.refresh_choices() # an open build list shows the new design
 	var designs := _view("design_list")
 	_bring_up(designs)
 	designs.fit_bottom(_side_panel_area().end.y)
