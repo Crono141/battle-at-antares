@@ -16,6 +16,7 @@
 #include "game/user_paths.h"
 #include "game/vfs.h"
 #include "launcher/launcher_app.h"
+#include "launcher/launcher_chrome.h"
 #include "launcher_font.h"
 
 namespace {
@@ -249,6 +250,7 @@ int main(int argc, char** argv) {
     io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(k_launcher_font_data), k_launcher_font_size, 17.0f, &font_config);
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
+    (void)launcher::chrome::Load(renderer); // the setup wizard's look (WP5.11b)
 
     int exit_code = 0;
     int frames = 0;
@@ -305,6 +307,7 @@ int main(int argc, char** argv) {
     ImGui_ImplSDLRenderer3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
+    launcher::chrome::Unload();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     config::Shutdown_Config_Loader();

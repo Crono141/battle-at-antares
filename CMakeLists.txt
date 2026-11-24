@@ -1057,6 +1057,32 @@ if(ORION2RE_BUILD_GAME)
             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
         VERBATIM
     )
+    # The setup wizard's look (WP5.11b, look B): the Chrome theme's metal and fonts, embedded so the
+    # wizard has them before any game file exists.
+    set(ANTARES_CHROME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frontend/godot/project/packages/antares-ui-chrome")
+    set(ANTARES_LAUNCHER_CHROME_HEADERS)
+    foreach(ANTARES_CHROME_ITEM IN ITEMS
+            "art/panel.png:k_chrome_panel" "art/bezel.png:k_chrome_bezel" "art/button.png:k_chrome_button"
+            "fonts/RussoOne.ttf:k_chrome_russo" "fonts/SairaSemiCondensed-Medium.ttf:k_chrome_saira"
+            "fonts/SairaSemiCondensed-Bold.ttf:k_chrome_saira_bold")
+        string(REPLACE ":" ";" ANTARES_CHROME_PARTS "${ANTARES_CHROME_ITEM}")
+        list(GET ANTARES_CHROME_PARTS 0 ANTARES_CHROME_FILE)
+        list(GET ANTARES_CHROME_PARTS 1 ANTARES_CHROME_SYMBOL)
+        set(ANTARES_CHROME_HEADER "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}/${ANTARES_CHROME_SYMBOL}.h")
+        add_custom_command(
+            OUTPUT "${ANTARES_CHROME_HEADER}"
+            COMMAND ${CMAKE_COMMAND}
+                "-DINPUT_FILE=${ANTARES_CHROME_DIR}/${ANTARES_CHROME_FILE}"
+                "-DOUTPUT_FILE=${ANTARES_CHROME_HEADER}"
+                "-DSYMBOL_NAME=${ANTARES_CHROME_SYMBOL}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+            DEPENDS
+                "${ANTARES_CHROME_DIR}/${ANTARES_CHROME_FILE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+            VERBATIM
+        )
+        list(APPEND ANTARES_LAUNCHER_CHROME_HEADERS "${ANTARES_CHROME_HEADER}")
+    endforeach()
     add_executable(antares-launcher
         src/launcher/main.cpp
         src/launcher/launcher_app.cpp
@@ -1064,8 +1090,10 @@ if(ORION2RE_BUILD_GAME)
         src/launcher/launcher_settings.cpp
         src/launcher/launcher_info.cpp
         src/launcher/launcher_setup.cpp
+        src/launcher/launcher_chrome.cpp
         "${ANTARES_LAUNCHER_FONT_HEADER}"
         "${ANTARES_LAUNCHER_SCHEMA_HEADER}"
+        ${ANTARES_LAUNCHER_CHROME_HEADERS}
         "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp"
         "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp"
         $<TARGET_OBJECTS:orion2re_game_objects>
