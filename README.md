@@ -118,12 +118,11 @@ the combat log).
 **Less interruption.** A start-of-turn to-do list collects empty build queues, ships that arrived,
 leader offers and news, instead of stopping the turn for each one. Turn notices, saving and loading,
 leaders for hire, the turn summary, the battle target choice and the bombing and invasion choices
-show over the map; diplomacy and the news play in a window over it.
+show over the map; diplomacy, the news and ground combat play in a window over it.
 
-**Still the original screens:** ground combat (played in a window over the map) and a few rarer
-windows. They appear as they always did and hand back to the map. The original interface
-everywhere is one setting away: **Legacy interface** in the launcher's settings; in the game, Ctrl+G
-switches to it, battles included.
+**Still the original screens:** only the main menu with its new-game setup, and the high scores.
+The original interface everywhere is one setting away: **Legacy interface** in the launcher's
+settings; in the game, Ctrl+G switches to it, battles included.
 
 ## Themes
 
@@ -232,8 +231,8 @@ cutscenes are redrawn or upscaled for today's screens. They are art only and nev
 
 ## What's next
 
-Ground combat in the native interface, and the remaining original windows after it. Reports on
-the new battles are very welcome: odd fights (monsters, Antarans, big fleets, heavily defended
+The main menu, new-game setup and high scores in the new interface, the last of the original
+screens. Reports on the new battles are very welcome: odd fights (monsters, Antarans, big fleets, heavily defended
 planets) most of all.
 
 ## Credits
