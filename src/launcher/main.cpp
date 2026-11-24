@@ -40,6 +40,8 @@ namespace {
         std::string setup_copy;   // check this folder and press Copy, as a player would
         int shot_after = 0;       // with -screenshot: draw this many ms after the start (mid-copy)
         int cancel_after = 0;     // press Cancel on the copy page after this many ms
+        bool hd = false;          // open the HD art window (WP5.14)
+        std::string hd_download;  // download this HD pack (headless: wait for it)
     };
 
     bool Parse_Options_(int argc, char** argv, s_launcher_options* options, std::string* error) {
@@ -62,6 +64,8 @@ namespace {
             {"setup-copy", true},
             {"shot-after", true},
             {"cancel-after", true},
+            {"hd", false},
+            {"hd-download", true},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -87,6 +91,8 @@ namespace {
                 case 15: options->setup_copy = option.value; break;
                 case 16: options->shot_after = SDL_atoi(option.value.c_str()); break;
                 case 17: options->cancel_after = SDL_atoi(option.value.c_str()); break;
+                case 18: options->hd = true; break;
+                case 19: options->hd_download = option.value; break;
                 default: break;
             }
         }
@@ -188,6 +194,13 @@ namespace {
         colours[ImGuiCol_TextSelectedBg] = rgb(255, 138, 28, 0.35f);
         colours[ImGuiCol_NavCursor] = rgb(255, 138, 28, 0.6f);
         colours[ImGuiCol_ModalWindowDimBg] = rgb(0, 0, 0, 0.55f);
+        colours[ImGuiCol_TitleBg] = rgb(34, 37, 44);
+        colours[ImGuiCol_TitleBgActive] = rgb(54, 44, 32);
+        colours[ImGuiCol_TitleBgCollapsed] = rgb(34, 37, 44);
+        colours[ImGuiCol_ResizeGrip] = rgb(255, 138, 28, 0.25f);
+        colours[ImGuiCol_ResizeGripHovered] = rgb(255, 138, 28, 0.6f);
+        colours[ImGuiCol_ResizeGripActive] = rgb(255, 138, 28);
+        colours[ImGuiCol_PlotHistogram] = rgb(255, 138, 28);
         style.ScaleAllSizes(scale);
         style.FontScaleDpi = scale;
     }
@@ -286,6 +299,11 @@ int main(int argc, char** argv) {
     } else if (!options.setup_folder.empty() || options.setup) {
         app.Open_Setup(options.setup_folder);
     }
+    if (options.hd) app.Open_Hd_Window();
+    if (!options.hd_download.empty() && !app.Download_Hd_Pack(options.hd_download) && options.screenshot.empty()) {
+        SDL_Quit();
+        return 1;
+    }
     if (options.wait_game) {
         (void)app.Play(); // refused with a reason when the files or the profile won't do
     }
@@ -357,6 +375,12 @@ int main(int argc, char** argv) {
         if (headless && app.Setup_Copying() && SDL_GetTicks() < wait_deadline &&
             (options.shot_after == 0 || elapsed < static_cast<Uint64>(options.shot_after))) {
             SDL_Delay(50);
+            continue;
+        }
+        // Headless: wait for the HD art list or a download before the screenshot (a download may
+        // take a while: no deadline).
+        if (headless && app.Hd_Waiting()) {
+            SDL_Delay(100);
             continue;
         }
         if (headless && app.Game_Running() && SDL_GetTicks() < wait_deadline) {

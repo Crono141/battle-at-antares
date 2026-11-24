@@ -114,6 +114,7 @@ namespace launcher {
 
     void c_launcher::Shutdown() {
         Setup_Close_(); // stops a copy in progress
+        Hd_Stop_();     // a partial download is kept and resumed next time
         Save_Settings_();
         if (game_ != nullptr) {
             SDL_DestroyProcess(game_); // the game keeps running
@@ -542,6 +543,7 @@ namespace launcher {
 
     void c_launcher::Update() {
         Setup_Poll_();
+        Hd_Poll_();
         if (game_ == nullptr) return;
         int exit_code = 0;
         if (SDL_WaitProcess(game_, false, &exit_code)) {
@@ -649,6 +651,7 @@ namespace launcher {
         Draw_Profile_Popups_();
         Draw_Toggle_Popup_();
         Draw_Exit_Popup_();
+        Draw_Hd_Window_();
         ImGui::End();
         return !quit_;
     }
@@ -687,6 +690,8 @@ namespace launcher {
         ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button("Game files")) Open_Setup();
+        ImGui::SameLine();
+        if (ImGui::Button("HD art")) hd_.window = true;
         ImGui::SameLine();
         if (ImGui::Button("Rescan")) {
             const std::string current = profiles_[profile_index_].vfs_path;
@@ -1035,6 +1040,8 @@ namespace launcher {
             }
         }
         ImGui::PopTextWrapPos();
+        const std::string hd_status = Hd_Status_();
+        if (!hd_status.empty()) ImGui::TextColored(chrome::AMBER, "%s", hd_status.c_str());
         if (!message_.empty()) {
             ImGui::TextColored(message_is_error_ ? COLOUR_ERROR : COLOUR_DIM, "%s", message_.c_str());
         }

@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -13,6 +14,7 @@
 
 #include "antares/game_files.h"
 #include "antares/game_install.h"
+#include "antares/hd_packs.h"
 #include "antares/package_catalog.h"
 #include "antares/save_summary.h"
 #include "antares/settings_docs.h"
@@ -102,6 +104,16 @@ namespace launcher {
         bool Start_Setup_Copy();
         bool Setup_Copying() const {
             return setup_.active && setup_.page == SETUP_COPY && setup_.progress && !setup_.progress->failed;
+        }
+        /** The HD art list is still being fetched, or a pack is downloading (headless waits). */
+        bool Hd_Waiting() const {
+            return hd_.listing || hd_.busy;
+        }
+        /** Ticks the pack `id` and starts its download (the -hd-download option). */
+        bool Download_Hd_Pack(const std::string& id);
+        /** Opens the HD art window (the -hd option). */
+        void Open_Hd_Window() {
+            hd_.window = true;
         }
         /** Presses Cancel on the copy page. */
         void Cancel_Setup_Copy() {
@@ -214,6 +226,7 @@ namespace launcher {
             SETUP_CHECK,
             SETUP_COPY,
             SETUP_SAVES,
+            SETUP_HD,
             SETUP_DONE };
         struct s_setup {
             bool active = false;
@@ -238,6 +251,39 @@ namespace launcher {
             std::string dialog_folder;
         } setup_;
         void Draw_Setup_();
+
+        // The HD art packs (WP5.14, launcher_hd.cpp): offered by the wizard and by the HD art
+        // button, downloaded one at a time on a worker thread, switched on when verified.
+        struct s_hd {
+            std::mutex mutex; // guards the fields the worker threads write
+            bool listing = false;
+            std::atomic<bool> list_done{false};
+            bool listed = false;
+            std::string list_error;
+            std::string tag;
+            std::vector<antares::hd_packs::s_pack> packs;
+            std::vector<uint8_t> ticked;
+            std::thread list_worker;
+            std::thread worker;
+            std::atomic<bool> busy{false};
+            std::vector<size_t> queue; // pack indices still to fetch
+            int current = -1;          // the pack being fetched
+            antares::hd_packs::s_progress progress;
+            std::mutex phase_mutex;
+            std::string phase;
+            std::string error;
+            std::vector<std::string> finished; // ids to switch on (main thread)
+            bool window = false;               // the launcher's HD art window is open
+            std::string mods_folder;
+        } hd_;
+        void Hd_List_();
+        void Hd_Start_();
+        void Hd_Poll_();
+        void Hd_Stop_();
+        std::string Hd_Status_();
+        bool Hd_Any_Ticked_() const;
+        void Draw_Hd_List_();
+        void Draw_Hd_Window_();
         void Setup_Find_();
         void Setup_Check_(const std::string& folder);
         void Setup_Start_Copy_();

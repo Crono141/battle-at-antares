@@ -1091,6 +1091,8 @@ if(ORION2RE_BUILD_GAME)
         src/launcher/launcher_info.cpp
         src/launcher/launcher_setup.cpp
         src/launcher/launcher_chrome.cpp
+        src/launcher/launcher_fetch.cpp
+        src/launcher/launcher_hd.cpp
         "${ANTARES_LAUNCHER_FONT_HEADER}"
         "${ANTARES_LAUNCHER_SCHEMA_HEADER}"
         ${ANTARES_LAUNCHER_CHROME_HEADERS}
@@ -1133,6 +1135,9 @@ if(ORION2RE_BUILD_GAME)
     endif()
     if(MSVC)
         target_compile_definitions(antares-launcher PRIVATE WIN32 _CRT_SECURE_NO_DEPRECATE _CRT_NONSTDC_NO_DEPRECATE)
+    endif()
+    if(WIN32)
+        target_link_libraries(antares-launcher PRIVATE winhttp) # HD pack downloads (WP5.14)
     endif()
     if(ORION2RE_GAME_DIR)
         add_custom_command(TARGET antares-launcher POST_BUILD
