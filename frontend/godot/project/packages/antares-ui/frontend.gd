@@ -339,17 +339,30 @@ func _on_film(rect: Rect2i) -> void:
 
 func _layout_film(rect: Rect2) -> void:
 	var view := get_viewport().get_visible_rect().size
-	var k := minf(view.x * 0.6 / rect.size.x, view.y * 0.6 / rect.size.y)
-	var inner := (rect.size * k).round()
-	var at := ((view - inner) * 0.5).round()
 	if _film_frame == null:
 		_film_frame = PanelContainer.new()
 		_film_frame.theme_type_variation = &"Pane"
 		_film_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		native_layer.add_child(_film_frame)
-	var pad := 10.0
-	_film_frame.position = at - Vector2(pad, pad)
-	_film_frame.size = inner + Vector2(pad, pad) * 2.0
+	var k := minf(view.x * 0.6 / rect.size.x, view.y * 0.6 / rect.size.y)
+	var inner := (rect.size * k).round()
+	var at := ((view - inner) * 0.5).round()
+	var lead := Vector2(10.0, 10.0) # the frame's left/top border
+	var pad_all := Vector2(20.0, 20.0) # both borders
+	if absf(rect.size.x / rect.size.y - 4.0 / 3.0) < 0.02:
+		# A whole 4:3 screen (the invasion's ground battle) gets the scene windows' size and frame
+		# (owner 2026-11-24: it was smaller than the other 4:3 windows): the stage as large as fits
+		# in 86 % of the screen, inside the theme's own Pane margins (scene_window._frame_rect).
+		var box := _film_frame.get_theme_stylebox("panel")
+		if box != null:
+			lead = Vector2(box.get_margin(SIDE_LEFT), box.get_margin(SIDE_TOP))
+			pad_all = lead + Vector2(box.get_margin(SIDE_RIGHT), box.get_margin(SIDE_BOTTOM))
+		var room := view * 0.86 - pad_all
+		k = minf(room.x / rect.size.x, room.y / rect.size.y)
+		inner = (rect.size * k).floor()
+		at = ((view - inner - pad_all) * 0.5).floor() + lead
+	_film_frame.position = at - lead
+	_film_frame.size = inner + pad_all
 	_film_frame.show()
 	_film_frame.move_to_front()
 	(legacy.get_parent() as CanvasLayer).layer = FILM_LAYER
@@ -7791,6 +7804,12 @@ func _smoke_ground_combat(shots: String) -> bool:
 	var framed: bool = _film_active and legacy.visible and galaxy.visible and _film_frame != null and _film_frame.visible
 	var rect: Rect2 = legacy.get_global_rect()
 	print("smoke: ground combat on colony %d: in its window %s, legacy at %s (screen %s)" % [enemy_colony, framed, rect, get_viewport().get_visible_rect().size])
+	# The same size as the other 4:3 windows (owner 2026-11-24): the scene window's frame rect.
+	var scene_rect: Rect2 = _scene()._frame_rect()
+	var film_rect := Rect2(_film_frame.position, _film_frame.size) if _film_frame != null else Rect2()
+	var same_size := film_rect.size.distance_to(scene_rect.size) <= 1.0
+	print("smoke: ground combat window %s, scene windows %s: same size %s" % [film_rect, scene_rect, same_size])
+	framed = framed and same_size
 	if shots != "":
 		await host.shot(shots + "/ground-combat.png")
 	var click := func() -> void: # a real press and release on the window, as the film smoke's
