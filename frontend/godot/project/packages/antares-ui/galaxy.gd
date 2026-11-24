@@ -63,6 +63,7 @@ var stars: Array = []
 var fleets: Array = [] # the `fleets` query's list
 var selected := -1 # the star whose system panel is open
 var influence_mode := 0 # as the legacy V key: 0 off, 1 filled, 2 borders only
+var last_click_star := -1 # the star under the last fleet click (-1 none): a fleet being sent goes there
 var selected_fleet := -1 # the first ship of the fleet whose panel is open
 var preview := {} # the route preview: {"star": id, "line": "ok" or "blocked"}
 var relocating := false # F4: the next star click merges relocations there
@@ -371,6 +372,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					if planet >= 0:
 						planet_clicked.emit(planet)
 					elif fleet >= 0 and not stars_only:
+						last_click_star = star # the star under the same click, if any (send orders)
 						fleet_clicked.emit(fleet)
 					elif star >= 0:
 						star_clicked.emit(star)

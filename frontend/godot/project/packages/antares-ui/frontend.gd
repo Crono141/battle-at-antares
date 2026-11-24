@@ -114,7 +114,7 @@ func _ready() -> void:
 	if game.has_signal("film"):
 		game.film.connect(_on_film)
 	galaxy.star_clicked.connect(_on_star_clicked)
-	galaxy.fleet_clicked.connect(_open_fleet)
+	galaxy.fleet_clicked.connect(_on_map_fleet_clicked)
 	galaxy.star_hovered.connect(_on_star_hovered)
 	galaxy.right_clicked.connect(_end_relocating)
 	galaxy.right_clicked.connect(func(): _set_measuring(false))
@@ -3720,7 +3720,11 @@ func _colonies_build(colony_id: int, star_id: int, planet_id: int, bought: bool,
 			_open_build_pane(colony_id, bought))
 
 
+var _last_star_click := -1 # the last star click handled (smoke checks)
+
+
 func _on_star_clicked(star_id: int) -> void:
+	_last_star_click = star_id
 	if _popup_map_click(-1, star_id):
 		return
 	if galaxy.measuring:
@@ -4116,6 +4120,26 @@ func _on_pane_planet(planet_id: int) -> void:
 
 ## A fleet from the system pane: the game closes the system box for the fleet box, and the map
 ## stays at the system.
+## A fleet icon clicked on the map. While the player is sending ships (the fleet panel has ships
+## picked), another empire's fleet over a star doesn't hide the star: the click is the star's
+## (owner 2026-11-24: an enemy fleet at the destination star made it unclickable).
+func _on_map_fleet_clicked(ship_id: int) -> void:
+	var star: int = galaxy.last_click_star
+	galaxy.last_click_star = -1
+	if star >= 0:
+		var fleet_panel := _view("fleet_panel")
+		var sending: bool = fleet_panel.visible and not fleet_panel.selected_ships().is_empty()
+		var mine := false
+		for f: Dictionary in galaxy.fleets:
+			if int(f.ship) == ship_id and int(f.owner) == int(galaxy.data.get("player", -1)):
+				mine = true
+		if sending and not mine:
+			galaxy._log("fleet %d over star %d: the click goes to the star (sending)" % [ship_id, star])
+			_on_star_clicked(star)
+			return
+	_open_fleet(ship_id)
+
+
 func _open_fleet_from_pane(ship_id: int) -> void:
 	_keep_camera = true
 	_open_fleet(ship_id)
@@ -7932,6 +7956,39 @@ func _smoke_fleet_camera(shots: String) -> void:
 	if shots != "":
 		await host.shot(shots + "/fc-2-fleet.png")
 	if "--send" in OS.get_cmdline_user_args():
+		# Owner 2026-11-24: another empire's fleet over the destination hid the star. A real click
+		# on a point both its icon and the star cover, while sending, goes to the star.
+		var me := int(galaxy.data.get("player", -1))
+		var tried := false
+		for f: Dictionary in galaxy.fleets:
+			if int(f.get("star", -1)) < 0 or int(f.owner) == me:
+				continue
+			var rect: Rect2 = galaxy.get_node("Fleets").icon_rect(f)
+			var centre: Vector2 = galaxy.star_position(int(f.star))
+			# The icon's point nearest the star (just inside its edge).
+			var world_at := Vector2(clampf(centre.x, rect.position.x + 0.5, rect.end.x - 0.5), clampf(centre.y, rect.position.y + 0.5, rect.end.y - 0.5))
+			galaxy.focus(int(f.star))
+			await get_tree().process_frame
+			var screen_at: Vector2 = (world_at - galaxy.camera.position) * galaxy.camera.zoom.x + galaxy.get_viewport_rect().size * 0.5
+			if galaxy.pick(screen_at) != int(f.star) or galaxy._pick_fleet(screen_at) < 0:
+				print("smoke: send over a foreign fleet: fleet %d at star %d skipped (star picked %d, fleet picked %d, alpha %.2f)" % [int(f.ship), int(f.star),
+					galaxy.pick(screen_at), galaxy._pick_fleet(screen_at), galaxy.fleet_alpha(f)])
+				continue
+			tried = true
+			_last_star_click = -1
+			var press := _smoke_click_at(screen_at)
+			galaxy._unhandled_input(press)
+			var release := _smoke_click_at(screen_at)
+			release.pressed = false
+			galaxy._unhandled_input(release)
+			await sample.call("clicked star %d under fleet %d" % [int(f.star), int(f.ship)], 1.0)
+			var ok: bool = _last_star_click == int(f.star)
+			print("smoke: send over a foreign fleet: star %d clicked %s (fleet %d of player %d)" % [int(f.star), ok, int(f.ship), int(f.owner)])
+			if not ok:
+				print("smoke: FAILED: a foreign fleet over star %d took the click while sending" % int(f.star))
+			break
+		if not tried:
+			print("smoke: send over a foreign fleet: no foreign fleet sits over a star here")
 		# A destination: the nearest other star, clicked as on the map (preview, then the order).
 		var here: Vector2 = galaxy.star_position(star)
 		var best := -1
