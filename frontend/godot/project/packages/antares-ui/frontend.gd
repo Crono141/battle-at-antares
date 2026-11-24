@@ -8250,11 +8250,27 @@ func _smoke_combat(shots: String) -> bool:
 	view._zoom = zoom_before
 	view._cam = cam_before
 	view._health_toggle.button_pressed = false
-	view._open_menu(int(view.state.ship))
+	# The ring: a long right press anywhere opens it at the pointer (owner 2026-11-24). Held on an
+	# empty spot of the field; released in its hole it stays open; a quick right click closes it.
+	var hold_at := Vector2(view.size.x * 0.5, view.size.y * 0.45)
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_RIGHT
+	press.pressed = true
+	press.position = hold_at
+	view._gui_input(press)
+	view._hold_from_open(hold_at) # what _check_hold does after HOLD_MS (a synthetic press isn't "held")
+	var release := press.duplicate() as InputEventMouseButton
+	release.pressed = false
+	view._gui_input(release)
 	await get_tree().create_timer(0.4).timeout
+	var ring_ok: bool = view._menu_ship == int(view.state.ship) and view._to_screen(view._menu_at).distance_to(hold_at) < 2.0
+	print("smoke: combat ring by a held right press: %s (at %s, pressed at %s)" % ["OK" if ring_ok else "FAILED", view._to_screen(view._menu_at), hold_at])
 	if shots != "":
 		await host.shot(shots + "/combat-ring.png")
 	view._close_menu()
+	if not ring_ok:
+		print("smoke: FAILED: the held right press didn't open the ring at the pointer")
+		return false
 	# One move: the legal square furthest towards the enemy (the field's right half).
 	var legal: Array = view.state.legal
 	var acting := int(view.state.ship)

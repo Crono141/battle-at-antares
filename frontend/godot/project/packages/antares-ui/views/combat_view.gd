@@ -73,6 +73,11 @@ var _anim_clock := 0.0
 var _anim_frame := 0
 var _last_acting := -1
 var _menu_ship := -1
+var _menu_at := Vector2.ZERO # the ring's centre (world): where the right button was held
+var _hold_from := Vector2.INF # a right press on the field, still held (screen)
+var _hold_ms := 0
+var _hold_opened := false # the ring opened under this press: its release picks
+const HOLD_MS := 300 # how long a right press is held to open the ring (owner 2026-11-24)
 var _menu_hover := -1
 var _menu_confirm := ""
 var _toast_time := 0.0
@@ -190,6 +195,7 @@ var _card_bars: Control
 var _card_fire: Label
 var _toast: Label
 
+const MENU_INNER := 34.0 # the ring's hole (screen pixels): a release there keeps it open
 const MENU_ITEMS := ["wait", "done", "retreat", "board", "scan", "self_destruct"]
 const MENU_LABELS := {"wait": "WAIT", "done": "DONE", "retreat": "RETREAT", "board": "BOARD", "scan": "SCAN",
 	"self_destruct": "SELF-\nDESTRUCT"}
@@ -712,6 +718,7 @@ func _apply_shield(index: int, ship: Dictionary) -> void:
 func _process(delta: float) -> void:
 	if not visible:
 		return
+	_check_hold()
 	if _flyers_moving():
 		_marks.queue_redraw()
 	# Stacks gone from the state forget their glide.
@@ -1084,7 +1091,7 @@ func _draw_marks() -> void:
 	_draw_effects(width)
 	# The order ring.
 	if _menu_ship >= 0 and _ships.has(_menu_ship):
-		_draw_menu(_ships[_menu_ship].shown, width)
+		_draw_menu(_menu_at, width)
 
 
 ## Missiles, torpedoes and fighters glide between the states (owner 2026-11-23: they jumped, as if
@@ -1253,7 +1260,7 @@ func _menu_reason(item: String) -> String:
 
 
 func _draw_menu(at: Vector2, width: float) -> void:
-	var inner := (_radius(_menu_ship) + 18.0 / _zoom)
+	var inner := MENU_INNER / _zoom
 	var outer := inner + 62.0 / _zoom
 	var font := get_theme_default_font()
 	for i in MENU_ITEMS.size():
@@ -1306,10 +1313,10 @@ func _draw_menu(at: Vector2, width: float) -> void:
 func _menu_index_at(screen: Vector2) -> int:
 	if _menu_ship < 0 or not _ships.has(_menu_ship):
 		return -1
-	var at: Vector2 = _ships[_menu_ship].shown
+	var at := _menu_at
 	var w := _to_world(screen)
 	var d := w.distance_to(at)
-	var inner := _radius(_menu_ship) + 18.0 / _zoom
+	var inner := MENU_INNER / _zoom
 	var outer := inner + 62.0 / _zoom
 	if d < inner or d > outer:
 		return -1
@@ -1317,13 +1324,41 @@ func _menu_index_at(screen: Vector2) -> int:
 	return clampi(int(a / (PI / 3.0)), 0, MENU_ITEMS.size() - 1)
 
 
-func _open_menu(index: int) -> void:
+## The order ring for the acting ship, centred on `at` (world; the ship itself when not given).
+func _open_menu(index: int, at := Vector2.INF) -> void:
 	_menu_ship = index
+	_menu_at = at if at != Vector2.INF else (_ships[index].shown if _ships.has(index) else _center(_ship(index)))
 	_menu_hover = -1
 	_menu_confirm = ""
 
 
+## The right button held still on the field (owner 2026-11-24: one way to summon the ring, a long
+## right click anywhere): the ring opens at the pointer for the acting ship.
+func _check_hold() -> void:
+	if _hold_from == Vector2.INF or _hold_opened:
+		return
+	if _dragged or not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		_hold_from = Vector2.INF # panned, or the release went elsewhere
+		return
+	if Time.get_ticks_msec() - _hold_ms < HOLD_MS:
+		return
+	_hold_from_open(_hold_from)
+
+
+func _hold_from_open(screen: Vector2) -> void:
+	var acting := int(state.get("ship", -1))
+	var ship := _ship(acting)
+	if not _my_turn() or not _alive(ship) or not _mine(ship):
+		_hold_from = Vector2.INF
+		return
+	_hold_opened = true
+	_open_menu(acting, _to_world(screen))
+	_marks.queue_redraw()
+
+
 func _close_menu() -> void:
+	_hold_opened = false
+	_hold_from = Vector2.INF
 	_menu_ship = -1
 	_menu_hover = -1
 	_menu_confirm = ""
@@ -1489,7 +1524,7 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	var motion := event as InputEventMouseMotion
 	if motion:
-		if _drag_from != Vector2.INF and (motion.button_mask & (MOUSE_BUTTON_MASK_LEFT | MOUSE_BUTTON_MASK_RIGHT | MOUSE_BUTTON_MASK_MIDDLE)) != 0:
+		if _drag_from != Vector2.INF and not _hold_opened and (motion.button_mask & (MOUSE_BUTTON_MASK_LEFT | MOUSE_BUTTON_MASK_RIGHT | MOUSE_BUTTON_MASK_MIDDLE)) != 0:
 			if _dragged or motion.position.distance_to(_drag_from) > 6.0:
 				_dragged = true
 				_cam -= motion.relative / _zoom
@@ -1503,10 +1538,23 @@ func _gui_input(event: InputEvent) -> void:
 	if button.pressed:
 		_drag_from = button.position
 		_dragged = false
+		if button.button_index == MOUSE_BUTTON_RIGHT:
+			_hold_from = button.position
+			_hold_ms = Time.get_ticks_msec()
+			_hold_opened = false
 		return
 	var was_drag := _dragged
 	_drag_from = Vector2.INF
 	_dragged = false
+	if button.button_index == MOUSE_BUTTON_RIGHT:
+		_hold_from = Vector2.INF
+		if _hold_opened:
+			# Released over an order: that order; in the hole or outside: the ring stays for a click.
+			_hold_opened = false
+			var i := _menu_index_at(button.position)
+			if i >= 0:
+				_menu_pick(i)
+			return
 	if was_drag:
 		return
 	if button.button_index == MOUSE_BUTTON_LEFT:
@@ -1559,13 +1607,9 @@ func _right_click(at: Vector2) -> void:
 	if _menu_ship >= 0:
 		_close_menu()
 		return
-	var acting := int(state.get("ship", -1))
 	if not _my_turn():
 		return
-	if _hover_ship == acting and acting >= 0:
-		_open_menu(acting)
-		return
-	if _hover_ship < 0:
+	if _hover_ship < 0: # a quick click turns the ship; held, the ring opens (_check_hold)
 		var w := _to_world(at)
 		_act({"action": "turn", "x": int(floorf(w.x / SQUARE)), "y": int(floorf(w.y / SQUARE))})
 
