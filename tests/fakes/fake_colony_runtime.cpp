@@ -137,9 +137,6 @@ namespace COLONY {
     int16_t colony_handle = -1;
     int16_t planet_handle = -1;
     int16_t star_handle = -1;
-    int16_t __cdecl Calculate_Colony_Turn_Count_From_Scrap_For_Prod(int16_t, int16_t) {
-        return 7;
-    }
 } // namespace COLONY
 
 namespace COLCALC {
