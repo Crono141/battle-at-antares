@@ -1490,7 +1490,7 @@ DOCTEST_TEST_SUITE("configuration include loader") {
         config::Initialize_Effective_Config(&effective);
         DOCTEST_CHECK_FALSE(config::Load_Config_File("late.cfg", "base_game", &effective, &diagnostic));
         DOCTEST_CHECK(diagnostic.message ==
-            "package requires Battle at Antares '>=9.0.0' but this is 0.6.2");
+            "package requires Battle at Antares '>=9.0.0' but this is 0.7.0");
 
         config::Initialize_Effective_Config(&effective);
         DOCTEST_CHECK_FALSE(config::Load_Config_File("other.cfg", "base_game", &effective, &diagnostic));
