@@ -2,7 +2,8 @@
 
 **Master of Orion II with a new interface.** Battle at Antares is an HD remaster of Master of Orion
 II: the original game's rules, races and AI, played from a galaxy map you can pan and zoom, with
-the game's screens as panels over it instead of full-screen pages. It is built on
+the game's screens as panels over it instead of full-screen pages, and space battles fought on a
+field you can pan and zoom. It is built on
 [Orion2 Redone](https://github.com/orion2re/orion2re), the faithful restoration of the Master of
 Orion II engine, in the way [Augustus](https://github.com/Keriew/augustus) is to Julius.
 
@@ -85,14 +86,44 @@ you build.
 </tr>
 </table>
 
+**Space combat** plays in the new interface too. The rules are the original game's, unchanged;
+the ships, beams, missiles, fighters and specials are drawn the way the original draws them, at
+the screen's full resolution, with their sounds. Pan and zoom the field, and the camera follows each
+shot. An initiative bar shows who moves next, a combat log records every hit, and holding the right
+button anywhere opens the order ring (wait, done, retreat, board, scan, self destruct). Each weapon
+can be set Ready, Held for a volley, or Off. Three layouts, picked under the battle's Options:
+**Clear Field** (a slim HUD round the field), **Bridge** (your ship's card and a minimap down the
+left) and **Command Console** (your ship and weapons along the bottom, both fleets on the right, and
+the combat log).
+
+<table>
+<tr>
+<td><img src="docs/screenshots/battle-beams.jpg" alt="Beams striking a Silicoid star base's shield, in the Clear Field layout"></td>
+<td><img src="docs/screenshots/battle-ring.jpg" alt="The order ring open over the battlefield"></td>
+</tr>
+<tr>
+<td align="center">Beams on a star base's shield</td>
+<td align="center">The order ring</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/battle-bridge.jpg" alt="The Bridge layout: the acting ship's card and a minimap down the left"></td>
+<td><img src="docs/screenshots/battle-console.jpg" alt="The Command Console layout: ship, weapons and the ship under the pointer along the bottom, fleets on the right"></td>
+</tr>
+<tr>
+<td align="center">Bridge</td>
+<td align="center">Command Console</td>
+</tr>
+</table>
+
 **Less interruption.** A start-of-turn to-do list collects empty build queues, ships that arrived,
 leader offers and news, instead of stopping the turn for each one. Turn notices, saving and loading,
 leaders for hire, the turn summary, the battle target choice and the bombing and invasion choices
 show over the map; diplomacy and the news play in a window over it.
 
-**Still the original screens:** space combat (a native battle is in the works), ground combat and a
-few rarer windows. They appear as they always did and hand back to the map. The original interface
-everywhere is one setting away: **Legacy interface** in the launcher's settings.
+**Still the original screens:** ground combat (played in a window over the map) and a few rarer
+windows. They appear as they always did and hand back to the map. The original interface
+everywhere is one setting away: **Legacy interface** in the launcher's settings; in the game, Ctrl+G
+switches to it, battles included.
 
 ## Themes
 
@@ -150,9 +181,9 @@ cutscenes are redrawn or upscaled for today's screens. They are art only and nev
 
 ## What's next
 
-Space combat in the native interface: the battle on a field you can pan and zoom, a camera that
-shows where every shot comes from, shields and hull damage at a glance on every ship, a turn order
-you can see, and orders from a ring around your ship, drawn with the game's own art.
+Ground combat in the native interface, and the remaining original windows after it. Reports on
+the new battles are very welcome: odd fights (monsters, Antarans, big fleets, heavily defended
+planets) most of all.
 
 ## Credits
 
