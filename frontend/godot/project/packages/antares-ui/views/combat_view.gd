@@ -111,7 +111,6 @@ const MOVE_SPEEDS := [["Slow", 1.0], ["Normal", 0.5], ["Fast", 0.25], ["Instant"
 ## The battle camera's flight time; -1 follows the galaxy's (the main Options' system zoom).
 const CAMERA_SPEEDS := [["Galaxy", -1.0], ["Slow", 1.5], ["Normal", 1.0], ["Fast", 0.5], ["Instant", 0.0]]
 var _move_speed := 1 # index in MOVE_SPEEDS
-var _speed_button: Button
 # Scan (owner 2026-11-21): the original's read-only view of any ship (Display_Combat_View_Ship).
 var _scan_mode := false # armed: the next click on a ship scans it
 var _scan_ship := -1 # the ship the scan panel shows, or -1
@@ -184,6 +183,8 @@ var _done_button: Button
 var _end_button: Button
 var _card: PanelContainer
 var _card_title: Label
+var _card_box: VBoxContainer
+var _card_held := -1 # Command Console: the ship its hover area last showed
 var _card_body: Label
 var _card_bars: Control
 var _card_fire: Label
@@ -237,6 +238,10 @@ func _ready() -> void:
 	_build_hud()
 	_build_bridge()
 	_build_console()
+	# Their pockets under the hover card and the screen frame (owner 2026-11-24: the frame's bars
+	# ran under the docked pockets, so their outer borders were missing).
+	for pocket: Control in [_bridge_card, _minimap, _console, _fleets_panel, _log_panel]:
+		move_child(pocket, _card.get_index())
 	_battle_layout = String(_load_setting("layout", "clear"))
 	if not LAYOUT_NAMES.has(_battle_layout):
 		_battle_layout = "clear"
@@ -542,6 +547,9 @@ func _open() -> void:
 	_death_played.clear() # ship indexes start again in each battle
 	_log_lines.clear()
 	_fleets_key = ""
+	_card_held = -1 # the console's hover area starts blank
+	if _console_mode() and _card_box != null:
+		_card_box.visible = false
 	if _log_text != null:
 		_log_text.text = ""
 	_last_missiles.clear()
@@ -1570,6 +1578,7 @@ func _input(event: InputEvent) -> void:
 	if press != null and press.pressed and press.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
 		var closed := false
 		if _options_panel != null and _options_panel.visible and not _options_panel.get_global_rect().has_point(press.global_position) \
+				and not _option_picks.any(func(o: OptionButton) -> bool: return o.get_popup().visible) \
 				and not _options_tab.get_global_rect().has_point(press.global_position):
 			_close_options()
 			closed = true
@@ -1633,7 +1642,8 @@ func _input(event: InputEvent) -> void:
 ## be turned off).
 var _auto_pending_on := false # Auto asked for while the enemy moved: sent on the player's next turn
 var _auto_override := -1 # the state the button shows until the game's flag agrees (owner 2026-11-22: show it at once)
-var _x2_buttons: Array = []
+var _x2_pick: OptionButton
+var _option_picks: Array = [] # the Options flyout's drop-downs (a pick in their lists is inside it)
 var _x2_override := -1 # the speed asked for, until a state shows it
 
 
@@ -1919,6 +1929,7 @@ func _build_hud() -> void:
 	cv.add_theme_constant_override("separation", 5)
 	cv.custom_minimum_size = Vector2(230, 0)
 	_card.add_child(cv)
+	_card_box = cv
 	_card_title = _label("", 14, AMBER)
 	cv.add_child(_card_title)
 	_card_bars = _bars_control(Vector2(230, 8))
@@ -2065,7 +2076,7 @@ func _draw_frame() -> void:
 		return
 	var c: float = tee.bar_center
 	# The edge pockets meet the screen frame (as the galaxy's bars do).
-	for pocket: Control in [_timeline, _strip, _top_left, _console]:
+	for pocket: Control in [_timeline, _strip, _top_left]:
 		if pocket == null or not pocket.visible:
 			continue
 		var r := pocket.get_rect()
@@ -2086,10 +2097,31 @@ func _draw_frame() -> void:
 		for x in [r.position.x - _grow(_options_tab, 0) + c, r.end.x + _grow(_options_tab, 2) - c]:
 			_draw_tee(Vector2(x, bar_y), true)
 	if _bridge():
-		_corner_tees(_bridge_card, false, true)
-		_corner_tees(_minimap, false, false)
-	if _console_mode() and _fleets_panel.visible:
-		_corner_tees(_fleets_panel, true, true)
+		# The left column: the card from the top bar, the map on the bottom bar, one bar between
+		# them meeting the side bar and the column's inner side.
+		var card := _bridge_card.get_rect()
+		var inner_x := card.end.x + _grow(_bridge_card, 2) - c
+		_draw_tee(Vector2(inner_x, c), true)
+		_draw_tee(Vector2(inner_x, _frame_overlay.size.y - c), false)
+		var join_y := _minimap.position.y - _grow(_minimap, 1) + c
+		_draw_tee(Vector2(c, join_y), false, PI / 2.0)
+		_draw_tee(Vector2(inner_x, join_y), false, -PI / 2.0)
+	if _console_mode() and _console.visible:
+		# The console's top bar across the screen; Fleets standing on it; the partition between the
+		# ship's side and the battle's.
+		var top_y := _console.position.y - _grow(_console, 1) + c
+		_draw_tee(Vector2(c, top_y), false, PI / 2.0)
+		_draw_tee(Vector2(_frame_overlay.size.x - c, top_y), false, -PI / 2.0)
+		if _fleets_panel.visible:
+			var fx := _fleets_panel.position.x - _grow(_fleets_panel, 0) + c
+			_draw_tee(Vector2(fx, c), true)
+			_draw_tee(Vector2(fx, top_y), false)
+		if _console_rule.visible:
+			var rx := _console_rule.get_global_rect().get_center().x - _frame_overlay.get_global_rect().position.x
+			var bottom_y := _frame_overlay.size.y - c
+			_draw_bar(Vector2(rx, top_y), Vector2(rx, bottom_y))
+			_draw_tee(Vector2(rx, top_y), true)
+			_draw_tee(Vector2(rx, bottom_y), false)
 	if _bottom.visible and _strip.visible:
 		var r := _bottom.get_rect()
 		var bar_y := _strip.get_rect().position.y - _grow(_strip, 1) + c
@@ -2108,6 +2140,23 @@ func _corner_tees(pocket: Control, right: bool, top: bool) -> void:
 	var side_x := _frame_overlay.size.x - c if right else c
 	var turn := -PI / 2.0 if right else PI / 2.0
 	_draw_tee(Vector2(side_x, end_y), false, turn) # the pocket meets the side bar from inside, top or bottom
+
+
+## How far two pockets' outer edges overlap so that their bars lie on one line (the bar's width).
+func _shared_bar() -> float:
+	return 0.0 if tee.is_empty() else 2.0 * float(tee.bar_center)
+
+
+## A straight bar of the screen frame from `a` to `b` (vertical), cut from the frame art's side.
+func _draw_bar(a: Vector2, b: Vector2) -> void:
+	if frame_style == null or not ("texture" in frame_style) or frame_style.get("texture") == null:
+		return
+	var tex: Texture2D = frame_style.get("texture")
+	var scale: float = frame_style.get("scale")
+	var m: PackedInt32Array = frame_style.get("margins")
+	var c: float = tee.bar_center
+	var src := Rect2(0.0, float(m[1]), 2.0 * c / scale, float(tex.get_height() - m[1] - m[3]))
+	_frame_overlay.draw_texture_rect_region(tex, Rect2(a.x - c, a.y, 2.0 * c, b.y - a.y), src)
 
 
 ## The theme's joint (its art is a bar arriving from above onto a horizontal bar), its meeting
@@ -2252,17 +2301,47 @@ func _build_options() -> void:
 		var l := _label(text)
 		l.theme_type_variation = &"Section"
 		v.add_child(l)
+	# As the galaxy's Options (owner 2026-11-24): a setting's name in plain text with an ON/OFF
+	# switch, and a drop-down where there are more than two choices.
 	var toggle := func(text: String, tip: String, on: bool, changed: Callable) -> Button:
-		var b := _flat_button(text, "", func(): pass)
+		var row := PanelContainer.new()
+		row.theme_type_variation = &"Row"
+		var line := HBoxContainer.new()
+		row.add_child(line)
+		var label := Label.new()
+		label.text = text
+		label.tooltip_text = tip
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		label.mouse_filter = Control.MOUSE_FILTER_PASS
+		line.add_child(label)
+		var b := Button.new()
 		b.theme_type_variation = &"Toggle"
 		b.toggle_mode = true
-		b.button_pressed = on
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(60, 26)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		b.add_theme_font_size_override("font_size", 12)
+		b.set_pressed_no_signal(on)
+		b.text = "ON" if on else "OFF"
 		b.tooltip_text = tip
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		Themes.glowing(b)
+		b.toggled.connect(func(now: bool): b.text = "ON" if now else "OFF")
 		b.toggled.connect(changed)
-		v.add_child(b)
+		Themes.glowing(b)
+		line.add_child(b)
+		v.add_child(row)
 		return b
+	var pick := func(tip: String, names: Array, current: int, chosen: Callable) -> OptionButton:
+		var o := OptionButton.new()
+		o.focus_mode = Control.FOCUS_NONE
+		o.custom_minimum_size = Vector2(0, 32)
+		o.tooltip_text = tip
+		for n in names:
+			o.add_item(String(n))
+		o.select(maxi(0, current))
+		o.item_selected.connect(chosen)
+		v.add_child(o)
+		_option_picks.append(o)
+		return o
 	section.call("SHOW")
 	_health_toggle = toggle.call("Health on every ship", "Shields and hull on every ship (hold Alt to see them for a moment)", _always_health,
 		func(on: bool):
@@ -2283,79 +2362,32 @@ func _build_options() -> void:
 			_always_moves = on
 			_save_setting("always_show_moves", on))
 	section.call("SHIP SPEED")
-	var speeds := HBoxContainer.new()
-	speeds.add_theme_constant_override("separation", 4)
-	v.add_child(speeds)
 	_move_speed = clampi(int(_load_setting("move_speed", 1)), 0, MOVE_SPEEDS.size() - 1)
-	var group := ButtonGroup.new()
-	for i in MOVE_SPEEDS.size():
-		var b := _flat_button(String(MOVE_SPEEDS[i][0]), "", func():
+	pick.call("How fast ships move and turn (weapons keep the original's pace)", MOVE_SPEEDS.map(func(m: Array) -> String: return String(m[0])), _move_speed,
+		func(i: int):
 			_move_speed = i
 			_save_setting("move_speed", i))
-		b.theme_type_variation = &"Toggle"
-		b.toggle_mode = true
-		b.button_group = group
-		b.button_pressed = i == _move_speed
-		b.tooltip_text = "How fast ships move and turn (weapons keep the original's pace)"
-		Themes.glowing(b)
-		speeds.add_child(b)
-		if i == _move_speed:
-			_speed_button = b
 	# CAMERA SPEED (owner 2026-11-23: Instant ship speed left the camera gliding): the battle's own,
 	# Galaxy (the default) follows the main Options' system zoom; saved as [combat] camera_time.
 	section.call("CAMERA SPEED")
-	var cams := HBoxContainer.new()
-	cams.add_theme_constant_override("separation", 4)
-	v.add_child(cams)
-	var cam_group := ButtonGroup.new()
 	var cam_now := float(_load_setting("camera_time", -1.0))
-	for choice: Array in CAMERA_SPEEDS:
-		var seconds := float(choice[1])
-		var b := _flat_button(String(choice[0]), "", func():
-			_save_setting("camera_time", seconds)
+	var cam_index := 0
+	for i in CAMERA_SPEEDS.size():
+		if is_equal_approx(float(CAMERA_SPEEDS[i][1]), cam_now):
+			cam_index = i
+	pick.call("How long the camera takes to frame each move and shot (Galaxy: the main Options' system zoom)", CAMERA_SPEEDS.map(func(c: Array) -> String: return String(c[0])), cam_index,
+		func(i: int):
+			_save_setting("camera_time", float(CAMERA_SPEEDS[i][1]))
 			_camera_time_read = -1.0) # read again at the next move
-		b.theme_type_variation = &"Toggle"
-		b.toggle_mode = true
-		b.button_group = cam_group
-		b.button_pressed = is_equal_approx(seconds, cam_now)
-		b.tooltip_text = "How long the camera takes to frame each move and shot (Galaxy: the main Options' system zoom)"
-		Themes.glowing(b)
-		cams.add_child(b)
 	# The original's x2 speed button (owner 2026-11-22: not exposed): weapons and effects play every
 	# other frame, as the game's own setting (saved with the game's settings).
 	section.call("COMBAT SPEED")
-	var x2_row := HBoxContainer.new()
-	x2_row.add_theme_constant_override("separation", 4)
-	v.add_child(x2_row)
-	var x2_group := ButtonGroup.new()
-	_x2_buttons = []
-	for i in 2:
-		var b := _flat_button("Normal" if i == 0 else "Double", "", func():
-			_set_speed_x2(i == 1))
-		b.theme_type_variation = &"Toggle"
-		b.toggle_mode = true
-		b.button_group = x2_group
-		b.button_pressed = i == 0
-		b.tooltip_text = "The original's combat speed: Double plays weapons and effects at twice the pace"
-		Themes.glowing(b)
-		x2_row.add_child(b)
-		_x2_buttons.append(b)
+	_x2_pick = pick.call("The original's combat speed: Double plays weapons and effects at twice the pace", ["Normal", "Double"], 0,
+		func(i: int): _set_speed_x2(i == 1))
 	section.call("LAYOUT")
-	var layouts := HBoxContainer.new()
-	layouts.add_theme_constant_override("separation", 4)
-	v.add_child(layouts)
-	var layout_group := ButtonGroup.new()
-	var current := String(_load_setting("layout", "clear"))
-	for key: String in LAYOUT_NAMES.keys():
-		var b := _flat_button(String(LAYOUT_NAMES[key]), "", func(): _set_battle_layout(key))
-		b.theme_type_variation = &"Toggle"
-		b.toggle_mode = true
-		b.button_group = layout_group
-		b.button_pressed = key == current
-		b.tooltip_text = "The battle's layout: Clear Field keeps the field open; Bridge puts your ship's card and a map of the field on the left; Command Console puts your ship and its weapons along the bottom and both fleets on the right"
-		Themes.glowing(b)
-		layouts.add_child(b)
-		_layout_buttons[key] = b
+	_layout_pick = pick.call("The battle's layout: Clear Field keeps the field open; Bridge puts your ship's card and a map of the field on the left; Command Console puts your ship and its weapons along the bottom and both fleets on the right",
+		LAYOUT_NAMES.values(), LAYOUT_NAMES.keys().find(String(_load_setting("layout", "clear"))),
+		func(i: int): _set_battle_layout(String(LAYOUT_NAMES.keys()[i])))
 
 
 ## Straight bars (the timeline, the strip, the card): armour on top, shrinking to the centre;
@@ -2454,8 +2486,8 @@ func _refresh_hud() -> void:
 	Themes.glow(_auto_button)
 	if _x2_override >= 0 and state.has("speedx2") and bool(state.speedx2) == (_x2_override == 1):
 		_x2_override = -1
-	for i in _x2_buttons.size():
-		(_x2_buttons[i] as Button).set_pressed_no_signal((i == 1) == _speedx2())
+	if _x2_pick != null:
+		_x2_pick.select(1 if _speedx2() else 0)
 	_refresh_strip()
 	_refresh_timeline()
 	if _scan_ship >= 0 and _scan_panel.visible:
@@ -2468,7 +2500,7 @@ func _arc_name(arc: int) -> String:
 
 ## The acting ship's weapons as chips: lit while they can still fire this turn, dim once fired or
 ## switched off; with an enemy under the pointer, the ones that can hit it light up in fire colour
-## (the legacy weapon list's lit lines). A click cycles on, fire once, off.
+## (the legacy weapon list's lit lines). A click cycles ready, held, off.
 func _refresh_strip() -> void:
 	_refresh_bridge()
 	_refresh_console()
@@ -2488,10 +2520,6 @@ func _refresh_strip() -> void:
 	for weapon: Dictionary in acting.get("weapons", []):
 		var slot := int(weapon.get("slot", 0))
 		var count := int(weapon.get("count", 0))
-		var active := int(weapon.get("active", 1))
-		var ready := bool(weapon.get("ready", false)) and not bool(weapon.get("spent", false))
-		var ammo := int(weapon.get("ammo", 0))
-		var shots := int(weapon.get("shots_left", 0))
 		var targeted := _hover_ship >= 0 and not _mine(_ship(_hover_ship))
 		var lit := targeted and in_arc.has(slot)
 		var chip := _panel(&"RowOpen" if lit else &"Row")
@@ -2505,28 +2533,17 @@ func _refresh_strip() -> void:
 			chip_box.content_margin_bottom = 4
 			chip.add_theme_stylebox_override("panel", chip_box)
 		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		chip.tooltip_text = "Click: on, fire once, off"
+		chip.tooltip_text = "Click: ready, held (skips the next volley), off"
 		var v := VBoxContainer.new()
 		v.add_theme_constant_override("separation", 0)
 		chip.add_child(v)
 		v.add_child(_label("%d × %s" % [count, String(weapon.get("name", ""))], 11))
-		var status := ""
-		if count == 0:
-			status = "destroyed"
-		elif active == -1:
-			status = "off"
-		elif not ready:
-			status = "fired"
-		elif targeted:
-			status = "in arc" if lit else "out of arc or range"
-		else:
-			status = "ready" + (" · once" if active == 0 else "") + (" · %d shots" % shots if shots > 1 and shots != count else "")
+		var info := _weapon_status(weapon, targeted, lit)
+		var status := String(info[0])
 		var line := _arc_name(int(weapon.get("arc", 0))) + " · " + status
-		if ammo > 0 and ammo < 99:
-			line += " · %d left" % ammo
 		var status_label := _label(line, 10, FIRE if lit else (SYSTEMS_COLOR if status == "destroyed" else DIM))
 		v.add_child(status_label)
-		if count == 0 or active == -1 or not ready or (targeted and not lit):
+		if info[1]:
 			chip.modulate = Color(1, 1, 1, 0.5)
 		chip.gui_input.connect(func(event: InputEvent): _weapons_input(event, slot if count > 0 else -1))
 		_strip_weapons.add_child(chip)
@@ -2690,15 +2707,29 @@ func _chip(index: int, acting: bool) -> Control:
 
 
 func _place_card() -> void:
-	var ship := _view_ship(_ship(_hover_ship))
-	if not _alive(ship) or _menu_ship >= 0:
+	# Command Console: the card lives in the console's own area, blank until the first hover, and
+	# holds the last ship pointed at until the next (owner 2026-11-24, CommandConsolMarkup.png).
+	var console := _console_mode()
+	var shown := _hover_ship
+	if console and (shown < 0 or _menu_ship >= 0):
+		shown = _card_held
+	var ship := _view_ship(_ship(shown))
+	if not _alive(ship) or (_menu_ship >= 0 and not console):
+		if console:
+			_card_held = -1
+			_card_box.visible = false
 		if _card.visible:
 			_card.hide()
 			_refresh_strip()
 		return
-	var was_hidden: bool = not _card.visible or _card.get_meta("ship", -1) != _hover_ship
+	var was_hidden: bool = int(_card.get_meta("ship", -1)) != _hover_ship or (not console and not _card.visible)
 	_card.set_meta("ship", _hover_ship)
-	_card.show()
+	if console:
+		_card_held = shown
+		_card_box.visible = true
+		_card.hide()
+	else:
+		_card.show()
 	_card_title.text = String(ship.get("name", "")) + ("" if _mine(ship) else "   ·   " + _side_name(int(ship.get("owner", -1))))
 	_card_title.add_theme_color_override("font_color", AMBER if _mine(ship) else _color(ship).lightened(0.25))
 	_set_bars(_card_bars, ship)
@@ -2722,7 +2753,7 @@ func _place_card() -> void:
 		lines.append("%d moves" % int(ship.get("moves", 0)))
 	_card_body.text = "\n".join(lines)
 	_card_fire.text = ""
-	if _my_turn() and not _mine(ship):
+	if _my_turn() and not _mine(ship) and shown == _hover_ship:
 		var acting := _ship(int(state.get("ship", -1)))
 		var slots := _slots_against(_hover_ship)
 		var can := []
@@ -2732,16 +2763,15 @@ func _place_card() -> void:
 		_card_fire.text = ("Click to fire: " + ", ".join(can)) if not can.is_empty() else "No weapon can reach it from here"
 	_card_fire.visible = _card_fire.text != ""
 	if was_hidden:
-		_refresh_strip() # the chips light for this target
-	# Command Console: as wide as the round box above it (owner 2026-11-24); elsewhere its own width.
+		_refresh_strip() # the chips (and the Bridge's and console's weapon rows) light for this target
 	var inner_w := 230.0
-	_card.custom_minimum_size.x = 0.0
-	if _console_mode():
-		var chrome := _card.get_combined_minimum_size().x - (_card.get_child(0) as Control).get_combined_minimum_size().x
-		inner_w = maxf(_top_left.size.x - chrome, 150.0)
-		_card.custom_minimum_size.x = _top_left.size.x
-	for c: Control in [_card.get_child(0) as Control, _card_bars, _card_body, _card_fire]:
+	if console:
+		inner_w = maxf(_console_hover.size.x - 14.0, 150.0)
+	for c: Control in [_card_box, _card_bars, _card_body, _card_fire]:
 		c.custom_minimum_size.x = inner_w
+	if console:
+		return
+	_card.custom_minimum_size.x = 0.0
 	_card.reset_size()
 	# Docked in the bottom corner opposite the round box (owner 2026-11-22: beside the ship it
 	# covered a large part of the battlefield).
@@ -2752,8 +2782,6 @@ func _place_card() -> void:
 	_card.position = Vector2(x, size.y - corner - _card.size.y)
 	if _bridge(): # always the bottom right corner (owner 2026-11-24)
 		_card.position = Vector2(size.x - corner - _card.size.x, size.y - corner - _card.size.y)
-	elif _console_mode(): # docked to the left edge under the round box (owner 2026-11-24)
-		_card.position = Vector2(_edge(), _top_left.position.y + _top_left.size.y + _grow(_top_left, 3) + 8.0)
 
 
 ## A colony's lines as the original's planet view lists them (owner 2026-11-23): its defences still
@@ -4196,7 +4224,7 @@ func _save_setting(key: String, value: Variant) -> void:
 
 const LAYOUT_NAMES := {"clear": "Clear Field", "bridge": "Bridge", "console": "Command Console"}
 var _battle_layout := "clear"
-var _layout_buttons := {}
+var _layout_pick: OptionButton
 var _bridge_card: PanelContainer
 var _bridge_name: Label
 var _bridge_sub: Label
@@ -4222,8 +4250,8 @@ func _set_battle_layout(name: String) -> void:
 		name = "clear"
 	_battle_layout = name
 	_save_setting("layout", name)
-	for key in _layout_buttons.keys():
-		(_layout_buttons[key] as Button).set_pressed_no_signal(key == name)
+	if _layout_pick != null:
+		_layout_pick.select(LAYOUT_NAMES.keys().find(name))
 	_apply_battle_layout()
 
 
@@ -4240,6 +4268,13 @@ func _apply_battle_layout() -> void:
 	if not console:
 		_log_panel.hide()
 	_arrange_actions(_bridge_grid if bridge else (_console_buttons if console else _actions))
+	var card_home: Control = _console_hover if console else _card
+	if _card_box.get_parent() != card_home:
+		_card_box.get_parent().remove_child(_card_box)
+		card_home.add_child(_card_box)
+		_card_box.visible = not console or _card_held >= 0
+		_card.hide()
+		_card.set_meta("ship", -1)
 
 	if not bridge:
 		_bridge_card.hide()
@@ -4423,7 +4458,7 @@ func _refresh_bridge() -> void:
 		var info := _weapon_status(weapon, targeted, lit)
 		var row := _panel(&"RowOpen" if lit else &"Row")
 		row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		row.tooltip_text = "Click: on, fire once, off"
+		row.tooltip_text = "Click: ready, held (skips the next volley), off"
 		var line := HBoxContainer.new()
 		line.add_theme_constant_override("separation", 6)
 		row.add_child(line)
@@ -4460,24 +4495,29 @@ func _refresh_bridge() -> void:
 ## A weapon's status line and whether it reads dim (the strip's chips and the bridge card's rows).
 func _weapon_status(weapon: Dictionary, targeted: bool, lit: bool) -> Array:
 	var count := int(weapon.get("count", 0))
+	# The game's setting (combat1.cpp TOGGLE_WEAPON): 1 ready, 0 held out of the next volley (it
+	# comes back on after that volley), -1 off. "Fired" only for a weapon spent this turn (owner
+	# 2026-11-24: a held weapon read "fired").
 	var active := int(weapon.get("active", 1))
-	var ready := bool(weapon.get("ready", false)) and not bool(weapon.get("spent", false))
+	var spent := bool(weapon.get("spent", false))
 	var ammo := int(weapon.get("ammo", 0))
 	var shots := int(weapon.get("shots_left", 0))
 	var status := ""
 	if count == 0:
 		status = "destroyed"
+	elif spent:
+		status = "fired"
 	elif active == -1:
 		status = "off"
-	elif not ready:
-		status = "fired"
+	elif active == 0:
+		status = "held"
 	elif targeted:
 		status = "in arc" if lit else "out of reach"
 	else:
-		status = "ready" + (" · once" if active == 0 else "") + (" · %d shots" % shots if shots > 1 and shots != count else "")
+		status = "ready" + (" · %d shots" % shots if shots > 1 and shots != count else "")
 	if ammo > 0 and ammo < 99:
 		status += " · %d left" % ammo
-	return [status, count == 0 or active == -1 or not ready or (targeted and not lit)]
+	return [status, count == 0 or active != 1 or spent or (targeted and not lit)]
 
 
 ## The minimap (Bridge): the field, every ship in its side's colour, the planet, the camera's view.
@@ -4536,8 +4576,8 @@ func _layout_bridge() -> void:
 	var edge := _edge()
 	_dock_style(_bridge_card, &"Pocket")
 	_dock_style(_minimap, &"BottomPocket")
-	_pad_from_frame(_bridge_pad, _bridge_card, false)
-	_pad_from_frame(_minimap_pad, _minimap, false)
+	_pad_from_frame(_bridge_pad, _bridge_card, false, true)
+	_pad_from_frame(_minimap_pad, _minimap, false, true)
 	# The initiative bar and the Options tab keep their place and size in every layout (owner
 	# 2026-11-24: the constant space the layouts build around), so the left column narrows to end
 	# short of the bar (at 4:3 half the screen leaves it about 340 px).
@@ -4549,7 +4589,9 @@ func _layout_bridge() -> void:
 	_minimap.custom_minimum_size.x = _bridge_box.custom_minimum_size.x + chrome
 	_minimap.reset_size()
 	_minimap.position = Vector2(edge, size.y - edge - _minimap.size.y)
-	var card_bottom := _minimap.position.y - _grow(_minimap, 1) - _grow(_bridge_card, 3) - 8.0
+	# The card's lower bar is the map's upper one, joined to the frame with tees (owner 2026-11-24,
+	# BridgeMarkup.png); a theme without a frame keeps a gap.
+	var card_bottom := _minimap.position.y - _grow(_minimap, 1) - _grow(_bridge_card, 3) + (_shared_bar() if not tee.is_empty() else -8.0)
 	_bridge_card.custom_minimum_size.y = maxf(card_bottom - edge, 120.0)
 	_bridge_scroll.custom_minimum_size = Vector2(0, 30)
 	_bridge_card.reset_size()
@@ -4572,10 +4614,13 @@ func _frame_clear(panel: PanelContainer) -> int:
 
 
 ## A docked pocket's padding: clear of the frame on its side, a little on the other.
-func _pad_from_frame(pad: MarginContainer, panel: PanelContainer, right: bool) -> void:
+## `bottom`: the pocket's lower edge lies on a bar (the screen frame's, or a pocket it is joined
+## to), so its contents keep clear of that too (owner 2026-11-24: the map ran under the bar).
+func _pad_from_frame(pad: MarginContainer, panel: PanelContainer, right: bool, bottom := false) -> void:
 	var clear := _frame_clear(panel)
 	pad.add_theme_constant_override("margin_left", 4 if right else clear)
 	pad.add_theme_constant_override("margin_right", clear if right else 4)
+	pad.add_theme_constant_override("margin_bottom", int(ceilf(_shared_bar())) + 2 if bottom and not tee.is_empty() else 0)
 
 
 ## An edge pocket's style, or the theme's Pane where it has none (Glass: no screen frame).
@@ -4601,6 +4646,9 @@ var _console_scroll: ScrollContainer
 var _console_systems: Label
 var _console_buttons: VBoxContainer
 var _console_target: MarginContainer
+var _console_rule: Control
+var _console_rule_thin: VSeparator
+var _console_hover: ScrollContainer
 var _console_target_hint: Label
 var _console_log_box: VBoxContainer
 var _console_ship := -1
@@ -4628,13 +4676,13 @@ func _build_console() -> void:
 	pad.add_theme_constant_override("margin_right", 10)
 	_console.add_child(pad)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	row.add_theme_constant_override("separation", 8)
 	row.custom_minimum_size = Vector2(0, CONSOLE_HEIGHT)
 	pad.add_child(row)
 	# The ship.
 	var who := VBoxContainer.new()
 	who.add_theme_constant_override("separation", 3)
-	who.custom_minimum_size = Vector2(190, 0)
+	who.custom_minimum_size = Vector2(170, 0)
 	row.add_child(who)
 	_console_name = _label("", 15, AMBER)
 	_console_name.clip_text = true
@@ -4645,25 +4693,33 @@ func _build_console() -> void:
 	_console_picture = TextureRect.new()
 	_console_picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_console_picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_console_picture.custom_minimum_size = Vector2(190, 78)
+	_console_picture.custom_minimum_size = Vector2(170, 78)
 	who.add_child(_console_picture)
 	_console_arcs = Control.new()
 	_console_arcs.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_console_arcs.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_console_arcs.draw.connect(func(): _draw_arcs_of(_console_arcs, _console_ship))
 	_console_picture.add_child(_console_arcs)
-	_console_bars = _bars_control(Vector2(190, 8))
+	_console_bars = _bars_control(Vector2(170, 8))
 	who.add_child(_console_bars)
 	row.add_child(VSeparator.new())
-	# The weapon table.
+	# The buttons beside the ship and its weapons: every clickable action together (owner
+	# 2026-11-24, CommandConsolMarkup.png).
+	_console_buttons = VBoxContainer.new()
+	_console_buttons.add_theme_constant_override("separation", 6)
+	_console_buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	_console_buttons.custom_minimum_size = Vector2(110, 0)
+	row.add_child(_console_buttons)
+	row.add_child(VSeparator.new())
+	# The weapon table: each weapon's fire setting in front of its name.
 	var table := VBoxContainer.new()
 	table.add_theme_constant_override("separation", 2)
-	table.custom_minimum_size.x = 440 # compact: the room right of it is the systems' and the target's
+	table.custom_minimum_size.x = 320
 	row.add_child(table)
 	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 8)
+	head.add_theme_constant_override("separation", 6)
 	table.add_child(head)
-	for col: Array in [["WEAPON", 0.0], ["ARC", 28.0], ["STATUS", 120.0], ["FIRE", 64.0]]:
+	for col: Array in [["FIRE", 64.0], ["WEAPON", 0.0], ["ARC", 28.0], ["STATUS", 100.0]]:
 		var l := _label(String(col[0]), 11, DIM)
 		if float(col[1]) > 0.0:
 			l.custom_minimum_size.x = float(col[1])
@@ -4682,25 +4738,32 @@ func _build_console() -> void:
 	# Systems and specials.
 	_console_systems = _label("", 11, DIM)
 	_console_systems.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_console_systems.custom_minimum_size = Vector2(200, 0)
+	_console_systems.custom_minimum_size = Vector2(100, 0)
 	_console_systems.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_console_systems.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	row.add_child(_console_systems)
+	# A thick partition, the screen frame's bar (drawn by _draw_frame), between the ship's side and
+	# the battle's: the hover area and the log (owner 2026-11-24).
+	_console_rule = Control.new()
+	_console_rule.custom_minimum_size = Vector2(12, 0)
+	_console_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_console_rule)
+	_console_rule_thin = VSeparator.new() # a theme without a frame
+	row.add_child(_console_rule_thin)
+	# The hover area: the card of the last ship pointed at.
+	_console_hover = ScrollContainer.new()
+	_console_hover.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_console_hover.custom_minimum_size = Vector2(250, 0)
+	row.add_child(_console_hover)
 	row.add_child(VSeparator.new())
-	# The combat log's permanent box (owner 2026-11-24, CommandConsoleMarkup.png; first meant for the
-	# target's card, which went to the log's old place instead).
+	# The combat log (owner 2026-11-24): the whole battle, the newest line kept in view.
 	_console_target = MarginContainer.new()
-	_console_target.custom_minimum_size = Vector2(300, 0)
+	_console_target.custom_minimum_size = Vector2(230, 0)
+	_console_target.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(_console_target)
 	_console_log_box = VBoxContainer.new()
 	_console_log_box.add_theme_constant_override("separation", 4)
 	_console_target.add_child(_console_log_box)
-	row.add_child(VSeparator.new())
-	# The buttons (moved here from their tab while the console shows).
-	_console_buttons = VBoxContainer.new()
-	_console_buttons.add_theme_constant_override("separation", 6)
-	_console_buttons.custom_minimum_size = Vector2(120, 0)
-	row.add_child(_console_buttons)
 
 	_fleets_panel = _panel(&"Pocket")
 	_fleets_panel.hide()
@@ -4737,7 +4800,7 @@ func _build_console() -> void:
 	_log_text.scroll_following = true
 	_log_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_log_text.mouse_filter = Control.MOUSE_FILTER_PASS
-	_log_text.custom_minimum_size = Vector2(290, 0)
+	_log_text.custom_minimum_size = Vector2(220, 0)
 	_log_text.add_theme_font_size_override("normal_font_size", 12)
 	lv.add_child(_log_text)
 
@@ -4777,7 +4840,20 @@ func _refresh_console() -> void:
 		var lit := targeted and in_arc.has(slot)
 		var info := _weapon_status(weapon, targeted, lit)
 		var line := HBoxContainer.new()
-		line.add_theme_constant_override("separation", 8)
+		line.add_theme_constant_override("separation", 6)
+		# One button that steps through the game's settings: Ready -> Held -> Off (owner 2026-11-24).
+		var active := int(weapon.get("active", 1))
+		var fire := _flat_button({1: "Ready", 0: "Held", -1: "Off"}.get(active, "Ready"), "", func(): _act({"action": "toggle_weapon", "slot": slot}))
+		fire.tooltip_text = "Click: ready, held (skips the next volley), off"
+		fire.theme_type_variation = &"Toggle"
+		fire.toggle_mode = true
+		fire.button_pressed = active == 1
+		fire.disabled = count == 0
+		fire.custom_minimum_size = Vector2(64, 24)
+		fire.add_theme_font_size_override("font_size", 12)
+		fire.mouse_filter = Control.MOUSE_FILTER_PASS # the wheel still scrolls the table
+		Themes.glowing(fire)
+		line.add_child(fire)
 		var name := _label("%d × %s" % [count, String(weapon.get("name", ""))], 13, FIRE if lit else (SYSTEMS_COLOR if count == 0 else TEXT))
 		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name.clip_text = true
@@ -4785,25 +4861,12 @@ func _refresh_console() -> void:
 		var glyph := preload("arc_glyph.gd").new()
 		glyph.arc = _arc_glyph_index(int(weapon.get("arc", 0)))
 		glyph.custom_minimum_size = Vector2(28, 20)
-		line.add_theme_constant_override("separation", 6)
 		glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		line.add_child(glyph)
 		var status := _label(String(info[0]), 12, FIRE if lit else DIM)
-		status.custom_minimum_size.x = 120
+		status.custom_minimum_size.x = 100
 		status.clip_text = true
 		line.add_child(status)
-		# One button that steps through the game's settings: On -> Once -> Off (owner 2026-11-24).
-		var active := int(weapon.get("active", 1))
-		var fire := _flat_button({1: "On", 0: "Once", -1: "Off"}.get(active, "On"), "", func(): _act({"action": "toggle_weapon", "slot": slot}))
-		fire.tooltip_text = "Click: on, fire once, off"
-		fire.theme_type_variation = &"Toggle"
-		fire.toggle_mode = true
-		fire.button_pressed = active == 1
-		fire.disabled = count == 0
-		fire.custom_minimum_size = Vector2(64, 24)
-		fire.add_theme_font_size_override("font_size", 12)
-		Themes.glowing(fire)
-		line.add_child(fire)
 		_console_weapons.add_child(line)
 	var lines := []
 	var armor: Dictionary = acting.get("armor", {})
@@ -4952,13 +5015,15 @@ func _layout_console() -> void:
 	_top_left.position = Vector2(edge, edge)
 	# The Fleets column docked in the top right corner, down to the console (owner 2026-11-24).
 	_dock_style(_fleets_panel, &"Pocket")
-	_pad_from_frame(_fleets_pad, _fleets_panel, true)
-	var bottom := _console.position.y - _grow(_console, 1) - _grow(_fleets_panel, 3) - 8.0
+	_pad_from_frame(_fleets_pad, _fleets_panel, true, true)
+	var bottom := _console.position.y - _grow(_console, 1) - _grow(_fleets_panel, 3) + (_shared_bar() if not tee.is_empty() else -8.0)
 	_fleets_scroll.custom_minimum_size = Vector2(0, 40)
 	_fleets_panel.custom_minimum_size.y = maxf(bottom - edge, 120.0)
 	_fleets_panel.reset_size()
 	_fleets_panel.position = Vector2(size.x - edge - _fleets_panel.size.x, edge)
 	_log_panel.hide()
+	_console_rule.visible = not tee.is_empty()
+	_console_rule_thin.visible = tee.is_empty()
 	if _warn_panel.visible:
 		var tab_top := _console.position.y - _grow(_console, 1)
 		_warn_panel.position = Vector2(roundf((size.x - _warn_panel.size.x) / 2.0),

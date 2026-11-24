@@ -8170,7 +8170,10 @@ func _smoke_combat(shots: String) -> bool:
 				if not screen.encloses(rects[a].grow(-1.0)):
 					bad.append("%s off screen %s" % [a, rects[a]])
 				for b in rects.keys():
-					if String(a) < String(b) and (rects[a] as Rect2).grow(-2.0).intersects((rects[b] as Rect2).grow(-2.0)):
+					# Joined pockets share one bar (owner 2026-11-24): the card on the map, Fleets on the console.
+					var shared: bool = [a, b].has("card") and [a, b].has("minimap") or [a, b].has("console") and [a, b].has("fleets")
+					var keep: float = -2.0 - (view._shared_bar() if shared and not view.tee.is_empty() else 0.0)
+					if String(a) < String(b) and (rects[a] as Rect2).grow(keep).intersects((rects[b] as Rect2).grow(keep)):
 						bad.append("%s overlaps %s" % [a, b])
 			print("smoke: layout %s: %s; panels %s" % [layout_name, "OK" if bad.is_empty() else ", ".join(bad), rects])
 			if shots != "":
@@ -8191,6 +8194,12 @@ func _smoke_combat(shots: String) -> bool:
 				await host.shot(shots + "/combat-layout-%s-target.png" % layout_name)
 			view._hover_ship = -1
 			view._place_card()
+			if layout_name == "console":
+				# The console's hover area holds the last ship pointed at (owner 2026-11-24).
+				var held: bool = view._card_box.visible and view._card_box.get_parent() == view._console_hover and view._card_title.text != ""
+				print("smoke: layout console: hover area %s (%s)" % ["holds the last ship" if held else "EMPTY", view._card_title.text])
+				if not held:
+					bad.append("the hover area lost its ship")
 			if not bad.is_empty() or card_clash:
 				print("smoke: FAILED: the %s layout's panels collide" % layout_name)
 			if "--keep-layout" not in OS.get_cmdline_user_args():
