@@ -75,6 +75,33 @@ func close() -> void:
 	closed.emit()
 
 
+## Put away while another screen takes over (a battle, a bombing run): hidden at once, any slide
+## stopped. True when it was open (not on its way out), so the caller brings it back with restore().
+func put_away() -> bool:
+	var was_open := visible and not _closing
+	if _tween:
+		_tween.kill()
+	_closing = false
+	hide()
+	return was_open
+
+
+## Back where it opens, at once (owner 2026-11-24: shown again where a stopped slide had left it,
+## the list came back partly above the screen).
+func restore(center_x := NAN) -> void:
+	if _tween:
+		_tween.kill()
+	_closing = false
+	reset_size()
+	if not is_nan(center_x):
+		var width := get_parent_area_size().x
+		var inset := float(get_theme_constant("inset", "Screen"))
+		position.x = clampf(center_x - size.x * 0.5, inset + 8.0, width - size.x - inset - 48.0)
+	position.y = float(get_theme_constant("content_top", "Screen"))
+	show()
+	_keep_on_screen()
+
+
 ## Hidden at once (a legacy screen took over).
 func dismiss() -> void:
 	if visible:

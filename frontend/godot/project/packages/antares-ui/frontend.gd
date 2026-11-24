@@ -470,7 +470,7 @@ func _on_native_screen(screen: int) -> void:
 				# With what came while it was hidden (owner 2026-11-23: it came back with the 2
 				# items it had, and the turn's full list opened only once that was closed).
 				todo_back.show_todo(_todo)
-				todo_back.show()
+				todo_back.restore(_view("galaxy_bar").get_node("Row/Turn").get_global_rect().get_center().x)
 				_todo_seen = _todo_total()
 				_todo_shown_stardate = int(_todo.get("stardate", -1))
 				_todo_pending = false
@@ -504,8 +504,10 @@ func _on_native_screen(screen: int) -> void:
 		# The to-do list too (owner, 2026-11-20: it stayed over a combat); back with the galaxy.
 		var todo_hide: Control = _views.get("todo_panel")
 		if todo_hide != null:
-			todo_hide.set_meta("was_open", todo_hide.visible or todo_hide.get_meta("was_open", false))
-			todo_hide.hide()
+			# Open, not on its way out (owner 2026-11-24: one closing as the battle came was brought
+			# back where its slide stopped, above the screen).
+			var open_now: bool = todo_hide.put_away()
+			todo_hide.set_meta("was_open", open_now or todo_hide.get_meta("was_open", false))
 		if screen == Screens.SHOW_COMMAND_POINTS:
 			# Opened as the game's screen (from elsewhere): the same drop-down, closing it closes
 			# the screen.
@@ -7596,6 +7598,30 @@ func _smoke_todo(shots: String) -> bool:
 	print("smoke: to-do worked through: bar '%s', list hidden %s" % [bar_text, not _view("todo_panel").visible])
 	if bar_text != "TURN" or _view("todo_panel").visible:
 		await host.smoke_fail("the bar did not read TURN, or the list stayed open, with the list worked through")
+		return false
+	# Put away mid-slide (a battle taking over) and brought back (owner 2026-11-24, PartialToDo.png:
+	# it came back partly above the screen): closing, it stays away; opening, it comes back whole.
+	var drop: Control = _view("todo_panel")
+	var turn_x: float = _view("galaxy_bar").get_node("Row/Turn").get_global_rect().get_center().x
+	var top := float(drop.get_theme_constant("content_top", "Screen"))
+	drop.show_todo({"items": [{"text": "A test line", "news": true}], "open": 0})
+	drop.open_at(turn_x)
+	await get_tree().create_timer(0.4).timeout
+	drop.close()
+	await get_tree().create_timer(0.05).timeout
+	var kept_closing: bool = drop.put_away()
+	drop.open_at(turn_x)
+	await get_tree().create_timer(0.05).timeout
+	var kept_opening: bool = drop.put_away()
+	await get_tree().create_timer(0.4).timeout
+	drop.restore(turn_x)
+	await get_tree().create_timer(0.1).timeout
+	var r: Rect2 = drop.get_global_rect()
+	var whole := Rect2(Vector2.ZERO, get_viewport().get_visible_rect().size).encloses(r)
+	print("smoke: to-do put away mid-slide: closing kept %s, opening kept %s, back at %s (top %s), on screen %s" % [kept_closing, kept_opening, r, top, whole])
+	drop.dismiss()
+	if kept_closing or not kept_opening or not is_equal_approx(r.position.y, top) or not whole:
+		await host.smoke_fail("the to-do list put away mid-slide came back wrong")
 		return false
 	return true
 
