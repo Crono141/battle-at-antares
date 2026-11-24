@@ -235,6 +235,11 @@ func _ready() -> void:
 	_marks.draw.connect(_draw_marks)
 	_world.add_child(_marks)
 	_build_hud()
+	_build_bridge()
+	_battle_layout = String(_load_setting("layout", "clear"))
+	if not LAYOUT_NAMES.has(_battle_layout):
+		_battle_layout = "clear"
+	_apply_battle_layout()
 	resized.connect(func():
 		if not state.is_empty():
 			_refresh_timeline())
@@ -381,7 +386,10 @@ func _clear_area() -> Rect2:
 		top = _options_tab.get_rect().end.y + 12.0
 	if _bottom != null:
 		bottom = _bottom.get_rect().position.y - 12.0
-	return Rect2(Vector2(24.0, top), Vector2(size.x - 48.0, maxf(bottom - top, 100.0)))
+	var left := 24.0
+	if _bridge() and _minimap != null:
+		left = _minimap.get_rect().end.x + 12.0 # the card and the minimap down the left
+	return Rect2(Vector2(left, top), Vector2(size.x - 24.0 - left, maxf(bottom - top, 100.0)))
 
 
 ## The camera frames the action (owner 2026-11-22) on the enemy's turn and on the player's while
@@ -819,6 +827,8 @@ func _process(delta: float) -> void:
 	_fill_waiting_chips()
 	_ease_scrolls(delta)
 	_layout()
+	if _minimap != null and _minimap.visible:
+		_minimap_draw.queue_redraw()
 	_update_hover()
 	if _toast_time > 0.0:
 		_toast_time -= delta
@@ -931,6 +941,11 @@ func _fit_fleets() -> void:
 	# whole battle when it fits at that size, else the middle of it; the wheel goes wider.
 	_zoom = clampf(minf(view.x / box.size.x, view.y / box.size.y), 1.2, 2.0)
 	_cam = box.get_center() + Vector2(0, 50) / _zoom
+	if _bridge():
+		# The fleets in the field the side panels leave open, not under the ship's card.
+		var area := _clear_area()
+		_zoom = clampf(minf(area.size.x / box.size.x, area.size.y / box.size.y), 1.0, 2.0)
+		_cam = box.get_center() - (area.get_center() - size / 2.0) / _zoom
 	_cam_goal = Vector2.INF
 
 
@@ -1927,7 +1942,7 @@ func _layout() -> void:
 	# A theme without edge pockets (Glass: empty, no screen frame) gives the content pockets its
 	# Pane, so the ship, its weapons and the round don't float on the battlefield.
 	for pocket: PanelContainer in [_timeline, _strip, _top_left]:
-		var wanted: StringName = &"Pocket" if pocket == _timeline else &"BottomPocket"
+		var wanted: StringName = &"Pocket" if pocket == _timeline or (pocket == _top_left and _bridge()) else &"BottomPocket"
 		var bare := get_theme_stylebox("panel", wanted) is StyleBoxEmpty
 		var variation: StringName = &"Pane" if bare else wanted
 		if pocket.theme_type_variation != variation:
@@ -1973,7 +1988,7 @@ func _layout() -> void:
 		var box := _top_left.get_theme_stylebox("panel")
 		var inner := box.get_content_margin(SIDE_LEFT) if box != null else 0.0
 		clear = maxf(0.0, 2.0 * float(tee.bar_center) + 12.0 - (edge + inner))
-	var right_side := _round_on_right()
+	var right_side := _round_on_right() or _bridge()
 	_round_margin.add_theme_constant_override("margin_left", 0 if right_side else int(clear))
 	_round_margin.add_theme_constant_override("margin_right", int(clear) if right_side else 0)
 	_top_left.reset_size()
@@ -1996,6 +2011,8 @@ func _layout() -> void:
 		_scan_panel.scale = Vector2(grow, grow)
 		_scan_panel.position = (_scan_from - _scan_panel.size * grow / 2.0).lerp(final, k)
 		_scan_panel.modulate.a = lerpf(0.2, 1.0, k)
+	if _bridge():
+		_layout_bridge()
 	_frame_overlay.queue_redraw()
 
 
@@ -2026,15 +2043,7 @@ func _draw_frame() -> void:
 		var r := pocket.get_rect()
 		var top := pocket == _timeline
 		if pocket == _top_left:
-			# In the corner: one joint on the bottom bar (its inner side), one on the side bar (its top).
-			var right := _round_on_right()
-			var inner_x: float = r.position.x - _grow(pocket, 0) + c if right else r.end.x + _grow(pocket, 2) - c
-			_draw_tee(Vector2(inner_x, _frame_overlay.size.y - c), false)
-			var top_y := r.position.y - _grow(pocket, 1) + c
-			if right:
-				_draw_tee(Vector2(_frame_overlay.size.x - c, top_y), false, -PI / 2.0)
-			else:
-				_draw_tee(Vector2(c, top_y), false, PI / 2.0)
+			_corner_tees(pocket, _round_on_right() or _bridge(), _bridge())
 			continue
 		for x in [r.position.x - _grow(pocket, 0) + c, r.end.x + _grow(pocket, 2) - c]:
 			if top:
@@ -2048,11 +2057,26 @@ func _draw_frame() -> void:
 		var bar_y := _timeline.get_rect().end.y + _grow(_timeline, 3) - c
 		for x in [r.position.x - _grow(_options_tab, 0) + c, r.end.x + _grow(_options_tab, 2) - c]:
 			_draw_tee(Vector2(x, bar_y), true)
-	if _bottom.visible:
+	if _bottom.visible and not _strip.visible:
+		_corner_tees(_bottom, true, false) # Bridge: the buttons in the bottom right corner
+	elif _bottom.visible:
 		var r := _bottom.get_rect()
 		var bar_y := _strip.get_rect().position.y - _grow(_strip, 1) + c
 		for x in [r.position.x - _grow(_bottom, 0) + c, r.end.x + _grow(_bottom, 2) - c]:
 			_draw_tee(Vector2(x, bar_y), false)
+
+
+## A pocket in a corner of the screen frame: one joint on the top or bottom bar (its inner side), one
+## on the side bar (its inner end). The bottom corners' side joints keep the round box's turns.
+func _corner_tees(pocket: Control, right: bool, top: bool) -> void:
+	var c: float = tee.bar_center
+	var r := pocket.get_rect()
+	var inner_x: float = r.position.x - _grow(pocket, 0) + c if right else r.end.x + _grow(pocket, 2) - c
+	_draw_tee(Vector2(inner_x, c if top else _frame_overlay.size.y - c), top)
+	var end_y: float = r.end.y + _grow(pocket, 3) - c if top else r.position.y - _grow(pocket, 1) + c
+	var side_x := _frame_overlay.size.x - c if right else c
+	var turn := -PI / 2.0 if right else PI / 2.0
+	_draw_tee(Vector2(side_x, end_y), false, turn) # the pocket meets the side bar from inside, top or bottom
 
 
 ## The theme's joint (its art is a bar arriving from above onto a horizontal bar), its meeting
@@ -2286,13 +2310,21 @@ func _build_options() -> void:
 		x2_row.add_child(b)
 		_x2_buttons.append(b)
 	section.call("LAYOUT")
-	var layout := _flat_button("Clear Field", "", func(): pass)
-	layout.theme_type_variation = &"Toggle"
-	layout.toggle_mode = true
-	layout.button_pressed = true
-	layout.tooltip_text = "The battle's layout. Bridge and Command Console come next."
-	Themes.glowing(layout)
-	v.add_child(layout)
+	var layouts := HBoxContainer.new()
+	layouts.add_theme_constant_override("separation", 4)
+	v.add_child(layouts)
+	var layout_group := ButtonGroup.new()
+	var current := String(_load_setting("layout", "clear"))
+	for key: String in LAYOUT_NAMES.keys():
+		var b := _flat_button(String(LAYOUT_NAMES[key]), "", func(): _set_battle_layout(key))
+		b.theme_type_variation = &"Toggle"
+		b.toggle_mode = true
+		b.button_group = layout_group
+		b.button_pressed = key == current
+		b.tooltip_text = "The battle's layout: Clear Field keeps the field open; Bridge puts your ship's card and a map of the field on the left"
+		Themes.glowing(b)
+		layouts.add_child(b)
+		_layout_buttons[key] = b
 
 
 ## Straight bars (the timeline, the strip, the card): armour on top, shrinking to the centre;
@@ -2407,6 +2439,7 @@ func _arc_name(arc: int) -> String:
 ## switched off; with an enemy under the pointer, the ones that can hit it light up in fire colour
 ## (the legacy weapon list's lit lines). A click cycles on, fire once, off.
 func _refresh_strip() -> void:
+	_refresh_bridge()
 	var acting := _ship(int(state.get("ship", -1)))
 	if not _alive(acting) or not _mine(acting):
 		_strip_row.hide()
@@ -2676,6 +2709,8 @@ func _place_card() -> void:
 	var attacking := int(state.get("player", -1)) == int(state.get("attacker", -2))
 	var x := corner if attacking else size.x - corner - _card.size.x
 	_card.position = Vector2(x, size.y - corner - _card.size.y)
+	if _bridge(): # the target's card on the right, halfway down (the acting ship's is on the left)
+		_card.position = Vector2(size.x - corner - 6.0 - _card.size.x, roundf((size.y - _card.size.y) / 2.0))
 
 
 ## A colony's lines as the original's planet view lists them (owner 2026-11-23): its defences still
@@ -4110,3 +4145,327 @@ func _save_setting(key: String, value: Variant) -> void:
 	cfg.load(SETTINGS)
 	cfg.set_value("combat", key, value)
 	cfg.save(SETTINGS)
+
+
+# ---- Layouts (owner 2026-11-24: the design pass's A Bridge and C Command Console beside B Clear Field) ----
+# One battle, three arrangements of the same widgets and facts, picked in Options (saved as
+# [combat] layout). Clear Field is the default; the others move the pockets and add their panels.
+
+const LAYOUT_NAMES := {"clear": "Clear Field", "bridge": "Bridge"}
+var _battle_layout := "clear"
+var _layout_buttons := {}
+var _bridge_card: PanelContainer
+var _bridge_name: Label
+var _bridge_sub: Label
+var _bridge_picture: TextureRect
+var _bridge_arcs: Control
+var _bridge_bars: Control
+var _bridge_values: Label
+var _bridge_scroll: ScrollContainer
+var _bridge_weapons: VBoxContainer
+var _bridge_systems: Label
+var _bridge_ship := -1 # the ship the card shows
+var _minimap: PanelContainer
+var _minimap_draw: Control
+var _minimap_drag := false
+
+
+func _bridge() -> bool:
+	return _battle_layout == "bridge"
+
+
+func _set_battle_layout(name: String) -> void:
+	if not LAYOUT_NAMES.has(name):
+		name = "clear"
+	_battle_layout = name
+	_save_setting("layout", name)
+	for key in _layout_buttons.keys():
+		(_layout_buttons[key] as Button).set_pressed_no_signal(key == name)
+	_apply_battle_layout()
+
+
+func _apply_battle_layout() -> void:
+	if _strip == null:
+		return
+	var bridge := _bridge()
+	_strip.visible = not bridge
+	_minimap.visible = bridge
+	if not bridge:
+		_bridge_card.hide()
+	if not state.is_empty():
+		_refresh_hud()
+	_layout()
+	if not state.is_empty() and is_visible_in_tree():
+		_fit_fleets() # framed again for the room the layout leaves
+		_place_world()
+
+
+## A: the acting ship's card on the left (picture with its shield arcs, hull, weapons, systems), a
+## minimap of the field under it; the target card on the right; the buttons in the bottom right.
+func _build_bridge() -> void:
+	_bridge_card = _panel(&"Pane")
+	_bridge_card.hide()
+	add_child(_bridge_card)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.custom_minimum_size = Vector2(BRIDGE_WIDTH, 0)
+	_bridge_card.add_child(v)
+	_bridge_name = _label("", 0, AMBER)
+	_bridge_name.theme_type_variation = &"Heading"
+	_bridge_name.clip_text = true
+	v.add_child(_bridge_name)
+	_bridge_sub = _label("", 12, DIM)
+	_bridge_sub.clip_text = true
+	v.add_child(_bridge_sub)
+	var picture_frame := _panel(&"Row")
+	v.add_child(picture_frame)
+	_bridge_picture = TextureRect.new()
+	_bridge_picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_bridge_picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_bridge_picture.custom_minimum_size = Vector2(BRIDGE_WIDTH - 20, 120)
+	picture_frame.add_child(_bridge_picture)
+	_bridge_arcs = Control.new()
+	_bridge_arcs.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_bridge_arcs.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_bridge_arcs.draw.connect(func(): _draw_arcs_of(_bridge_arcs, _bridge_ship))
+	_bridge_picture.add_child(_bridge_arcs)
+	_bridge_bars = _bars_control(Vector2(BRIDGE_WIDTH, 10))
+	v.add_child(_bridge_bars)
+	_bridge_values = _label("", 12)
+	v.add_child(_bridge_values)
+	var weapons_head := _label("WEAPONS")
+	weapons_head.theme_type_variation = &"Section"
+	v.add_child(weapons_head)
+	_bridge_scroll = ScrollContainer.new()
+	_bridge_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(_bridge_scroll)
+	_bridge_weapons = VBoxContainer.new()
+	_bridge_weapons.add_theme_constant_override("separation", 3)
+	_bridge_weapons.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_bridge_scroll.add_child(_bridge_weapons)
+	_bridge_systems = _label("", 12, DIM)
+	_bridge_systems.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_bridge_systems.custom_minimum_size = Vector2(BRIDGE_WIDTH, 0)
+	v.add_child(_bridge_systems)
+
+	_minimap = _panel(&"Pane")
+	_minimap.hide()
+	add_child(_minimap)
+	_minimap_draw = Control.new()
+	_minimap_draw.custom_minimum_size = Vector2(BRIDGE_WIDTH, 170)
+	_minimap_draw.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_minimap_draw.tooltip_text = "The whole field: click or drag to look there"
+	_minimap_draw.draw.connect(_draw_minimap)
+	_minimap_draw.gui_input.connect(_minimap_input)
+	_minimap.add_child(_minimap_draw)
+
+
+const BRIDGE_WIDTH := 290.0
+
+
+## The shield's four arcs written round a ship's picture (the scan panel's and the bridge card's).
+func _draw_arcs_of(item: Control, index: int) -> void:
+	var ship := _ship(index)
+	var shield: Dictionary = ship.get("shield", {})
+	if int(shield.get("max", 0)) <= 0:
+		return
+	var arcs: Array = shield.get("arcs", [0, 0, 0, 0])
+	var font := get_theme_default_font()
+	var size_px := 13
+	var c := item.size / 2.0
+	var places := [Vector2(item.size.x - 4.0, c.y), Vector2(c.x, item.size.y - 2.0), Vector2(4.0, c.y), Vector2(c.x, 14.0)]
+	for a in 4:
+		var text := str(int(arcs[a]))
+		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+		var at: Vector2 = places[a]
+		var pos := Vector2(at.x - w / 2.0, at.y)
+		if a == 0:
+			pos.x = at.x - w
+		elif a == 2:
+			pos.x = at.x
+		item.draw_string_outline(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, 4, Color(0, 0, 0, 0.9))
+		item.draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, Color(0.6, 1.0, 0.8))
+
+
+## The acting ship's card (Bridge): shown while one of the player's ships acts.
+func _refresh_bridge() -> void:
+	if _bridge_card == null:
+		return
+	var acting := _ship(int(state.get("ship", -1)))
+	if not _bridge() or not _alive(acting) or not _mine(acting):
+		_bridge_card.hide()
+		return
+	var index := int(state.get("ship", -1))
+	_bridge_ship = index
+	_bridge_card.show()
+	var scan: Dictionary = acting.get("scan", {})
+	_bridge_name.text = String(acting.get("name", ""))
+	var sub := []
+	for key in ["hull", "crew", "officer"]:
+		if scan.has(key) and String(scan[key]) != "":
+			sub.append(String(scan[key]))
+	_bridge_sub.text = "   ·   ".join(sub)
+	var sprite_info: Dictionary = acting.get("sprite", {})
+	_bridge_picture.texture = art.texture(String(sprite_info.get("lbx", "")), int(sprite_info.get("entry", -1)), 0)
+	_bridge_arcs.queue_redraw()
+	_set_bars(_bridge_bars, _view_ship(acting))
+	var armor: Dictionary = acting.get("armor", {})
+	var structure: Dictionary = acting.get("structure", {})
+	_bridge_values.text = "Armour %d / %d    Structure %d / %d\n%d moves%s" % [int(armor.get("now", 0)), int(armor.get("max", 0)),
+		int(structure.get("now", 0)), int(structure.get("max", 0)), int(acting.get("moves", 0)),
+		("    ·    marines %d" % int(acting.get("marines", 0))) if int(acting.get("marines", 0)) > 0 else ""]
+	for child in _bridge_weapons.get_children():
+		_bridge_weapons.remove_child(child)
+		child.queue_free()
+	var in_arc := _slots_against(_hover_ship)
+	var targeted := _hover_ship >= 0 and not _mine(_ship(_hover_ship))
+	for weapon: Dictionary in acting.get("weapons", []):
+		var slot := int(weapon.get("slot", 0))
+		var count := int(weapon.get("count", 0))
+		var lit := targeted and in_arc.has(slot)
+		var info := _weapon_status(weapon, targeted, lit)
+		var row := _panel(&"RowOpen" if lit else &"Row")
+		row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		row.tooltip_text = "Click: on, fire once, off"
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 6)
+		row.add_child(line)
+		var glyph := preload("arc_glyph.gd").new()
+		glyph.arc = _arc_glyph_index(int(weapon.get("arc", 0)))
+		glyph.custom_minimum_size = Vector2(20, 20)
+		glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		line.add_child(glyph)
+		var name := _label("%d × %s" % [count, String(weapon.get("name", ""))], 12, SYSTEMS_COLOR if count == 0 else TEXT)
+		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name.clip_text = true
+		line.add_child(name)
+		line.add_child(_label(String(info[0]), 11, FIRE if lit else (SYSTEMS_COLOR if count == 0 else DIM)))
+		if bool(info[1]):
+			row.modulate = Color(1, 1, 1, 0.5)
+		row.gui_input.connect(func(event: InputEvent):
+			var b := event as InputEventMouseButton
+			if b != null and b.button_index == MOUSE_BUTTON_LEFT and not b.pressed and count > 0:
+				_act({"action": "toggle_weapon", "slot": slot})
+			if b != null and b.button_index == MOUSE_BUTTON_LEFT:
+				accept_event())
+		_bridge_weapons.add_child(row)
+	var sys := []
+	for key: Array in [["computer", "Computer"], ["drive", "Drive"], ["shield", "Shield"]]:
+		if scan.has(key[0]) and String(scan[key[0]]) != "":
+			sys.append("%s: %s" % [key[1], String(scan[key[0]])])
+	var specials: Array = (scan.get("specials", []) as Array).map(func(s: Dictionary) -> String:
+		return String(s.get("name", "")) + (" (damaged)" if bool(s.get("damaged", false)) else ""))
+	if not specials.is_empty():
+		sys.append(", ".join(specials))
+	_bridge_systems.text = "\n".join(sys)
+
+
+## A weapon's status line and whether it reads dim (the strip's chips and the bridge card's rows).
+func _weapon_status(weapon: Dictionary, targeted: bool, lit: bool) -> Array:
+	var count := int(weapon.get("count", 0))
+	var active := int(weapon.get("active", 1))
+	var ready := bool(weapon.get("ready", false)) and not bool(weapon.get("spent", false))
+	var ammo := int(weapon.get("ammo", 0))
+	var shots := int(weapon.get("shots_left", 0))
+	var status := ""
+	if count == 0:
+		status = "destroyed"
+	elif active == -1:
+		status = "off"
+	elif not ready:
+		status = "fired"
+	elif targeted:
+		status = "in arc" if lit else "out of reach"
+	else:
+		status = "ready" + (" · once" if active == 0 else "") + (" · %d shots" % shots if shots > 1 and shots != count else "")
+	if ammo > 0 and ammo < 99:
+		status += " · %d left" % ammo
+	return [status, count == 0 or active == -1 or not ready or (targeted and not lit)]
+
+
+## The minimap (Bridge): the field, every ship in its side's colour, the planet, the camera's view.
+func _draw_minimap() -> void:
+	var item := _minimap_draw
+	var field := _field_size()
+	if field.x <= 0.0 or field.y <= 0.0:
+		return
+	var k := minf(item.size.x / field.x, item.size.y / field.y)
+	var at := (item.size - field * k) / 2.0
+	item.draw_rect(Rect2(at, field * k), Color(0.02, 0.04, 0.08, 0.9))
+	item.draw_rect(Rect2(at, field * k), Color(0.45, 0.55, 0.7, 0.5), false, 1.0)
+	var ships := _ships_list()
+	for i in ships.size():
+		var ship: Dictionary = ships[i]
+		if not _alive(ship):
+			continue
+		var p: Vector2 = at + _center(ship) * k
+		if bool(ship.get("planet", false)):
+			item.draw_circle(p, 6.0, _color(ship).darkened(0.2))
+			continue
+		var s := 3.0 + float(int(ship.get("size", 1)))
+		var c := _color(ship)
+		if i == int(state.get("ship", -2)):
+			item.draw_rect(Rect2(p - Vector2(s, s) / 2.0 - Vector2(2, 2), Vector2(s, s) + Vector2(4, 4)), AMBER, false, 1.5)
+		item.draw_rect(Rect2(p - Vector2(s, s) / 2.0, Vector2(s, s)), c)
+	var view := Rect2(_to_world(Vector2.ZERO), size / _zoom)
+	item.draw_rect(Rect2(at + view.position * k, view.size * k), AMBER, false, 1.0)
+
+
+func _minimap_input(event: InputEvent) -> void:
+	var b := event as InputEventMouseButton
+	var m := event as InputEventMouseMotion
+	if b != null and b.button_index == MOUSE_BUTTON_LEFT:
+		_minimap_drag = b.pressed
+		if b.pressed:
+			_minimap_look(b.position)
+		_minimap_draw.accept_event()
+	elif m != null and _minimap_drag:
+		_minimap_look(m.position)
+		_minimap_draw.accept_event()
+
+
+func _minimap_look(at: Vector2) -> void:
+	var field := _field_size()
+	var k := minf(_minimap_draw.size.x / field.x, _minimap_draw.size.y / field.y)
+	var origin := (_minimap_draw.size - field * k) / 2.0
+	_cam = (at - origin) / k
+	_cam_goal = Vector2.INF
+	_place_world()
+
+
+## Bridge placement, after Clear Field's (`_layout`): the card and minimap down the left, the round
+## box in the top right, the buttons in the bottom right.
+func _layout_bridge() -> void:
+	var inset := float(get_theme_constant("inset", "Screen"))
+	var corner := (inset if inset > 0.0 else 6.0) + 6.0
+	_minimap.reset_size()
+	_minimap.position = Vector2(corner, size.y - corner - _minimap.size.y)
+	if _bridge_card.visible:
+		var top := corner
+		var room := _minimap.position.y - 10.0 - top
+		var head := _bridge_card.get_combined_minimum_size().y - _bridge_scroll.get_combined_minimum_size().y
+		_bridge_scroll.custom_minimum_size = Vector2(0, clampf(_bridge_weapons.get_combined_minimum_size().y, 30.0, maxf(room - head, 30.0)))
+		_bridge_card.reset_size()
+		_bridge_card.position = Vector2(corner, top)
+	var edge := _edge()
+	_bottom.reset_size()
+	_bottom.position = Vector2(size.x - edge - _bottom.size.x, size.y - edge - _bottom.size.y)
+	_top_left.reset_size()
+	_top_left.position = Vector2(size.x - edge - _top_left.size.x, edge)
+	# The initiative bar between the card and the round box (at 4:3 the card reaches under a
+	# screen-centred bar), with the Options tab and flyout under it.
+	var from_x := maxf(_minimap.get_rect().end.x, _bridge_card.get_rect().end.x) + 16.0
+	var to_x := _top_left.position.x - _grow(_top_left, 0) - 16.0
+	var tl_chrome := _timeline.get_combined_minimum_size().x - _tl_scroll.get_combined_minimum_size().x
+	var tl_content: Vector2 = (_tl_scroll.get_child(0) as Control).get_combined_minimum_size()
+	_tl_scroll.custom_minimum_size = Vector2(minf(tl_content.x, maxf(to_x - from_x - tl_chrome, 120.0)), tl_content.y)
+	_timeline.reset_size()
+	var mid := (from_x + to_x) / 2.0
+	_timeline.position.x = roundf(mid - _timeline.size.x / 2.0)
+	_options_tab.position.x = roundf(mid - _options_tab.size.x / 2.0)
+	_options_panel.position.x = roundf(mid - _options_panel.size.x / 2.0)
+	_toast.position.x = roundf(mid - _toast.size.x / 2.0)
+	if _warn_panel.visible:
+		var tab_top := _bottom.position.y - _grow(_bottom, 1)
+		_warn_panel.position = Vector2(clampf(_bottom.position.x + (_bottom.size.x - _warn_panel.size.x) / 2.0, 0.0, size.x - _warn_panel.size.x),
+			lerpf(tab_top + 4.0, tab_top - _warn_panel.size.y - 6.0, clampf(_warn_anim, 0.0, 1.0)))

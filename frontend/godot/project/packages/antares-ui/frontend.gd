@@ -8105,6 +8105,52 @@ func _smoke_combat(shots: String) -> bool:
 		int(view.state.ship), (view.state.legal as Array).size()])
 	if shots != "":
 		await host.shot(shots + "/combat-start.png")
+	# A layout picked for the run (--layout=bridge): switched as Options does, its panels checked
+	# against each other and the screen, pictures with and without a target card.
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--layout="):
+			var layout_name := arg.substr(9)
+			var before := String(view._battle_layout)
+			view._set_battle_layout(layout_name)
+			await get_tree().create_timer(0.6).timeout
+			var screen := Rect2(Vector2.ZERO, view.size)
+			var panels := {"card": view._bridge_card, "minimap": view._minimap, "buttons": view._bottom, "round": view._top_left,
+				"initiative": view._timeline, "options": view._options_tab}
+			var rects := {}
+			for key in panels.keys():
+				var c: Control = panels[key]
+				if c != null and c.visible:
+					rects[key] = c.get_global_rect()
+			var bad := []
+			for a in rects.keys():
+				if not screen.encloses(rects[a].grow(-1.0)):
+					bad.append("%s off screen %s" % [a, rects[a]])
+				for b in rects.keys():
+					if String(a) < String(b) and (rects[a] as Rect2).grow(-2.0).intersects((rects[b] as Rect2).grow(-2.0)):
+						bad.append("%s overlaps %s" % [a, b])
+			print("smoke: layout %s: %s; panels %s" % [layout_name, "OK" if bad.is_empty() else ", ".join(bad), rects])
+			if shots != "":
+				await host.shot(shots + "/combat-layout-%s.png" % layout_name)
+			var all_ships: Array = view._ships_list()
+			for i in all_ships.size():
+				var ship: Dictionary = all_ships[i]
+				if view._alive(ship) and not view._mine(ship) and not bool(ship.get("planet", false)):
+					view._hover_ship = i
+					view._place_card()
+					view._refresh_strip()
+					break
+			await get_tree().create_timer(0.3).timeout
+			var card_rect: Rect2 = view._card.get_global_rect()
+			var card_clash: bool = view._card.visible and rects.values().any(func(r: Rect2) -> bool: return r.grow(-2.0).intersects(card_rect.grow(-2.0)))
+			print("smoke: layout %s: target card %s%s" % [layout_name, card_rect, " overlaps a panel" if card_clash else ""])
+			if shots != "":
+				await host.shot(shots + "/combat-layout-%s-target.png" % layout_name)
+			view._hover_ship = -1
+			view._place_card()
+			if not bad.is_empty() or card_clash:
+				print("smoke: FAILED: the %s layout's panels collide" % layout_name)
+			if "--keep-layout" not in OS.get_cmdline_user_args():
+				view._set_battle_layout(before) # the saved setting as it was
 	# The planet under the pointer: its defences still standing and its people (owner 2026-11-23).
 	var planet_scan: Dictionary = view._ship(0).get("scan", {})
 	if planet_scan.has("colony"):
