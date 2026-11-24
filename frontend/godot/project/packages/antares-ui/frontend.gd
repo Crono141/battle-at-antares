@@ -8111,8 +8111,15 @@ func _smoke_combat(shots: String) -> bool:
 		if arg.begins_with("--layout="):
 			var layout_name := arg.substr(9)
 			var before := String(view._battle_layout)
+			view._set_battle_layout("clear")
+			await get_tree().create_timer(0.4).timeout
+			var fixed_before := [view._timeline.get_global_rect(), view._options_tab.get_global_rect()]
 			view._set_battle_layout(layout_name)
 			await get_tree().create_timer(0.6).timeout
+			# The initiative bar and the Options tab are the same in every layout (owner 2026-11-24).
+			var fixed_after := [view._timeline.get_global_rect(), view._options_tab.get_global_rect()]
+			if fixed_after != fixed_before:
+				print("smoke: FAILED: the %s layout moved the initiative bar or Options: %s, was %s" % [layout_name, fixed_after, fixed_before])
 			var screen := Rect2(Vector2.ZERO, view.size)
 			var panels := {"card": view._bridge_card, "minimap": view._minimap, "buttons": view._bottom, "round": view._top_left,
 				"initiative": view._timeline, "options": view._options_tab}

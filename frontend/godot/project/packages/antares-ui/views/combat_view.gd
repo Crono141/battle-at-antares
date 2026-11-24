@@ -4210,6 +4210,7 @@ func _build_bridge() -> void:
 	v.add_theme_constant_override("separation", 6)
 	v.custom_minimum_size = Vector2(BRIDGE_WIDTH, 0)
 	_bridge_card.add_child(v)
+	_bridge_box = v
 	_bridge_name = _label("", 0, AMBER)
 	_bridge_name.theme_type_variation = &"Heading"
 	_bridge_name.clip_text = true
@@ -4261,6 +4262,21 @@ func _build_bridge() -> void:
 
 
 const BRIDGE_WIDTH := 290.0
+var _bridge_box: VBoxContainer
+
+
+## The left column's inner width (the card's contents and the minimap).
+func _bridge_set_width(w: float) -> void:
+	w = roundf(w)
+	if is_equal_approx(_bridge_box.custom_minimum_size.x, w):
+		return
+	_bridge_box.custom_minimum_size.x = w
+	_bridge_picture.custom_minimum_size.x = w - 20.0
+	_bridge_bars.custom_minimum_size.x = w
+	_bridge_systems.custom_minimum_size.x = w
+	_minimap_draw.custom_minimum_size.x = w
+	_bridge_card.reset_size()
+	_minimap.reset_size()
 
 
 ## The shield's four arcs written round a ship's picture (the scan panel's and the bridge card's).
@@ -4438,6 +4454,13 @@ func _minimap_look(at: Vector2) -> void:
 func _layout_bridge() -> void:
 	var inset := float(get_theme_constant("inset", "Screen"))
 	var corner := (inset if inset > 0.0 else 6.0) + 6.0
+	# The initiative bar and the Options tab keep their place and size in every layout (owner
+	# 2026-11-24: the constant space the layouts build around), so the left column narrows to end
+	# short of the bar (at 4:3 half the screen leaves it about 340 px).
+	var chrome := _bridge_card.get_combined_minimum_size().x - _bridge_box.custom_minimum_size.x
+	var room_x := _timeline.position.x - _grow(_timeline, 0) - 12.0 - corner - chrome
+	_bridge_set_width(clampf(room_x, 200.0, BRIDGE_WIDTH))
+	_minimap.custom_minimum_size.x = _bridge_box.custom_minimum_size.x + chrome # as wide as the card
 	_minimap.reset_size()
 	_minimap.position = Vector2(corner, size.y - corner - _minimap.size.y)
 	if _bridge_card.visible:
@@ -4452,19 +4475,6 @@ func _layout_bridge() -> void:
 	_bottom.position = Vector2(size.x - edge - _bottom.size.x, size.y - edge - _bottom.size.y)
 	_top_left.reset_size()
 	_top_left.position = Vector2(size.x - edge - _top_left.size.x, edge)
-	# The initiative bar between the card and the round box (at 4:3 the card reaches under a
-	# screen-centred bar), with the Options tab and flyout under it.
-	var from_x := maxf(_minimap.get_rect().end.x, _bridge_card.get_rect().end.x) + 16.0
-	var to_x := _top_left.position.x - _grow(_top_left, 0) - 16.0
-	var tl_chrome := _timeline.get_combined_minimum_size().x - _tl_scroll.get_combined_minimum_size().x
-	var tl_content: Vector2 = (_tl_scroll.get_child(0) as Control).get_combined_minimum_size()
-	_tl_scroll.custom_minimum_size = Vector2(minf(tl_content.x, maxf(to_x - from_x - tl_chrome, 120.0)), tl_content.y)
-	_timeline.reset_size()
-	var mid := (from_x + to_x) / 2.0
-	_timeline.position.x = roundf(mid - _timeline.size.x / 2.0)
-	_options_tab.position.x = roundf(mid - _options_tab.size.x / 2.0)
-	_options_panel.position.x = roundf(mid - _options_panel.size.x / 2.0)
-	_toast.position.x = roundf(mid - _toast.size.x / 2.0)
 	if _warn_panel.visible:
 		var tab_top := _bottom.position.y - _grow(_bottom, 1)
 		_warn_panel.position = Vector2(clampf(_bottom.position.x + (_bottom.size.x - _warn_panel.size.x) / 2.0, 0.0, size.x - _warn_panel.size.x),
