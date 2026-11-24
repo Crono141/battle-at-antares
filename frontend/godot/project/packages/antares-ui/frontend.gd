@@ -7555,7 +7555,8 @@ func _smoke_clear_todo() -> bool:
 ## A real mouse click at a screen point (the legacy screens take the mouse, not keys, to go on).
 ## WP3.9b: `-- --smoke --native --combat --shots=DIR` with SAVE10: the turn's battle opens as the
 ## native scene; one move to a legal square, the order ring, Always show health, then Auto to the end.
-## Speeds changed on the enemy's turn (owner 2026-11-23: they took effect only next round): the
+## Speeds changed on the enemy's turn (owner 2026-11-23: they took effect only next round; an
+## Instant camera still eased): fails when the camera was found easing with Instant set: the
 ## player ends their turn, and after the enemy's first animation Fast moves and Double speed are
 ## set; each animation's kind and length logged.
 func _smoke_combat_speed(_shots: String) -> void:
@@ -7582,18 +7583,28 @@ func _smoke_combat_speed(_shots: String) -> void:
 		return
 	view._move_speed = 1
 	view._set_speed_x2(false)
+	view._open_options()
+	await get_tree().create_timer(0.8).timeout
+	if _shots != "":
+		await host.shot(_shots + "/combat-options.png")
+	view._close_options()
 	await get_tree().create_timer(1.0).timeout
 	view._act({"action": "end_turn"})
 	var last_id := -1
 	var counts: Dictionary = view.animated.duplicate()
 	var changed := false
 	var seen := 0
+	var eased := 0
+	var changed_at := 0.0
+	var camera_before: float = float(view._load_setting("camera_time", -1.0)) if view != null else -1.0
 	waited = 0.0
 	while waited < 60.0 and seen < 40:
 		await get_tree().process_frame
 		waited += get_process_delta_time()
 		if view._my_turn() and seen > 0:
 			break
+		if changed and waited - changed_at > 0.6 and (view._cam_goal != Vector2.INF or view._zoom_goal > 0.0 or not view._frame.is_empty()):
+			eased += 1 # a frame with the camera still on its way, the camera Instant
 		if view._animating.is_empty() or int(view._animating.id) == last_id:
 			continue
 		last_id = int(view._animating.id)
@@ -7608,7 +7619,23 @@ func _smoke_combat_speed(_shots: String) -> void:
 			changed = true
 			view._move_speed = 2
 			view._set_speed_x2(true)
-			print("smoke: combat-speed: now Fast and Double")
+			view._save_setting("camera_time", 0.0) # the battle's CAMERA SPEED: Instant (owner 2026-11-23)
+			view._camera_time_read = -1.0
+			print("smoke: combat-speed: now Fast, Double and an Instant camera")
+			changed_at = waited
+	# The setting itself: Instant is 0, Galaxy follows the main Options' system zoom.
+	view._camera_time_read = -1.0
+	var instant: float = view._camera_time()
+	view._save_setting("camera_time", -1.0)
+	view._camera_time_read = -1.0
+	var galaxy_time: float = view._camera_time()
+	print("smoke: combat-speed: camera time Instant %.2f, Galaxy %.2f (system zoom %.2f)" % [instant, galaxy_time, Themes.saved_flight_time(1.0)])
+	if instant != 0.0 or not is_equal_approx(galaxy_time, Themes.saved_flight_time(1.0)):
+		print("smoke: FAILED: the battle's camera speed")
+	view._save_setting("camera_time", camera_before)
+	print("smoke: combat-speed: frames with the camera easing while Instant: %d" % eased)
+	if eased > 0:
+		print("smoke: FAILED: the Instant camera still eased")
 
 
 ## The invasion's battle screen in the films' window over the galaxy (owner 2026-11-23: it was

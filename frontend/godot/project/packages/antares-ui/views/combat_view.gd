@@ -108,6 +108,8 @@ const TURN_STEP_TIME := 0.05 # seconds per 22.5 degree facing step
 # Owner 2026-11-22: "the speeds are slow overall": Slow is the old Normal, Normal the old Fast,
 # Fast twice Normal.
 const MOVE_SPEEDS := [["Slow", 1.0], ["Normal", 0.5], ["Fast", 0.25], ["Instant", 0.0]]
+## The battle camera's flight time; -1 follows the galaxy's (the main Options' system zoom).
+const CAMERA_SPEEDS := [["Galaxy", -1.0], ["Slow", 1.5], ["Normal", 1.0], ["Fast", 0.5], ["Instant", 0.0]]
 var _move_speed := 1 # index in MOVE_SPEEDS
 var _speed_button: Button
 # Scan (owner 2026-11-21): the original's read-only view of any ship (Display_Combat_View_Ship).
@@ -445,7 +447,7 @@ func _frame_enemy_fire(event: Dictionary) -> void:
 	framed += 1
 	_cam_goal = Vector2.INF
 	_zoom_goal = -1.0
-	var dur := Themes.saved_flight_time(1.0) * (0.5 if _speedx2() else 1.0)
+	var dur := _camera_time() * (0.5 if _speedx2() else 1.0)
 	if dur <= 0.0:
 		_cam = cam
 		_zoom = zoom
@@ -457,6 +459,22 @@ func _frame_enemy_fire(event: Dictionary) -> void:
 const PLACEHOLDER_COLORS := {"stasis": Color(0.6, 0.85, 1.0), "tractor": Color(0.5, 0.7, 1.0), "plasma_web": Color(0.5, 1.0, 0.5),
 	"stellar": Color(1.0, 1.0, 1.0), "black_hole": Color(0.6, 0.3, 0.9), "absorber": Color(1.0, 0.6, 0.9), "fighters": Color(1.0, 0.9, 0.5),
 	"bombs": Color(1.0, 0.55, 0.3)}
+
+
+## The camera's flight time (0 is Instant): the battle's CAMERA SPEED, else the main Options'
+## system zoom. Read from the settings at most twice a second (and at once after a change here),
+## so a change made during the battle shows on the next move.
+var _camera_time_value := 1.0
+var _camera_time_read := -1.0
+
+
+func _camera_time() -> float:
+	var now := Time.get_ticks_msec() / 1000.0
+	if _camera_time_read < 0.0 or now - _camera_time_read > 0.5:
+		_camera_time_read = now
+		var own := float(_load_setting("camera_time", -1.0))
+		_camera_time_value = own if own >= 0.0 else Themes.saved_flight_time(1.0)
+	return _camera_time_value
 
 
 ## A special's stand-in: one line from the shooter (or a fighter stack's point) to the target.
@@ -727,6 +745,10 @@ func _process(delta: float) -> void:
 		_shield_glow[index] = float(_shield_glow[index]) - delta * 8.0
 		if float(_shield_glow[index]) <= 0.0:
 			_shield_glow.erase(index)
+	if _cam_goal != Vector2.INF and _camera_time() <= 0.0:
+		_cam = _cam_goal # Instant camera (owner 2026-11-23: following the acting ship still eased)
+	if _zoom_goal > 0.0 and _camera_time() <= 0.0:
+		_zoom = _zoom_goal
 	if _cam_goal != Vector2.INF:
 		_cam = _cam.lerp(_cam_goal, minf(1.0, delta * (9.0 if _cam_hold > 0.0 else 6.0)))
 		if _cam.distance_to(_cam_goal) * _zoom < 1.5:
@@ -768,7 +790,7 @@ func _process(delta: float) -> void:
 	if _cam_hold > 0.0:
 		_cam_hold += delta
 		var arrived := _frame.is_empty() and _cam_goal == Vector2.INF and _zoom_goal < 0.0
-		if arrived or _cam_hold > FRAME_WAIT_MAX + Themes.saved_flight_time(1.0):
+		if arrived or _cam_hold > FRAME_WAIT_MAX + _camera_time():
 			_cam_hold = 0.0
 		else:
 			_advance_effects(delta, true)
@@ -2169,6 +2191,26 @@ func _build_options() -> void:
 		speeds.add_child(b)
 		if i == _move_speed:
 			_speed_button = b
+	# CAMERA SPEED (owner 2026-11-23: Instant ship speed left the camera gliding): the battle's own,
+	# Galaxy (the default) follows the main Options' system zoom; saved as [combat] camera_time.
+	section.call("CAMERA SPEED")
+	var cams := HBoxContainer.new()
+	cams.add_theme_constant_override("separation", 4)
+	v.add_child(cams)
+	var cam_group := ButtonGroup.new()
+	var cam_now := float(_load_setting("camera_time", -1.0))
+	for choice: Array in CAMERA_SPEEDS:
+		var seconds := float(choice[1])
+		var b := _flat_button(String(choice[0]), "", func():
+			_save_setting("camera_time", seconds)
+			_camera_time_read = -1.0) # read again at the next move
+		b.theme_type_variation = &"Toggle"
+		b.toggle_mode = true
+		b.button_group = cam_group
+		b.button_pressed = is_equal_approx(seconds, cam_now)
+		b.tooltip_text = "How long the camera takes to frame each move and shot (Galaxy: the main Options' system zoom)"
+		Themes.glowing(b)
+		cams.add_child(b)
 	# The original's x2 speed button (owner 2026-11-22: not exposed): weapons and effects play every
 	# other frame, as the game's own setting (saved with the game's settings).
 	section.call("COMBAT SPEED")
