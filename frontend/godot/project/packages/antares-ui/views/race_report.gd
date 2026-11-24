@@ -220,11 +220,25 @@ func show_review(result: Dictionary) -> void:
 			var row := Label.new()
 			row.text = "   " + app_name
 			row.mouse_filter = Control.MOUSE_FILTER_STOP
+			var missing: bool = not app.get("player_has", true)
+			if missing:
+				# Theirs, not ours: the legacy report drew these brighter (info_jim_hack_color, near
+				# the list's highlight); here bright white and bold.
+				row.add_theme_color_override("font_color", Color.WHITE)
+				var bold := FontVariation.new()
+				bold.base_font = get_theme_font("font", "Label") # the theme's (the row isn't in the tree yet)
+				bold.variation_embolden = 0.8
+				row.add_theme_font_override("font", bold)
+				row.tooltip_text = "You don't have this"
 			row.add_theme_font_size_override("font_size", 15)
 			row.mouse_entered.connect(func():
 				row.add_theme_color_override("font_color", get_theme_color("font_pressed_color", "Button"))
 				_pick(id, app_name))
-			row.mouse_exited.connect(func(): row.remove_theme_color_override("font_color"))
+			row.mouse_exited.connect(func():
+				if missing:
+					row.add_theme_color_override("font_color", Color.WHITE)
+				else:
+					row.remove_theme_color_override("font_color"))
 			_rows.add_child(row)
 			if first < 0:
 				first = id

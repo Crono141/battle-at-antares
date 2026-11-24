@@ -257,6 +257,10 @@ namespace antares::commands::internal {
                             s_out item = items.Append_Object();
                             item.Int("app", app);
                             item.Str("name", Utf8(TECH::Technology_Applications_Name(app, owner), 80));
+                            // Another empire's review: whether the player has it too (LIST drew those
+                            // the player lacks in the list's disabled colour, race_report_jim_hack).
+                            item.Bool("player_has", MOX::player[MOX::PLAYER_NUM].tech_applications[app] ==
+                                                        TECH_RESEARCH_STATUS_RESEARCHED);
                         }
                     }
                     apps.clear();
