@@ -1134,7 +1134,7 @@ var todo_auto: bool = Themes.saved_value("todo", "auto", false)
 # WP3.9: battles in the native scene (a preview, off by default; owner, 2026-11-21). The smoke's
 # battle steps turn it on for their run.
 var native_battles: bool = bool(Themes.saved_value("combat", "native", false)) or "--combat" in OS.get_cmdline_user_args() \
-	or "--torpedo" in OS.get_cmdline_user_args() or "--combat-speed" in OS.get_cmdline_user_args() \
+	or "--torpedo" in OS.get_cmdline_user_args() or "--combat-speed" in OS.get_cmdline_user_args() or "--retreat" in OS.get_cmdline_user_args() \
 	or "--selfdestruct" in OS.get_cmdline_user_args()
 var _todo_auto_opened := {} # this turn's items opened, by key
 var _todo_auto_last := {} # the item opened last, and when: {item, at, open}
@@ -5417,6 +5417,10 @@ func _smoke_native() -> void:
 			var choice_buttons: Array = choice_dialog._bombing_buttons.get_children().map(func(b: Button) -> String: return b.text)
 			if shots != "":
 				await host.shot(shots + "/native-orbit-choice.png")
+			# The planet at its own size before any bomb (owner 2026-11-23: a small planet filled the
+			# box until the first bomb).
+			await get_tree().create_timer(0.5).timeout
+			var planet_before: Vector2 = choice_dialog._bombing_planet.size
 			var bomb_at: Vector2 = (choice_dialog._bombing_buttons.get_child(0) as Control).get_global_rect().position
 			(choice_dialog._bombing_buttons.get_child(0) as Button).pressed.emit() # BOMB
 			var stayed := true
@@ -5427,6 +5431,10 @@ func _smoke_native() -> void:
 				if String(choice_dialog.popup_name) == "colony_bombing":
 					break
 			var same_place: bool = (choice_dialog._bombing_buttons.get_child(0) as Control).get_global_rect().position.distance_to(bomb_at) < 1.0
+			await get_tree().create_timer(0.5).timeout
+			print("smoke: bombing planet %s before the first bomb, %s after" % [planet_before, choice_dialog._bombing_planet.size])
+			if planet_before.distance_to(choice_dialog._bombing_planet.size) > 1.0:
+				await host.smoke_fail("the bombing's planet changed size at the first bomb")
 			print("smoke: orbit choice %s; BOMB kept the window %s, bombing in it %s, its first button in place %s" % [choice_buttons, stayed,
 				String(choice_dialog.popup_name) == "colony_bombing", same_place])
 			if not stayed or not same_place or String(choice_dialog.popup_name) != "colony_bombing" or choice_buttons.is_empty() or choice_buttons[0] != "BOMB":
@@ -5805,6 +5813,37 @@ func _smoke_native() -> void:
 		return
 	if "--pan-test" in OS.get_cmdline_user_args():
 		await _smoke_pan(shots)
+		game.request_game_quit()
+		return
+	if "--shield-art" in OS.get_cmdline_user_args():
+		# The shield hit's art as the battle gets it (owner 2026-11-23: planet shields, BEAMS
+		# 133-142, showed black triangles): frame 4 of a ship's (70) and a planet's (135).
+		for entry in [70, 135]:
+			var t := 0.0
+			while art.sprite("beams.lbx!shield", entry).is_empty() and t < 20.0:
+				await get_tree().create_timer(0.2).timeout
+				t += 0.2
+			var tex: Texture2D = art.texture("beams.lbx!shield", entry, 4)
+			if tex == null:
+				print("smoke: FAILED: shield art %d missing" % entry)
+				continue
+			var img := tex.get_image()
+			var dark := 0
+			var opaque := 0
+			for y in range(0, img.get_height(), 2):
+				for x in range(0, img.get_width(), 2):
+					var c := img.get_pixel(x, y)
+					if c.a > 0.5:
+						opaque += 1
+						if maxf(c.r, maxf(c.g, c.b)) < 0.12:
+							dark += 1
+			print("smoke: shield art %d: %dx%d, %d opaque, %d of them dark" % [entry, img.get_width(), img.get_height(), opaque, dark])
+			if shots != "":
+				img.save_png(shots + "/shield-%d.png" % entry)
+		game.request_game_quit()
+		return
+	if "--retreat" in OS.get_cmdline_user_args():
+		await _smoke_retreat(shots)
 		game.request_game_quit()
 		return
 	if "--combat-speed" in OS.get_cmdline_user_args():
@@ -7639,6 +7678,60 @@ func _smoke_combat_speed(_shots: String) -> void:
 	print("smoke: combat-speed: frames with the camera easing while Instant: %d" % eased)
 	if eased > 0:
 		print("smoke: FAILED: the Instant camera still eased")
+
+
+## Ships ordered to retreat (owner 2026-11-23: they left the initiative order, stayed on screen and
+## never warped out): two of the player's ships retreat, the turn ends; at the next round's start
+## they should warp out (a retreat effect each) and leave the field.
+func _smoke_retreat(shots: String) -> void:
+	_send({"verb": "end_turn"})
+	var view: Control = null
+	var waited := 0.0
+	while waited < 60.0:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+		view = _combat
+		if view != null and view.visible and view._my_turn():
+			break
+		var dialog: Control = _views.get("dialog")
+		if overlay.visible and dialog != null and String(dialog.popup_name) == "attack_target":
+			for i in dialog.options.size():
+				var item: Dictionary = dialog.options[i]
+				if int(item.get("planet", -1)) >= 0 and bool(item.get("enabled", true)):
+					dialog._answer(dialog.OPTION_ANSWER + i)
+					break
+			continue
+		_smoke_answer()
+	if view == null or not view._my_turn():
+		print("smoke: FAILED: retreat: no battle")
+		return
+	var ordered: Array = []
+	for i in 2:
+		var acting := int(view.state.get("ship", -1))
+		ordered.append(acting)
+		var before := int(view.state.get("ship", -1))
+		view._act({"action": "retreat"})
+		var t := 0.0
+		while t < 10.0 and (int(view.state.get("ship", -1)) == before or not view._my_turn()):
+			await get_tree().create_timer(0.1).timeout
+			t += 0.1
+	print("smoke: retreat: ordered %s; in the order now %s" % [ordered, view.state.get("order", [])])
+	var retreats_before := int(view.animated.get("retreat", 0))
+	view._act({"action": "end_turn"})
+	var round0 := int(view.state.get("round", 0))
+	waited = 0.0
+	while waited < 90.0:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+		if not view.visible or (int(view.state.get("round", 0)) > round0 and view._my_turn()):
+			break
+	var left: Array = ordered.filter(func(i: int) -> bool: return view._alive(view._ship(i)) or view._ships.has(i))
+	print("smoke: retreat: round %s, retreat effects %d, still on the field %s, battle on %s" % [view.state.get("round", -1),
+		int(view.animated.get("retreat", 0)) - retreats_before, left, view.visible])
+	if shots != "":
+		await host.shot(shots + "/combat-retreated.png")
+	if view.visible and not left.is_empty():
+		print("smoke: FAILED: retreating ships stayed")
 
 
 ## The invasion's battle screen in the films' window over the galaxy (owner 2026-11-23: it was

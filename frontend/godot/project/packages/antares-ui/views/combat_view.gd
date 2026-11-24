@@ -131,6 +131,7 @@ var _beams: Node2D
 var _menu: Control
 var _top_left: PanelContainer
 var _round_label: Label
+var _round_margin: MarginContainer
 var _strength_mine: ColorRect
 var _strength_theirs: ColorRect
 var _strength_label: Label
@@ -684,6 +685,16 @@ func _apply_shield(index: int, ship: Dictionary) -> void:
 func _process(delta: float) -> void:
 	if not visible:
 		return
+	if _flyers_moving():
+		_marks.queue_redraw()
+	# Stacks gone from the state forget their glide.
+	if not _flyers.is_empty():
+		var live := {}
+		for missile: Dictionary in state.get("missiles", []):
+			live[int(missile.get("i", -1))] = true
+		for key in _flyers.keys():
+			if not live.has(key):
+				_flyers.erase(key)
 	_anim_clock += delta
 	if _anim_clock >= ANIM_TIME:
 		_anim_clock = 0.0
@@ -1023,7 +1034,7 @@ func _draw_marks() -> void:
 	# a stack without its art yet as a marker in the owner's colour.
 	var font := get_theme_default_font()
 	for missile: Dictionary in state.get("missiles", []):
-		var at := Vector2(float(missile.get("x", 0)), float(missile.get("y", 0)))
+		var at := _flyer_at(missile)
 		if _draw_flyer(missile, at):
 			continue
 		var owner_color := MONSTER_COLOR
@@ -1040,6 +1051,38 @@ func _draw_marks() -> void:
 	# The order ring.
 	if _menu_ship >= 0 and _ships.has(_menu_ship):
 		_draw_menu(_ships[_menu_ship].shown, width)
+
+
+## Missiles, torpedoes and fighters glide between the states (owner 2026-11-23: they jumped, as if
+## at 5 fps): each stack goes from where it is shown to its new place over the time since its last
+## one (0.03 to 0.4 s), so it moves at the game's pace; a big jump (a new stack, or a far one) is
+## taken at once. Hit tests keep the state's places.
+var _flyers := {} # stack -> {from, to, t, dur}
+const FLYER_SNAP := 300.0 # world pixels: further than this, no glide
+
+
+func _flyer_at(missile: Dictionary) -> Vector2:
+	var key := int(missile.get("i", -1))
+	var target := Vector2(float(missile.get("x", 0)), float(missile.get("y", 0)))
+	var now := Time.get_ticks_msec() / 1000.0
+	var f: Dictionary = _flyers.get(key, {})
+	if f.is_empty() or (f.to as Vector2).distance_to(target) > FLYER_SNAP:
+		f = {"from": target, "to": target, "t": now, "dur": 0.05}
+		_flyers[key] = f
+	elif f.to != target:
+		var current: Vector2 = (f.from as Vector2).lerp(f.to, clampf((now - float(f.t)) / float(f.dur), 0.0, 1.0))
+		f = {"from": current, "to": target, "t": now, "dur": clampf(now - float(f.t), 0.03, 0.4)}
+		_flyers[key] = f
+	return (f.from as Vector2).lerp(f.to, clampf((now - float(f.t)) / float(f.dur), 0.0, 1.0))
+
+
+## Whether a flying stack is still gliding (the field redraws until they all arrive).
+func _flyers_moving() -> bool:
+	var now := Time.get_ticks_msec() / 1000.0
+	for f: Dictionary in _flyers.values():
+		if now - float(f.t) < float(f.dur):
+			return true
+	return false
 
 
 ## A flying stack's pictures (false while its art is on its way).
@@ -1691,10 +1734,14 @@ func _build_hud() -> void:
 	# attached to the outer frame as the other bars are).
 	_top_left = _panel(&"BottomPocket")
 	add_child(_top_left)
+	# Kept clear of the screen frame's side bar, which crosses the box's outer side (owner
+	# 2026-11-23: defending, bottom left, the text started under the frame).
+	_round_margin = MarginContainer.new()
+	_top_left.add_child(_round_margin)
 	var tl := VBoxContainer.new()
 	tl.add_theme_constant_override("separation", 2)
 	tl.custom_minimum_size = Vector2(230, 0)
-	_top_left.add_child(tl)
+	_round_margin.add_child(tl)
 	_round_label = _label("", 0, AMBER)
 	tl.add_child(_round_label)
 	_round_number = _label("", 0)
@@ -1921,8 +1968,16 @@ func _layout() -> void:
 		_warn_panel.position = Vector2(roundf((size.x - _warn_panel.size.x) / 2.0), lerpf(tab_top + 4.0, tab_top - _warn_panel.size.y - 6.0, clampf(_warn_anim, 0.0, 1.0)))
 	# The round box: in the player's bottom corner (attacking: right; defending: left), sharing the
 	# bottom and that side's edge with the screen frame (owner 2026-11-22).
+	var clear := 0.0
+	if not tee.is_empty():
+		var box := _top_left.get_theme_stylebox("panel")
+		var inner := box.get_content_margin(SIDE_LEFT) if box != null else 0.0
+		clear = maxf(0.0, 2.0 * float(tee.bar_center) + 12.0 - (edge + inner))
+	var right_side := _round_on_right()
+	_round_margin.add_theme_constant_override("margin_left", 0 if right_side else int(clear))
+	_round_margin.add_theme_constant_override("margin_right", int(clear) if right_side else 0)
 	_top_left.reset_size()
-	var x := size.x - edge - _top_left.size.x if _round_on_right() else edge
+	var x := size.x - edge - _top_left.size.x if right_side else edge
 	_top_left.position = Vector2(x, size.y - edge - _top_left.size.y)
 	_toast.position = Vector2(roundf((size.x - _toast.size.x) / 2.0), _options_tab.position.y + _options_tab.size.y + 12.0)
 	# The scan panel: centred between the button frames (under the Options tab, above the

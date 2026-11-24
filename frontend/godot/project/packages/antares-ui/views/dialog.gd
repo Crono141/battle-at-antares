@@ -398,9 +398,11 @@ func _bombing_body(request: Dictionary) -> Control:
 	_bombing_planet.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_bombing_planet.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_bombing_planet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_bombing_planet.draw.connect(_fit_bombing_planet) # its art came (or changed): its size
 	if art:
 		_bombing_planet.bind(art)
 		_bombing_planet.show_sprite(String(_bombing_picture.get("lbx", "")), int(_bombing_picture.get("entry", -1)))
+	_fit_bombing_planet()
 	# The planet at the original's scale (owner 2026-11-22: a tiny planet filled the box, and its
 	# bombs' explosions were blown up with it): a huge planet (150 px) fills the box, the others
 	# are as much smaller as in the original, in a box that keeps its size.
@@ -555,6 +557,20 @@ func _hold_for_bombing(value: int) -> void:
 			released.emit())
 
 
+## The planet at the original's scale (a huge planet, 150 px, fills the box), as soon as its art
+## is in (owner 2026-11-23: a small planet filled the box until the first bomb, which sized it).
+func _fit_bombing_planet() -> void:
+	if art == null or _bombing_planet == null:
+		return
+	var planet: Dictionary = art.sprite(String(_bombing_picture.get("lbx", "")), int(_bombing_picture.get("entry", -1)))
+	if planet.is_empty():
+		return
+	var planet_size: Vector2 = planet.size
+	var side := planet_size * (PLANET_BOX / HUGE_PLANET_PX) # screen px per original pixel, for every planet
+	if _bombing_planet.custom_minimum_size != side:
+		_bombing_planet.custom_minimum_size = side
+
+
 func _draw_blasts() -> void:
 	if art == null or _bombing_planet == null:
 		return
@@ -562,11 +578,8 @@ func _draw_blasts() -> void:
 	if planet.is_empty():
 		return
 	var area := _blast_layer.size
-	var planet_size: Vector2 = planet.size
+	_fit_bombing_planet()
 	var k := PLANET_BOX / HUGE_PLANET_PX # screen px per original pixel, for every planet
-	var side := Vector2(planet_size.x, planet_size.y) * k
-	if _bombing_planet.custom_minimum_size != side:
-		_bombing_planet.custom_minimum_size = side
 	var centre := area * 0.5
 	var now := Time.get_ticks_msec() / 1000.0
 	for b: Dictionary in _blasts:

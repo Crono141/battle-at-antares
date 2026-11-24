@@ -35,7 +35,7 @@ namespace antares::sprites {
 
         // The original pixels of every frame, drawn by the game's own decoder into a scratch
         // bitmap (index 0 is transparent).
-        void Export_1x(s_animation_header* anim, const uint32_t palette_rgb[256], s_sprite* out) {
+        void Export_1x(s_animation_header* anim, const uint32_t palette_rgb[256], s_sprite* out, const uint32_t* glass_argb = nullptr) {
             const int32_t width = anim->width;
             const int32_t height = anim->height;
             std::vector<uint64_t> storage((k_bitmap_data_offset + (size_t)width * height + 7) / 8 + 1, 0);
@@ -46,7 +46,7 @@ namespace antares::sprites {
             // drawing here each level maps to itself, so its pixels stay recognisable and come out
             // as the level's colour over transparency (owner, 2026-11-19: the colony landing's
             // beams were solid magenta, the remap's colour over the bitmap's black).
-            const bool glassed = (anim->flags & ANIMATION_FLAG_GLASSED) != 0;
+            const bool glassed = (anim->flags & ANIMATION_FLAG_GLASSED) != 0 || glass_argb != nullptr; // a glass table: drawn glassed
             static uint8_t saved_remap[16][256];
             if (glassed) {
                 memcpy(saved_remap, video::glass_remap_colors, sizeof(saved_remap));
@@ -72,6 +72,14 @@ namespace antares::sprites {
                 frame.height = height;
                 frame.rgba.resize((size_t)width * height * 4);
                 for (size_t i = 0; i < (size_t)width * height; ++i) {
+                    if (glassed && pixels[i] >= 0xF0 && glass_argb != nullptr) {
+                        const uint32_t c = glass_argb[pixels[i] - 0xF0];
+                        frame.rgba[i * 4] = (uint8_t)(c >> 16);
+                        frame.rgba[i * 4 + 1] = (uint8_t)(c >> 8);
+                        frame.rgba[i * 4 + 2] = (uint8_t)c;
+                        frame.rgba[i * 4 + 3] = (uint8_t)(c >> 24);
+                        continue;
+                    }
                     if (glassed && pixels[i] >= 0xF0) {
                         const auto& glass = video::glass_colors[pixels[i] - 0xF0];
                         frame.rgba[i * 4] = (uint8_t)(glass.r << 2);
@@ -539,7 +547,7 @@ namespace antares::sprites {
             out->scale = render::SCALE / shrink;
             out->hd = true;
         } else {
-            Export_1x(anim, palette_rgb, out);
+            Export_1x(anim, palette_rgb, out, glass ? glass_argb : nullptr);
             out->hd_pending = still_decoding;
         }
         render::Forget_Loads(bytes, bytes + size);

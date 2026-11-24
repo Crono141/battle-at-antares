@@ -80,7 +80,11 @@ namespace render {
                 out.rgba[i * 4 + 1] = (uint8_t)(rgb >> 8);
                 out.rgba[i * 4 + 2] = (uint8_t)rgb;
                 uint8_t alpha = frame->alpha[i];
-                const bool glass = asset->glassed &&
+                // A glass table asked for (the shield hit) means the picture is drawn glassed, as
+                // BEAMS::Draw_Shield_Hit sets it (Set_Picture_Glassed) whatever the entry's own flag
+                // (owner 2026-11-23: the planet shields' art, BEAMS 133-142, has none and showed
+                // its glass as black triangles).
+                const bool glass = (asset->glassed || glass_argb != nullptr) &&
                     ((frame->mask != nullptr && art::Mask_Meaning(frame->mask[i], true).kind == art::MASK_GLASS) ||
                         (frame->rgb == nullptr && frame->index != nullptr && frame->index[i] >= 0xF0)); // indexed art
                 if (glass && glass_argb != nullptr) {
