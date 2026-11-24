@@ -15,6 +15,7 @@
 #include "antares/identity.h"
 #include "antares/profile_file.h"
 #include "antares/user_folder.h"
+#include "launcher/launcher_chrome.h"
 #include "game/user_paths.h"
 #include "command_line.h"
 #include "version.h"
@@ -25,9 +26,9 @@ namespace launcher {
         constexpr char SETTINGS_FILE[] = "launcher.json";
         constexpr char PAYLOAD_TYPE[] = "ANTARES_PACKAGE";
 
-        const ImVec4 COLOUR_OK(0.45f, 0.85f, 0.45f, 1.0f);
+        const ImVec4 COLOUR_OK(0.55f, 0.90f, 0.47f, 1.0f);
         const ImVec4 COLOUR_ERROR(1.0f, 0.45f, 0.40f, 1.0f);
-        const ImVec4 COLOUR_DIM(0.60f, 0.62f, 0.68f, 1.0f);
+        const ImVec4 COLOUR_DIM(0.67f, 0.67f, 0.71f, 1.0f);
 
         bool Read_Text_(const std::string& path, std::string* text) {
             std::ifstream file(path, std::ios::binary);
@@ -565,11 +566,24 @@ namespace launcher {
             ImGui::End();
             return !quit_;
         }
-
-        ImGui::TextUnformatted(antares::PRODUCT_NAME);
-        ImGui::SameLine();
-        ImGui::TextColored(COLOUR_DIM, "%s  ·  launcher", antares::PRODUCT_VERSION);
-        ImGui::Separator();
+        const bool chrome_look = chrome::Ready(); // look B (WP5.11b), as the wizard
+        if (chrome_look) {
+            const ImVec2 window_min = ImGui::GetWindowPos();
+            const ImVec2 window_size = ImGui::GetWindowSize();
+            chrome::Background(ImGui::GetWindowDrawList(), window_min, ImVec2(window_min.x + window_size.x, window_min.y + window_size.y));
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const char* title = "BATTLE AT ANTARES";
+            chrome::Shadowed_Text(ImGui::GetWindowDrawList(), chrome::Title_Font(), 24.0f, at, chrome::GOLD, title);
+            const float title_width = chrome::Title_Font()->CalcTextSizeA(24.0f, FLT_MAX, 0.0f, title).x;
+            const std::string version = std::string(antares::PRODUCT_VERSION) + "  ·  launcher";
+            ImGui::GetWindowDrawList()->AddText(chrome::Body_Font(), 17.0f, ImVec2(at.x + title_width + 14.0f, at.y + 7.0f), ImGui::ColorConvertFloat4ToU32(COLOUR_DIM), version.c_str());
+            ImGui::Dummy(ImVec2(0.0f, 32.0f));
+        } else {
+            ImGui::TextUnformatted(antares::PRODUCT_NAME);
+            ImGui::SameLine();
+            ImGui::TextColored(COLOUR_DIM, "%s  ·  launcher", antares::PRODUCT_VERSION);
+            ImGui::Separator();
+        }
 
         Draw_Profile_Bar_();
         ImGui::Spacing();
@@ -579,23 +593,36 @@ namespace launcher {
         const float bottom = ImGui::GetFrameHeightWithSpacing() + ImGui::GetTextLineHeightWithSpacing() * 3.0f + style.ItemSpacing.y * 3.0f;
         const float body = std::max(120.0f, ImGui::GetContentRegionAvail().y - bottom);
         const int wanted_tab = force_tab_ ? tab_ : -1;
+        if (chrome_look) ImGui::PushFont(chrome::Title_Font(), 16.0f);
         if (ImGui::BeginTabBar("tabs")) {
-            if (ImGui::BeginTabItem("Packages", nullptr, wanted_tab == 0 ? ImGuiTabItemFlags_SetSelected : 0)) {
+            if (ImGui::BeginTabItem(chrome_look ? " PACKAGES ###packages" : "Packages###packages", nullptr, wanted_tab == 0 ? ImGuiTabItemFlags_SetSelected : 0)) {
                 tab_ = 0;
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Settings", nullptr, wanted_tab == 1 ? ImGuiTabItemFlags_SetSelected : 0)) {
+            if (ImGui::BeginTabItem(chrome_look ? " SETTINGS ###settings" : "Settings###settings", nullptr, wanted_tab == 1 ? ImGuiTabItemFlags_SetSelected : 0)) {
                 tab_ = 1;
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Saves", nullptr, wanted_tab == 2 ? ImGuiTabItemFlags_SetSelected : 0)) {
+            if (ImGui::BeginTabItem(chrome_look ? " SAVES ###saves" : "Saves###saves", nullptr, wanted_tab == 2 ? ImGuiTabItemFlags_SetSelected : 0)) {
                 tab_ = 2;
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();
             force_tab_ = false;
         }
-        const float tab_body = std::max(120.0f, body - ImGui::GetFrameHeightWithSpacing());
+        if (chrome_look) ImGui::PopFont();
+        float tab_body = std::max(120.0f, body - ImGui::GetFrameHeightWithSpacing());
+        // Look B: the tab's content sits in the bezel, as the wizard's pages.
+        constexpr float BEZEL_INSET = 16.0f;
+        if (chrome_look) {
+            const ImVec2 min = ImGui::GetCursorScreenPos();
+            const ImVec2 max(min.x + ImGui::GetContentRegionAvail().x, min.y + tab_body);
+            chrome::Bezel(ImGui::GetWindowDrawList(), min, max);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(BEZEL_INSET, BEZEL_INSET - 2.0f));
+            ImGui::BeginChild("tab-body", ImVec2(0.0f, tab_body), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);
+            ImGui::PopStyleVar();
+            tab_body -= BEZEL_INSET * 2.0f - 4.0f;
+        }
         if (tab_ == 0) {
             const float table_width = ImGui::GetContentRegionAvail().x * 0.60f;
             ImGui::BeginChild("mods", ImVec2(table_width, tab_body));
@@ -610,6 +637,7 @@ namespace launcher {
         } else {
             Draw_Saves_(tab_body);
         }
+        if (chrome_look) ImGui::EndChild();
 
         ImGui::Spacing();
         Draw_Check_();
@@ -1029,6 +1057,13 @@ namespace launcher {
         ImGui::SameLine(ImGui::GetContentRegionMax().x - button_width);
         const s_save_row* save = Find_Save_(load_save_);
         const bool save_fails = load_save_ > 0 && (save == nullptr || !Save_Problem_(*save).empty());
+        if (chrome::Ready()) { // look B: the game's metal button, glowing amber (WP5.11b)
+            const bool can_play = files_.ok && check_.ok && !save_fails && game_ == nullptr;
+            const ImVec2 size(button_width, ImGui::GetFrameHeight() * 1.25f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - (size.y - ImGui::GetFrameHeight()) * 0.5f);
+            if (chrome::Button(game_ != nullptr ? "Running##play" : "Play##play", size, true, can_play)) Launch_(load_save_);
+            return;
+        }
         ImGui::BeginDisabled(!files_.ok || !check_.ok || save_fails || game_ != nullptr);
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.45f, 0.25f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.55f, 0.30f, 1.0f));

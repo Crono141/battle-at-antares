@@ -98,11 +98,17 @@ namespace {
     constexpr float SETUP_CANVAS_WIDTH = 860.0f;
     constexpr float SETUP_CANVAS_HEIGHT = 580.0f;
 
-    float Setup_Scale_(SDL_Window* window) {
+    // The launcher's own tabs are laid out for 1120x760 and grow the same way in a larger window.
+    constexpr float LAUNCHER_CANVAS_WIDTH = 1120.0f;
+    constexpr float LAUNCHER_CANVAS_HEIGHT = 760.0f;
+
+    float Canvas_Scale_(SDL_Window* window, bool setup) {
         int width = 0, height = 0;
         SDL_GetWindowSize(window, &width, &height);
         if (width <= 0 || height <= 0) return 1.0f;
-        return std::clamp(std::min(width / SETUP_CANVAS_WIDTH, height / SETUP_CANVAS_HEIGHT), 1.0f, 4.0f);
+        const float canvas_width = setup ? SETUP_CANVAS_WIDTH : LAUNCHER_CANVAS_WIDTH;
+        const float canvas_height = setup ? SETUP_CANVAS_HEIGHT : LAUNCHER_CANVAS_HEIGHT;
+        return std::clamp(std::min(width / canvas_width, height / canvas_height), 1.0f, 4.0f);
     }
 
     // Mouse positions from window coordinates to the wizard's canvas.
@@ -139,24 +145,49 @@ namespace {
         style.PopupRounding = 4.0f;
         style.GrabRounding = 4.0f;
         style.WindowBorderSize = 0.0f;
+        // Look B, the Chrome theme (owner 2026-11-24): dark plates over the metal panel, gold and
+        // amber accents, as the setup wizard.
+        style.FrameRounding = 2.0f;
+        style.ChildRounding = 0.0f;
+        style.TabRounding = 2.0f;
         ImVec4* colours = style.Colors;
-        colours[ImGuiCol_WindowBg] = ImVec4(0.075f, 0.082f, 0.110f, 1.0f);
-        colours[ImGuiCol_ChildBg] = ImVec4(0.095f, 0.104f, 0.138f, 1.0f);
-        colours[ImGuiCol_PopupBg] = ImVec4(0.110f, 0.120f, 0.158f, 1.0f);
-        colours[ImGuiCol_Border] = ImVec4(0.22f, 0.24f, 0.30f, 1.0f);
-        colours[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.17f, 0.22f, 1.0f);
-        colours[ImGuiCol_FrameBgHovered] = ImVec4(0.20f, 0.23f, 0.30f, 1.0f);
-        colours[ImGuiCol_FrameBgActive] = ImVec4(0.24f, 0.28f, 0.36f, 1.0f);
-        colours[ImGuiCol_Button] = ImVec4(0.18f, 0.22f, 0.32f, 1.0f);
-        colours[ImGuiCol_ButtonHovered] = ImVec4(0.24f, 0.30f, 0.44f, 1.0f);
-        colours[ImGuiCol_ButtonActive] = ImVec4(0.28f, 0.36f, 0.52f, 1.0f);
-        colours[ImGuiCol_Header] = ImVec4(0.20f, 0.26f, 0.38f, 1.0f);
-        colours[ImGuiCol_HeaderHovered] = ImVec4(0.24f, 0.31f, 0.45f, 1.0f);
-        colours[ImGuiCol_HeaderActive] = ImVec4(0.28f, 0.36f, 0.52f, 1.0f);
-        colours[ImGuiCol_CheckMark] = ImVec4(0.55f, 0.75f, 1.0f, 1.0f);
-        colours[ImGuiCol_TableRowBgAlt] = ImVec4(1.0f, 1.0f, 1.0f, 0.025f);
-        colours[ImGuiCol_TableHeaderBg] = ImVec4(0.12f, 0.13f, 0.17f, 1.0f);
-        colours[ImGuiCol_Separator] = ImVec4(0.22f, 0.24f, 0.30f, 1.0f);
+        const auto rgb = [](int r, int g, int b, float a = 1.0f) { return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a); };
+        colours[ImGuiCol_Text] = rgb(226, 222, 210);
+        colours[ImGuiCol_TextDisabled] = rgb(120, 122, 130);
+        colours[ImGuiCol_WindowBg] = rgb(11, 12, 16, 0.0f); // the metal panel is drawn behind
+        colours[ImGuiCol_ChildBg] = rgb(10, 11, 14, 0.0f);
+        colours[ImGuiCol_PopupBg] = rgb(18, 19, 24, 0.97f);
+        colours[ImGuiCol_Border] = rgb(84, 88, 98);
+        colours[ImGuiCol_FrameBg] = rgb(30, 32, 38, 0.95f); // a step lighter than the dark rows
+        colours[ImGuiCol_FrameBgHovered] = rgb(40, 36, 30, 0.95f);
+        colours[ImGuiCol_FrameBgActive] = rgb(60, 48, 32, 0.95f);
+        colours[ImGuiCol_Button] = rgb(52, 55, 62);
+        colours[ImGuiCol_ButtonHovered] = rgb(78, 82, 92);
+        colours[ImGuiCol_ButtonActive] = rgb(110, 76, 36);
+        colours[ImGuiCol_Header] = rgb(255, 138, 28, 0.24f);
+        colours[ImGuiCol_HeaderHovered] = rgb(255, 138, 28, 0.13f);
+        colours[ImGuiCol_HeaderActive] = rgb(255, 138, 28, 0.32f);
+        colours[ImGuiCol_CheckMark] = rgb(255, 138, 28);
+        colours[ImGuiCol_CheckboxSelectedBg] = rgb(30, 32, 38, 0.95f);
+        colours[ImGuiCol_SliderGrab] = rgb(255, 138, 28);
+        colours[ImGuiCol_SliderGrabActive] = rgb(255, 170, 80);
+        colours[ImGuiCol_Tab] = rgb(34, 37, 44, 0.95f);
+        colours[ImGuiCol_TabHovered] = rgb(70, 56, 38);
+        colours[ImGuiCol_TabSelected] = rgb(54, 44, 32);
+        colours[ImGuiCol_TabSelectedOverline] = rgb(255, 138, 28);
+        colours[ImGuiCol_TableRowBg] = rgb(10, 11, 14, 0.55f);
+        colours[ImGuiCol_TableRowBgAlt] = rgb(22, 23, 28, 0.55f);
+        colours[ImGuiCol_TableHeaderBg] = rgb(34, 37, 44);
+        colours[ImGuiCol_TableBorderStrong] = rgb(59, 63, 72);
+        colours[ImGuiCol_TableBorderLight] = rgb(40, 43, 50);
+        colours[ImGuiCol_Separator] = rgb(59, 63, 72);
+        colours[ImGuiCol_ScrollbarBg] = rgb(10, 11, 14, 0.5f);
+        colours[ImGuiCol_ScrollbarGrab] = rgb(78, 82, 92);
+        colours[ImGuiCol_ScrollbarGrabHovered] = rgb(110, 114, 124);
+        colours[ImGuiCol_ScrollbarGrabActive] = rgb(255, 138, 28);
+        colours[ImGuiCol_TextSelectedBg] = rgb(255, 138, 28, 0.35f);
+        colours[ImGuiCol_NavCursor] = rgb(255, 138, 28, 0.6f);
+        colours[ImGuiCol_ModalWindowDimBg] = rgb(0, 0, 0, 0.55f);
         style.ScaleAllSizes(scale);
         style.FontScaleDpi = scale;
     }
@@ -263,7 +294,14 @@ int main(int argc, char** argv) {
     float scale = headless ? 1.0f : SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
     if (scale <= 0.0f) scale = 1.0f;
     const std::string title = std::string(antares::PRODUCT_NAME) + " launcher";
-    SDL_Window* window = SDL_CreateWindow(title.c_str(), static_cast<int>(1120 * scale), static_cast<int>(760 * scale), SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (headless ? SDL_WINDOW_HIDDEN : 0));
+    // Look B (WP5.11b): a roomier window on a large screen (owner at 2560x1440), never past 85 % of it.
+    float window_width = 1120.0f * scale, window_height = 760.0f * scale;
+    SDL_Rect usable{};
+    if (!headless && SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &usable) && usable.w > 0) {
+        window_width = std::max(window_width, std::min(1280.0f * scale, usable.w * 0.85f));
+        window_height = std::max(window_height, std::min(860.0f * scale, usable.h * 0.85f));
+    }
+    SDL_Window* window = SDL_CreateWindow(title.c_str(), static_cast<int>(window_width), static_cast<int>(window_height), SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (headless ? SDL_WINDOW_HIDDEN : 0));
     SDL_Renderer* renderer = window != nullptr ? SDL_CreateRenderer(window, headless ? "software" : nullptr) : nullptr;
     if (renderer == nullptr) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: unable to create a window: %s", SDL_GetError());
@@ -285,14 +323,18 @@ int main(int argc, char** argv) {
     io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(k_launcher_font_data), k_launcher_font_size, 17.0f, &font_config);
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
-    (void)launcher::chrome::Load(renderer); // the setup wizard's look (WP5.11b)
+    if (launcher::chrome::Load(renderer)) { // look B: the wizard's and the launcher's (WP5.11b)
+        io.FontDefault = launcher::chrome::Body_Font();
+        ImGui::GetStyle().FontSizeBase = 20.0f;   // Saira draws small for its size
+        ImGui::GetStyle().FrameBorderSize = 1.0f; // fields and checkboxes stand out from the dark plates
+    }
 
     int exit_code = 0;
     int frames = 0;
     bool running = true;
     while (running) {
         SDL_Event event;
-        const float setup_scale = app.Setup_Open() ? Setup_Scale_(window) : 1.0f;
+        const float setup_scale = Canvas_Scale_(window, app.Setup_Open());
         while (SDL_PollEvent(&event)) {
             if (setup_scale != 1.0f) Scale_Mouse_Event_(&event, setup_scale);
             ImGui_ImplSDL3_ProcessEvent(&event);
@@ -323,7 +365,7 @@ int main(int argc, char** argv) {
         }
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
-        if (setup_scale != 1.0f) { // the wizard's canvas, scaled up by the renderer, fonts rasterised sharp
+        if (setup_scale != 1.0f) { // the canvas, scaled up by the renderer, fonts rasterised sharp
             io.DisplaySize.x /= setup_scale;
             io.DisplaySize.y /= setup_scale;
             io.DisplayFramebufferScale.x *= setup_scale;

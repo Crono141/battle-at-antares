@@ -15,11 +15,11 @@
 // the profile and checked with the game's own dry run; an edit the game would refuse is undone.
 namespace launcher {
     namespace {
-        const ImVec4 COLOUR_OK(0.45f, 0.85f, 0.45f, 1.0f);
+        const ImVec4 COLOUR_OK(0.55f, 0.90f, 0.47f, 1.0f);
         const ImVec4 COLOUR_ERROR(1.0f, 0.45f, 0.40f, 1.0f);
-        const ImVec4 COLOUR_WARN(1.0f, 0.75f, 0.35f, 1.0f);
-        const ImVec4 COLOUR_DIM(0.60f, 0.62f, 0.68f, 1.0f);
-        const ImVec4 COLOUR_ACCENT(0.55f, 0.75f, 1.0f, 1.0f);
+        const ImVec4 COLOUR_WARN(1.0f, 0.54f, 0.11f, 1.0f); // amber (look B)
+        const ImVec4 COLOUR_DIM(0.67f, 0.67f, 0.71f, 1.0f);
+        const ImVec4 COLOUR_ACCENT(0.94f, 0.84f, 0.59f, 1.0f); // gold (look B)
 
         struct s_common_section {
             const char* title;
