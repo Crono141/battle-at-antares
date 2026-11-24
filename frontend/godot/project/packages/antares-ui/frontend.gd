@@ -6424,8 +6424,17 @@ func _smoke_galaxy(shots: String) -> bool:
 	await get_tree().create_timer(0.8).timeout
 	print("smoke: options height %.0f, at music 100 %.0f, after %.0f" % [tall_before, tall_at_100, options.size.y])
 	print("smoke: options flyout %s: influence %s, %d game options, themes %s (in use '%s')" % [options.visible,
-		options.influence_buttons.map(func(b: Button) -> bool: return b.button_pressed), options.options_box.get_child_count(),
+		options.influence_pick.get_item_text(options.influence_pick.selected), options.options_box.get_child_count(),
 		_themes.map(func(t: Dictionary) -> String: return t.id), theme_id])
+	# Influence is a drop-down (owner 2026-11-24): picking an entry sets the map's mode.
+	var influence_was: int = galaxy.influence_mode
+	options.influence_pick.item_selected.emit(2)
+	var picked_borders: bool = galaxy.influence_mode == 2 and options.influence_pick.selected == 2
+	options.influence_pick.item_selected.emit(influence_was)
+	print("smoke: influence drop-down sets borders %s, back %s" % [picked_borders, galaxy.influence_mode == influence_was])
+	if not picked_borders:
+		await host.smoke_fail("the influence drop-down did not set the map's mode")
+		return false
 	if shots != "":
 		await host.shot(shots + "/native-options.png")
 	# Switching themes while playing (WP3.3g): every other enabled theme in turn, then back.

@@ -1,6 +1,6 @@
 extends PanelContainer
 ## Options (WP3.3f; laid out for the themes, WP3.3g): a flyout from the right edge, opened by its
-## tab, with the map's controls (the influence view as a three-way switch, Alt+V cycles it; merging
+## tab, with the map's controls (the influence view as a drop-down, Alt+V cycles it; merging
 ## relocations, F4; the distance tool, F9), the game options the legacy galaxy toggles with
 ## Alt+F1..F8 as ON / OFF switches (the `options` snapshot), the music and sound volumes (the game
 ## menu's sliders, `set_volume`) and the theme (the enabled theme packages). The keys work while the galaxy is up, flyout open or not.
@@ -27,7 +27,7 @@ const WIDTH := 352.0
 ## Set by the frontend: the galaxy is the current screen, so the keys are live.
 var keys_active := false
 
-@onready var influence_buttons: Array[Button] = [$Fit/Box/Influence/Off, $Fit/Box/Influence/Filled, $Fit/Box/Influence/Borders]
+@onready var influence_pick: OptionButton = $Fit/Box/Influence/Pick # Off, Filled, Borders (owner 2026-11-24: a drop-down)
 @onready var options_box: VBoxContainer = $Fit/Box/Options
 @onready var theme_button: OptionButton = $Fit/Box/Theme
 @onready var music_slider: HSlider = $Fit/Box/Music/Slider
@@ -43,12 +43,8 @@ var _theme_ids: Array = []
 
 func _ready() -> void:
 	$Fit/Box/Header/Close.pressed.connect(close)
-	var group := ButtonGroup.new()
-	for b in influence_buttons:
-		b.button_group = group
-		var action_name := String(b.get_meta("action"))
-		b.pressed.connect(func(): action.emit(action_name))
-		Themes.glowing(b)
+	influence_pick.item_selected.connect(func(i: int):
+		action.emit(["influence_off", "influence_filled", "influence_borders"][i]))
 	show_influence(0)
 	$Fit/Box/Map/Relocations.pressed.connect(func():
 		close() # the star is picked on the map
@@ -104,7 +100,6 @@ func _restyle() -> void:
 	offset_left = offset_right - WIDTH
 	offset_top = get_theme_constant("content_top", "Screen")
 	_shown_right = offset_right
-	_glow_all()
 	_fit.call_deferred()
 
 
@@ -173,9 +168,7 @@ func _fit() -> void:
 
 
 func show_influence(mode: int) -> void:
-	for i in influence_buttons.size():
-		influence_buttons[i].set_pressed_no_signal(i == mode) # quietly, so the group doesn't
-	_glow_all()
+	influence_pick.select(mode) # select() doesn't emit item_selected
 
 
 ## The scale slider's drag: the track in window pixels when grabbed (empty while not dragged).
@@ -275,11 +268,6 @@ func show_themes(themes: Array, current: String) -> void:
 	else:
 		theme_button.disabled = false
 		theme_button.select(maxi(0, _theme_ids.find(current)))
-
-
-func _glow_all() -> void:
-	for b in influence_buttons:
-		Themes.glow(b)
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
