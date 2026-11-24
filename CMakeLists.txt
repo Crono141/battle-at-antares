@@ -1063,6 +1063,7 @@ if(ORION2RE_BUILD_GAME)
         src/launcher/launcher_saves.cpp
         src/launcher/launcher_settings.cpp
         src/launcher/launcher_info.cpp
+        src/launcher/launcher_setup.cpp
         "${ANTARES_LAUNCHER_FONT_HEADER}"
         "${ANTARES_LAUNCHER_SCHEMA_HEADER}"
         "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp"

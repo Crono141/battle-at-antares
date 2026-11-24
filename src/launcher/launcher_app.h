@@ -3,6 +3,8 @@
 #include <SDL3/SDL.h>
 
 #include <memory>
+#include <mutex>
+#include <thread>
 
 #include <map>
 #include <string>
@@ -10,6 +12,7 @@
 #include <vector>
 
 #include "antares/game_files.h"
+#include "antares/game_install.h"
 #include "antares/package_catalog.h"
 #include "antares/save_summary.h"
 #include "antares/settings_docs.h"
@@ -83,6 +86,18 @@ namespace launcher {
         }
         /** Polls the running game, if any. */
         void Update();
+
+        /** The setup wizard (WP5.11): finds the player's Master of Orion II, checks it, copies its
+         *  files and imports its saves. It opens by itself when the files are missing; with a
+         *  `folder` it starts on that folder's checklist, with "find" on the search (the -setup-folder
+         *  option). */
+        void Open_Setup(const std::string& folder = "");
+        /** The whole wizard without a window (the -setup-run option): check `folder`, copy, import
+         *  the saves keeping Antares's own, and stop on the last page. False when a step failed. */
+        bool Run_Setup(const std::string& folder, bool stop_at_saves = false);
+        bool Setup_Open() const {
+            return setup_.active;
+        }
 
       private:
         void Load_Settings_();
@@ -182,6 +197,44 @@ namespace launcher {
             std::string log_path;
         } exit_;
         void Check_Files_();
+
+        // The setup wizard (WP5.11, launcher_setup.cpp).
+        enum e_setup_page { SETUP_WELCOME,
+            SETUP_FIND,
+            SETUP_GET,
+            SETUP_CHECK,
+            SETUP_COPY,
+            SETUP_SAVES,
+            SETUP_DONE };
+        struct s_setup {
+            bool active = false;
+            bool required = false; // opened because the files are missing: no way back to the launcher
+            e_setup_page page = SETUP_WELCOME;
+            std::vector<antares::game_install::s_candidate> candidates;
+            int chosen = -1;
+            antares::game_install::s_folder_check check;
+            std::string target; // where the files go
+            uint64_t free_bytes = 0;
+            std::unique_ptr<antares::game_install::s_copy_progress> progress;
+            std::thread worker;
+            std::vector<antares::game_install::s_found_save> saves;
+            bool import_saves = true;
+            bool replace_taken = false; // owner, question 22: keep Antares's saves unless asked
+            int imported = -1;
+            std::string import_error;
+            // Browse: SDL's folder dialog answers on its own thread.
+            std::mutex dialog_mutex;
+            bool dialog_answered = false;
+            std::string dialog_folder;
+        } setup_;
+        void Draw_Setup_();
+        void Setup_Find_();
+        void Setup_Check_(const std::string& folder);
+        void Setup_Start_Copy_();
+        void Setup_After_Copy_();
+        void Setup_Import_();
+        void Setup_Close_();
+        void Setup_Poll_();
         void Read_Exit_Log_(int exit_code);
         void Draw_Exit_Popup_();
 

@@ -32,6 +32,9 @@ namespace {
         std::string disable;    // untick this package first
         bool confirm = false;   // answer OK to the popup listing what that switches off
         bool wait_game = false; // press Play, then (with -screenshot) wait for the game to stop first
+        bool setup = false;     // open the setup wizard (WP5.11)
+        std::string setup_folder; // ... on this folder's checklist
+        std::string setup_run;    // run the whole wizard on this folder, no questions
     };
 
     bool Parse_Options_(int argc, char** argv, s_launcher_options* options, std::string* error) {
@@ -48,6 +51,9 @@ namespace {
             {"disable", true},
             {"confirm", false},
             {"wait-game", false},
+            {"setup", false},
+            {"setup-folder", true},
+            {"setup-run", true},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -67,6 +73,9 @@ namespace {
                 case 9: options->disable = option.value; break;
                 case 10: options->confirm = true; break;
                 case 11: options->wait_game = true; break;
+                case 12: options->setup = true; break;
+                case 13: options->setup_folder = option.value; break;
+                case 14: options->setup_run = option.value; break;
                 default: break;
             }
         }
@@ -188,6 +197,16 @@ int main(int argc, char** argv) {
         return started ? 0 : 1;
     }
 
+    if (!options.setup_run.empty()) {
+        const bool done = app.Run_Setup(options.setup_run, options.setup); // -setup too: stop on the saves page
+        SDL_Log("launcher: setup %s", done ? "done" : "failed");
+        if (!done && options.screenshot.empty()) {
+            SDL_Quit();
+            return 1;
+        }
+    } else if (!options.setup_folder.empty() || options.setup) {
+        app.Open_Setup(options.setup_folder);
+    }
     if (options.wait_game) {
         (void)app.Play(); // refused with a reason when the files or the profile won't do
     }

@@ -585,7 +585,10 @@ orion2re_add_unit_test(test_config_loader
     SOURCES
         tests/unit/config_loader_test.cpp
         tests/unit/launcher_packages_test.cpp
+        tests/unit/game_install_test.cpp
     PRODUCTION_SOURCES
+        src/antares/game_install.cpp
+        src/antares/game_files.cpp
         src/antares/package_catalog.cpp
         src/antares/user_folder_vfs.cpp
         src/antares/profile_file.cpp
