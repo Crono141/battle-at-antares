@@ -552,6 +552,15 @@ namespace launcher {
                     Text_("Imported " + std::to_string(setup_.imported) + " saved game" + (setup_.imported == 1 ? "." : "s."));
                 }
                 if (!setup_.import_error.empty()) Text_(setup_.import_error, ch::RED);
+                if (files_.ok) {
+                    ImGui::Spacing();
+                    ImGui::Spacing();
+                    ImGui::Checkbox("Play in full screen", &setup_.fullscreen);
+                    Text_("Alt+Enter switches between full screen and a window while you play; the launcher's Settings "
+                          "tab has the window size.",
+                        ch::DIM,
+                        SMALL);
+                }
                 left_label = files_.ok ? "Open the launcher" : "Back";
                 right_label = files_.ok ? "Play" : nullptr;
                 break;
@@ -625,6 +634,8 @@ namespace launcher {
                 if (action == LEFT && !files_.ok) {
                     Setup_Find_();
                 } else {
+                    // Full screen goes into the selected profile, as the Settings tab would write it.
+                    if (setup_.fullscreen) (void)Apply_Setting("interface.fullscreen=true");
                     Setup_Close_();
                     if (action == RIGHT) Launch_(0);
                 }

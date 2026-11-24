@@ -45,6 +45,9 @@ namespace antares::user_folder {
     inline constexpr char MARKER_NAME[] = "user-folder";
     /** The folder name on Windows and macOS. */
     inline constexpr char FOLDER_NAME[] = "Battle at Antares";
+    /** The folder the setup wizard copies the original files into: <game folder>/game/ when
+     *  portable, <user data>/game/ when installed. */
+    inline constexpr char GAME_FILES_FOLDER[] = "game/";
     /** The XDG folder name on Linux (D1's short id). */
     inline constexpr char XDG_NAME[] = "antares";
 

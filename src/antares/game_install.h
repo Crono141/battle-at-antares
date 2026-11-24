@@ -57,7 +57,8 @@ namespace antares::game_install {
      *  GOG's Master of Orion 1+2, or Steam's), that folder is checked instead. */
     s_folder_check Check_Folder(const std::string& folder);
 
-    /** Where the original files go: the user folder's game/ when installed, else the game folder. */
+    /** Where the original files go: game/ in the user folder when installed, else game/ in the game
+     *  folder (Mount searches both). */
     std::string Target_Folder(const std::string& game_dir);
 
     /** Shared between the copy thread and the window. */

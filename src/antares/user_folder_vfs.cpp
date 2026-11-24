@@ -9,7 +9,11 @@
 namespace antares::user_folder {
     bool Mount(const std::string& game_directory) {
         if (!user_paths::Is_Enabled()) {
-            return true;
+            // Portable: the setup wizard puts the original files in game/ (owner 2026-11-24: keep
+            // the folder tidy); files beside the program, as before 0.8, are found first.
+            std::string folder = game_directory;
+            if (!folder.empty() && folder.back() != '/' && folder.back() != '\\') folder += '/';
+            return vfs::Add_Raw_Search_Path((folder + GAME_FILES_FOLDER).c_str()) != 0;
         }
         const std::string user_mods_path = std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_DATA)) + "mods/";
         bool valid = vfs::Set_User_Config_Path(user_paths::Get_Directory(user_paths::USER_DIRECTORY_CONFIG)) != 0 &&

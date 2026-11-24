@@ -241,7 +241,7 @@ namespace antares::game_install {
         if (user_paths::Is_Enabled()) {
             return std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_DATA)) + "game/";
         }
-        return Folder_Text_(Path_(game_dir));
+        return Folder_Text_(Path_(game_dir)) + user_folder::GAME_FILES_FOLDER;
     }
 
     bool Copy_Files(const s_folder_check& check, const std::string& target_text, s_copy_progress* progress) {

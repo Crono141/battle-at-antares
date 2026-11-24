@@ -2,6 +2,8 @@
 
 #include "antares/package_catalog.h"
 #include "antares/profile_file.h"
+#include "antares/game_files.h"
+#include "antares/game_install.h"
 #include "antares/save_summary.h"
 #include "antares/settings_docs.h"
 #include "antares/user_folder.h"
@@ -619,6 +621,19 @@ DOCTEST_TEST_CASE("launcher with a user folder: the player's packages win; saves
     user_paths::Shutdown();
     SDL_UnsetEnvironmentVariable(SDL_GetEnvironment(), "ANTARES_USER_FOLDER");
     SDL_SetEnvironmentVariable(SDL_GetEnvironment(), "HOME", saved_home.c_str(), true);
+}
+
+DOCTEST_TEST_CASE("portable folders: the original files in game/ are found, and the wizard copies there") {
+    s_launcher_test_directory files;
+    for (const std::string& name : antares::game_files::Required_Files()) files.Write("game/" + name, "x");
+    const std::string game = files.Root().string() + "/";
+    user_paths::Shutdown(); // portable
+    files.Init_Vfs();
+    DOCTEST_CHECK_FALSE(antares::game_files::Check_Original_Files().ok);
+    DOCTEST_REQUIRE(antares::user_folder::Mount(game));
+    const antares::game_files::s_files_check check = antares::game_files::Check_Original_Files();
+    DOCTEST_CHECK_MESSAGE(check.ok, antares::game_files::Describe(check));
+    DOCTEST_CHECK(antares::game_install::Target_Folder(game) == game + "game/");
 }
 
 DOCTEST_TEST_CASE("launcher saves: the check stages the save's packages like the game's load") {

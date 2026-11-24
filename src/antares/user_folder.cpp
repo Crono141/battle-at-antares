@@ -117,7 +117,7 @@ namespace antares::user_folder {
             layout->data = data_home + name;
             layout->state = Xdg_Base_("XDG_STATE_HOME", home, ".local/state/") + name;
             layout->cache = Xdg_Base_("XDG_CACHE_HOME", home, ".cache/") + name;
-            layout->game_asset_directories.push_back(layout->data + "game/");
+            layout->game_asset_directories.push_back(layout->data + GAME_FILES_FOLDER);
             layout->game_asset_directories.push_back(layout->data);
             // System-wide copies (a distribution package of the original files).
             const char* data_dirs = SDL_getenv("XDG_DATA_DIRS");
@@ -155,7 +155,7 @@ namespace antares::user_folder {
         layout->data = root;
         layout->state = root;
         layout->cache = root + "cache/";
-        layout->game_asset_directories.push_back(root + "game/");
+        layout->game_asset_directories.push_back(root + GAME_FILES_FOLDER);
         layout->game_asset_directories.push_back(root);
         return true;
     }

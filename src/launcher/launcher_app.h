@@ -229,6 +229,7 @@ namespace launcher {
             std::vector<antares::game_install::s_found_save> saves;
             bool import_saves = true;
             bool replace_taken = false; // owner, question 22: keep Antares's saves unless asked
+            bool fullscreen = true;     // owner 2026-11-24: the first game shouldn't open in a 640x480 window
             int imported = -1;
             std::string import_error;
             // Browse: SDL's folder dialog answers on its own thread.
