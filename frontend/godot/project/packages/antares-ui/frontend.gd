@@ -5723,6 +5723,24 @@ func _smoke_native() -> void:
 				print("smoke: no colony can take them (send skipped)")
 				game.request_game_quit()
 				return
+			# A wheel notch over the list scrolls it; the move stays (owner 2026-11-24: it cancelled).
+			var wheel := InputEventMouseButton.new()
+			wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+			wheel.pressed = true
+			wheel.position = flyout.get_global_rect().get_center() * get_window().content_scale_factor
+			Input.parse_input_event(wheel)
+			var wheel_up := wheel.duplicate()
+			wheel_up.pressed = false
+			Input.parse_input_event(wheel_up)
+			await get_tree().create_timer(0.3).timeout
+			print("smoke: transport wheel over the list: list open %s, colonists on the pointer %s" % [flyout.visible, not pane._carry.is_empty()])
+			if not flyout.visible or pane._carry.is_empty():
+				await host.smoke_fail("a wheel notch over the transport list cancelled the move")
+				return
+			var back := wheel.duplicate()
+			back.button_index = MOUSE_BUTTON_WHEEL_UP
+			Input.parse_input_event(back) # the list back at its top for the row click
+			await get_tree().create_timer(0.4).timeout
 			var sent := {}
 			pane.transported.connect(func(n: int): sent["n"] = n, CONNECT_ONE_SHOT)
 			# A real click: the list must get it past the colonists on the pointer.

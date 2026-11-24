@@ -647,6 +647,10 @@ func _input(event: InputEvent) -> void:
 	var mb := event as InputEventMouseButton
 	if mb == null or not mb.pressed:
 		return
+	# The wheel scrolls (the transport list, the pane) and keeps the colonists on the pointer (owner
+	# 2026-11-24: a notch over the list cancelled the move).
+	if mb.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]:
+		return
 	# The transport list open: its rows take the click (the colonists ride along until one is
 	# picked, owner 2026-11-20); anywhere else puts them back and closes it.
 	if _transport_flyout != null and _transport_flyout.visible:
