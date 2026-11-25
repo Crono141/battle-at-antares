@@ -168,6 +168,9 @@ namespace render {
     bool Decode_Frame_Bytes(const uint8_t* bytes, size_t size, const std::string& name, s_hd_frame* frame, const uint8_t* mask_bytes = nullptr, size_t mask_size = 0);
     bool Load_Frame_Png(const std::string& path, s_hd_frame* frame);
     void Load_Index();
+    /** The HD cursors inside zipped packages, read on the main thread (the VFS isn't thread safe)
+     *  so the presenter can use them; loose packages are still read from disk (facade.cpp). */
+    void Preload_Packaged_Cursors();
     // Reads an asset's frames list (sprite.json, the index, or inferred from `header`, the LBX
     // entry's s_animation_header, when it has no sprite.json).
     void Load_Asset(s_hd_asset* asset, const uint8_t* header = nullptr);
