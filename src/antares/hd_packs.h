@@ -64,6 +64,13 @@ namespace antares::hd_packs {
      *  follows the bytes. False with `error` on failure or cancel. */
     bool Fetch(const std::string& url, const std::string& path, s_progress* progress, std::string* error);
 
+    /** A GOG request (WP5.13b): `bearer` (when not empty) is sent as Authorization to GOG's own
+     *  host only, never on to a redirect's host. The address and the token reach curl through its
+     *  config on standard input, never its command line, and nothing here logs them. With
+     *  `output_path` the body goes there (progress follows it) and `final_url` gets the address
+     *  after redirects; otherwise the body comes back in `body`. Defined in launcher_fetch.cpp. */
+    bool Gog_Request(const std::string& url, const std::string& bearer, const std::string& output_path, std::string* body, std::string* final_url, s_progress* progress, std::string* error);
+
     /** Downloads `pack` into `mods_folder` through <file>.part, checks its SHA-256, renames it to
      *  <file> and records it. `phase` says what is happening ("Downloading", "Checking"). */
     bool Install(const s_pack& pack, const std::string& mods_folder, s_progress* progress, std::string* phase, std::mutex* phase_mutex, std::string* error);

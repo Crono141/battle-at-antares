@@ -43,6 +43,7 @@ namespace {
         bool hd = false;          // open the HD art window (WP5.14)
         std::string hd_download;  // download this HD pack (headless: wait for it)
         bool wait_store = false;  // with -screenshot: wait while the wizard waits for a store
+        std::string gog_dump;     // -gog-dump <folder>: GOG sign-in now, its library answers saved there
     };
 
     bool Parse_Options_(int argc, char** argv, s_launcher_options* options, std::string* error) {
@@ -68,6 +69,7 @@ namespace {
             {"hd", false},
             {"hd-download", true},
             {"wait-store", false},
+            {"gog-dump", true},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -96,6 +98,7 @@ namespace {
                 case 18: options->hd = true; break;
                 case 19: options->hd_download = option.value; break;
                 case 20: options->wait_store = true; break;
+                case 21: options->gog_dump = option.value; break;
                 default: break;
             }
         }
@@ -303,6 +306,7 @@ int main(int argc, char** argv) {
         app.Open_Setup(options.setup_folder);
     }
     if (options.hd) app.Open_Hd_Window();
+    if (!options.gog_dump.empty()) app.Start_Gog_Signin(options.gog_dump);
     if (!options.hd_download.empty() && !app.Download_Hd_Pack(options.hd_download) && options.screenshot.empty()) {
         SDL_Quit();
         return 1;

@@ -115,6 +115,7 @@ namespace launcher {
     void c_launcher::Shutdown() {
         Setup_Close_(); // stops a copy in progress
         Hd_Stop_();     // a partial download is kept and resumed next time
+        Gog_Stop_();
         Save_Settings_();
         if (game_ != nullptr) {
             SDL_DestroyProcess(game_); // the game keeps running

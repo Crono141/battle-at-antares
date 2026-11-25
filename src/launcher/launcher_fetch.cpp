@@ -208,6 +208,178 @@ namespace antares::hd_packs {
 #endif
     }
 
+#if !defined(_WIN32)
+    namespace {
+        // A string for curl's config file format: quoted, with \ and " escaped.
+        std::string Curl_Quote_(const std::string& text) {
+            std::string quoted = "\"";
+            for (char character : text) {
+                if (character == '\\' || character == '"') quoted += '\\';
+                if (character == '\n' || character == '\r') continue; // never let a value start a new line
+                quoted += character;
+            }
+            return quoted + "\"";
+        }
+    } // namespace
+#endif
+
+    bool Gog_Request(const std::string& url, const std::string& bearer, const std::string& output_path, std::string* body, std::string* final_url, s_progress* progress, std::string* error) {
+#if defined(_WIN32)
+        // WinHTTP: redirects followed by hand, so the Authorization header goes to GOG only.
+        // Untested on Windows yet (WP5.15).
+        std::string address = url;
+        std::ofstream file;
+        if (!output_path.empty()) file.open(Path_(output_path), std::ios::binary | std::ios::trunc);
+        for (int hop = 0; hop < 6; ++hop) {
+            const std::wstring wide = Wide_(address);
+            URL_COMPONENTS parts{};
+            parts.dwStructSize = sizeof(parts);
+            wchar_t host[256], path[8192];
+            parts.lpszHostName = host;
+            parts.dwHostNameLength = 256;
+            parts.lpszUrlPath = path;
+            parts.dwUrlPathLength = 8192;
+            if (!WinHttpCrackUrl(wide.c_str(), 0, 0, &parts)) {
+                *error = "a bad address";
+                return false;
+            }
+            const std::wstring host_text(host);
+            const bool gog = host_text == L"auth.gog.com" || host_text == L"embed.gog.com" || host_text == L"api.gog.com";
+            HINTERNET session = WinHttpOpen(L"Battle-at-Antares-launcher", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+            DWORD never = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+            if (session) WinHttpSetOption(session, WINHTTP_OPTION_REDIRECT_POLICY, &never, sizeof(never));
+            HINTERNET connection = session ? WinHttpConnect(session, host, parts.nPort, 0) : nullptr;
+            HINTERNET request = connection ? WinHttpOpenRequest(connection, L"GET", path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0)
+                                           : nullptr;
+            bool ok = request != nullptr;
+            if (ok && gog && !bearer.empty()) {
+                const std::wstring header = L"Authorization: Bearer " + Wide_(bearer);
+                ok = WinHttpAddRequestHeaders(request, header.c_str(), static_cast<DWORD>(-1), WINHTTP_ADDREQ_FLAG_ADD);
+            }
+            ok = ok && WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(request, nullptr);
+            DWORD status = 0, size = sizeof(status);
+            if (ok) WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX);
+            if (ok && status >= 300 && status < 400) {
+                wchar_t location[8192];
+                DWORD location_size = sizeof(location);
+                ok = WinHttpQueryHeaders(request, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX, location, &location_size, WINHTTP_NO_HEADER_INDEX);
+                WinHttpCloseHandle(request);
+                WinHttpCloseHandle(connection);
+                WinHttpCloseHandle(session);
+                if (!ok) break;
+                const int length = WideCharToMultiByte(CP_UTF8, 0, location, -1, nullptr, 0, nullptr, nullptr);
+                std::string next(length > 0 ? length - 1 : 0, '\0');
+                if (length > 1) WideCharToMultiByte(CP_UTF8, 0, location, -1, next.data(), length, nullptr, nullptr);
+                address = next.rfind("http", 0) == 0 ? next : "https://" + std::string(host_text.begin(), host_text.end()) + next;
+                continue;
+            }
+            if (ok && status != 200) {
+                *error = "GOG answered " + std::to_string(status);
+                ok = false;
+            }
+            std::vector<char> buffer(1 << 16);
+            while (ok) {
+                DWORD got = 0;
+                if (!WinHttpReadData(request, buffer.data(), static_cast<DWORD>(buffer.size()), &got)) {
+                    *error = "the connection broke off";
+                    ok = false;
+                    break;
+                }
+                if (got == 0) break;
+                if (file.is_open()) {
+                    file.write(buffer.data(), got);
+                } else if (body != nullptr) {
+                    body->append(buffer.data(), got);
+                }
+                if (progress != nullptr) {
+                    progress->done += got;
+                    if (progress->cancel) {
+                        *error = "cancelled";
+                        ok = false;
+                    }
+                }
+            }
+            if (request) WinHttpCloseHandle(request);
+            if (connection) WinHttpCloseHandle(connection);
+            if (session) WinHttpCloseHandle(session);
+            if (ok && final_url != nullptr) *final_url = address;
+            if (!ok && error->empty()) *error = "no connection to GOG";
+            return ok;
+        }
+        *error = "too many redirects";
+        return false;
+#else
+        // curl reads its options from standard input (-K -): the address and the token are never
+        // on its command line, where other users of the machine could read them. curl doesn't send
+        // Authorization on to another host after a redirect (only --location-trusted would).
+        std::string config = "url = " + Curl_Quote_(url) + "\nlocation\nfail\nsilent\nconnect-timeout = 20\nretry = 2\n";
+        if (!bearer.empty()) config += "header = " + Curl_Quote_("Authorization: Bearer " + bearer) + "\n";
+        if (!output_path.empty()) config += "output = " + Curl_Quote_(output_path) + "\nwrite-out = \"%{url_effective}\"\n";
+        const char* argv[] = {"curl", "-K", "-", nullptr};
+        SDL_PropertiesID properties = SDL_CreateProperties();
+        SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, argv);
+        SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_APP);
+        SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_APP);
+        SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_NULL);
+        SDL_Process* process = SDL_CreateProcessWithProperties(properties);
+        SDL_DestroyProperties(properties);
+        if (process == nullptr) {
+            *error = "the curl program isn't installed, so nothing can be downloaded";
+            return false;
+        }
+        SDL_IOStream* input = SDL_GetProcessInput(process);
+        const bool sent = input != nullptr && SDL_WriteIO(input, config.data(), config.size()) == config.size();
+        if (input != nullptr) SDL_CloseIO(input); // end of the config: curl starts
+        config.assign(config.size(), '\0');       // the token leaves memory as soon as it can
+        if (!sent) {
+            SDL_KillProcess(process, true);
+            SDL_DestroyProcess(process);
+            *error = "couldn't start the download";
+            return false;
+        }
+        std::string output;
+        SDL_IOStream* stdout_stream = SDL_GetProcessOutput(process);
+        int code = 0;
+        for (;;) {
+            char buffer[4096];
+            const size_t got = stdout_stream != nullptr ? SDL_ReadIO(stdout_stream, buffer, sizeof(buffer)) : 0;
+            if (got > 0) {
+                output.append(buffer, got);
+                continue;
+            }
+            if (SDL_WaitProcess(process, false, &code)) break;
+            if (progress != nullptr) {
+                if (!output_path.empty()) progress->done = File_Size_(Path_(output_path));
+                if (progress->cancel) {
+                    SDL_KillProcess(process, true);
+                    SDL_WaitProcess(process, true, &code);
+                    SDL_DestroyProcess(process);
+                    *error = "cancelled";
+                    return false;
+                }
+            }
+            SDL_Delay(100);
+        }
+        for (char buffer[4096];;) { // what curl wrote just before it ended
+            const size_t got = stdout_stream != nullptr ? SDL_ReadIO(stdout_stream, buffer, sizeof(buffer)) : 0;
+            if (got == 0) break;
+            output.append(buffer, got);
+        }
+        SDL_DestroyProcess(process);
+        if (code != 0) {
+            *error = code == 22 ? "GOG refused the request" : Curl_Error_(code);
+            return false;
+        }
+        if (!output_path.empty()) {
+            if (final_url != nullptr) *final_url = output;
+            if (progress != nullptr) progress->done = File_Size_(Path_(output_path));
+        } else if (body != nullptr) {
+            *body = output;
+        }
+        return true;
+#endif
+    }
+
     bool Install(const s_pack& pack, const std::string& mods_folder, s_progress* progress, std::string* phase, std::mutex* phase_mutex, std::string* error) {
         const auto set_phase = [&](const char* text) {
             std::lock_guard<std::mutex> lock(*phase_mutex);
