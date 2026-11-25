@@ -228,7 +228,7 @@ namespace antares::sprites {
         Apply_Embedded_Palette(entry_bytes, size, palette_rgb);
     }
 
-    void Apply_Embedded_Palette(const uint8_t* entry_bytes, size_t size, uint32_t palette_rgb[256]) {
+    void Apply_Embedded_Palette(const uint8_t* entry_bytes, size_t size, uint32_t palette_rgb[256], int32_t start_override) {
         if (entry_bytes == nullptr || size < sizeof(s_animation_header)) {
             return;
         }
@@ -244,13 +244,17 @@ namespace antares::sprites {
         memcpy(&header, entry_bytes + header_at, sizeof(header));
         const uint8_t* entries = entry_bytes + header_at + sizeof(s_palette_header);
         for (int32_t i = 0; i < header.count; ++i) {
-            const int32_t index = header.start_index + i;
+            const int32_t index = (start_override >= 0 ? start_override : header.start_index) + i;
             if (index < 0 || index >= 256 || header_at + sizeof(s_palette_header) + (size_t)(i + 1) * 4 > size) {
                 break;
             }
             const uint8_t* c = entries + (size_t)i * 4; // {changed, r, g, b}, 6-bit
             palette_rgb[index] = ((uint32_t)(c[1] << 2) << 16) | ((uint32_t)(c[2] << 2) << 8) | (uint32_t)(c[3] << 2);
         }
+    }
+
+    void Apply_Embedded_Palette(const uint8_t* entry_bytes, size_t size, uint32_t palette_rgb[256]) {
+        Apply_Embedded_Palette(entry_bytes, size, palette_rgb, -1);
     }
 
     bool Export(const std::string& requested, int32_t entry, s_sprite* out) {
@@ -494,6 +498,17 @@ namespace antares::sprites {
             size_t own_size = 0;
             if (Read_Entry(lbx, palette_entry, &own_palette, &own_size)) {
                 Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(own_palette.data()), own_size, palette_rgb);
+            }
+        } else if (SDL_strcasecmp(lbx.c_str(), "CMBTSHP.LBX") == 0 && entry >= 0 && entry % 45 != 44) {
+            // A combat ship's colours: its colour set's palette, entry colour * 45 + 44, which
+            // COMBINIT::Load_Combat_Ship_Palette shifts to 0x20 (the attacker's slots; the
+            // defender's ships are remapped from 0x20 to 0x60 with theirs). Without it every
+            // empire's ships came out in one colour when there's no HD art to recolour (owner,
+            // 2026-11-25, the Windows build without the HD packs).
+            std::vector<uint64_t> set_palette;
+            size_t set_size = 0;
+            if (Read_Entry(lbx, entry / 45 * 45 + 44, &set_palette, &set_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(set_palette.data()), set_size, palette_rgb, 0x20);
             }
         } else if (lbx == "SHIPS.LBX" && entry >= 0 && entry < 400 && entry % 50 != 49) {
             // A ship's player markings (0xC0-0xDF) take its colour set's palette, entry
