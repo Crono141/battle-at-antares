@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <map>
 #include <set>
@@ -415,14 +416,236 @@ namespace antares::game_install {
         }
     } // namespace
 
+    namespace {
+        // A Mac installer (GOG 1.40b, 2026-11-24): a xar archive whose Scripts entry (stored, i.e.
+        // octet-stream) is a gzip stream of an odc cpio archive; the game is in
+        // ./payload/Contents/Resources/game/. Read as a stream, never whole.
+        uint64_t Big_Endian_(const unsigned char* bytes, int count) {
+            uint64_t value = 0;
+            for (int index = 0; index < count; ++index) value = (value << 8) | bytes[index];
+            return value;
+        }
+
+        std::string Xml_Tag_(const std::string& text, size_t from, size_t to, const std::string& tag) {
+            const size_t open = text.find("<" + tag + ">", from);
+            if (open == std::string::npos || open > to) return "";
+            const size_t start = open + tag.size() + 2;
+            const size_t close = text.find("</" + tag + ">", start);
+            return close == std::string::npos || close > to ? "" : text.substr(start, close - start);
+        }
+
+        // The Scripts entry's place in the heap (offset from the heap's start, length, encoding).
+        bool Xar_Scripts_(FILE* file, uint64_t* data_start, uint64_t* data_length, std::string* error) {
+            unsigned char header[28];
+            if (std::fread(header, 1, 28, file) != 28 || std::memcmp(header, "xar!", 4) != 0) {
+                *error = "this doesn't look like a GOG Mac installer (not a xar package)";
+                return false;
+            }
+            const uint64_t header_size = Big_Endian_(header + 4, 2);
+            const uint64_t toc_compressed = Big_Endian_(header + 8, 8);
+            const uint64_t toc_size = Big_Endian_(header + 16, 8);
+            if (toc_compressed > (64u << 20) || toc_size > (64u << 20) || !Seek_(file, header_size)) {
+                *error = "the Mac installer's table of contents is damaged";
+                return false;
+            }
+            std::vector<unsigned char> compressed(static_cast<size_t>(toc_compressed));
+            std::string toc(static_cast<size_t>(toc_size), '\0');
+            mz_ulong out_size = static_cast<mz_ulong>(toc_size);
+            if (std::fread(compressed.data(), 1, compressed.size(), file) != compressed.size() ||
+                mz_uncompress(reinterpret_cast<unsigned char*>(toc.data()), &out_size, compressed.data(), static_cast<mz_ulong>(compressed.size())) != MZ_OK) {
+                *error = "the Mac installer's table of contents is damaged";
+                return false;
+            }
+            toc.resize(out_size);
+            const size_t name = toc.find("<name>Scripts</name>");
+            const size_t data = name == std::string::npos ? std::string::npos : toc.rfind("<data>", name);
+            const size_t data_end = data == std::string::npos ? std::string::npos : toc.find("</data>", data);
+            if (data_end == std::string::npos || data_end > name) {
+                *error = "this Mac installer has no Scripts payload (not one of GOG's)";
+                return false;
+            }
+            if (toc.find("application/octet-stream", data) > data_end) {
+                *error = "this Mac installer's payload is packed in a way Battle at Antares doesn't read";
+                return false;
+            }
+            *data_start = header_size + toc_compressed + std::strtoull(Xml_Tag_(toc, data, data_end, "offset").c_str(), nullptr, 10);
+            *data_length = std::strtoull(Xml_Tag_(toc, data, data_end, "length").c_str(), nullptr, 10);
+            return *data_length > 0;
+        }
+
+        // Reads a gzip stream out of a file region, inflating as it goes.
+        class c_gzip_reader {
+          public:
+            c_gzip_reader(FILE* file, uint64_t length) : file_(file), left_(length) {
+                std::memset(&stream_, 0, sizeof(stream_));
+            }
+            ~c_gzip_reader() {
+                if (started_) mz_inflateEnd(&stream_);
+            }
+            bool Start(std::string* error) {
+                unsigned char header[10];
+                if (!Raw_(header, 10) || header[0] != 0x1F || header[1] != 0x8B || header[2] != 8) {
+                    *error = "the Mac installer's payload isn't gzip";
+                    return false;
+                }
+                const int flags = header[3];
+                unsigned char byte[2];
+                if (flags & 4) { // FEXTRA
+                    if (!Raw_(byte, 2)) return false;
+                    std::vector<unsigned char> skip(byte[0] | (byte[1] << 8));
+                    if (!Raw_(skip.data(), skip.size())) return false;
+                }
+                for (int mask : {8, 16}) { // FNAME, FCOMMENT: zero-terminated
+                    if (!(flags & mask)) continue;
+                    do {
+                        if (!Raw_(byte, 1)) return false;
+                    } while (byte[0] != 0);
+                }
+                if ((flags & 2) && !Raw_(byte, 2)) return false; // FHCRC
+                if (mz_inflateInit2(&stream_, -MZ_DEFAULT_WINDOW_BITS) != MZ_OK) return false;
+                started_ = true;
+                return true;
+            }
+            // Exactly `size` bytes into `out` (nullptr: skip them). False at the end or on damage.
+            bool Read(unsigned char* out, size_t size) {
+                unsigned char scratch[65536];
+                while (size > 0) {
+                    const size_t take = std::min(size, sizeof(scratch));
+                    stream_.next_out = out != nullptr ? out : scratch;
+                    stream_.avail_out = static_cast<unsigned int>(take);
+                    while (stream_.avail_out > 0) {
+                        if (stream_.avail_in == 0) {
+                            const size_t got = static_cast<size_t>(std::min<uint64_t>(left_, sizeof(input_)));
+                            if (got == 0 || std::fread(input_, 1, got, file_) != got) return false;
+                            left_ -= got;
+                            stream_.next_in = input_;
+                            stream_.avail_in = static_cast<unsigned int>(got);
+                        }
+                        const int status = mz_inflate(&stream_, MZ_NO_FLUSH);
+                        if (status == MZ_STREAM_END && stream_.avail_out > 0) return false;
+                        if (status != MZ_OK && status != MZ_STREAM_END) return false;
+                    }
+                    if (out != nullptr) out += take;
+                    size -= take;
+                }
+                return true;
+            }
+
+          private:
+            bool Raw_(unsigned char* out, size_t size) {
+                if (size > left_ || std::fread(out, 1, size, file_) != size) return false;
+                left_ -= size;
+                return true;
+            }
+            FILE* file_;
+            uint64_t left_;
+            mz_stream stream_;
+            bool started_ = false;
+            unsigned char input_[1 << 16];
+        };
+
+        uint64_t Octal_(const unsigned char* text, int count) {
+            uint64_t value = 0;
+            for (int index = 0; index < count; ++index) {
+                if (text[index] < '0' || text[index] > '7') return UINT64_MAX;
+                value = value * 8 + (text[index] - '0');
+            }
+            return value;
+        }
+
+        // Walks an odc cpio archive: `visit` gets each file's name and size and returns where its
+        // bytes go (a FILE*, or nullptr to skip them). False on damage or when `visit` stops it.
+        bool Walk_Cpio_(c_gzip_reader* reader, const std::function<bool(const std::string&, uint64_t, FILE**)>& visit, std::string* error) {
+            for (;;) {
+                unsigned char header[76];
+                if (!reader->Read(header, 76) || std::memcmp(header, "070707", 6) != 0) {
+                    *error = "the Mac installer's archive is damaged";
+                    return false;
+                }
+                const uint64_t name_size = Octal_(header + 59, 6), file_size = Octal_(header + 65, 11);
+                if (name_size == UINT64_MAX || file_size == UINT64_MAX || name_size == 0 || name_size > 4096) {
+                    *error = "the Mac installer's archive is damaged";
+                    return false;
+                }
+                std::string name(static_cast<size_t>(name_size), '\0');
+                if (!reader->Read(reinterpret_cast<unsigned char*>(name.data()), name.size())) return false;
+                name.pop_back(); // the terminating zero
+                if (name == "TRAILER!!!") return true;
+                FILE* out = nullptr;
+                if (!visit(name, file_size, &out)) return false;
+                if (out == nullptr) {
+                    if (!reader->Read(nullptr, static_cast<size_t>(file_size))) return false;
+                    continue;
+                }
+                unsigned char buffer[65536];
+                for (uint64_t left = file_size; left > 0;) {
+                    const size_t take = static_cast<size_t>(std::min<uint64_t>(left, sizeof(buffer)));
+                    if (!reader->Read(buffer, take) || std::fwrite(buffer, 1, take, out) != take) return false;
+                    left -= take;
+                }
+            }
+        }
+    } // namespace
+
     s_folder_check Check_Installer(const std::string& path, std::string* error) {
         s_folder_check check;
         check.folder = path;
         check.installer = Installer_Kind(Text_(Path_(path).filename()));
         if (check.installer == INSTALLER_NONE) check.installer = INSTALLER_LINUX; // a renamed file: try it
         check.missing = game_files::Required_Files();
-        if (check.installer != INSTALLER_LINUX) {
-            *error = check.installer == INSTALLER_WINDOWS ? "reading GOG's Windows installer isn't ready yet" : "reading GOG's Mac installer isn't ready yet";
+        if (check.installer == INSTALLER_WINDOWS) {
+            *error = "reading GOG's Windows installer isn't ready yet";
+            return check;
+        }
+        std::map<std::string, std::pair<std::string, uint64_t>> files; // upper-case name -> entry, size
+        if (check.installer == INSTALLER_MAC) {
+            FILE* file = Open_Read_(path);
+            if (file == nullptr) {
+                *error = "can't read " + path;
+                return check;
+            }
+            uint64_t start = 0, length = 0;
+            bool ok = Xar_Scripts_(file, &start, &length, error) && Seek_(file, start);
+            if (ok) {
+                c_gzip_reader reader(file, length);
+                std::vector<std::pair<std::string, uint64_t>> entries;
+                ok = reader.Start(error) && Walk_Cpio_(&reader, [&](const std::string& name, uint64_t size, FILE**) {
+                    entries.emplace_back(name, size);
+                    return true; }, error);
+                // The game is the folder holding DIPLOMAT.LBX.
+                std::string game_folder;
+                for (const auto& [name, size] : entries) {
+                    const size_t slash = name.rfind('/');
+                    if (Upper_(name.substr(slash + 1)) == "DIPLOMAT.LBX") game_folder = name.substr(0, slash + 1);
+                }
+                for (const auto& [name, size] : entries) {
+                    if (game_folder.empty() || name.compare(0, game_folder.size(), game_folder) != 0 || name.find('/', game_folder.size()) != std::string::npos) continue;
+                    files[Upper_(name.substr(game_folder.size()))] = {name, size};
+                }
+            }
+            std::fclose(file);
+            if (!ok) return check;
+            check.exists = true;
+            check.archive_offset = start;
+            check.archive_length = length;
+            check.missing.clear();
+            for (const std::string& name : game_files::Required_Files()) {
+                const auto it = files.find(name);
+                if (it == files.end()) {
+                    check.missing.push_back(name);
+                } else if (it->second.second == 0) {
+                    check.empty.push_back(name);
+                } else {
+                    ++check.found;
+                }
+            }
+            check.patched = files.count("PATCH13.LBX") != 0;
+            for (const auto& [name, entry] : files) {
+                if (name.size() > 4 && name.compare(name.size() - 4, 4, ".LBX") == 0) {
+                    check.to_copy.push_back(entry.first);
+                    check.bytes += entry.second;
+                }
+            }
             return check;
         }
         s_zip zip;
@@ -446,7 +669,6 @@ namespace antares::game_install {
                 have_folder = true;
             }
         }
-        std::map<std::string, std::pair<std::string, uint64_t>> files; // upper-case name -> entry, size
         for (mz_uint index = 0; have_folder && index < count; ++index) {
             if (!valid[index]) continue;
             const std::string entry = stats[index].m_filename;
@@ -487,6 +709,67 @@ namespace antares::game_install {
         };
         const char* stopped = "Stopped. The files extracted so far are kept: Try again carries on from there.";
         std::string error;
+        if (check.installer == INSTALLER_MAC) {
+            const fs::path target = Path_(target_text);
+            std::error_code code;
+            fs::create_directories(target, code);
+            if (code) return fail("Can't create " + Text_(target) + ": " + code.message());
+            FILE* file = Open_Read_(check.folder);
+            if (file == nullptr || !Seek_(file, check.archive_offset)) {
+                if (file != nullptr) std::fclose(file);
+                return fail("Can't read " + check.folder + ".");
+            }
+            const std::set<std::string> wanted(check.to_copy.begin(), check.to_copy.end());
+            c_gzip_reader reader(file, check.archive_length);
+            FILE* out = nullptr;
+            fs::path pending, final_path;
+            bool cancelled = false;
+            // Finishes the file written last: rename the .part into place.
+            const auto finish = [&]() {
+                if (out == nullptr) return true;
+                const bool closed = std::fclose(out) == 0;
+                out = nullptr;
+                std::error_code rename_error;
+                if (closed) fs::rename(pending, final_path, rename_error);
+                return closed && !rename_error;
+            };
+            bool ok = reader.Start(&error) && Walk_Cpio_(&reader, [&](const std::string& name, uint64_t size, FILE** sink) {
+                if (!finish()) return false;
+                if (progress->cancel) {
+                    cancelled = true;
+                    return false;
+                }
+                if (wanted.count(name) == 0) return true;
+                const std::string file_name = name.substr(name.rfind('/') + 1);
+                {
+                    std::lock_guard<std::mutex> lock(progress->mutex);
+                    progress->current = file_name;
+                }
+                final_path = target / Path_(file_name);
+                if (Size_Or_None_(final_path) == size) { // already there from an earlier try
+                    progress->bytes_done += size;
+                    return true;
+                }
+                pending = target / Path_(file_name + ".part");
+                out = Open_Write_(pending);
+                if (out == nullptr) return false;
+                progress->bytes_done += size; // counted as it starts; the bar moves per file
+                *sink = out;
+                return true; }, &error);
+            ok = finish() && ok;
+            if (out != nullptr) std::fclose(out);
+            std::fclose(file);
+            if (cancelled) {
+                fs::remove(pending, code);
+                return fail(stopped);
+            }
+            if (!ok) {
+                fs::remove(pending, code);
+                return fail(error.empty() ? "Extracting failed (is the disk full, or the installer damaged?)." : error + ".");
+            }
+            progress->finished = true;
+            return true;
+        }
         s_zip zip;
         uint64_t start = 0;
         if (!Open_Installer_Zip_(check.folder, &zip, &start, &error)) return fail(error);

@@ -87,6 +87,7 @@ namespace antares::game_install {
         // `folder` is the installer's path and `to_copy` the archive's entry names.
         e_installer_kind installer = INSTALLER_NONE;
         uint64_t archive_offset = 0; // where the zip starts inside a Linux installer
+        uint64_t archive_length = 0; // the Mac installer\'s Scripts entry, in bytes
         bool ok() const {
             return exists && missing.empty() && empty.empty();
         }
