@@ -55,6 +55,37 @@ static gboolean On_Decide_Policy_(WebKitWebView* view, WebKitPolicyDecision* dec
     return TRUE;
 }
 
+static void On_Uri_(WebKitWebView* view, GParamSpec* spec, gpointer window);
+static GtkWidget* Popup_(WebKitWebView* view, WebKitNavigationAction* action, gpointer user);
+
+/* A page asked for a window of its own (Google's and the other "continue with" sign-ins open
+ * one): a related view, so it shares this ephemeral session, with the same redirect watch. */
+static void On_Popup_Ready_(WebKitWebView* view, gpointer window) {
+    (void)view;
+    gtk_widget_show_all(GTK_WIDGET(window));
+}
+
+static void On_Popup_Close_(WebKitWebView* view, gpointer window) {
+    (void)view;
+    gtk_widget_destroy(GTK_WIDGET(window));
+}
+
+static GtkWidget* Popup_(WebKitWebView* view, WebKitNavigationAction* action, gpointer user) {
+    (void)action;
+    (void)user;
+    WebKitWebView* popup = WEBKIT_WEB_VIEW(webkit_web_view_new_with_related_view(view));
+    GtkWidget* window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_default_size(GTK_WINDOW(window), 520, 700);
+    gtk_window_set_title(GTK_WINDOW(window), "Sign in to GOG");
+    gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(popup));
+    g_signal_connect(popup, "decide-policy", G_CALLBACK(On_Decide_Policy_), NULL);
+    g_signal_connect(popup, "notify::uri", G_CALLBACK(On_Uri_), window);
+    g_signal_connect(popup, "create", G_CALLBACK(Popup_), NULL);
+    g_signal_connect(popup, "ready-to-show", G_CALLBACK(On_Popup_Ready_), window);
+    g_signal_connect(popup, "close", G_CALLBACK(On_Popup_Close_), window);
+    return GTK_WIDGET(popup);
+}
+
 /* The title shows which site the page is on, so the player can see it is GOG's. */
 static void On_Uri_(WebKitWebView* view, GParamSpec* spec, gpointer window) {
     (void)spec;
@@ -80,8 +111,13 @@ int main(int argc, char** argv) {
     gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
     g_signal_connect(view, "decide-policy", G_CALLBACK(On_Decide_Policy_), NULL);
     g_signal_connect(view, "notify::uri", G_CALLBACK(On_Uri_), window);
+    g_signal_connect(view, "create", G_CALLBACK(Popup_), NULL);
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-    webkit_web_view_load_uri(view, argc > 1 && strcmp(argv[1], "--page") == 0 && argc > 2 ? argv[2] : GOG_AUTH_URL);
+    const gboolean test_page = argc > 2 && strcmp(argv[1], "--page") == 0;
+    if (test_page) { /* tests only: a page may open a window without a click */
+        webkit_settings_set_javascript_can_open_windows_automatically(webkit_web_view_get_settings(view), TRUE);
+    }
+    webkit_web_view_load_uri(view, test_page ? argv[2] : GOG_AUTH_URL);
     gtk_widget_show_all(window);
     gtk_main();
     g_object_unref(context);

@@ -54,9 +54,15 @@ namespace antares::game_install {
             return files;
         }
 
+        // Master of Orion II: DIPLOMAT.LBX and something only it ships. Steam installs Master of
+        // Orion 1 beside it, and MOO1 has a DIPLOMAT.LBX too (owner's test, 2026-11-24).
         bool Has_Game_(const fs::path& folder) {
             const auto files = Files_(folder);
-            return files.count("DIPLOMAT.LBX") != 0;
+            if (files.count("DIPLOMAT.LBX") == 0) return false;
+            for (const char* only_moo2 : {"ORION95.EXE", "ORION2.EXE", "PATCH13.LBX", "STREAMHD.LBX", "TANM_001.LBX", "TANM_213.LBX"}) {
+                if (files.count(only_moo2) != 0) return true;
+            }
+            return false;
         }
 
         size_t Count_Required_(const fs::path& folder) {
