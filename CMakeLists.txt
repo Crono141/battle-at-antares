@@ -821,6 +821,8 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
     # Battle at Antares: the launcher (WP5.1) is its own executable.
     list(FILTER ORION2RE_SOURCES EXCLUDE REGEX "/src/launcher/")
     list(FILTER ORION2RE_HEADERS EXCLUDE REGEX "/src/launcher/")
+    # The GOG sign-in programs (WP5.13b, 5.15b, 5.17b) are separate executables too.
+    list(FILTER ORION2RE_SOURCES EXCLUDE REGEX "/src/gog_signin/")
     # imgui_stb.cpp is compiled by the orion2re_imgui OBJECT library when
     # the prebuilt system library is used; keep it out of the game
     # objects or the stb symbols would be defined twice. When the
@@ -1669,5 +1671,44 @@ if(TARGET antares-launcher AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
         endif()
     else()
         message(STATUS "antares-gog-signin: WebKitGTK 4.1 not found; GOG sign-in falls back to GOG's website")
+    endif()
+endif()
+
+# Windows (WP5.15b): WebView2, the Edge engine in Windows 10 and 11. Microsoft's SDK (BSD licence)
+# from NuGet, pinned by version and SHA-256; WebView2Loader.dll ships beside the program, which
+# loads it at run time (so MinGW needs no import library).
+if(TARGET antares-launcher AND WIN32)
+    set(ANTARES_WEBVIEW2_VERSION 1.0.4314.35)
+    set(ANTARES_WEBVIEW2_DIR "${CMAKE_BINARY_DIR}/_deps/webview2-${ANTARES_WEBVIEW2_VERSION}")
+    if(NOT EXISTS "${ANTARES_WEBVIEW2_DIR}/build/native/include/WebView2.h")
+        file(DOWNLOAD "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/${ANTARES_WEBVIEW2_VERSION}/microsoft.web.webview2.${ANTARES_WEBVIEW2_VERSION}.nupkg"
+            "${CMAKE_BINARY_DIR}/_deps/webview2.nupkg"
+            EXPECTED_HASH SHA256=90778deb1b77e36292828b4b5833c9255c27533f40e0ddd55891ae718944edc4)
+        file(ARCHIVE_EXTRACT INPUT "${CMAKE_BINARY_DIR}/_deps/webview2.nupkg" DESTINATION "${ANTARES_WEBVIEW2_DIR}")
+    endif()
+    # WebView2.h includes "EventToken.h"; MinGW's header is eventtoken.h (a case-sensitive host).
+    file(WRITE "${ANTARES_WEBVIEW2_DIR}/shim/EventToken.h" "#pragma once\n#include <eventtoken.h>\n")
+    add_executable(antares-gog-signin WIN32 src/gog_signin/main_win.cpp)
+    target_include_directories(antares-gog-signin PRIVATE "${ANTARES_WEBVIEW2_DIR}/build/native/include" "${ANTARES_WEBVIEW2_DIR}/shim")
+    target_link_libraries(antares-gog-signin PRIVATE ole32 shell32 user32)
+    if(MINGW)
+        target_link_options(antares-gog-signin PRIVATE -municode -s -static -static-libgcc -static-libstdc++)
+    endif()
+    add_custom_command(TARGET antares-gog-signin POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ANTARES_WEBVIEW2_DIR}/build/native/x64/WebView2Loader.dll" "$<TARGET_FILE_DIR:antares-gog-signin>/WebView2Loader.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ANTARES_WEBVIEW2_DIR}/LICENSE.txt" "$<TARGET_FILE_DIR:antares-gog-signin>/WebView2-LICENSE.txt")
+    if(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL)
+        set_target_properties(antares-gog-signin PROPERTIES EXCLUDE_FROM_ALL YES)
+    endif()
+endif()
+
+# macOS (WP5.17b): WKWebView, part of the system.
+if(TARGET antares-launcher AND APPLE)
+    enable_language(OBJC)
+    add_executable(antares-gog-signin src/gog_signin/main_mac.m)
+    target_compile_options(antares-gog-signin PRIVATE -fobjc-arc)
+    target_link_libraries(antares-gog-signin PRIVATE "-framework Cocoa" "-framework WebKit")
+    if(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL)
+        set_target_properties(antares-gog-signin PROPERTIES EXCLUDE_FROM_ALL YES)
     endif()
 endif()

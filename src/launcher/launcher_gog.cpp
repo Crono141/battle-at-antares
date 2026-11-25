@@ -165,7 +165,13 @@ namespace launcher {
                 return;
             }
             if (exit_code == 127 || (exit_code != 0 && exit_code != 1 && code.empty())) {
+#if defined(_WIN32)
+                stop("GOG's sign-in window couldn't open on this system (it needs Microsoft's WebView2 runtime)", true);
+#elif defined(__APPLE__)
+                stop("GOG's sign-in window couldn't open on this system", true);
+#else
                 stop("GOG's sign-in window couldn't open on this system (it needs WebKitGTK)", true);
+#endif
                 gog_.busy = false;
                 return;
             }
