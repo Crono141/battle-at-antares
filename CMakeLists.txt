@@ -1127,6 +1127,7 @@ if(ORION2RE_BUILD_GAME)
         src/launcher/launcher_hd.cpp
         src/launcher/launcher_gog.cpp
         src/launcher/launcher_menu.cpp
+        src/launcher/launcher_update.cpp
         "${ANTARES_LAUNCHER_FONT_HEADER}"
         "${ANTARES_LAUNCHER_SCHEMA_HEADER}"
         ${ANTARES_LAUNCHER_CHROME_HEADERS}

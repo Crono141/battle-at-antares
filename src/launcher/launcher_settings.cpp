@@ -127,7 +127,10 @@ namespace launcher {
                 if (config::Find_Variable(name, SDL_strlen(name), &id)) {
                     // The window toggle sits above the scaler, and a note under it when the
                     // scaler can't show (WP5.5).
-                    if (SDL_strcmp(name, "interface.scaler") == 0) common_settings_.push_back(AUTO_WINDOW_ROW);
+                    if (SDL_strcmp(name, "interface.scaler") == 0) {
+                        common_settings_.push_back(UPDATES_ROW);
+                        common_settings_.push_back(AUTO_WINDOW_ROW);
+                    }
                     common_settings_.push_back(id);
                     if (SDL_strcmp(name, "interface.scaler") == 0) common_settings_.push_back(SCALER_NOTE_ROW);
                 } else {
@@ -321,6 +324,22 @@ namespace launcher {
         return edits;
     }
 
+    void c_launcher::Draw_Updates_Row_() {
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        if (ImGui::Selectable("Check for updates at start", selected_setting_ == UPDATES_ROW, ImGuiSelectableFlags_AllowOverlap)) {
+            selected_setting_ = UPDATES_ROW;
+        }
+        if (ImGui::IsItemHovered() && !ImGui::IsAnyItemActive()) selected_setting_ = UPDATES_ROW;
+        ImGui::TableNextColumn();
+        if (ImGui::Checkbox("##check-updates", &update_.check)) Save_Settings_();
+        if (ImGui::IsItemHovered() && !ImGui::IsAnyItemActive()) selected_setting_ = UPDATES_ROW;
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(COLOUR_DIM, "launcher");
+        ImGui::TableNextColumn();
+    }
+
     void c_launcher::Draw_Auto_Window_Row_() {
         ImGui::TableNextColumn();
         ImGui::AlignTextToFramePadding();
@@ -454,6 +473,10 @@ namespace launcher {
                 }
                 if (id == AUTO_WINDOW_ROW) {
                     Draw_Auto_Window_Row_();
+                    continue;
+                }
+                if (id == UPDATES_ROW) {
+                    Draw_Updates_Row_();
                     continue;
                 }
                 if (id == SCALER_NOTE_ROW) {

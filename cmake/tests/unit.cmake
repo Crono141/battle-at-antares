@@ -604,6 +604,7 @@ orion2re_add_unit_test(test_config_loader
         tests/unit/hd_packs_test.cpp
         tests/unit/gog_test.cpp
         tests/unit/utf8_files_test.cpp
+        tests/unit/updates_test.cpp
         vendors/lzma/LzmaDec.c
     PRODUCTION_SOURCES
         src/antares/gog.cpp
@@ -611,6 +612,7 @@ orion2re_add_unit_test(test_config_loader
         src/launcher/launcher_fetch.cpp
         src/antares/game_install.cpp
         src/antares/game_files.cpp
+        src/antares/updates.cpp
         src/antares/package_catalog.cpp
         src/antares/user_folder_vfs.cpp
         src/antares/profile_file.cpp
@@ -1730,3 +1732,4 @@ orion2re_add_unit_test(test_router_client
         ${ORION2RE_LZ4_TARGET}
     LINK_SDL
 )
+target_compile_definitions(test_config_loader PRIVATE UPDATES_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")

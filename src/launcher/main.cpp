@@ -40,6 +40,7 @@ namespace {
         std::string setup_run;    // run the whole wizard on this folder, no questions
         std::string setup_copy;   // check this folder and press Copy, as a player would
         bool setup_finish = false; // with -setup-run: press "Open the launcher" on the Done page
+        bool update = false;       // press Update as soon as the check finds one (tests)
         int shot_after = 0;       // with -screenshot: draw this many ms after the start (mid-copy)
         int cancel_after = 0;     // press Cancel on the copy page after this many ms
         bool hd = false;          // open the HD art window (WP5.14)
@@ -73,6 +74,7 @@ namespace {
             {"wait-store", false},
             {"gog-dump", true},
             {"setup-finish", false},
+            {"update", false},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -103,6 +105,7 @@ namespace {
                 case 20: options->wait_store = true; break;
                 case 21: options->gog_dump = option.value; break;
                 case 22: options->setup_finish = true; break;
+                case 23: options->update = true; break;
                 default: break;
             }
         }
@@ -311,6 +314,7 @@ int main(int argc, char** argv) {
         app.Open_Setup(options.setup_folder);
     }
     if (options.hd) app.Open_Hd_Window();
+    if (options.update) app.Update_When_Available();
     if (!options.gog_dump.empty()) app.Start_Gog_Signin(options.gog_dump);
     if (!options.hd_download.empty() && !app.Download_Hd_Pack(options.hd_download) && options.screenshot.empty()) {
         SDL_Quit();
