@@ -27,6 +27,10 @@ namespace {
     constexpr wchar_t GOG_AUTH_URL[] = L"https://auth.gog.com/auth?client_id=46899977096215655&redirect_uri=https%3A%2F%2Fembed.gog.com%2Fon_login_success%3Forigin%3Dclient"
                                        L"&response_type=code&layout=client2";
     constexpr wchar_t WINDOW_CLASS[] = L"AntaresGogSignin";
+    // The web engine gets this long to come up (Wine without a working runtime never answered:
+    // the window waited for ever); then exit 2, and the wizard offers GOG's website.
+    constexpr UINT ENGINE_TIMEOUT_MS = 30000;
+    constexpr UINT_PTR ENGINE_TIMER = 1;
 
     int s_exit_code = 1;
     ICoreWebView2Environment* s_environment = nullptr;
@@ -262,6 +266,15 @@ namespace {
             case WM_SIZE:
                 if (view != nullptr) Fit_(view);
                 return 0;
+            case WM_TIMER:
+                if (w == ENGINE_TIMER) {
+                    KillTimer(window, ENGINE_TIMER);
+                    if (view != nullptr && view->main && view->controller == nullptr) {
+                        s_exit_code = 2;
+                        PostQuitMessage(0);
+                    }
+                }
+                return 0;
             case WM_DESTROY:
                 if (view != nullptr) {
                     if (view->controller != nullptr) {
@@ -318,8 +331,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
     main_view->main = true;
     main_view->window = New_Window_(520, 760);
     s_views.push_back(main_view);
+    ShowWindow(main_view->window, show); // at once: the player sees the sign-in starting
+    SetTimer(main_view->window, ENGINE_TIMER, ENGINE_TIMEOUT_MS, nullptr);
 
-    auto* environment_done = new t_environment_done([main_view, start_url, show](HRESULT result, ICoreWebView2Environment* environment) -> HRESULT {
+    auto* environment_done = new t_environment_done([main_view, start_url](HRESULT result, ICoreWebView2Environment* environment) -> HRESULT {
         if (FAILED(result) || environment == nullptr) { // no WebView2 runtime
             s_exit_code = 2;
             PostQuitMessage(0);
@@ -327,9 +342,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
         }
         environment->AddRef();
         s_environment = environment;
-        if (FAILED(Create_Controller_(main_view, [main_view, start_url, show](ICoreWebView2Controller*) {
+        if (FAILED(Create_Controller_(main_view, [main_view, start_url](ICoreWebView2Controller*) {
+                KillTimer(main_view->window, ENGINE_TIMER);
                 main_view->web->Navigate(start_url.c_str());
-                ShowWindow(main_view->window, show);
                 SetForegroundWindow(main_view->window);
             }))) {
             s_exit_code = 2;
