@@ -1071,10 +1071,17 @@ if(ORION2RE_BUILD_GAME)
     # wizard has them before any game file exists.
     set(ANTARES_CHROME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frontend/godot/project/packages/antares-ui-chrome")
     set(ANTARES_LAUNCHER_CHROME_HEADERS)
-    foreach(ANTARES_CHROME_ITEM IN ITEMS
-            "art/panel.png:k_chrome_panel" "art/bezel.png:k_chrome_bezel" "art/button.png:k_chrome_button"
-            "fonts/RussoOne.ttf:k_chrome_russo" "fonts/SairaSemiCondensed-Medium.ttf:k_chrome_saira"
-            "fonts/SairaSemiCondensed-Bold.ttf:k_chrome_saira_bold")
+    # The theme's art is cut from the HD pack and never committed (a clean checkout, such as the
+    # macOS runner's, has none): embedded when it is there, else the launcher reads it from the
+    # shipped theme package at run time (launcher_chrome.cpp). The fonts are committed.
+    set(ANTARES_CHROME_ITEMS "fonts/RussoOne.ttf:k_chrome_russo" "fonts/SairaSemiCondensed-Medium.ttf:k_chrome_saira"
+        "fonts/SairaSemiCondensed-Bold.ttf:k_chrome_saira_bold")
+    set(ANTARES_LAUNCHER_EMBEDDED_ART OFF)
+    if(EXISTS "${ANTARES_CHROME_DIR}/art/panel.png" AND EXISTS "${ANTARES_CHROME_DIR}/art/bezel.png" AND EXISTS "${ANTARES_CHROME_DIR}/art/button.png")
+        list(APPEND ANTARES_CHROME_ITEMS "art/panel.png:k_chrome_panel" "art/bezel.png:k_chrome_bezel" "art/button.png:k_chrome_button")
+        set(ANTARES_LAUNCHER_EMBEDDED_ART ON)
+    endif()
+    foreach(ANTARES_CHROME_ITEM IN LISTS ANTARES_CHROME_ITEMS)
         string(REPLACE ":" ";" ANTARES_CHROME_PARTS "${ANTARES_CHROME_ITEM}")
         list(GET ANTARES_CHROME_PARTS 0 ANTARES_CHROME_FILE)
         list(GET ANTARES_CHROME_PARTS 1 ANTARES_CHROME_SYMBOL)
@@ -1133,6 +1140,9 @@ if(ORION2RE_BUILD_GAME)
         set_target_properties(antares-launcher PROPERTIES EXCLUDE_FROM_ALL YES)
     endif()
     target_compile_features(antares-launcher PRIVATE cxx_std_20)
+    if(ANTARES_LAUNCHER_EMBEDDED_ART)
+        target_compile_definitions(antares-launcher PRIVATE ANTARES_LAUNCHER_EMBEDDED_ART=1)
+    endif()
     target_include_directories(antares-launcher PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${ORION2RE_VENDORED_IMGUI_DIR}/backends"

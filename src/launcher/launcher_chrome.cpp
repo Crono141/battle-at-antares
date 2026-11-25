@@ -6,9 +6,14 @@
 #include <array>
 #include <string>
 
+#include <vector>
+
+#include "miniz.h"
+#if defined(ANTARES_LAUNCHER_EMBEDDED_ART)
 #include "k_chrome_bezel.h"
 #include "k_chrome_button.h"
 #include "k_chrome_panel.h"
+#endif
 #include "k_chrome_russo.h"
 #include "k_chrome_saira.h"
 #include "k_chrome_saira_bold.h"
@@ -72,10 +77,65 @@ namespace launcher::chrome {
         }
     } // namespace
 
-    bool Load(SDL_Renderer* renderer) {
+    namespace {
+        // The theme's art from the shipped package (a build without it embedded: the theme art
+        // is never committed): data/mods/antares-ui-chrome.zip holds godot/antares-ui-chrome.zip,
+        // the Godot pack, which holds packages/antares-ui-chrome/art/*.png.
+        bool Package_Art_(const std::string& data_dir, std::vector<std::vector<uint8_t>>* out) {
+            const char* names[] = {"panel.png", "bezel.png", "button.png"};
+            std::vector<uint8_t> pack;
+            for (const std::string& outer : {data_dir + "mods/antares-ui-chrome.zip", std::string()}) {
+                if (!outer.empty()) {
+                    mz_zip_archive zip{};
+                    if (!mz_zip_reader_init_file(&zip, outer.c_str(), 0)) continue;
+                    size_t size = 0;
+                    void* bytes = mz_zip_reader_extract_file_to_heap(&zip, "godot/antares-ui-chrome.zip", &size, 0);
+                    mz_zip_reader_end(&zip);
+                    if (bytes == nullptr) continue;
+                    pack.assign(static_cast<uint8_t*>(bytes), static_cast<uint8_t*>(bytes) + size);
+                    mz_free(bytes);
+                } else {
+                    // A package folder (development builds): its pack beside it.
+                    size_t size = 0;
+                    void* bytes = SDL_LoadFile((data_dir + "mods/antares-ui-chrome/godot/antares-ui-chrome.zip").c_str(), &size);
+                    if (bytes == nullptr) continue;
+                    pack.assign(static_cast<uint8_t*>(bytes), static_cast<uint8_t*>(bytes) + size);
+                    SDL_free(bytes);
+                }
+                break;
+            }
+            if (pack.empty()) return false;
+            mz_zip_archive zip{};
+            if (!mz_zip_reader_init_mem(&zip, pack.data(), pack.size(), 0)) return false;
+            out->clear();
+            for (const char* name : names) {
+                size_t size = 0;
+                const std::string path = std::string("packages/antares-ui-chrome/art/") + name;
+                void* bytes = mz_zip_reader_extract_file_to_heap(&zip, path.c_str(), &size, 0);
+                if (bytes == nullptr) break;
+                out->emplace_back(static_cast<uint8_t*>(bytes), static_cast<uint8_t*>(bytes) + size);
+                mz_free(bytes);
+            }
+            mz_zip_reader_end(&zip);
+            return out->size() == 3;
+        }
+    } // namespace
+
+    bool Load(SDL_Renderer* renderer, const std::string& data_dir) {
+#if defined(ANTARES_LAUNCHER_EMBEDDED_ART)
+        (void)data_dir;
         bool ok = Load_Texture_(renderer, k_chrome_panel_data, k_chrome_panel_size, &s_panel);
         ok = Load_Texture_(renderer, k_chrome_bezel_data, k_chrome_bezel_size, &s_bezel) && ok;
         ok = Load_Texture_(renderer, k_chrome_button_data, k_chrome_button_size, &s_button) && ok;
+#else
+        static std::vector<std::vector<uint8_t>> art; // kept: the textures are made from it once
+        bool ok = Package_Art_(data_dir, &art);
+        if (ok) {
+            ok = Load_Texture_(renderer, art[0].data(), art[0].size(), &s_panel);
+            ok = Load_Texture_(renderer, art[1].data(), art[1].size(), &s_bezel) && ok;
+            ok = Load_Texture_(renderer, art[2].data(), art[2].size(), &s_button) && ok;
+        }
+#endif
         s_russo = Load_Font_(k_chrome_russo_data, k_chrome_russo_size);
         s_saira = Load_Font_(k_chrome_saira_data, k_chrome_saira_size);
         s_saira_bold = Load_Font_(k_chrome_saira_bold_data, k_chrome_saira_bold_size);
