@@ -149,7 +149,11 @@ func shared_width(area: Rect2) -> float:
 		table += float(column.width)
 	var style := get_theme_stylebox("panel")
 	var frame := style.get_minimum_size().x if style != null else 0.0
-	var width := maxf(clampf(area.size.x * 0.45, 700.0, 960.0), table + 14.0 + preload("../themes.gd").SCROLL_GAP + frame) # the scroll bar and its gap
+	var narrowest := table + 14.0 + preload("../themes.gd").SCROLL_GAP + frame # the scroll bar and its gap
+	# A share of the panel's height, not of the window's width (owner 2026-11-25: on wide and
+	# ultrawide screens the panels were too wide, the job columns spread into empty space left of
+	# BUY): the same shape at 16:9 and 32:9.
+	var width := maxf(clampf(area.size.y * 0.75, 700.0, 960.0), narrowest)
 	return minf(width, area.size.x - 16.0)
 
 
