@@ -8250,6 +8250,16 @@ func _smoke_combat(shots: String) -> bool:
 		int(view.state.ship), (view.state.legal as Array).size()])
 	if shots != "":
 		await host.shot(shots + "/combat-start.png")
+		# A monster's picture as a battle asks for it, under each monster player's palette
+		# (MONSTER.LBX 13-19), and without one (sweep 2026-11-25: without HD art monsters took the
+		# attacker's colours).
+		for lbx in ["monster.lbx", "monster.lbx@13", "monster.lbx@16", "monster.lbx@19"]:
+			art.sprite(lbx, 0)
+		await get_tree().create_timer(2.0).timeout
+		for lbx in ["monster.lbx", "monster.lbx@13", "monster.lbx@16", "monster.lbx@19"]:
+			var tex: Texture2D = art.texture(lbx, 0)
+			if tex:
+				tex.get_image().save_png(shots + "/monster-0-%s.png" % lbx.replace(".lbx", "").replace("@", "-"))
 	# A layout picked for the run (--layout=bridge): switched as Options does, its panels checked
 	# against each other and the screen, pictures with and without a target card.
 	for arg in OS.get_cmdline_user_args():
