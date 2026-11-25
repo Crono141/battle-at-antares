@@ -30,11 +30,11 @@ jobs:
           test "$(uname -m)" = arm64
           command -v ninja >/dev/null || brew install ninja
           cmake --preset osx-release
-          cmake --build --preset osx-release --target orion2re antares-launcher package-runtime-data --parallel 3
+          cmake --build --preset osx-release --target orion2re antares-launcher antares-gog-signin package-runtime-data --parallel 3
       - name: Check the binaries
         working-directory: out/build/Darwin/osx-release
         run: |
-          for B in antares antares-launcher; do
+          for B in antares antares-launcher antares-gog-signin; do
             file "$B"
             otool -L "$B"
             # Only system libraries and frameworks: a Homebrew library would not be on the player's Mac.
@@ -99,7 +99,7 @@ jobs:
         run: |
           B=out/build/Darwin/osx-release
           mkdir -p stage/data/mods
-          cp "$B/antares" "$B/antares-launcher" stage/
+          cp "$B/antares" "$B/antares-launcher" "$B/antares-gog-signin" stage/
           cp -R godot-out/antares-godot.app stage/
           cp "$B/data/base.zip" stage/data/
           cp "$B"/data/mods/*.zip stage/data/mods/
@@ -125,7 +125,7 @@ jobs:
           R="$C/Resources"
           rm -rf pkg && mkdir -p "$C/MacOS" "$R/data/mods" "$R/licenses"
           cp "$B/antares-launcher" "$C/MacOS/"
-          cp "$B/antares" "$R/"
+          cp "$B/antares" "$B/antares-gog-signin" "$R/" # the sign-in beside the engine: the launcher looks in its base path
           cp -R godot-out/antares-godot.app "$R/"
           cp "$B/data/base.zip" "$R/data/"
           cp "$B"/data/mods/*.zip "$R/data/mods/"
@@ -204,6 +204,11 @@ jobs:
           ls "$HOME/Library/Application Support/Battle at Antares/" || true
           echo "== the engine with no game files (expects its missing-files message):"
           (cd "$APP/Contents/Resources" && SDL_VIDEODRIVER=dummy SDL_AUDIO_DRIVER=dummy ./antares -log; echo "exit $?") 2>&1 | grep -iE "original|missing|exit|data directory|user paths" | head -6 || true
+          echo "== GOG sign-in window (WP5.17b): a local page that goes to GOG's success address with a fake code"
+          printf '<html><body>test<script>setTimeout(function(){location.href="https://embed.gog.com/on_login_success?origin=client&code=FAKE-CODE-123";},500);</script></body></html>' > "$RUNNER_TEMP/redirect.html"
+          SIGNIN_OUT=$(perl -e 'alarm 60; exec @ARGV' "$APP/Contents/Resources/antares-gog-signin" --page "file://$RUNNER_TEMP/redirect.html" 2>/dev/null); SIGNIN_EXIT=$?
+          echo "sign-in: exit $SIGNIN_EXIT, printed [$SIGNIN_OUT]"
+          [ "$SIGNIN_EXIT" = 0 ] && [ "$SIGNIN_OUT" = FAKE-CODE-123 ] && echo "sign-in: OK" || echo "sign-in: FAILED (see above)"
           echo "== the seal after running (nothing wrote into the app):"
           codesign --verify --deep --strict --verbose=2 "$APP"
           cp "$RUNNER_TEMP/welcome.png" .
