@@ -161,7 +161,11 @@ func _fill_jobs() -> void:
 	for column: Dictionary in COLUMNS:
 		fixed += float(column.width)
 	fixed += _buy_width() + SEPARATION * 6.0 + _row_pad(SIDE_LEFT) + _row_pad(SIDE_RIGHT)
-	var width := floorf(maxf((scroll.size.x - 14.0 - fixed) / 3.0, MIN_JOB_WIDTH))
+	# The bar as it is drawn, gap included (owner 2026-11-24, 0.7.0: a fixed 14 px after the
+	# scroll gap made the rows 10 px too wide; the panel grew to fit them, the columns widened
+	# again, and the galaxy refitted every frame until it crashed).
+	var bar := maxf(scroll.get_v_scroll_bar().get_combined_minimum_size().x, 14.0)
+	var width := floorf(maxf((scroll.size.x - bar - fixed) / 3.0, MIN_JOB_WIDTH))
 	if absf(width - _job_width) >= 1.0:
 		_job_width = width
 		_show_columns()
