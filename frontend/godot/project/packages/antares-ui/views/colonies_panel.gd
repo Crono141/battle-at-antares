@@ -165,7 +165,13 @@ func _fill_jobs() -> void:
 	# scroll gap made the rows 10 px too wide; the panel grew to fit them, the columns widened
 	# again, and the galaxy refitted every frame until it crashed).
 	var bar := maxf(scroll.get_v_scroll_bar().get_combined_minimum_size().x, 14.0)
-	var width := floorf(maxf((scroll.size.x - bar - fixed) / 3.0, MIN_JOB_WIDTH))
+	# Against the width the panel opened at (the one Planets shares), not only the table as it is:
+	# a first fill from a table not yet laid out made the rows too wide, the panel grew to fit
+	# them, and the columns, measured from the grown table, never gave the room back (owner
+	# 2026-11-25: after Planets and back, empty space right of BUY until a window resize; at
+	# 1920x1080 Colonies 842 against Planets 704). Wider than that, the columns give it back.
+	var excess := maxf(size.x - _rect.size.x, 0.0) if _rect.size.x > 0.0 else 0.0
+	var width := floorf(maxf((scroll.size.x - excess - bar - fixed) / 3.0, MIN_JOB_WIDTH))
 	if absf(width - _job_width) >= 1.0:
 		_job_width = width
 		_show_columns()
@@ -594,7 +600,11 @@ func _show_output(result: Dictionary) -> void:
 		return
 	_clear(output_rows)
 	# Two cells a line: food | research, industry | BC, morale; each squeezes to its half.
-	var cell := maxf((output_rows.size.x - 16.0) * 0.5, 80.0)
+	# The strip's width at the panel's opened width (the one Planets shares), not as it is now: a
+	# panel still wider from before kept cells that wide, and they held it wide (owner 2026-11-25,
+	# Colonies 842 against Planets 704 at 1920x1080).
+	var strip := output_rows.size.x + ((_rect.size.x - size.x) if _rect.size.x > 0.0 else 0.0)
+	var cell := maxf((strip - 16.0) * 0.5, 80.0)
 	for kind in ["food", "research", "industry", "bc"]:
 		output_rows.add_child(_cell(_icon_row(result.rows[kind].icons, cell), cell))
 	var morale := HBoxContainer.new()
