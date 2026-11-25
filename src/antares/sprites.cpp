@@ -35,6 +35,41 @@ namespace antares::sprites {
 
         // The original pixels of every frame, drawn by the game's own decoder into a scratch
         // bitmap (index 0 is transparent).
+        // A frame cut down to its visible pixels, its place in the entry's frame kept as the origin,
+        // as HD art comes (sprite.json origins). The colony buildings are whole 640x480 frames with
+        // the building where it stands on the landscape: shown whole, the build list's picture of a
+        // ground building was tiny without HD art (owner, 2026-11-25).
+        void Crop_To_Picture(s_frame* frame) {
+            int32_t left = frame->width, top = frame->height, right = -1, bottom = -1;
+            for (int32_t y = 0; y < frame->height; ++y) {
+                for (int32_t x = 0; x < frame->width; ++x) {
+                    if (frame->rgba[((size_t)y * frame->width + x) * 4 + 3] == 0) continue;
+                    left = std::min(left, x);
+                    right = std::max(right, x);
+                    top = std::min(top, y);
+                    bottom = std::max(bottom, y);
+                }
+            }
+            if (right < 0) { // nothing drawn: one clear pixel
+                frame->width = 1;
+                frame->height = 1;
+                frame->rgba.assign(4, 0);
+                return;
+            }
+            if (left == 0 && top == 0 && right == frame->width - 1 && bottom == frame->height - 1) return;
+            const int32_t w = right - left + 1;
+            const int32_t h = bottom - top + 1;
+            std::vector<uint8_t> cropped((size_t)w * h * 4);
+            for (int32_t y = 0; y < h; ++y) {
+                memcpy(&cropped[(size_t)y * w * 4], &frame->rgba[(((size_t)(top + y)) * frame->width + left) * 4], (size_t)w * 4);
+            }
+            frame->rgba = std::move(cropped);
+            frame->origin_x += left;
+            frame->origin_y += top;
+            frame->width = w;
+            frame->height = h;
+        }
+
         void Export_1x(s_animation_header* anim, const uint32_t palette_rgb[256], s_sprite* out, const uint32_t* glass_argb = nullptr) {
             const int32_t width = anim->width;
             const int32_t height = anim->height;
@@ -94,6 +129,7 @@ namespace antares::sprites {
                     frame.rgba[i * 4 + 2] = (uint8_t)rgb;
                     frame.rgba[i * 4 + 3] = pixels[i] != 0 ? 255 : 0;
                 }
+                Crop_To_Picture(&frame);
                 out->frames.push_back(std::move(frame));
             }
             if (glassed) {

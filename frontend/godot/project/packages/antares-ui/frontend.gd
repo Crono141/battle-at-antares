@@ -7524,6 +7524,11 @@ func _smoke_todo(shots: String) -> bool:
 				int(_view("colony_pane").colony_id), _view("build_pane").visible])
 			if shots != "":
 				await host.shot(shots + "/native-todo-build.png")
+			var building: String = _view("build_pane").smoke_show_ground_building()
+			await get_tree().create_timer(1.0).timeout
+			print("smoke: build detail for '%s'" % building)
+			if shots != "" and building != "":
+				await host.shot(shots + "/native-build-detail.png")
 			# A planet's right click card (planet_card.gd) from the system pane.
 			var sp := _view("system_pane")
 			for planet: Dictionary in sp.system.get("planets", []):
