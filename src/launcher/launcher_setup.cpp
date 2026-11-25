@@ -23,6 +23,17 @@ namespace launcher {
     namespace {
         namespace ch = launcher::chrome;
 
+        // A folder as the player's system writes it: backslashes on Windows (the user folder is
+        // built with '/', which Windows accepts but players don't write).
+        std::string Shown_(std::string path) {
+#ifdef _WIN32
+            for (char& c : path) {
+                if (c == '/') c = '\\';
+            }
+#endif
+            return path;
+        }
+
         std::filesystem::path U8_(const std::string& text) {
             return std::filesystem::path(std::u8string(text.begin(), text.end()));
         }
@@ -109,7 +120,7 @@ namespace launcher {
                                                           : std::to_string(candidate.found) + " of " + std::to_string(needed) + " files";
             draw->AddText(ch::Body_Font(), SMALL, ImVec2(x, min.y + 12), U32_(full ? ch::DIM : ch::AMBER), count.c_str());
             draw->PushClipRect(min, max, true);
-            draw->AddText(ch::Body_Font(), SMALL, ImVec2(min.x + 46, min.y + 41), U32_(ch::DIM, 0.85f), candidate.path.c_str());
+            draw->AddText(ch::Body_Font(), SMALL, ImVec2(min.x + 46, min.y + 41), U32_(ch::DIM, 0.85f), Shown_(candidate.path).c_str());
             draw->PopClipRect();
             ImGui::Dummy(ImVec2(0, 4));
             return pressed;
@@ -503,7 +514,7 @@ namespace launcher {
                 Text_("This takes a minute: Battle at Antares finds your copy and copies its game files (about 300 MB) into its "
                       "own folder. Your Master of Orion II stays exactly as it is, and you can keep playing it or uninstall it later.");
                 ImGui::Spacing();
-                Text_("The files go to " + setup_.target, ch::DIM, SMALL);
+                Text_("The files go to " + Shown_(setup_.target), ch::DIM, SMALL);
                 left_label = setup_.required ? nullptr : "Cancel";
                 right_label = "Find my copy";
                 break;
@@ -678,7 +689,7 @@ namespace launcher {
             case SETUP_CHECK: {
                 const gi::s_folder_check& check = setup_.check;
                 const bool installer = check.installer != gi::INSTALLER_NONE;
-                Text_(check.folder, ch::DIM, SMALL);
+                Text_(Shown_(check.folder), ch::DIM, SMALL);
                 ImGui::Spacing();
                 if (installer && !setup_.check_error.empty()) {
 #if defined(_WIN32)
@@ -819,7 +830,7 @@ namespace launcher {
                 if (files_.ok) {
                     Text_("Battle at Antares has everything it needs.");
                     ImGui::Spacing();
-                    Text_("The game files are in " + setup_.target, ch::DIM, SMALL);
+                    Text_("The game files are in " + Shown_(setup_.target), ch::DIM, SMALL);
                 } else {
                     Text_("Something is still missing:", ch::RED);
                     Text_(antares::game_files::Describe(files_));
