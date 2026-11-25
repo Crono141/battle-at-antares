@@ -1119,6 +1119,7 @@ if(ORION2RE_BUILD_GAME)
         src/launcher/launcher_fetch.cpp
         src/launcher/launcher_hd.cpp
         src/launcher/launcher_gog.cpp
+        src/launcher/launcher_menu.cpp
         "${ANTARES_LAUNCHER_FONT_HEADER}"
         "${ANTARES_LAUNCHER_SCHEMA_HEADER}"
         ${ANTARES_LAUNCHER_CHROME_HEADERS}
@@ -1164,6 +1165,7 @@ if(ORION2RE_BUILD_GAME)
     endif()
     if(WIN32)
         target_link_libraries(antares-launcher PRIVATE winhttp) # HD pack downloads (WP5.14)
+        target_link_libraries(antares-launcher PRIVATE ole32 uuid shell32) # the Start menu entry
         target_sources(antares-launcher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/antares.rc") # the icon
     endif()
     if(ORION2RE_GAME_DIR)

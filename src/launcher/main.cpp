@@ -39,6 +39,7 @@ namespace {
         std::string setup_folder; // ... on this folder's checklist
         std::string setup_run;    // run the whole wizard on this folder, no questions
         std::string setup_copy;   // check this folder and press Copy, as a player would
+        bool setup_finish = false; // with -setup-run: press "Open the launcher" on the Done page
         int shot_after = 0;       // with -screenshot: draw this many ms after the start (mid-copy)
         int cancel_after = 0;     // press Cancel on the copy page after this many ms
         bool hd = false;          // open the HD art window (WP5.14)
@@ -71,6 +72,7 @@ namespace {
             {"hd-download", true},
             {"wait-store", false},
             {"gog-dump", true},
+            {"setup-finish", false},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -100,6 +102,7 @@ namespace {
                 case 19: options->hd_download = option.value; break;
                 case 20: options->wait_store = true; break;
                 case 21: options->gog_dump = option.value; break;
+                case 22: options->setup_finish = true; break;
                 default: break;
             }
         }
@@ -296,6 +299,7 @@ int main(int argc, char** argv) {
     if (!options.setup_run.empty()) {
         const bool done = app.Run_Setup(options.setup_run, options.setup); // -setup too: stop on the saves page
         SDL_Log("launcher: setup %s", done ? "done" : "failed");
+        if (done && options.setup_finish) app.Finish_Setup(false);
         if (!done && options.screenshot.empty()) {
             SDL_Quit();
             return 1;
