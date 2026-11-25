@@ -21,6 +21,16 @@ namespace launcher::chrome {
     /** The look's art and fonts; `data_dir` (the program's data/) is where the theme package is
      *  read from when the art isn't built in. */
     bool Load(SDL_Renderer* renderer, const std::string& data_dir);
+
+    /** The launcher's look (WP5.20, owner 2026-11-25): Chrome's metal, or Glass's rounded
+     *  translucent panes, as the two themes look in the game. Same palette and fonts; Glass's
+     *  headings are Saira Bold. */
+    enum e_look { LOOK_CHROME,
+        LOOK_GLASS };
+    void Set_Look(e_look look);
+    e_look Look();
+    /** ImGui's rounding for the look (frames, children, popups). */
+    void Style_Look(ImGuiStyle* style);
     void Unload();
     bool Ready();
 

@@ -156,8 +156,30 @@ namespace launcher::chrome {
         return s_ready;
     }
 
+    namespace {
+        e_look s_look = LOOK_CHROME;
+        const ImVec4 STEEL(118 / 255.0f, 124 / 255.0f, 140 / 255.0f, 1.0f);
+    } // namespace
+
+    void Set_Look(e_look look) {
+        s_look = look;
+    }
+
+    e_look Look() {
+        return s_look;
+    }
+
+    void Style_Look(ImGuiStyle* style) {
+        const bool glass = s_look == LOOK_GLASS;
+        style->FrameRounding = glass ? 4.0f : 0.0f;
+        style->ChildRounding = glass ? 6.0f : 0.0f;
+        style->PopupRounding = glass ? 6.0f : 0.0f;
+        style->GrabRounding = glass ? 3.0f : 0.0f;
+        style->TabRounding = glass ? 5.0f : 0.0f;
+    }
+
     ImFont* Title_Font() {
-        return s_russo;
+        return s_look == LOOK_GLASS && s_saira_bold != nullptr ? s_saira_bold : s_russo; // Glass's headings
     }
     ImFont* Body_Font() {
         return s_saira;
@@ -167,6 +189,24 @@ namespace launcher::chrome {
     }
 
     void Background(ImDrawList* draw, ImVec2 min, ImVec2 max) {
+        if (s_look == LOOK_GLASS) {
+            // Deep space behind the glass: a dark navy fall and a sparse, fixed field of stars.
+            draw->AddRectFilledMultiColor(min, max, IM_COL32(8, 10, 18, 255), IM_COL32(8, 10, 18, 255), IM_COL32(16, 20, 34, 255), IM_COL32(16, 20, 34, 255));
+            uint32_t seed = 2166136261u;
+            const float width = max.x - min.x, height = max.y - min.y;
+            const int stars = static_cast<int>(width * height / 3500.0f);
+            for (int i = 0; i < stars; ++i) {
+                seed = seed * 1664525u + 1013904223u;
+                const float x = min.x + static_cast<float>(seed % 10000u) / 10000.0f * width;
+                seed = seed * 1664525u + 1013904223u;
+                const float y = min.y + static_cast<float>(seed % 10000u) / 10000.0f * height;
+                seed = seed * 1664525u + 1013904223u;
+                const int light = 70 + static_cast<int>(seed % 150u);
+                const float r = (seed % 23u) == 0 ? 1.4f : 0.7f;
+                draw->AddCircleFilled(ImVec2(x, y), r, IM_COL32(light, light, std::min(255, light + 20), 255), 6);
+            }
+            return;
+        }
         draw->AddRectFilled(min, max, IM_COL32(11, 12, 16, 255));
         if (s_panel.texture == nullptr) return;
         // Cover the rectangle, centred: crop the art by its coordinates rather than drawing past
@@ -178,6 +218,11 @@ namespace launcher::chrome {
     }
 
     void Bezel(ImDrawList* draw, ImVec2 min, ImVec2 max) {
+        if (s_look == LOOK_GLASS) { // the theme's Pane: dark glass, a thin steel edge
+            draw->AddRectFilled(min, max, IM_COL32(10, 13, 22, 227), 8.0f);
+            draw->AddRect(min, max, Colour_(STEEL, 0.85f), 8.0f, 0, 1.0f);
+            return;
+        }
         const float m = BEZEL_MARGIN;
         const float w = s_bezel.width, h = s_bezel.height;
         const float d = m * BEZEL_SCALE;
@@ -206,6 +251,34 @@ namespace launcher::chrome {
                 const float grow = static_cast<float>(ring) * 2.0f;
                 draw->AddRectFilled(ImVec2(min.x - grow, min.y - grow), ImVec2(max.x + grow, max.y + grow), Colour_(AMBER, 0.07f), 6.0f + grow);
             }
+        }
+        if (s_look == LOOK_GLASS) { // the theme's buttons: flat glass, amber underline when pressed
+            ImU32 fill = IM_COL32(28, 32, 44, 235), edge = Colour_(STEEL);
+            if (!enabled) {
+                fill = IM_COL32(18, 20, 26, 200);
+                edge = IM_COL32(60, 62, 70, 255);
+            } else if (held) {
+                fill = IM_COL32(40, 26, 10, 240);
+                edge = Colour_(AMBER);
+            } else if (hovered) {
+                fill = IM_COL32(40, 46, 62, 240);
+                edge = IM_COL32(170, 176, 192, 255);
+            } else if (main) {
+                edge = Colour_(AMBER, 0.8f);
+            }
+            draw->AddRectFilled(min, max, fill, 5.0f);
+            draw->AddRect(min, max, edge, 5.0f, 0, 1.0f);
+            if (held) draw->AddLine(ImVec2(min.x + 4.0f, max.y - 1.0f), ImVec2(max.x - 4.0f, max.y - 1.0f), Colour_(AMBER), 2.0f);
+            std::string label = id_and_label;
+            label = label.substr(0, label.find("##"));
+            for (char& character : label) character = static_cast<char>(SDL_toupper(static_cast<unsigned char>(character)));
+            ImFont* font = s_saira_bold != nullptr ? s_saira_bold : s_russo;
+            const float font_size = 17.0f;
+            const ImVec2 text = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, label.c_str());
+            const ImVec4 colour = !enabled ? DIM : main ? AMBER
+                                                        : LIGHT;
+            draw->AddText(font, font_size, ImVec2(min.x + (size.x - text.x) * 0.5f, min.y + (size.y - text.y) * 0.5f), Colour_(colour, enabled ? 1.0f : 0.6f), label.c_str());
+            return pressed && enabled;
         }
         const float cap = BUTTON_CAP * size.y / s_button.height * 0.62f;
         const float w = s_button.width, h = s_button.height;

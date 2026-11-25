@@ -49,6 +49,7 @@ namespace launcher {
     constexpr config::t_variable_id AUTO_WINDOW_ROW = config::CONFIG_NO_VARIABLE - 1; // the toggle
     constexpr config::t_variable_id SCALER_NOTE_ROW = config::CONFIG_NO_VARIABLE - 2; // why it can't show
     constexpr config::t_variable_id UPDATES_ROW = config::CONFIG_NO_VARIABLE - 3;     // check for updates (WP5.19)
+    constexpr config::t_variable_id LOOK_ROW = config::CONFIG_NO_VARIABLE - 4;        // the launcher's look (WP5.20)
 
     // What a package does on its own: a dry run that enables only it (WP5.5).
     struct s_package_preview {
@@ -359,6 +360,7 @@ namespace launcher {
         bool Update_Apply_(std::string* error);
         void Draw_Update_Notice_(float x, float y);
         void Draw_Updates_Row_();
+        void Draw_Look_Row_();
         bool Gog_Available_() const;
         void Gog_Start_();
         void Gog_Poll_();
