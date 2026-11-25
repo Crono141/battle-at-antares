@@ -13,6 +13,22 @@ var _closing := false
 var _rect := Rect2()
 
 
+func _init() -> void:
+	minimum_size_changed.connect(_shrink_to_contents)
+
+
+## Back to its width when its contents need less again: a panel isn't in a container, so Godot
+## grows it to fit its contents but never shrinks it (owner 2026-11-25: Colonies stayed wide after
+## Planets and back, empty space right of BUY, until a window resize reset it).
+func _shrink_to_contents() -> void:
+	if not visible or _closing or _rect.size.x <= 0.0:
+		return
+	if size.x > maxf(_rect.size.x, get_combined_minimum_size().x) + 0.5:
+		reset_size()
+		if _tween == null or not _tween.is_running():
+			position.x = _rect.end.x - size.x
+
+
 ## Slides in to `rect` (its height exactly; its width at least the contents').
 func open_in(rect: Rect2) -> void:
 	_rect = rect

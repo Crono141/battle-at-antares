@@ -2323,6 +2323,15 @@ func _smoke_planets(shots: String) -> bool:
 		_on_view_action("colonies")
 		await get_tree().create_timer(0.7).timeout
 		widths.append(_view("colonies_panel").size.x)
+		# Its rows fill its table (owner, 2026-11-25: after Planets and back, empty space right of
+		# BUY until the window was resized).
+		var colonies: Control = _view("colonies_panel")
+		if not colonies._rows.is_empty():
+			var first_row: Control = colonies._rows.values()[0]
+			print("smoke: colonies turn %d: row %.0f of table %.0f" % [i, first_row.size.x, colonies.scroll.size.x])
+			if first_row.size.x < colonies.scroll.size.x - 30.0:
+				print("smoke: FAILED: colonies rows narrower than the table after Planets")
+				return false
 		_on_view_action("planets")
 		await get_tree().create_timer(0.7).timeout
 		widths.append(panel.size.x)
