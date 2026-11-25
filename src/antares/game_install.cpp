@@ -3,12 +3,14 @@
 #include "antares/game_install.h"
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
 
 #include "antares/game_files.h"
+#include "miniz.h"
 #include "antares/user_folder.h"
 #include "game/user_paths.h"
 
@@ -288,6 +290,251 @@ namespace antares::game_install {
             }
         }
         return check;
+    }
+
+    e_installer_kind Installer_Kind(const std::string& file_name) {
+        std::string name = file_name;
+        for (char& character : name) character = static_cast<char>(SDL_tolower(static_cast<unsigned char>(character)));
+        if (name.find("master_of_orion_2") == std::string::npos) return INSTALLER_NONE;
+        const auto ends = [&](const char* tail) {
+            const size_t length = std::strlen(tail);
+            return name.size() > length && name.compare(name.size() - length, length, tail) == 0;
+        };
+        if (ends(".sh")) return INSTALLER_LINUX;
+        if (ends(".exe")) return INSTALLER_WINDOWS;
+        if (ends(".pkg")) return INSTALLER_MAC;
+        return INSTALLER_NONE;
+    }
+
+    std::vector<s_installer> Find_Installers(const std::string& folder_text) {
+        std::vector<std::pair<fs::file_time_type, s_installer>> found;
+        std::error_code error;
+        for (const fs::directory_entry& entry : fs::directory_iterator(Path_(folder_text), error)) {
+            std::error_code type_error;
+            if (!entry.is_regular_file(type_error)) continue;
+            s_installer installer;
+            installer.name = Text_(entry.path().filename());
+            installer.kind = Installer_Kind(installer.name);
+            if (installer.kind == INSTALLER_NONE) continue;
+            installer.path = Text_(entry.path());
+            installer.size = entry.file_size(type_error);
+            found.emplace_back(entry.last_write_time(type_error), installer);
+        }
+        std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        std::vector<s_installer> installers;
+        for (auto& [time, installer] : found) installers.push_back(installer);
+        return installers;
+    }
+
+    std::string Downloads_Folder() {
+        const char* folder = SDL_GetUserFolder(SDL_FOLDER_DOWNLOADS);
+        if (folder != nullptr) return Folder_Text_(Path_(folder));
+        // Linux without xdg-user-dirs set up: SDL knows no Downloads; use ~/Downloads when it is there.
+        const char* home = SDL_getenv("HOME");
+        std::error_code error;
+        if (home != nullptr && fs::is_directory(Path_(home) / "Downloads", error)) return Folder_Text_(Path_(home) / "Downloads");
+        return "";
+    }
+
+    namespace {
+        FILE* Open_Read_(const std::string& path) {
+#if defined(_WIN32)
+            return _wfopen(Path_(path).wstring().c_str(), L"rb");
+#else
+            return std::fopen(path.c_str(), "rb");
+#endif
+        }
+
+        FILE* Open_Write_(const fs::path& path) {
+#if defined(_WIN32)
+            return _wfopen(path.wstring().c_str(), L"wb");
+#else
+            return std::fopen(path.c_str(), "wb");
+#endif
+        }
+
+        bool Seek_(FILE* file, uint64_t offset) {
+#if defined(_WIN32)
+            return _fseeki64(file, static_cast<long long>(offset), SEEK_SET) == 0;
+#else
+            return fseeko(file, static_cast<off_t>(offset), SEEK_SET) == 0;
+#endif
+        }
+
+        // A Linux installer is a shell script with a zip after it: find where the zip starts from
+        // its end-of-central-directory record (the zip's offsets count from that start).
+        bool Zip_Start_(FILE* file, uint64_t size, uint64_t* start) {
+            const uint64_t tail = std::min<uint64_t>(size, 65536 + 22);
+            std::vector<unsigned char> buffer(static_cast<size_t>(tail));
+            if (tail < 22 || !Seek_(file, size - tail) || std::fread(buffer.data(), 1, buffer.size(), file) != buffer.size()) return false;
+            for (size_t index = buffer.size() - 22 + 1; index-- > 0;) {
+                if (buffer[index] == 0x50 && buffer[index + 1] == 0x4B && buffer[index + 2] == 0x05 && buffer[index + 3] == 0x06) {
+                    const auto u32 = [&](size_t at) {
+                        return uint32_t(buffer[at]) | uint32_t(buffer[at + 1]) << 8 | uint32_t(buffer[at + 2]) << 16 | uint32_t(buffer[at + 3]) << 24;
+                    };
+                    const uint64_t record = size - tail + index;
+                    const uint64_t directory_size = u32(index + 12), directory_offset = u32(index + 16);
+                    if (directory_size + directory_offset > record) return false;
+                    *start = record - directory_size - directory_offset;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        struct s_zip {
+            mz_zip_archive archive{};
+            FILE* file = nullptr;
+            bool open = false;
+            ~s_zip() {
+                if (open) mz_zip_reader_end(&archive);
+                if (file != nullptr) std::fclose(file);
+            }
+        };
+
+        bool Open_Installer_Zip_(const std::string& path, s_zip* zip, uint64_t* start, std::string* error) {
+            zip->file = Open_Read_(path);
+            std::error_code code;
+            const uint64_t size = fs::file_size(Path_(path), code);
+            if (zip->file == nullptr || code) {
+                *error = "can't read " + path;
+                return false;
+            }
+            if (!Zip_Start_(zip->file, size, start) || !Seek_(zip->file, *start) || !mz_zip_reader_init_cfile(&zip->archive, zip->file, size - *start, 0)) {
+                *error = "this doesn't look like a GOG Linux installer (no archive inside)";
+                return false;
+            }
+            zip->open = true;
+            return true;
+        }
+
+        uint64_t Size_Or_None_(const fs::path& path) {
+            std::error_code error;
+            const uint64_t size = fs::file_size(path, error);
+            return error ? UINT64_MAX : size;
+        }
+    } // namespace
+
+    s_folder_check Check_Installer(const std::string& path, std::string* error) {
+        s_folder_check check;
+        check.folder = path;
+        check.installer = Installer_Kind(Text_(Path_(path).filename()));
+        if (check.installer == INSTALLER_NONE) check.installer = INSTALLER_LINUX; // a renamed file: try it
+        check.missing = game_files::Required_Files();
+        if (check.installer != INSTALLER_LINUX) {
+            *error = check.installer == INSTALLER_WINDOWS ? "reading GOG's Windows installer isn't ready yet" : "reading GOG's Mac installer isn't ready yet";
+            return check;
+        }
+        s_zip zip;
+        if (!Open_Installer_Zip_(path, &zip, &check.archive_offset, error)) return check;
+        check.exists = true;
+        // The game's files sit in one folder of the archive (data/noarch/data/ in GOG's 2.0.0.6):
+        // the folder that holds DIPLOMAT.LBX.
+        const mz_uint count = mz_zip_reader_get_num_files(&zip.archive);
+        std::vector<mz_zip_archive_file_stat> stats(count);
+        std::vector<bool> valid(count, false);
+        std::string game_folder;
+        bool have_folder = false;
+        for (mz_uint index = 0; index < count; ++index) {
+            valid[index] = mz_zip_reader_file_stat(&zip.archive, index, &stats[index]) && !stats[index].m_is_directory;
+            if (!valid[index]) continue;
+            const std::string entry = stats[index].m_filename;
+            const size_t slash = entry.rfind('/');
+            const std::string name = slash == std::string::npos ? entry : entry.substr(slash + 1);
+            if (Upper_(name) == "DIPLOMAT.LBX") {
+                game_folder = slash == std::string::npos ? "" : entry.substr(0, slash + 1);
+                have_folder = true;
+            }
+        }
+        std::map<std::string, std::pair<std::string, uint64_t>> files; // upper-case name -> entry, size
+        for (mz_uint index = 0; have_folder && index < count; ++index) {
+            if (!valid[index]) continue;
+            const std::string entry = stats[index].m_filename;
+            if (entry.size() <= game_folder.size() || entry.compare(0, game_folder.size(), game_folder) != 0) continue;
+            const std::string name = entry.substr(game_folder.size());
+            if (name.find('/') != std::string::npos) continue;
+            files[Upper_(name)] = {entry, stats[index].m_uncomp_size};
+        }
+        check.missing.clear();
+        for (const std::string& name : game_files::Required_Files()) {
+            const auto it = files.find(name);
+            if (it == files.end()) {
+                check.missing.push_back(name);
+            } else if (it->second.second == 0) {
+                check.empty.push_back(name);
+            } else {
+                ++check.found;
+            }
+        }
+        check.patched = files.count("PATCH13.LBX") != 0;
+        for (const auto& [name, entry] : files) {
+            if (name.size() > 4 && name.compare(name.size() - 4, 4, ".LBX") == 0) {
+                check.to_copy.push_back(entry.first);
+                check.bytes += entry.second;
+            }
+        }
+        return check;
+    }
+
+    bool Extract_Installer(const s_folder_check& check, const std::string& target_text, s_copy_progress* progress) {
+        progress->bytes_total = check.bytes;
+        const auto fail = [&](const std::string& message) {
+            std::lock_guard<std::mutex> lock(progress->mutex);
+            progress->error = message;
+            progress->failed = true;
+            progress->finished = true;
+            return false;
+        };
+        const char* stopped = "Stopped. The files extracted so far are kept: Try again carries on from there.";
+        std::string error;
+        s_zip zip;
+        uint64_t start = 0;
+        if (!Open_Installer_Zip_(check.folder, &zip, &start, &error)) return fail(error);
+        const fs::path target = Path_(target_text);
+        std::error_code code;
+        fs::create_directories(target, code);
+        if (code) return fail("Can't create " + Text_(target) + ": " + code.message());
+        for (const std::string& entry : check.to_copy) {
+            if (progress->cancel) return fail(stopped);
+            const std::string name = entry.substr(entry.rfind('/') + 1);
+            {
+                std::lock_guard<std::mutex> lock(progress->mutex);
+                progress->current = name;
+            }
+            const int index = mz_zip_reader_locate_file(&zip.archive, entry.c_str(), nullptr, 0);
+            mz_zip_archive_file_stat stat{};
+            if (index < 0 || !mz_zip_reader_file_stat(&zip.archive, static_cast<mz_uint>(index), &stat)) return fail("The installer is missing " + name + ".");
+            const fs::path final_path = target / Path_(name);
+            if (Size_Or_None_(final_path) == stat.m_uncomp_size) { // already there from an earlier try
+                progress->bytes_done += stat.m_uncomp_size;
+                continue;
+            }
+            const fs::path temporary = target / Path_(name + ".part");
+            FILE* out = Open_Write_(temporary);
+            if (out == nullptr) return fail("Can't write " + name + " to " + Text_(target) + ".");
+            struct s_sink {
+                FILE* out;
+                s_copy_progress* progress;
+            } sink{out, progress};
+            const auto write = [](void* opaque, mz_uint64, const void* data, size_t size) -> size_t {
+                auto* state = static_cast<s_sink*>(opaque);
+                if (state->progress->cancel) return 0;
+                const size_t written = std::fwrite(data, 1, size, state->out);
+                state->progress->bytes_done += written;
+                return written;
+            };
+            const bool ok = mz_zip_reader_extract_to_callback(&zip.archive, static_cast<mz_uint>(index), write, &sink, 0);
+            const bool closed = std::fclose(out) == 0;
+            if (!ok || !closed) {
+                fs::remove(temporary, code);
+                if (progress->cancel) return fail(stopped);
+                return fail("Extracting " + name + " failed (is the disk full, or the installer damaged?).");
+            }
+            fs::rename(temporary, final_path, code);
+            if (code) return fail("Can't finish " + name + ": " + code.message());
+        }
+        progress->finished = true;
+        return true;
     }
 
     std::string Target_Folder(const std::string& game_dir) {

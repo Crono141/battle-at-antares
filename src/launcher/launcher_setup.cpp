@@ -99,11 +99,13 @@ namespace launcher {
             draw->AddRectFilled(ImVec2(x, min.y + 14), ImVec2(x + tag_size.x + 14, min.y + 34), U32_(ch::GOLD));
             draw->AddText(ch::Title_Font(), 14.0f, ImVec2(x + 7, min.y + 16), IM_COL32(11, 12, 16, 255), tag.c_str());
             x += tag_size.x + 24;
-            const bool full = candidate.found == needed;
-            const char* state = full ? "Complete" : "Incomplete";
+            const bool full = candidate.installer || candidate.found == needed;
+            const char* state = candidate.installer ? "Installer" : full ? "Complete"
+                                                                         : "Incomplete";
             draw->AddText(ch::Bold_Font(), BODY, ImVec2(x, min.y + 10), U32_(full ? ch::LIGHT : ch::AMBER), state);
             x += ch::Bold_Font()->CalcTextSizeA(BODY, FLT_MAX, 0.0f, state).x + 10;
-            const std::string count = std::to_string(candidate.found) + " of " + std::to_string(needed) + " files";
+            const std::string count = candidate.installer ? Megabytes_(candidate.size) + ", in your Downloads: extracted, never run"
+                                                          : std::to_string(candidate.found) + " of " + std::to_string(needed) + " files";
             draw->AddText(ch::Body_Font(), SMALL, ImVec2(x, min.y + 12), U32_(full ? ch::DIM : ch::AMBER), count.c_str());
             draw->PushClipRect(min, max, true);
             draw->AddText(ch::Body_Font(), SMALL, ImVec2(min.x + 46, min.y + 41), U32_(ch::DIM, 0.85f), candidate.path.c_str());
@@ -276,13 +278,39 @@ namespace launcher {
             std::error_code error;
             return std::filesystem::equivalent(U8_(candidate.path), U8_(target), error);
         });
+        // GOG installers waiting in Downloads (D29 case 2), after the installed copies.
+        const std::string downloads = gi::Downloads_Folder();
+#if defined(_WIN32)
+        const gi::e_installer_kind native = gi::INSTALLER_WINDOWS;
+#elif defined(__APPLE__)
+        const gi::e_installer_kind native = gi::INSTALLER_MAC;
+#else
+        const gi::e_installer_kind native = gi::INSTALLER_LINUX;
+#endif
+        std::vector<gi::s_installer> installers = downloads.empty() ? std::vector<gi::s_installer>{} : gi::Find_Installers(downloads);
+        std::stable_partition(installers.begin(), installers.end(), [&](const gi::s_installer& installer) { return installer.kind == native; }); // this system's first
+        for (const gi::s_installer& installer : installers) {
+            gi::s_candidate candidate;
+            candidate.path = installer.path;
+            candidate.source = installer.kind == gi::INSTALLER_LINUX ? "GOG for Linux" : installer.kind == gi::INSTALLER_WINDOWS ? "GOG for Windows"
+                                                                                                                                 : "GOG for Mac";
+            candidate.installer = true;
+            candidate.size = installer.size;
+            setup_.candidates.push_back(candidate);
+        }
         setup_.chosen = setup_.candidates.empty() ? -1 : 0;
         SDL_Log("setup: %zu copies found in %llu ms", setup_.candidates.size(), static_cast<unsigned long long>(SDL_GetTicks() - start));
         setup_.page = SETUP_FIND;
     }
 
     void c_launcher::Setup_Check_(const std::string& folder) {
-        setup_.check = gi::Check_Folder(folder);
+        std::error_code type_error;
+        setup_.check_error.clear();
+        if (std::filesystem::is_regular_file(U8_(folder), type_error)) {
+            setup_.check = gi::Check_Installer(folder, &setup_.check_error); // a GOG installer (D29 case 2)
+        } else {
+            setup_.check = gi::Check_Folder(folder);
+        }
         std::error_code error;
         std::filesystem::path probe = U8_(setup_.target);
         while (!probe.empty() && !std::filesystem::exists(probe, error)) probe = probe.parent_path();
@@ -298,13 +326,22 @@ namespace launcher {
         gi::s_copy_progress* progress = setup_.progress.get();
         const gi::s_folder_check check = setup_.check;
         const std::string target = setup_.target;
-        setup_.worker = std::thread([check, target, progress]() { gi::Copy_Files(check, target, progress); });
+        setup_.worker = std::thread([check, target, progress]() {
+            if (check.installer != gi::INSTALLER_NONE) {
+                gi::Extract_Installer(check, target, progress);
+            } else {
+                gi::Copy_Files(check, target, progress);
+            }
+        });
     }
 
     void c_launcher::Setup_After_Copy_() {
         if (setup_.worker.joinable()) setup_.worker.join();
         Check_Files_();
-        setup_.saves = gi::Find_Saves(setup_.check.folder, gi::Virtual_Store_For(setup_.check.folder), antares::user_folder::Saves_Directory(game_dir_));
+        setup_.saves.clear(); // an installer brings no saves
+        if (setup_.check.installer == gi::INSTALLER_NONE) {
+            setup_.saves = gi::Find_Saves(setup_.check.folder, gi::Virtual_Store_For(setup_.check.folder), antares::user_folder::Saves_Directory(game_dir_));
+        }
         setup_.page = setup_.saves.empty() ? SETUP_HD : SETUP_SAVES;
         SDL_Log("setup: copied to %s; %zu saves found; files %s", setup_.target.c_str(), setup_.saves.size(), files_.ok ? "ok" : "still missing");
     }
@@ -374,6 +411,18 @@ namespace launcher {
         registry = Registry_Roots_();
 #endif
         const size_t needed = antares::game_files::Required_Files().size();
+        // A GOG installer that just finished downloading (browsers write to a temporary name and
+        // rename at the end, so a file with the installer's name is complete), for this system.
+        if (setup_.wait_store == "GOG") {
+            const std::string downloads = gi::Downloads_Folder();
+            for (const gi::s_installer& installer : downloads.empty() ? std::vector<gi::s_installer>{} : gi::Find_Installers(downloads)) {
+                std::string error;
+                if (!gi::Check_Installer(installer.path, &error).ok()) continue;
+                SDL_Log("setup: GOG installer appeared: %s", installer.path.c_str());
+                Setup_Check_(installer.path);
+                return;
+            }
+        }
         for (const gi::s_candidate& candidate : gi::Detect(gi::Detect_Roots(Home_(), registry))) {
             std::error_code error;
             if (candidate.found != needed || std::filesystem::equivalent(U8_(candidate.path), U8_(setup_.target), error)) continue;
@@ -480,6 +529,19 @@ namespace launcher {
                     SDL_ShowOpenFolderDialog(callback, &setup_, SDL_GetKeyboardFocus(), nullptr, false);
                 }
                 ImGui::SameLine(0.0f, 24.0f);
+                if (Link_("Choose an installer...")) {
+                    static const SDL_DialogFileFilter filters[] = {{"GOG installers", "sh;exe;pkg"}};
+                    const SDL_DialogFileCallback callback = [](void* user, const char* const* list, int) {
+                        auto* setup = static_cast<s_setup*>(user);
+                        if (list == nullptr || list[0] == nullptr) return;
+                        std::lock_guard<std::mutex> lock(setup->dialog_mutex);
+                        setup->dialog_folder = list[0];
+                        setup->dialog_answered = true;
+                    };
+                    const std::string downloads = gi::Downloads_Folder();
+                    SDL_ShowOpenFileDialog(callback, &setup_, SDL_GetKeyboardFocus(), filters, 1, downloads.empty() ? nullptr : downloads.c_str(), false);
+                }
+                ImGui::SameLine(0.0f, 24.0f);
                 if (Link_("I don't have it yet")) setup_.page = SETUP_GET;
                 left_label = "Back";
                 right_label = "Next";
@@ -568,8 +630,26 @@ namespace launcher {
             }
             case SETUP_CHECK: {
                 const gi::s_folder_check& check = setup_.check;
+                const bool installer = check.installer != gi::INSTALLER_NONE;
                 Text_(check.folder, ch::DIM, SMALL);
                 ImGui::Spacing();
+                if (installer && !setup_.check_error.empty()) {
+#if defined(_WIN32)
+                    const bool native = check.installer == gi::INSTALLER_WINDOWS;
+#elif defined(__APPLE__)
+                    const bool native = check.installer == gi::INSTALLER_MAC;
+#else
+                    const bool native = check.installer == gi::INSTALLER_LINUX;
+#endif
+                    Check_Row_(false, true, "Installer", native ? "Battle at Antares can't read this installer yet (" + setup_.check_error + "). Run it instead: the wizard waits and finds the game when it's installed." : "This installer is for another system (" + setup_.check_error + "). GOG's download page for Master of Orion 1+2 also has an installer for this system; download that one.");
+                    left_label = "Back";
+                    if (native) {
+                        right_label = "Run the installer";
+                    } else {
+                        right_label = "GOG's page";
+                    }
+                    break;
+                }
                 if (!check.exists) {
                     Check_Row_(false, false, "Folder", "This folder doesn't exist any more.");
                 } else {
@@ -588,7 +668,7 @@ namespace launcher {
                     }
                 }
                 left_label = "Back";
-                right_label = "Copy the files";
+                right_label = installer ? "Extract the files" : "Copy the files";
                 right_enabled = check.ok() && (setup_.free_bytes == 0 || setup_.free_bytes >= check.bytes);
                 break;
             }
@@ -750,6 +830,16 @@ namespace launcher {
             case SETUP_CHECK:
                 if (action == LEFT) {
                     Setup_Find_();
+                } else if (!setup_.check_error.empty() && setup_.check.installer != gi::INSTALLER_NONE) {
+                    if (setup_.check.installer == gi::INSTALLER_LINUX || std::string(right_label != nullptr ? right_label : "") == "GOG's page") {
+                        (void)SDL_OpenURL("https://www.gog.com/account");
+                    } else {
+                        // Run GOG's own installer, then wait for the game it installs.
+                        const char* argv[] = {setup_.check.folder.c_str(), nullptr};
+                        SDL_Process* process = SDL_CreateProcess(argv, false);
+                        if (process != nullptr) SDL_DestroyProcess(process);
+                    }
+                    Setup_Wait_("GOG");
                 } else {
                     Setup_Start_Copy_();
                 }

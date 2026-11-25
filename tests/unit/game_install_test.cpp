@@ -3,6 +3,7 @@
 #include "antares/game_files.h"
 #include "antares/game_install.h"
 #include "doctest/doctest.h"
+#include "miniz.h"
 
 #include <chrono>
 #include <filesystem>
@@ -210,5 +211,69 @@ DOCTEST_TEST_SUITE("setup wizard (WP5.11)") {
         DOCTEST_REQUIRE(found.size() == 1);
         DOCTEST_CHECK(found[0].source == "Steam");
         DOCTEST_CHECK(found[0].path == tree.Path("Storage/SteamLibrary/steamapps/common/Master of Orion 2/data") + "/");
+    }
+
+    // A GOG Linux installer as 2.0.0.6 is: a shell script, then a zip whose data/noarch/data/
+    // holds the game (checked 2026-11-24 on the owner's gog_master_of_orion_2_2.0.0.6.sh).
+    DOCTEST_TEST_CASE("GOG installers: found in Downloads, checked, extracted into game/") {
+        s_tree tree;
+        mz_zip_archive archive{};
+        mz_zip_zero_struct(&archive);
+        DOCTEST_REQUIRE(mz_zip_writer_init_heap(&archive, 0, 0));
+        for (const std::string& name : antares::game_files::Required_Files()) {
+            const std::string entry = "data/noarch/data/" + name, text = "lbx:" + name;
+            DOCTEST_REQUIRE(mz_zip_writer_add_mem(&archive, entry.c_str(), text.data(), text.size(), MZ_BEST_SPEED));
+        }
+        const std::string other = "manual";
+        DOCTEST_REQUIRE(mz_zip_writer_add_mem(&archive, "data/noarch/docs/MANUAL.PDF", other.data(), other.size(), MZ_BEST_SPEED));
+        DOCTEST_REQUIRE(mz_zip_writer_add_mem(&archive, "scripts/config.lua", other.data(), other.size(), MZ_BEST_SPEED));
+        void* zip = nullptr;
+        size_t zip_size = 0;
+        DOCTEST_REQUIRE(mz_zip_writer_finalize_heap_archive(&archive, &zip, &zip_size));
+        const std::string script = "#!/bin/sh\n# This script was generated using Makeself 2.1.5\nexit 0\n" + std::string(5000, '#') + "\n";
+        tree.Write("Downloads/gog_master_of_orion_2_2.0.0.6.sh", script + std::string(static_cast<const char*>(zip), zip_size));
+        mz_zip_writer_end(&archive);
+        mz_free(zip); // the finished archive is the caller's
+        tree.Write("Downloads/setup_master_of_orion_2_1.40b_(28044).exe", "MZ");
+        tree.Write("Downloads/gog_master_of_orion_2.0.0.6.zip", "not an installer");
+        tree.Write("Downloads/setup_master_of_orion_1.exe", "MZ");
+
+        DOCTEST_CHECK(gi::Installer_Kind("SETUP_MASTER_OF_ORION_2_1.40B_(28044).EXE") == gi::INSTALLER_WINDOWS);
+        DOCTEST_CHECK(gi::Installer_Kind("master_of_orion_2_mac.pkg") == gi::INSTALLER_MAC);
+        DOCTEST_CHECK(gi::Installer_Kind("setup_master_of_orion_1.exe") == gi::INSTALLER_NONE);
+        const auto installers = gi::Find_Installers(tree.Path("Downloads"));
+        DOCTEST_REQUIRE(installers.size() == 2);
+
+        std::string error;
+        const std::string sh = tree.Path("Downloads/gog_master_of_orion_2_2.0.0.6.sh");
+        const gi::s_folder_check check = gi::Check_Installer(sh, &error);
+        DOCTEST_REQUIRE_MESSAGE(check.ok(), error);
+        DOCTEST_CHECK(check.installer == gi::INSTALLER_LINUX);
+        DOCTEST_CHECK(check.archive_offset == script.size());
+        DOCTEST_CHECK(check.patched);
+        DOCTEST_CHECK(check.found == 353);
+        DOCTEST_CHECK(check.to_copy.size() == 353); // the LBX files only: no manual, no scripts
+
+        gi::s_copy_progress stopped;
+        stopped.cancel = true;
+        DOCTEST_CHECK_FALSE(gi::Extract_Installer(check, tree.Path("game"), &stopped));
+        gi::s_copy_progress progress;
+        DOCTEST_REQUIRE_MESSAGE(gi::Extract_Installer(check, tree.Path("game"), &progress), progress.error);
+        DOCTEST_CHECK(progress.bytes_done == check.bytes);
+        DOCTEST_CHECK(gi::Check_Folder(tree.Path("game")).ok());
+        std::ifstream fonts(tree.root / "game/FONTS.LBX", std::ios::binary);
+        DOCTEST_CHECK(std::string(std::istreambuf_iterator<char>(fonts), std::istreambuf_iterator<char>()) == "lbx:FONTS.LBX");
+        size_t parts = 0;
+        for (const auto& entry : fs::directory_iterator(tree.root / "game")) parts += entry.path().extension() == ".part";
+        DOCTEST_CHECK(parts == 0);
+
+        // The Windows installer isn't readable yet: a clear message, nothing found.
+        const gi::s_folder_check windows = gi::Check_Installer(tree.Path("Downloads/setup_master_of_orion_2_1.40b_(28044).exe"), &error);
+        DOCTEST_CHECK_FALSE(windows.ok());
+        DOCTEST_CHECK(error.find("Windows installer") != std::string::npos);
+        // Something that isn't an installer at all.
+        tree.Write("Downloads/master_of_orion_2_fake.sh", "#!/bin/sh\necho hello\n");
+        DOCTEST_CHECK_FALSE(gi::Check_Installer(tree.Path("Downloads/master_of_orion_2_fake.sh"), &error).exists);
+        DOCTEST_CHECK(error.find("doesn't look like") != std::string::npos);
     }
 }

@@ -250,6 +250,7 @@ namespace launcher {
             bool fullscreen = true;     // owner 2026-11-24: the first game shouldn't open in a 640x480 window
             // Waiting for a store to install the game (WP5.12): "Steam" or "GOG".
             std::string wait_store;
+            std::string check_error; // why an installer can't be read (Check_Installer)
             uint64_t wait_next_poll = 0;
             antares::game_install::s_steam_app steam;
             int imported = -1;
