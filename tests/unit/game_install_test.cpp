@@ -267,13 +267,87 @@ DOCTEST_TEST_SUITE("setup wizard (WP5.11)") {
         for (const auto& entry : fs::directory_iterator(tree.root / "game")) parts += entry.path().extension() == ".part";
         DOCTEST_CHECK(parts == 0);
 
-        // The Windows installer isn't readable yet: a clear message, nothing found.
+        // A Windows "installer" that isn't one: refused with a clear message (the real reader is
+        // checked on the owner's installer, see launcher.md).
         const gi::s_folder_check windows = gi::Check_Installer(tree.Path("Downloads/setup_master_of_orion_2_1.40b_(28044).exe"), &error);
         DOCTEST_CHECK_FALSE(windows.ok());
-        DOCTEST_CHECK(error.find("Windows installer") != std::string::npos);
+        DOCTEST_CHECK(error.find("isn't an Inno Setup installer") != std::string::npos);
         // Something that isn't an installer at all.
         tree.Write("Downloads/master_of_orion_2_fake.sh", "#!/bin/sh\necho hello\n");
         DOCTEST_CHECK_FALSE(gi::Check_Installer(tree.Path("Downloads/master_of_orion_2_fake.sh"), &error).exists);
         DOCTEST_CHECK(error.find("doesn't look like") != std::string::npos);
+    }
+
+    // A GOG Mac installer as 1.40b is: a xar whose Scripts entry (stored) is a gzip'd odc cpio with
+    // the game in ./payload/Contents/Resources/game/ (the owner's master_of_orion_2_enUS_1_40b_33251.pkg).
+    DOCTEST_TEST_CASE("GOG Mac installer: xar, gzip and cpio read as a stream") {
+        s_tree tree;
+        const auto octal = [](uint64_t value, int width) {
+            char text[32];
+            snprintf(text, sizeof(text), "%0*llo", width, static_cast<unsigned long long>(value));
+            return std::string(text);
+        };
+        std::string cpio;
+        const auto add = [&](const std::string& name, const std::string& data) {
+            cpio += "070707" + octal(0, 6) + octal(0, 6) + octal(0100644, 6) + octal(0, 6) + octal(0, 6) + octal(1, 6) + octal(0, 6) +
+                octal(0, 11) + octal(name.size() + 1, 6) + octal(data.size(), 11) + name + std::string(1, '\0') + data;
+        };
+        add(".", "");
+        add("./postinstall", "#!/bin/sh\n");
+        for (const std::string& name : antares::game_files::Required_Files()) add("./payload/Contents/Resources/game/" + name, "lbx:" + name);
+        add("./payload/Contents/Resources/game/DOSBOX.CONF", "not an lbx");
+        add("TRAILER!!!", "");
+        // gzip: a 10-byte header, raw deflate, CRC-32 and size.
+        size_t deflated_size = 0;
+        void* deflated = tdefl_compress_mem_to_heap(cpio.data(), cpio.size(), &deflated_size, TDEFL_DEFAULT_MAX_PROBES);
+        DOCTEST_REQUIRE(deflated != nullptr);
+        std::string gzip("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03", 10);
+        gzip.append(static_cast<const char*>(deflated), deflated_size);
+        mz_free(deflated);
+        const uint32_t crc = static_cast<uint32_t>(mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const unsigned char*>(cpio.data()), cpio.size()));
+        for (uint32_t value : {crc, static_cast<uint32_t>(cpio.size())}) {
+            for (int shift = 0; shift < 32; shift += 8) gzip += static_cast<char>((value >> shift) & 0xFF);
+        }
+        // xar: a big-endian 28-byte header, the zlib-compressed TOC, then the heap.
+        const std::string toc = "<?xml version=\"1.0\"?><xar><toc><file id=\"1\"><name>Distribution</name></file>"
+                                "<file id=\"2\"><type>directory</type><name>package.pkg</name><file id=\"3\"><data><length>" +
+            std::to_string(gzip.size()) +
+            "</length><encoding style=\"application/octet-stream\"/><offset>20</offset><size>" + std::to_string(gzip.size()) +
+            "</size></data><type>file</type><name>Scripts</name></file></file></toc></xar>";
+        mz_ulong toc_size = mz_compressBound(static_cast<mz_ulong>(toc.size()));
+        std::string toc_z(toc_size, '\0');
+        DOCTEST_REQUIRE(mz_compress(reinterpret_cast<unsigned char*>(toc_z.data()), &toc_size, reinterpret_cast<const unsigned char*>(toc.data()), static_cast<mz_ulong>(toc.size())) == MZ_OK);
+        toc_z.resize(toc_size);
+        std::string xar = "xar!";
+        const auto big = [&](uint64_t value, int bytes) {
+            for (int index = bytes - 1; index >= 0; --index) xar += static_cast<char>((value >> (index * 8)) & 0xFF);
+        };
+        big(28, 2);
+        big(1, 2);
+        big(toc_z.size(), 8);
+        big(toc.size(), 8);
+        big(1, 4);
+        xar += toc_z + std::string(20, 'x') + gzip; // 20 bytes of other heap data before Scripts
+        tree.Write("Downloads/master_of_orion_2_enUS_1_40b_33251.pkg", xar);
+
+        std::string error;
+        const gi::s_folder_check check = gi::Check_Installer(tree.Path("Downloads/master_of_orion_2_enUS_1_40b_33251.pkg"), &error);
+        DOCTEST_REQUIRE_MESSAGE(check.ok(), error);
+        DOCTEST_CHECK(check.installer == gi::INSTALLER_MAC);
+        DOCTEST_CHECK(check.found == 353);
+        DOCTEST_CHECK(check.patched);
+        DOCTEST_CHECK(check.to_copy.size() == 353);
+        gi::s_copy_progress progress;
+        DOCTEST_REQUIRE_MESSAGE(gi::Extract_Installer(check, tree.Path("game"), &progress), progress.error);
+        DOCTEST_CHECK(gi::Check_Folder(tree.Path("game")).ok());
+        std::ifstream fonts(tree.root / "game/FONTS.LBX", std::ios::binary);
+        DOCTEST_CHECK(std::string(std::istreambuf_iterator<char>(fonts), std::istreambuf_iterator<char>()) == "lbx:FONTS.LBX");
+        DOCTEST_CHECK_FALSE(fs::exists(tree.root / "game/DOSBOX.CONF"));
+
+        // A damaged payload: a clear failure, no half file left.
+        std::string broken = xar;
+        broken.resize(broken.size() - gzip.size() / 2);
+        tree.Write("Downloads/master_of_orion_2_broken.pkg", broken);
+        DOCTEST_CHECK_FALSE(gi::Check_Installer(tree.Path("Downloads/master_of_orion_2_broken.pkg"), &error).ok());
     }
 }
