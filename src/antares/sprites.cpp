@@ -70,7 +70,7 @@ namespace antares::sprites {
             frame->height = h;
         }
 
-        void Export_1x(s_animation_header* anim, const uint32_t palette_rgb[256], s_sprite* out, const uint32_t* glass_argb = nullptr) {
+        void Export_1x(s_animation_header* anim, const uint32_t palette_rgb[256], s_sprite* out, const uint32_t* glass_argb = nullptr, bool keep_glass = false) {
             const int32_t width = anim->width;
             const int32_t height = anim->height;
             std::vector<uint64_t> storage((k_bitmap_data_offset + (size_t)width * height + 7) / 8 + 1, 0);
@@ -113,6 +113,13 @@ namespace antares::sprites {
                         frame.rgba[i * 4 + 1] = (uint8_t)(c >> 8);
                         frame.rgba[i * 4 + 2] = (uint8_t)c;
                         frame.rgba[i * 4 + 3] = (uint8_t)(c >> 24);
+                        continue;
+                    }
+                    if (glassed && pixels[i] >= 0xF0 && !keep_glass) {
+                        // Glass tints what is under it, which a picture can't: left out, as the
+                        // HD path does (owner 2026-11-25: building shadows in the build list as a
+                        // tint from whichever glass table was loaded).
+                        frame.rgba[i * 4 + 3] = 0;
                         continue;
                     }
                     if (glassed && pixels[i] >= 0xF0) {
@@ -612,7 +619,10 @@ namespace antares::sprites {
             out->scale = render::SCALE / shrink;
             out->hd = true;
         } else {
-            Export_1x(anim, palette_rgb, out, glass ? glass_argb : nullptr);
+            // The colony landing's pods keep their glass beams (owner 2026-11-19: drawn as the level's
+            // colour over transparency).
+            const bool landing_pods = SDL_strcasecmp(lbx.c_str(), "COLONY.LBX") == 0 && entry == 6;
+            Export_1x(anim, palette_rgb, out, glass ? glass_argb : nullptr, landing_pods);
             out->hd_pending = still_decoding;
         }
         render::Forget_Loads(bytes, bytes + size);
