@@ -8,6 +8,7 @@
 
 #include "antares/identity.h"
 #include "antares/user_folder.h"
+#include "antares/gog.h"
 #include "launcher/launcher_chrome.h"
 
 #if defined(_WIN32)
@@ -388,6 +389,7 @@ namespace launcher {
         }
         if (!folder.empty()) Setup_Check_(folder);
         if (setup_.page == SETUP_WAIT) Setup_Wait_Poll_();
+        Gog_Poll_();
     }
 
     void c_launcher::Setup_Wait_(const std::string& store) {
@@ -449,13 +451,13 @@ namespace launcher {
         const char* brand = "BATTLE AT ANTARES";
         const ImVec2 brand_size = ch::Title_Font()->CalcTextSizeA(25.0f, FLT_MAX, 0.0f, brand);
         ch::Shadowed_Text(back, ch::Title_Font(), 25.0f, ImVec2(centre - brand_size.x * 0.5f, window_min.y + 16), ch::GOLD, brand);
-        const int step = setup_.page == SETUP_WELCOME                                            ? -1
-            : setup_.page == SETUP_FIND || setup_.page == SETUP_GET || setup_.page == SETUP_WAIT ? 0
-            : setup_.page == SETUP_CHECK                                                         ? 1
-            : setup_.page == SETUP_COPY                                                          ? 2
-            : setup_.page == SETUP_SAVES                                                         ? 3
-            : setup_.page == SETUP_HD                                                            ? 4
-                                                                                                 : 5;
+        const int step = setup_.page == SETUP_WELCOME                                                                        ? -1
+            : setup_.page == SETUP_FIND || setup_.page == SETUP_GET || setup_.page == SETUP_WAIT || setup_.page == SETUP_GOG ? 0
+            : setup_.page == SETUP_CHECK                                                                                     ? 1
+            : setup_.page == SETUP_COPY                                                                                      ? 2
+            : setup_.page == SETUP_SAVES                                                                                     ? 3
+            : setup_.page == SETUP_HD                                                                                        ? 4
+                                                                                                                             : 5;
         Steps_(back, centre, window_min.y + 58, step);
 
         const float bezel_top = window_min.y + 98;
@@ -463,7 +465,7 @@ namespace launcher {
         ch::Bezel(back, ImVec2(left, bezel_top), ImVec2(left + column, bezel_bottom));
 
         // The page, inside the bezel.
-        const char* titles[] = {"Welcome", "Where is your Master of Orion II?", "Get Master of Orion II", "Waiting for the store", "Checking your copy", "Copying the game files", "Your saved games", "HD art (optional)", "All set"};
+        const char* titles[] = {"Welcome", "Where is your Master of Orion II?", "Get Master of Orion II", "Waiting for the store", "GOG", "Checking your copy", "Copying the game files", "Your saved games", "HD art (optional)", "All set"};
         ImGui::SetCursorScreenPos(ImVec2(left + 30, bezel_top + 22));
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(10 / 255.0f, 11 / 255.0f, 14 / 255.0f, 0.85f));
@@ -574,6 +576,13 @@ namespace launcher {
                 ImGui::PushFont(ch::Bold_Font(), BODY);
                 ImGui::TextColored(ch::GOLD, "GOG");
                 ImGui::PopFont();
+                if (Gog_Available_()) {
+                    if (Link_("Sign in to GOG and download it here")) Gog_Start_();
+                    Text_("GOG's own sign-in page opens in a window; Battle at Antares never sees your password, keeps nothing "
+                          "after the download, and saves the installer in your Downloads.",
+                        ch::DIM,
+                        SMALL);
+                }
                 if (Link_("GOG's page for Master of Orion 1+2")) {
                     (void)SDL_OpenURL("https://www.gog.com/game/master_of_orion_1_2");
                     Setup_Wait_("GOG");
@@ -626,6 +635,43 @@ namespace launcher {
                     SDL_ShowOpenFolderDialog(callback, &setup_, SDL_GetKeyboardFocus(), nullptr, false);
                 }
                 left_label = "Back";
+                break;
+            }
+            case SETUP_GOG: {
+                std::string phase, error;
+                bool no_engine = false;
+                uint64_t total = 0;
+                {
+                    std::lock_guard<std::mutex> lock(gog_.mutex);
+                    phase = gog_.phase;
+                    error = gog_.error;
+                    no_engine = gog_.no_engine;
+                    total = gog_.total;
+                }
+                if (gog_.busy) {
+                    Text_(phase + (phase.rfind("Downloading", 0) == 0 ? "" : "..."));
+                    if (phase.rfind("Downloading", 0) == 0) {
+                        ImGui::Spacing();
+                        const uint64_t done = gog_.progress.done;
+                        const float fraction = total > 0 ? std::min(1.0f, static_cast<float>(static_cast<double>(done) / static_cast<double>(total))) : 0.0f;
+                        const std::string label = Megabytes_(done) + (total > 0 ? " of about " + Megabytes_(total) : "");
+                        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ch::AMBER);
+                        ImGui::ProgressBar(fraction, ImVec2(-1.0f, 0.0f), label.c_str());
+                        ImGui::PopStyleColor();
+                    }
+                    ImGui::Spacing();
+                    Text_("Your password goes to GOG's page only. Battle at Antares uses the sign-in for this one download and keeps nothing.", ch::DIM, SMALL);
+                    left_label = "Cancel";
+                } else {
+                    Text_(error.empty() ? "Done." : error, error.empty() ? ch::LIGHT : ch::RED);
+                    ImGui::Spacing();
+                    Text_(no_engine ? "GOG's website works instead: download Master of Orion II's offline installer there, and the wizard picks it up from your Downloads by itself."
+                                    : "You can try again, or use GOG's website: download the offline installer there and the wizard picks it up from your Downloads by itself.",
+                        ch::DIM,
+                        SMALL);
+                    left_label = "Back";
+                    right_label = no_engine ? "GOG's website" : "Try again";
+                }
                 break;
             }
             case SETUP_CHECK: {
@@ -826,6 +872,18 @@ namespace launcher {
                 break;
             case SETUP_WAIT:
                 setup_.page = SETUP_GET;
+                break;
+            case SETUP_GOG:
+                if (gog_.busy) {
+                    gog_.progress.cancel = true; // Cancel
+                } else if (action == LEFT) {
+                    setup_.page = SETUP_GET;
+                } else if (gog_.no_engine) {
+                    (void)SDL_OpenURL(antares::gog::STORE_URL);
+                    Setup_Wait_("GOG");
+                } else {
+                    Gog_Start_();
+                }
                 break;
             case SETUP_CHECK:
                 if (action == LEFT) {

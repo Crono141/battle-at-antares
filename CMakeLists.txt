@@ -1098,6 +1098,7 @@ if(ORION2RE_BUILD_GAME)
         src/launcher/launcher_chrome.cpp
         src/launcher/launcher_fetch.cpp
         src/launcher/launcher_hd.cpp
+        src/launcher/launcher_gog.cpp
         "${ANTARES_LAUNCHER_FONT_HEADER}"
         "${ANTARES_LAUNCHER_SCHEMA_HEADER}"
         ${ANTARES_LAUNCHER_CHROME_HEADERS}
@@ -1610,4 +1611,26 @@ endif()
 
 if(ANTARES_BUILD_GODOT)
     add_subdirectory(frontend/godot)
+endif()
+
+# GOG sign-in (WP5.13b, D29 case 3): GOG's own page in a window, a separate program so the
+# launcher never depends on a web engine. Linux: WebKitGTK 4.1, built when it is found.
+if(TARGET antares-launcher AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(ANTARES_WEBKITGTK IMPORTED_TARGET webkit2gtk-4.1 gtk+-3.0)
+    endif()
+    if(ANTARES_WEBKITGTK_FOUND)
+        add_executable(antares-gog-signin src/gog_signin/main_gtk.c)
+        target_link_libraries(antares-gog-signin PRIVATE PkgConfig::ANTARES_WEBKITGTK)
+        if(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL)
+            set_target_properties(antares-gog-signin PROPERTIES EXCLUDE_FROM_ALL YES)
+        endif()
+        if(ORION2RE_GAME_DIR)
+            add_custom_command(TARGET antares-gog-signin POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:antares-gog-signin> "${ORION2RE_GAME_DIR}/$<TARGET_FILE_NAME:antares-gog-signin>")
+        endif()
+    else()
+        message(STATUS "antares-gog-signin: WebKitGTK 4.1 not found; GOG sign-in falls back to GOG's website")
+    endif()
 endif()

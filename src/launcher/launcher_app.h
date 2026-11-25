@@ -107,10 +107,13 @@ namespace launcher {
         }
         /** The HD art list is still being fetched, or a pack is downloading (headless waits). */
         bool Hd_Waiting() const {
-            return hd_.listing || hd_.busy;
+            return hd_.listing || hd_.busy || gog_.busy;
         }
         /** Ticks the pack `id` and starts its download (the -hd-download option). */
         bool Download_Hd_Pack(const std::string& id);
+        /** Opens the wizard on GOG sign-in and starts it; GOG's answers are saved in `dump_folder`
+         *  (the -gog-dump option, for building test fixtures; the token is never saved). */
+        void Start_Gog_Signin(const std::string& dump_folder);
         /** Opens the HD art window (the -hd option). */
         void Open_Hd_Window() {
             hd_.window = true;
@@ -228,6 +231,7 @@ namespace launcher {
             SETUP_FIND,
             SETUP_GET,
             SETUP_WAIT,
+            SETUP_GOG,
             SETUP_CHECK,
             SETUP_COPY,
             SETUP_SAVES,
@@ -294,6 +298,28 @@ namespace launcher {
         bool Hd_Any_Ticked_() const;
         void Draw_Hd_List_();
         void Draw_Hd_Window_();
+
+        // GOG sign-in and download (WP5.13b, launcher_gog.cpp): the sign-in program gives a
+        // one-time code; a worker trades it for a token, finds the game in the library, downloads
+        // the installer into Downloads and checks it. The code and token never leave the worker's
+        // memory: no file, no log, no command line.
+        struct s_gog {
+            std::thread worker;
+            std::atomic<bool> busy{false};
+            std::mutex mutex;
+            std::string phase;       // what is happening, for people
+            std::string error;       // why it stopped
+            std::string result_path; // the checked installer, once there
+            bool finished = false;   // the worker is done (result_path or error set)
+            bool no_engine = false;  // the sign-in program couldn't start
+            uint64_t total = 0;      // the download's expected size
+            antares::hd_packs::s_progress progress;
+            std::string dump_folder; // -gog-dump: GOG's library and game answers are saved here (never the token)
+        } gog_;
+        bool Gog_Available_() const;
+        void Gog_Start_();
+        void Gog_Poll_();
+        void Gog_Stop_();
         void Setup_Find_();
         void Setup_Check_(const std::string& folder);
         void Setup_Start_Copy_();

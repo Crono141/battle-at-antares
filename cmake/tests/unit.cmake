@@ -596,8 +596,10 @@ orion2re_add_unit_test(test_config_loader
         tests/unit/launcher_packages_test.cpp
         tests/unit/game_install_test.cpp
         tests/unit/hd_packs_test.cpp
+        tests/unit/gog_test.cpp
         vendors/lzma/LzmaDec.c
     PRODUCTION_SOURCES
+        src/antares/gog.cpp
         src/antares/hd_packs.cpp
         src/launcher/launcher_fetch.cpp
         src/antares/game_install.cpp
