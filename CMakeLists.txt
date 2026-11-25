@@ -1167,6 +1167,9 @@ if(ORION2RE_BUILD_GAME)
         target_link_libraries(antares-launcher PRIVATE winhttp) # HD pack downloads (WP5.14)
         target_link_libraries(antares-launcher PRIVATE ole32 uuid shell32) # the Start menu entry
         target_sources(antares-launcher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/antares.rc") # the icon
+        # A windowed program: no console window beside it (owner's Wine test 2026-11-25). Its log
+        # still goes to standard error when started from a shell with 2> log.txt.
+        set_target_properties(antares-launcher PROPERTIES WIN32_EXECUTABLE TRUE)
     endif()
     if(ORION2RE_GAME_DIR)
         add_custom_command(TARGET antares-launcher POST_BUILD
