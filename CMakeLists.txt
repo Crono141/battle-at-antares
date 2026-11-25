@@ -828,13 +828,18 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
     # the stb implementations already come from imgui_draw.cpp there.
     list(REMOVE_ITEM ORION2RE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/imgui_stb.cpp")
 
+    # The LZMA decoder (LZMA SDK, public domain): GOG's Windows installer headers (WP5.13c).
+    set(ANTARES_LZMA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/vendors/lzma/LzmaDec.c")
+    set_source_files_properties(${ANTARES_LZMA_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
     add_library(orion2re_game_objects OBJECT
         ${ORION2RE_SOURCES}
         ${ORION2RE_HEADERS}
+        ${ANTARES_LZMA_SOURCES}
     )
     target_compile_features(orion2re_game_objects PRIVATE cxx_std_20)
     target_include_directories(orion2re_game_objects PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendors/lzma"
         ${ORION2RE_LIBSMACKER_INCLUDE_DIRS}
         ${ORION2RE_YYJSON_INCLUDE_DIRS}
         ${ORION2RE_LIBWEBP_INCLUDE_DIRS}

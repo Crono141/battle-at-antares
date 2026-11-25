@@ -11,6 +11,7 @@
 #include <set>
 
 #include "antares/game_files.h"
+#include "LzmaDec.h"
 #include "miniz.h"
 #include "antares/user_folder.h"
 #include "game/user_paths.h"
@@ -587,6 +588,312 @@ namespace antares::game_install {
         }
     } // namespace
 
+    namespace {
+        // GOG's Windows installer (1.40b, 2026-11-24): Inno Setup 5.6 (Unicode). Layout worked out
+        // from innoextract's source and proven on the owner's file (notes/antares/launcher.md, "GOG
+        // installers"). The game files are GOG Galaxy parts: zlib streams in stored chunks, named
+        // by the before_install(...) script string of the first part's file entry.
+        const unsigned char INNO_MAGIC[12] = {0x72, 0x44, 0x6C, 0x50, 0x74, 0x53, 0xCD, 0xE6, 0xD7, 0x7B, 0x0B, 0x2A};
+
+        uint32_t Le32_(const unsigned char* bytes) {
+            return uint32_t(bytes[0]) | uint32_t(bytes[1]) << 8 | uint32_t(bytes[2]) << 16 | uint32_t(bytes[3]) << 24;
+        }
+        uint64_t Le64_(const unsigned char* bytes) {
+            return uint64_t(Le32_(bytes)) | uint64_t(Le32_(bytes + 4)) << 32;
+        }
+
+        // Reads through a decompressed setup block.
+        class c_cursor {
+          public:
+            explicit c_cursor(const std::vector<unsigned char>& data) : data_(data) {}
+            bool Ok() const {
+                return ok_;
+            }
+            bool Skip(size_t count) {
+                if (!ok_ || count > data_.size() - at_) return ok_ = false;
+                at_ += count;
+                return true;
+            }
+            uint32_t U32() {
+                if (!Skip(4)) return 0;
+                return Le32_(data_.data() + at_ - 4);
+            }
+            uint64_t U64() {
+                if (!Skip(8)) return 0;
+                return Le64_(data_.data() + at_ - 8);
+            }
+            // A length-prefixed string's bytes (wstr: UTF-16LE).
+            std::string Bytes() {
+                const uint32_t length = U32();
+                if (!Skip(length)) return "";
+                return std::string(reinterpret_cast<const char*>(data_.data() + at_ - length), length);
+            }
+            void Skip_Strings(int count) {
+                for (int index = 0; index < count && ok_; ++index) (void)Bytes();
+            }
+
+          private:
+            const std::vector<unsigned char>& data_;
+            size_t at_ = 0;
+            bool ok_ = true;
+        };
+
+        std::string Utf16_To_Utf8_(const std::string& bytes) {
+            std::string text;
+            for (size_t index = 0; index + 1 < bytes.size(); index += 2) {
+                uint32_t code = uint8_t(bytes[index]) | uint32_t(uint8_t(bytes[index + 1])) << 8;
+                if (code >= 0xD800 && code <= 0xDBFF && index + 3 < bytes.size()) {
+                    const uint32_t low = uint8_t(bytes[index + 2]) | uint32_t(uint8_t(bytes[index + 3])) << 8;
+                    code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+                    index += 2;
+                }
+                if (code < 0x80) {
+                    text += static_cast<char>(code);
+                } else if (code < 0x800) {
+                    text += static_cast<char>(0xC0 | (code >> 6));
+                    text += static_cast<char>(0x80 | (code & 0x3F));
+                } else if (code < 0x10000) {
+                    text += static_cast<char>(0xE0 | (code >> 12));
+                    text += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+                    text += static_cast<char>(0x80 | (code & 0x3F));
+                } else {
+                    text += static_cast<char>(0xF0 | (code >> 18));
+                    text += static_cast<char>(0x80 | ((code >> 12) & 0x3F));
+                    text += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+                    text += static_cast<char>(0x80 | (code & 0x3F));
+                }
+            }
+            return text;
+        }
+
+        void* Lzma_Alloc_(ISzAllocPtr, size_t size) {
+            return std::malloc(size);
+        }
+        void Lzma_Free_(ISzAllocPtr, void* address) {
+            std::free(address);
+        }
+
+        // A raw LZMA1 stream: 5 property bytes, then data ending with the end marker.
+        bool Lzma1_(const std::vector<unsigned char>& input, std::vector<unsigned char>* output) {
+            if (input.size() < LZMA_PROPS_SIZE) return false;
+            const ISzAlloc alloc = {Lzma_Alloc_, Lzma_Free_};
+            CLzmaDec decoder;
+            LzmaDec_CONSTRUCT(&decoder);
+            if (LzmaDec_Allocate(&decoder, input.data(), LZMA_PROPS_SIZE, &alloc) != SZ_OK) return false;
+            LzmaDec_Init(&decoder);
+            size_t in_at = LZMA_PROPS_SIZE;
+            bool ok = false;
+            output->clear();
+            for (;;) {
+                const size_t before = output->size();
+                if (before > (64u << 20)) break; // far beyond any setup header
+                output->resize(before + (1 << 20));
+                SizeT out_size = 1 << 20, in_size = input.size() - in_at;
+                ELzmaStatus status;
+                const SRes result = LzmaDec_DecodeToBuf(&decoder, output->data() + before, &out_size, input.data() + in_at, &in_size, LZMA_FINISH_ANY, &status);
+                output->resize(before + out_size);
+                in_at += in_size;
+                if (result != SZ_OK) break;
+                if (status == LZMA_STATUS_FINISHED_WITH_MARK) {
+                    ok = true;
+                    break;
+                }
+                if (out_size == 0 && in_size == 0) break; // stuck: damaged
+            }
+            LzmaDec_Free(&decoder, &alloc);
+            return ok;
+        }
+
+        // One setup-0 block: a 9-byte header (CRC of the next 5, stored size, compressed), then
+        // 4096-byte chunks each led by its CRC, then (when compressed) LZMA1.
+        bool Inno_Block_(FILE* file, std::vector<unsigned char>* data) {
+            unsigned char header[9];
+            if (std::fread(header, 1, 9, file) != 9) return false;
+            if (static_cast<uint32_t>(mz_crc32(MZ_CRC32_INIT, header + 4, 5)) != Le32_(header)) return false;
+            const uint32_t stored = Le32_(header + 4);
+            if (stored > (64u << 20)) return false;
+            std::vector<unsigned char> raw(stored);
+            if (std::fread(raw.data(), 1, stored, file) != stored) return false;
+            std::vector<unsigned char> joined;
+            for (size_t at = 0; at < raw.size();) {
+                if (raw.size() - at < 5) return false;
+                const size_t length = std::min<size_t>(4096, raw.size() - at - 4);
+                if (static_cast<uint32_t>(mz_crc32(MZ_CRC32_INIT, raw.data() + at + 4, length)) != Le32_(raw.data() + at)) return false;
+                joined.insert(joined.end(), raw.begin() + static_cast<std::ptrdiff_t>(at + 4), raw.begin() + static_cast<std::ptrdiff_t>(at + 4 + length));
+                at += 4 + length;
+            }
+            if (header[8] == 0) {
+                *data = std::move(joined);
+                return true;
+            }
+            return Lzma1_(joined, data);
+        }
+
+        // The arguments of a script call: 'quoted' strings ('' is a quote) and bare numbers.
+        std::vector<std::string> Script_Arguments_(const std::string& call) {
+            std::vector<std::string> arguments;
+            const size_t open = call.find('(');
+            if (open == std::string::npos) return arguments;
+            std::string current;
+            bool quoted = false, any = false;
+            for (size_t index = open + 1; index < call.size(); ++index) {
+                const char character = call[index];
+                if (quoted) {
+                    if (character == '\'' && index + 1 < call.size() && call[index + 1] == '\'') {
+                        current += '\'';
+                        ++index;
+                    } else if (character == '\'') {
+                        quoted = false;
+                    } else {
+                        current += character;
+                    }
+                } else if (character == '\'') {
+                    quoted = any = true;
+                } else if (character == ',' || character == ')') {
+                    arguments.push_back(current);
+                    current.clear();
+                    any = false;
+                    if (character == ')') break;
+                } else if (character != ' ') {
+                    current += character;
+                    any = true;
+                }
+            }
+            (void)any;
+            return arguments;
+        }
+
+        struct s_inno_part {
+            uint64_t chunk_offset = 0; // from data_offset; the chunk starts with "zlb\x1a"
+            uint64_t file_offset = 0;  // inside the chunk
+            uint64_t stored = 0;       // a zlib stream of this many bytes
+            uint64_t inflated = 0;
+            uint16_t flags = 0;
+        };
+        struct s_inno_file {
+            std::string name; // the file's name (basename)
+            std::vector<s_inno_part> parts;
+            uint64_t size = 0;
+        };
+
+        // Lists the GOG Galaxy files in an Inno installer. False with `error` when the file isn't
+        // a GOG Inno 5.6 Unicode installer.
+        bool Inno_Files_(FILE* file, uint64_t size, uint64_t* data_offset, std::vector<s_inno_file>* files, std::string* error) {
+            const auto refuse = [&](const char* why) {
+                *error = why;
+                return false;
+            };
+            // The loader table: its magic within the first 16 MB (it's a PE resource near the start).
+            std::vector<unsigned char> window(static_cast<size_t>(std::min<uint64_t>(size, 16u << 20)));
+            if (!Seek_(file, 0) || std::fread(window.data(), 1, window.size(), file) != window.size()) return refuse("can't read the installer");
+            size_t table = std::string::npos;
+            for (size_t at = 0; at + 44 <= window.size(); ++at) {
+                if (window[at] == INNO_MAGIC[0] && std::memcmp(window.data() + at, INNO_MAGIC, 12) == 0 &&
+                    static_cast<uint32_t>(mz_crc32(MZ_CRC32_INIT, window.data() + at, 40)) == Le32_(window.data() + at + 40)) {
+                    table = at;
+                    break;
+                }
+            }
+            if (table == std::string::npos || Le32_(window.data() + table + 12) != 1) return refuse("this isn't an Inno Setup installer Battle at Antares can read");
+            const uint64_t header_offset = Le32_(window.data() + table + 32);
+            *data_offset = Le32_(window.data() + table + 36);
+            char version[65] = {};
+            if (!Seek_(file, header_offset) || std::fread(version, 1, 64, file) != 64) return refuse("can't read the installer's header");
+            const std::string version_text = version;
+            if (version_text.find("Inno Setup Setup Data (5.6.") == std::string::npos || version_text.find("(u)") == std::string::npos) {
+                *error = "this installer's version (" + version_text + ") isn't one Battle at Antares can read; GOG's 1.40b is";
+                return false;
+            }
+            std::vector<unsigned char> block1, block2;
+            if (!Inno_Block_(file, &block1) || !Inno_Block_(file, &block2)) return refuse("the installer's header is damaged");
+
+            c_cursor cursor(block1);
+            cursor.Skip_Strings(30 + 4); // the setup header's strings, then license, info and code
+            uint32_t counts[16];
+            for (uint32_t& count : counts) count = cursor.U32();
+            cursor.Skip(93);                                                      // the rest of the setup header (fixed size in 5.6 Unicode)
+            for (uint32_t index = 0; index < counts[0] && cursor.Ok(); ++index) { // languages
+                cursor.Skip_Strings(10);
+                cursor.Skip(21);
+            }
+            for (uint32_t index = 0; index < counts[1] && cursor.Ok(); ++index) { // messages
+                cursor.Skip_Strings(2);
+                cursor.Skip(4);
+            }
+            for (uint32_t index = 0; index < counts[2] && cursor.Ok(); ++index) cursor.Skip_Strings(1); // permissions
+            for (uint32_t index = 0; index < counts[3] && cursor.Ok(); ++index) {                       // types
+                cursor.Skip_Strings(4);
+                cursor.Skip(30);
+            }
+            for (uint32_t index = 0; index < counts[4] && cursor.Ok(); ++index) { // components
+                cursor.Skip_Strings(5);
+                cursor.Skip(42);
+            }
+            for (uint32_t index = 0; index < counts[5] && cursor.Ok(); ++index) { // tasks
+                cursor.Skip_Strings(6);
+                cursor.Skip(26);
+            }
+            for (uint32_t index = 0; index < counts[6] && cursor.Ok(); ++index) { // directories
+                cursor.Skip_Strings(7);
+                cursor.Skip(27);
+            }
+            struct s_entry {
+                std::string after_install, before_install;
+                uint32_t location = 0;
+            };
+            std::vector<s_entry> entries;
+            for (uint32_t index = 0; index < counts[7] && cursor.Ok(); ++index) { // files
+                s_entry entry;
+                cursor.Skip_Strings(8); // source, destination, font, assembly, components, tasks, languages, check
+                entry.after_install = Utf16_To_Utf8_(cursor.Bytes());
+                entry.before_install = Utf16_To_Utf8_(cursor.Bytes());
+                cursor.Skip(20); // windows versions
+                entry.location = cursor.U32();
+                cursor.Skip(4 + 8 + 2 + 4 + 1); // attributes, external size, permission, flags, type
+                entries.push_back(entry);
+            }
+            if (!cursor.Ok() || block2.size() < uint64_t(counts[8]) * 74) return refuse("the installer's file list couldn't be read");
+            const auto part_of = [&](uint32_t location, s_inno_part* part) {
+                if (location >= counts[8]) return false;
+                const unsigned char* data = block2.data() + size_t(location) * 74;
+                part->chunk_offset = Le32_(data + 8);
+                part->file_offset = Le64_(data + 12);
+                part->stored = Le64_(data + 20);
+                part->flags = static_cast<uint16_t>(data[72] | data[73] << 8);
+                return true;
+            };
+            // GOG Galaxy: before_install('md5', 'name', parts) starts a file; it and the next
+            // parts - 1 entries each say after_install('md5', stored, inflated).
+            files->clear();
+            for (size_t index = 0; index < entries.size(); ++index) {
+                const std::string& call = entries[index].before_install;
+                if (call.rfind("before_install", 0) != 0) continue;
+                const std::vector<std::string> arguments = Script_Arguments_(call);
+                if (arguments.size() < 3) continue;
+                const size_t count = static_cast<size_t>(std::strtoul(arguments[2].c_str(), nullptr, 10));
+                if (count == 0 || index + count > entries.size()) continue;
+                s_inno_file logical;
+                std::string name = arguments[1];
+                const size_t slash = name.find_last_of("\\/");
+                logical.name = slash == std::string::npos ? name : name.substr(slash + 1);
+                bool ok = true;
+                for (size_t part_index = 0; part_index < count && ok; ++part_index) {
+                    const s_entry& entry = entries[index + part_index];
+                    const std::vector<std::string> sizes = Script_Arguments_(entry.after_install);
+                    s_inno_part part;
+                    ok = entry.after_install.rfind("after_install", 0) == 0 && sizes.size() >= 3 && part_of(entry.location, &part);
+                    if (!ok) break;
+                    part.inflated = std::strtoull(sizes[2].c_str(), nullptr, 10);
+                    logical.size += part.inflated;
+                    logical.parts.push_back(part);
+                }
+                if (ok) files->push_back(logical);
+            }
+            if (files->empty()) return refuse("this installer holds no GOG Galaxy files Battle at Antares can read");
+            return true;
+        }
+    } // namespace
+
     s_folder_check Check_Installer(const std::string& path, std::string* error) {
         s_folder_check check;
         check.folder = path;
@@ -594,7 +901,39 @@ namespace antares::game_install {
         if (check.installer == INSTALLER_NONE) check.installer = INSTALLER_LINUX; // a renamed file: try it
         check.missing = game_files::Required_Files();
         if (check.installer == INSTALLER_WINDOWS) {
-            *error = "reading GOG's Windows installer isn't ready yet";
+            FILE* file = Open_Read_(path);
+            std::error_code code;
+            const uint64_t size = fs::file_size(Path_(path), code);
+            std::vector<s_inno_file> inno;
+            uint64_t data_offset = 0;
+            const bool ok = file != nullptr && !code && Inno_Files_(file, size, &data_offset, &inno, error);
+            if (file != nullptr) std::fclose(file);
+            if (!ok) {
+                if (error->empty()) *error = "can't read " + path;
+                return check;
+            }
+            check.exists = true;
+            check.archive_offset = data_offset;
+            std::map<std::string, uint64_t> found; // upper-case name -> size
+            for (const s_inno_file& entry : inno) {
+                if (Upper_(entry.name).size() > 4 && Upper_(entry.name).compare(Upper_(entry.name).size() - 4, 4, ".LBX") == 0) found[Upper_(entry.name)] = entry.size;
+            }
+            check.missing.clear();
+            for (const std::string& name : game_files::Required_Files()) {
+                const auto it = found.find(name);
+                if (it == found.end()) {
+                    check.missing.push_back(name);
+                } else if (it->second == 0) {
+                    check.empty.push_back(name);
+                } else {
+                    ++check.found;
+                }
+            }
+            check.patched = found.count("PATCH13.LBX") != 0;
+            for (const auto& [name, file_size] : found) {
+                check.to_copy.push_back(name);
+                check.bytes += file_size;
+            }
             return check;
         }
         std::map<std::string, std::pair<std::string, uint64_t>> files; // upper-case name -> entry, size
@@ -709,6 +1048,84 @@ namespace antares::game_install {
         };
         const char* stopped = "Stopped. The files extracted so far are kept: Try again carries on from there.";
         std::string error;
+        if (check.installer == INSTALLER_WINDOWS) {
+            const fs::path target = Path_(target_text);
+            std::error_code code;
+            fs::create_directories(target, code);
+            if (code) return fail("Can't create " + Text_(target) + ": " + code.message());
+            FILE* file = Open_Read_(check.folder);
+            const uint64_t size = fs::file_size(Path_(check.folder), code);
+            std::vector<s_inno_file> inno;
+            uint64_t data_offset = 0;
+            if (file == nullptr || code || !Inno_Files_(file, size, &data_offset, &inno, &error)) {
+                if (file != nullptr) std::fclose(file);
+                return fail(error.empty() ? "Can't read " + check.folder + "." : error + ".");
+            }
+            const std::set<std::string> wanted(check.to_copy.begin(), check.to_copy.end());
+            std::string failure;
+            for (const s_inno_file& entry : inno) {
+                if (wanted.count(Upper_(entry.name)) == 0) continue;
+                if (progress->cancel) {
+                    failure = stopped;
+                    break;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(progress->mutex);
+                    progress->current = entry.name;
+                }
+                const fs::path final_path = target / Path_(entry.name);
+                if (Size_Or_None_(final_path) == entry.size) { // already there from an earlier try
+                    progress->bytes_done += entry.size;
+                    continue;
+                }
+                const fs::path temporary = target / Path_(entry.name + ".part");
+                FILE* out = Open_Write_(temporary);
+                if (out == nullptr) {
+                    failure = "Can't write " + entry.name + " to " + Text_(target) + ".";
+                    break;
+                }
+                for (const s_inno_part& part : entry.parts) {
+                    // Galaxy parts sit in stored chunks (no LZMA2, no encryption) as zlib streams.
+                    unsigned char magic[4];
+                    if ((part.flags & 0xC0) != 0 || part.stored > (64u << 20) || part.inflated > (64u << 20) || !Seek_(file, data_offset + part.chunk_offset) ||
+                        std::fread(magic, 1, 4, file) != 4 || std::memcmp(magic, "zlb\x1a", 4) != 0 || !Seek_(file, data_offset + part.chunk_offset + 4 + part.file_offset)) {
+                        failure = "The installer's data for " + entry.name + " is damaged or packed differently.";
+                        break;
+                    }
+                    std::vector<unsigned char> stored(static_cast<size_t>(part.stored)), inflated(static_cast<size_t>(part.inflated));
+                    mz_ulong inflated_size = static_cast<mz_ulong>(part.inflated);
+                    if (std::fread(stored.data(), 1, stored.size(), file) != stored.size() ||
+                        mz_uncompress(inflated.data(), &inflated_size, stored.data(), static_cast<mz_ulong>(stored.size())) != MZ_OK || inflated_size != part.inflated) {
+                        failure = "The installer's data for " + entry.name + " is damaged.";
+                        break;
+                    }
+                    if (std::fwrite(inflated.data(), 1, inflated.size(), out) != inflated.size()) {
+                        failure = "Writing " + entry.name + " failed (is the disk full?).";
+                        break;
+                    }
+                    progress->bytes_done += part.inflated;
+                    if (progress->cancel) {
+                        failure = stopped;
+                        break;
+                    }
+                }
+                const bool closed = std::fclose(out) == 0;
+                if (failure.empty() && !closed) failure = "Writing " + entry.name + " failed (is the disk full?).";
+                if (!failure.empty()) {
+                    fs::remove(temporary, code);
+                    break;
+                }
+                fs::rename(temporary, final_path, code);
+                if (code) {
+                    failure = "Can't finish " + entry.name + ": " + code.message();
+                    break;
+                }
+            }
+            std::fclose(file);
+            if (!failure.empty()) return fail(failure);
+            progress->finished = true;
+            return true;
+        }
         if (check.installer == INSTALLER_MAC) {
             const fs::path target = Path_(target_text);
             std::error_code code;

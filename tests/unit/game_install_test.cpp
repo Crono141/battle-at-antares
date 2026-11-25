@@ -267,10 +267,11 @@ DOCTEST_TEST_SUITE("setup wizard (WP5.11)") {
         for (const auto& entry : fs::directory_iterator(tree.root / "game")) parts += entry.path().extension() == ".part";
         DOCTEST_CHECK(parts == 0);
 
-        // The Windows installer isn't readable yet: a clear message, nothing found.
+        // A Windows "installer" that isn't one: refused with a clear message (the real reader is
+        // checked on the owner's installer, see launcher.md).
         const gi::s_folder_check windows = gi::Check_Installer(tree.Path("Downloads/setup_master_of_orion_2_1.40b_(28044).exe"), &error);
         DOCTEST_CHECK_FALSE(windows.ok());
-        DOCTEST_CHECK(error.find("Windows installer") != std::string::npos);
+        DOCTEST_CHECK(error.find("isn't an Inno Setup installer") != std::string::npos);
         // Something that isn't an installer at all.
         tree.Write("Downloads/master_of_orion_2_fake.sh", "#!/bin/sh\necho hello\n");
         DOCTEST_CHECK_FALSE(gi::Check_Installer(tree.Path("Downloads/master_of_orion_2_fake.sh"), &error).exists);

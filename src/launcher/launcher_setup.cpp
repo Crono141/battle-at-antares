@@ -641,7 +641,7 @@ namespace launcher {
 #else
                     const bool native = check.installer == gi::INSTALLER_LINUX;
 #endif
-                    Check_Row_(false, true, "Installer", native ? "Battle at Antares can't read this installer yet (" + setup_.check_error + "). Run it instead: the wizard waits and finds the game when it's installed." : "This installer is for another system (" + setup_.check_error + "). GOG's download page for Master of Orion 1+2 also has an installer for this system; download that one.");
+                    Check_Row_(false, true, "Installer", native ? "Battle at Antares couldn't read this installer: " + setup_.check_error + ". Run it instead: the wizard waits and finds the game when it's installed." : "Battle at Antares couldn't read this installer: " + setup_.check_error + ". GOG's download page for Master of Orion 1+2 has installers for every system; download it again.");
                     left_label = "Back";
                     if (native) {
                         right_label = "Run the installer";
