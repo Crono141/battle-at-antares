@@ -265,6 +265,7 @@ var _sounds_held := false
 func _process(delta: float) -> void:
 	_check_orphan_system(delta)
 	_keep_build_pane_beside()
+	_update_pinned_cover()
 	if todo_auto:
 		_auto_todo_step()
 	elif _gain_discovery_step():
@@ -998,6 +999,8 @@ func _view(scene_name: String) -> Control:
 			view.planet_selected.connect(_on_pane_planet)
 		if view.has_signal("width_changed"):
 			view.width_changed.connect(_fit_beside_panel.bind(view))
+		if view.has_signal("pin_changed"):
+			view.covered = _panes_over_pinned
 		if view.has_signal("fleet_marked"):
 			view.fleet_marked.connect(func(ship: int):
 				galaxy.selected_fleet = ship
@@ -1649,6 +1652,9 @@ func _on_view_closed(scene_name: String) -> void:
 			else:
 				galaxy.forget_flight()
 				_open_side_panel("colonies") # back to the whole galaxy, the panel as it was
+		elif not _keep_camera and _pinned_panel() != null:
+			galaxy.forget_flight()
+			_fit_beside_panel(_pinned_panel()) # back to the galaxy beside the pinned panel (WP3.12)
 		elif not _keep_camera:
 			galaxy.fly_back()
 		galaxy.redraw()
@@ -1667,8 +1673,8 @@ func _on_view_closed(scene_name: String) -> void:
 	elif scene_name in SIDE_PANELS.values():
 		_view("side_tabs").show_open(SIDE_PANELS.find_key(scene_name), false)
 		galaxy.selected = -1
-		if not _colonies_return and not _switching_panel:
-			galaxy.unfit() # the camera where it was before the panel
+		if not _colonies_return and not _switching_panel and not _view("system_pane").visible:
+			galaxy.unfit() # the camera where it was before the panel (a system open over it keeps it)
 		# A system shown on the map with no system pane (owner, 2026-11-21: every star stayed
 		# dimmed, zoomed out, with no way back): the galaxy comes back.
 		var map_question: bool = overlay.visible or _popup_zoom >= 0 or _popup_map_ending >= 0 or \
@@ -2062,6 +2068,7 @@ func _smoke_colonies(shots: String) -> bool:
 	_on_view_action("colonies")
 	await get_tree().create_timer(0.6).timeout
 	var panel := _view("colonies_panel")
+	(panel.get_node("Box/Header/Pin") as Button).button_pressed = false # this step is the unpinned way
 	var rows: int = panel._rows.size()
 	var area: Rect2 = panel.get_global_rect()
 	var tab: Button = _view("side_tabs").get_node("Colonies")
@@ -2199,6 +2206,86 @@ func _smoke_colonies(shots: String) -> bool:
 	await get_tree().create_timer(0.6).timeout
 	print("smoke: closed: zoom %.3f (was %.3f), position %s (was %s)" % [galaxy.camera.zoom.x, zoom_before, galaxy.camera.position, position_before])
 	return absf(galaxy.camera.zoom.x - zoom_before) < zoom_before * 0.01 and galaxy.camera.position.distance_to(position_before) < 2.0
+
+
+## WP3.12 (`-- --smoke --native --pin`): a pinned Colonies panel stays open while a colony's
+## system, colony and build panes open over it (from its Building slot, its name and a star
+## click); Esc closes a pane, not the panel; BACK leaves the galaxy fitted beside the panel. A
+## pinned Planets panel opens a clicked star's system over itself. Unpinned again at the end.
+func _smoke_pin(shots: String) -> bool:
+	var esc := func() -> void:
+		var key := InputEventKey.new()
+		key.keycode = KEY_ESCAPE
+		key.pressed = true
+		Input.parse_input_event(key)
+		var up := key.duplicate() as InputEventKey
+		up.pressed = false
+		Input.parse_input_event(up)
+	_on_view_action("colonies")
+	await get_tree().create_timer(0.8).timeout
+	var panel := _view("colonies_panel")
+	var pin := panel.get_node("Box/Header/Pin") as Button
+	pin.button_pressed = true
+	var fitted_zoom: float = galaxy.camera.zoom.x
+	var system_pane := _view("system_pane")
+	var back_button: Button = system_pane.get_node("Box/Back")
+	var first: Dictionary = panel.colonies[0]
+	panel.build_chosen.emit(int(first.colony), int(first.star), int(first.planet), false)
+	await get_tree().create_timer(1.5).timeout
+	print("smoke: pinned build: panel %s, system %s, colony pane %d, build %s, back '%s', order panel %d < system %d" % [panel.visible,
+		system_pane.visible, _view("colony_pane").colony_id, _view("build_pane").visible, back_button.text, panel.get_index(), system_pane.get_index()])
+	if shots != "":
+		await host.shot(shots + "/native-pin-build.png")
+	if not panel.visible or not system_pane.visible or not _view("build_pane").visible or panel.get_index() > system_pane.get_index():
+		return false
+	esc.call()
+	await get_tree().create_timer(0.6).timeout
+	print("smoke: pinned Esc: panel %s, build %s, colony pane %s, system %s" % [panel.visible, _view("build_pane").visible, _view("colony_pane").visible, system_pane.visible])
+	if not panel.visible:
+		return false
+	if panel.colonies.size() > 1: # the next colony from the pinned panel
+		var second: Dictionary = panel.colonies[1]
+		panel.colony_opened.emit(int(second.colony), int(second.star), int(second.planet))
+		await get_tree().create_timer(1.2).timeout
+		print("smoke: pinned second colony: panel %s, colony pane %d (wanted %d)" % [panel.visible, _view("colony_pane").colony_id, int(second.colony)])
+		if not panel.visible or _view("colony_pane").colony_id != int(second.colony):
+			return false
+	_on_star_clicked(int(first.star)) # a star on the map: its system, over the panel
+	await get_tree().create_timer(1.2).timeout
+	print("smoke: pinned star click: panel %s, system %s on %d (wanted %d), row %d" % [panel.visible, system_pane.visible, galaxy.system_star, int(first.star), panel.selected])
+	if shots != "":
+		await host.shot(shots + "/native-pin-star.png")
+	if not panel.visible or not system_pane.visible or galaxy.system_star != int(first.star):
+		return false
+	back_button.pressed.emit()
+	await get_tree().create_timer(1.0).timeout
+	print("smoke: pinned back: panel %s, system %s, zoom %.3f (fitted %.3f)" % [panel.visible, system_pane.visible, galaxy.camera.zoom.x, fitted_zoom])
+	if shots != "":
+		await host.shot(shots + "/native-pin-back.png")
+	if not panel.visible or system_pane.visible or absf(galaxy.camera.zoom.x - fitted_zoom) > fitted_zoom * 0.02:
+		return false
+	pin.button_pressed = false
+	# Planets, pinned: a star click opens its system over the panel.
+	_on_view_action("planets")
+	await get_tree().create_timer(0.8).timeout
+	var planets := _view("planets_panel")
+	var planets_pin := planets.get_node("Box/Header/Pin") as Button
+	planets_pin.button_pressed = true
+	_on_star_clicked(int(first.star))
+	await get_tree().create_timer(1.2).timeout
+	print("smoke: pinned planets star click: panel %s, system %s, colonies panel %s" % [planets.visible, system_pane.visible, panel.visible])
+	if shots != "":
+		await host.shot(shots + "/native-pin-planets.png")
+	if not planets.visible or not system_pane.visible:
+		return false
+	back_button.pressed.emit()
+	await get_tree().create_timer(1.0).timeout
+	planets_pin.button_pressed = false
+	if not planets.visible or system_pane.visible:
+		return false
+	planets.close()
+	await get_tree().create_timer(0.6).timeout
+	return true
 
 
 ## WP3.5b (`-- --smoke --native --planets`): the Planets panel opens beside the fitted galaxy with
@@ -3773,17 +3860,65 @@ func _side_panel_area() -> Rect2:
 	return Rect2(0.0, area.position.y, right, area.size.y)
 
 
+## The Colonies or Planets panel when it is open and pinned (WP3.12), or null.
+func _pinned_panel() -> Control:
+	for panel_name: String in ["colonies_panel", "planets_panel"]:
+		var panel: Control = _views.get(panel_name)
+		if panel != null and panel.visible and panel.pinned:
+			return panel
+	return null
+
+
+## The narrowest space a system is framed in beside a pinned panel (else it goes behind it).
+const PINNED_SYSTEM_ROOM := 280.0
+
+
+## A pinned panel fades out while panes cover a good part of it (their glass would show its rows
+## through them) and comes back as they close; it stays open throughout.
+const PINNED_COVER_SHARE := 0.2
+
+
+func _update_pinned_cover() -> void:
+	for panel_name: String in ["colonies_panel", "planets_panel"]:
+		var panel: Control = _views.get(panel_name)
+		if panel == null or not panel.visible:
+			continue
+		var under := false
+		if panel.pinned:
+			var rect := panel.get_global_rect()
+			var covered_area := 0.0
+			for pane_name: String in ["system_pane", "colony_pane", "build_pane", "colony_landscape"]:
+				var pane: Control = _views.get(pane_name)
+				if pane != null and pane.visible and pane.get_index() > panel.get_index():
+					covered_area += rect.intersection(pane.get_global_rect()).get_area()
+			under = covered_area > rect.get_area() * PINNED_COVER_SHARE
+		panel.set_under(under)
+
+
+## A pane is open over a pinned panel (its Esc comes first).
+func _panes_over_pinned() -> bool:
+	for pane_name: String in ["system_pane", "colony_pane", "build_pane", "colony_landscape"]:
+		var pane: Control = _views.get(pane_name)
+		if pane != null and pane.visible:
+			return true
+	return false
+
+
 ## The Colonies panel's Building slot (or its name, `with_build` false): the panel goes, the
 ## colony's system opens with its colony pane (and build pane), and the system pane's way back
 ## reads RETURN TO COLONIES (owner, 2026-11-14).
 func _colonies_build(colony_id: int, star_id: int, planet_id: int, bought: bool, with_build := true) -> void:
-	_colonies_return = true
-	galaxy.keep_fit_for_return()
-	_view("colonies_panel").close()
+	# Pinned (WP3.12): the panel stays and the colony's panes open over it.
+	var pinned: bool = _pinned_panel() == _views.get("colonies_panel")
+	if not pinned:
+		_colonies_return = true
+		galaxy.keep_fit_for_return()
+		_view("colonies_panel").close()
 	_send({"verb": "query", "what": "system", "star": star_id}, func(result: Dictionary):
 		if not result.get("ok", false) or native_screen != Screens.MAIN:
-			_colonies_return = false
-			galaxy.unfit()
+			if not pinned:
+				_colonies_return = false
+				galaxy.unfit()
 			return
 		_panel_star = star_id
 		galaxy.selected = star_id
@@ -3794,7 +3929,8 @@ func _colonies_build(colony_id: int, star_id: int, planet_id: int, bought: bool,
 		_send({"verb": "watch", "what": "system", "star": star_id}) # its planets move each turn
 		pane.race_id = _race_id
 		pane.show_system(result, String(galaxy.stars[star_id].get("label", "")).trim_prefix("(").trim_suffix(")"), star_id)
-		(pane.get_node("Box/Back") as Button).text = "RETURN TO COLONIES"
+		if not pinned:
+			(pane.get_node("Box/Back") as Button).text = "RETURN TO COLONIES"
 		pane.select_planet(planet_id) # its colony pane (colony_chosen)
 		if with_build:
 			_open_build_pane(colony_id, bought))
@@ -3819,7 +3955,9 @@ func _on_star_clicked(star_id: int) -> void:
 			if "fleets" in side_view:
 				side_view.fleets = galaxy.fleets
 			side_view.select_star(star_id) # the panel's row; the map stays (owner, 2026-11-14)
-			return
+			if not side_view.pinned:
+				return
+			break # pinned (WP3.12): the system opens too, over the panel
 	if galaxy.relocating:
 		_end_relocating()
 		_send({"verb": "merge_relocations", "star": star_id})
@@ -3954,10 +4092,17 @@ func _frame_system(star_id: int) -> void:
 		for b in tabs.find_children("*", "Button", true, false):
 			if (b as Control).is_visible_in_tree():
 				right = minf(right, (b as Control).get_global_rect().position.x - 8.0)
-	if right - left < view.x * 0.3: # a small window: the panes cover most of it
+	# A pinned panel (WP3.12): the system between the panes and the panel where that leaves room
+	# for it, smaller than usual if need be (the map can't draw over the panel).
+	var room_floor := view.x * 0.3
+	var pinned: Control = _pinned_panel()
+	if pinned != null and pinned.rest_left() - 8.0 - left >= PINNED_SYSTEM_ROOM:
+		right = minf(right, pinned.rest_left() - 8.0)
+		room_floor = minf(room_floor, PINNED_SYSTEM_ROOM)
+	if right - left < room_floor: # a small window: the panes cover most of it
 		left = 0.0
 		right = view.x
-	var room := right - left_both if right - left_both >= view.x * 0.3 else right - left
+	var room := right - left_both if right - left_both >= room_floor else right - left
 	# Never wider than the height allows (owner, 2026-11-14: on a 32:9 window the free width
 	# zoomed the system in past its art, muddy); a 16:9 screen's room is about this already.
 	room = minf(room, view.y * SYSTEM_ROOM_PER_HEIGHT)
@@ -5937,7 +6082,7 @@ func _smoke_native() -> void:
 		return
 	# The side panels' steps, any of them in one launch (one game start for several checks), with
 	# quick camera flights: the steps wait on the flights.
-	var panel_steps: Array = ["--colonies", "--planets", "--fleets", "--leaders", "--races", "--info", "--design", "--layering"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
+	var panel_steps: Array = ["--colonies", "--planets", "--pin", "--fleets", "--leaders", "--races", "--info", "--design", "--layering"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
 	if not panel_steps.is_empty():
 		galaxy.flight_time = 0.15
 		for step: String in panel_steps:
@@ -5946,6 +6091,8 @@ func _smoke_native() -> void:
 				passed = await _smoke_colonies(shots)
 			elif step == "--planets":
 				passed = await _smoke_planets(shots)
+			elif step == "--pin":
+				passed = await _smoke_pin(shots)
 			elif step == "--fleets":
 				passed = await _smoke_fleets_panel(shots)
 			elif step == "--leaders":

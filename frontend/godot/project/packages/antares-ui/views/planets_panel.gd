@@ -69,6 +69,7 @@ var _rows := {} # planet -> its row panel
 
 func _ready() -> void:
 	$Box/Header/Close.pressed.connect(close)
+	add_pin("planets")
 	for f: Dictionary in FILTERS:
 		_filters_on[f.flag] = f.on
 	_show_filters()

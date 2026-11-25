@@ -79,6 +79,7 @@ var _rows := {} # colony -> its row panel
 
 func _ready() -> void:
 	$Box/Header/Close.pressed.connect(close)
+	add_pin("colonies")
 	scroll.resized.connect(func(): _fill_jobs.call_deferred())
 	# The output box's three lines, filled or not: the strip keeps its height.
 	$Box/Body/Info/Colony/Output.custom_minimum_size.y = 3.0 * OUTPUT_LINE + 2.0 * 3.0 + \
