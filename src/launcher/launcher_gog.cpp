@@ -50,7 +50,23 @@ namespace launcher {
 
     bool c_launcher::Gog_Available_() const {
         std::error_code error;
-        return std::filesystem::is_regular_file(U8_(Signin_Path_()), error);
+        if (!std::filesystem::is_regular_file(U8_(Signin_Path_()), error)) return false;
+#if defined(__linux__)
+        // The sign-in window needs WebKitGTK 4.1, which an AppImage or Flatpak can't bring along:
+        // without it the wizard offers GOG's website instead (WP5.16).
+        static const bool webkit = [] {
+            SDL_SharedObject* library = SDL_LoadObject("libwebkit2gtk-4.1.so.0");
+            if (library == nullptr) {
+                SDL_Log("launcher: no WebKitGTK 4.1; GOG sign-in goes through GOG's website");
+                return false;
+            }
+            SDL_UnloadObject(library);
+            return true;
+        }();
+        return webkit;
+#else
+        return true;
+#endif
     }
 
     void c_launcher::Start_Gog_Signin(const std::string& dump_folder) {

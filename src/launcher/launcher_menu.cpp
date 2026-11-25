@@ -155,7 +155,9 @@ namespace launcher::menu {
         text += "GenericName=Space strategy game\n";
         text += "Comment=Choose packages and settings, then start the game\n";
         text += "Exec=" + Quote_(Program_(game_dir)) + "\n";
-        text += "Path=" + game_dir + "\n";
+        // No working folder for an AppImage: its files are mounted somewhere new each run (the
+        // folder would be gone when the entry is used).
+        if (SDL_getenv("APPIMAGE") == nullptr) text += "Path=" + game_dir + "\n";
         text += "Icon=battle-at-antares\nTerminal=false\nCategories=Game;StrategyGame;\nKeywords=Master of Orion;MOO2;4X;\n";
         std::ofstream file(antares::utf8::Path(entry), std::ios::binary | std::ios::trunc);
         if (!file || !file.write(text.data(), static_cast<std::streamsize>(text.size()))) {
