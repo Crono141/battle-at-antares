@@ -35,6 +35,26 @@ namespace antares::game_install {
      *  without duplicates. Bounded: a few thousand folders at most. */
     std::vector<s_candidate> Detect(const std::vector<s_root>& roots);
 
+    /** Steam's store id for Master of Orion 2 (Wargaming Labs; checked 2026-11-24 on the owner's copy). */
+    inline constexpr int STEAM_APP_ID = 410980;
+
+    /** Steam's own folders on this machine (its install, and each library from libraryfolders.vdf),
+     *  native, Flatpak and macOS; `registry_roots` adds Windows' SteamPath. Empty: no Steam. */
+    std::vector<std::string> Steam_Libraries(const std::string& home, const std::vector<s_root>& registry_roots = {});
+
+    /** What Steam says about an app (its appmanifest_<id>.acf in any library). */
+    struct s_steam_app {
+        bool known = false;     // a manifest exists: Steam is installing or has installed it
+        bool installed = false; // StateFlags has "fully installed" and no update is pending
+        uint64_t done = 0;      // BytesDownloaded
+        uint64_t total = 0;     // BytesToDownload
+        std::string folder;     // <library>/steamapps/common/<installdir>/
+    };
+    s_steam_app Steam_App(const std::vector<std::string>& libraries, int app_id);
+
+    /** A value from Steam's KeyValues text ("key" "value"), first match; empty when absent. */
+    std::string Vdf_Value(const std::string& text, const std::string& key);
+
     /** Steam's libraryfolders.vdf: each library's "path". */
     std::vector<std::string> Parse_Steam_Libraries(const std::string& vdf_text);
 

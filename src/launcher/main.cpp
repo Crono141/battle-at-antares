@@ -42,6 +42,7 @@ namespace {
         int cancel_after = 0;     // press Cancel on the copy page after this many ms
         bool hd = false;          // open the HD art window (WP5.14)
         std::string hd_download;  // download this HD pack (headless: wait for it)
+        bool wait_store = false;  // with -screenshot: wait while the wizard waits for a store
     };
 
     bool Parse_Options_(int argc, char** argv, s_launcher_options* options, std::string* error) {
@@ -66,6 +67,7 @@ namespace {
             {"cancel-after", true},
             {"hd", false},
             {"hd-download", true},
+            {"wait-store", false},
         };
         std::vector<command_line::s_option> parsed;
         if (!command_line::Parse_Options(argc, argv, command_line::OPTION_PREFIX, definitions, std::size(definitions), &parsed, error)) {
@@ -93,6 +95,7 @@ namespace {
                 case 17: options->cancel_after = SDL_atoi(option.value.c_str()); break;
                 case 18: options->hd = true; break;
                 case 19: options->hd_download = option.value; break;
+                case 20: options->wait_store = true; break;
                 default: break;
             }
         }
@@ -379,6 +382,10 @@ int main(int argc, char** argv) {
         }
         // Headless: wait for the HD art list or a download before the screenshot (a download may
         // take a while: no deadline).
+        if (headless && options.wait_store && app.Setup_Waiting() && SDL_GetTicks() < wait_deadline) {
+            SDL_Delay(100);
+            continue;
+        }
         if (headless && app.Hd_Waiting()) {
             SDL_Delay(100);
             continue;

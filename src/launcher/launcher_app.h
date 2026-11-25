@@ -115,6 +115,10 @@ namespace launcher {
         void Open_Hd_Window() {
             hd_.window = true;
         }
+        /** The wizard is waiting for a store to install the game (headless waits with -wait-store). */
+        bool Setup_Waiting() const {
+            return setup_.active && setup_.page == SETUP_WAIT;
+        }
         /** Presses Cancel on the copy page. */
         void Cancel_Setup_Copy() {
             if (setup_.progress) setup_.progress->cancel = true;
@@ -223,6 +227,7 @@ namespace launcher {
         enum e_setup_page { SETUP_WELCOME,
             SETUP_FIND,
             SETUP_GET,
+            SETUP_WAIT,
             SETUP_CHECK,
             SETUP_COPY,
             SETUP_SAVES,
@@ -243,6 +248,10 @@ namespace launcher {
             bool import_saves = true;
             bool replace_taken = false; // owner, question 22: keep Antares's saves unless asked
             bool fullscreen = true;     // owner 2026-11-24: the first game shouldn't open in a 640x480 window
+            // Waiting for a store to install the game (WP5.12): "Steam" or "GOG".
+            std::string wait_store;
+            uint64_t wait_next_poll = 0;
+            antares::game_install::s_steam_app steam;
             int imported = -1;
             std::string import_error;
             // Browse: SDL's folder dialog answers on its own thread.
@@ -291,6 +300,8 @@ namespace launcher {
         void Setup_Import_();
         void Setup_Close_();
         void Setup_Poll_();
+        void Setup_Wait_(const std::string& store);
+        void Setup_Wait_Poll_();
         void Read_Exit_Log_(int exit_code);
         void Draw_Exit_Popup_();
 
