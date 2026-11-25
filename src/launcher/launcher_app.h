@@ -282,6 +282,7 @@ namespace launcher {
             std::atomic<bool> busy{false};
             std::vector<size_t> queue; // pack indices still to fetch
             int current = -1;          // the pack being fetched
+            int cancel_index = -1;     // a Cancel on one pack (the others carry on); -1: Stop all
             antares::hd_packs::s_progress progress;
             std::mutex phase_mutex;
             std::string phase;
@@ -295,6 +296,8 @@ namespace launcher {
         void Hd_Start_();
         void Hd_Poll_();
         void Hd_Stop_();
+        /** Cancel one pack: drop it from the queue, or stop it if it's downloading (the rest go on). */
+        void Hd_Cancel_(size_t index);
         std::string Hd_Status_();
         bool Hd_Any_Ticked_() const;
         void Draw_Hd_List_();
