@@ -15,6 +15,7 @@
 #include "antares/game_files.h"
 #include "antares/game_install.h"
 #include "antares/hd_packs.h"
+#include "antares/updates.h"
 #include "antares/package_catalog.h"
 #include "antares/save_summary.h"
 #include "antares/settings_docs.h"
@@ -47,6 +48,7 @@ namespace launcher {
     // Pseudo-rows of the Settings table (WP5.5), beside real variable ids.
     constexpr config::t_variable_id AUTO_WINDOW_ROW = config::CONFIG_NO_VARIABLE - 1; // the toggle
     constexpr config::t_variable_id SCALER_NOTE_ROW = config::CONFIG_NO_VARIABLE - 2; // why it can't show
+    constexpr config::t_variable_id UPDATES_ROW = config::CONFIG_NO_VARIABLE - 3;     // check for updates (WP5.19)
 
     // What a package does on its own: a dry run that enables only it (WP5.5).
     struct s_package_preview {
@@ -100,6 +102,10 @@ namespace launcher {
         /** The Done page's buttons: the choices made there (full screen, the applications menu),
          *  then the launcher, or the game when `play`. */
         void Finish_Setup(bool play);
+        /** -update (tests): Update is pressed as soon as the check finds a newer release. */
+        void Update_When_Available() {
+            update_auto_ = true;
+        }
         bool Setup_Open() const {
             return setup_.active;
         }
@@ -327,6 +333,32 @@ namespace launcher {
             antares::hd_packs::s_progress progress;
             std::string dump_folder; // -gog-dump: GOG's library and game answers are saved here (never the token)
         } gog_;
+        // Updates from the launcher (WP5.19, launcher_update.cpp).
+        struct s_update {
+            bool check = true;            // the setting: look at start
+            std::string installed;        // this copy's release label ("" in a development build)
+            antares::updates::e_kind kind = antares::updates::KIND_NONE;
+            std::thread worker;
+            std::atomic<bool> busy{false};        // checking
+            std::atomic<bool> downloading{false};
+            std::mutex mutex;
+            bool available = false;       // a newer release
+            antares::updates::s_release release;
+            bool start_requested = false; // Update pressed (main thread)
+            bool ready = false;           // the download is checked: apply it
+            std::string download_path;
+            std::string error;
+            antares::hd_packs::s_progress progress;
+        } update_;
+        void Update_Begin_();
+        bool update_auto_ = false; // -update
+        void Update_Stop_();
+        void Update_Poll_();
+        void Update_Start_();
+        bool Update_Installable_() const;
+        bool Update_Apply_(std::string* error);
+        void Draw_Update_Notice_(float x, float y);
+        void Draw_Updates_Row_();
         bool Gog_Available_() const;
         void Gog_Start_();
         void Gog_Poll_();

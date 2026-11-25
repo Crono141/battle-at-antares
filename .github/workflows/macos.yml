@@ -155,6 +155,7 @@ jobs:
               [ -f "$F" ] && cp "$F" "$R/licenses/$D-$(basename "$F")"
             done
           done
+          echo "$V" > "$R/version.txt"
           printf 'This file keeps saves, settings, packages and the copied Master of Orion II files in\n~/Library/Application Support/Battle at Antares, not in this app.\n' > "$R/user-folder"
           cp resources/icons/antares.icns "$R/antares.icns"
           cat > "$C/Info.plist" <<PLIST

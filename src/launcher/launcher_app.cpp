@@ -95,6 +95,7 @@ namespace launcher {
         config_dir_ = antares::user_folder::Config_Directory(game_dir_);
         settings_path_ = user_paths::Is_Enabled() ? config_dir_ + SETTINGS_FILE : game_dir_ + SETTINGS_FILE;
         Load_Settings_();
+        Update_Begin_(); // after the settings: they say whether to look
         Init_Settings_();
         if (!start_profile.empty()) {
             last_profile_ = start_profile;
@@ -116,6 +117,7 @@ namespace launcher {
     void c_launcher::Shutdown() {
         Setup_Close_(); // stops a copy in progress
         Hd_Stop_();     // a partial download is kept and resumed next time
+        Update_Stop_();
         Gog_Stop_();
         Save_Settings_();
         if (game_ != nullptr) {
@@ -138,6 +140,7 @@ namespace launcher {
         skip_intro_ = yyjson_get_bool(yyjson_obj_get(root, "skip_intro"));
         close_on_launch_ = yyjson_get_bool(yyjson_obj_get(root, "close_on_launch"));
         if (yyjson_is_bool(yyjson_obj_get(root, "auto_window_size"))) auto_window_ = yyjson_get_bool(yyjson_obj_get(root, "auto_window_size"));
+        if (yyjson_is_bool(yyjson_obj_get(root, "check_updates"))) update_.check = yyjson_get_bool(yyjson_obj_get(root, "check_updates"));
         load_save_ = std::clamp(static_cast<int>(yyjson_get_int(yyjson_obj_get(root, "load_save"))), 0, 10);
         yyjson_doc_free(document);
     }
@@ -152,6 +155,7 @@ namespace launcher {
         yyjson_mut_obj_add_int(document, root, "load_save", load_save_);
         yyjson_mut_obj_add_bool(document, root, "close_on_launch", close_on_launch_);
         yyjson_mut_obj_add_bool(document, root, "auto_window_size", auto_window_);
+        yyjson_mut_obj_add_bool(document, root, "check_updates", update_.check);
         size_t length = 0;
         char* json = yyjson_mut_write(document, YYJSON_WRITE_PRETTY, &length);
         yyjson_mut_doc_free(document);
@@ -546,6 +550,7 @@ namespace launcher {
     void c_launcher::Update() {
         Setup_Poll_();
         Hd_Poll_();
+        Update_Poll_();
         if (game_ == nullptr) return;
         int exit_code = 0;
         if (SDL_WaitProcess(game_, false, &exit_code)) {
@@ -579,8 +584,11 @@ namespace launcher {
             const char* title = "BATTLE AT ANTARES";
             chrome::Shadowed_Text(ImGui::GetWindowDrawList(), chrome::Title_Font(), 24.0f, at, chrome::GOLD, title);
             const float title_width = chrome::Title_Font()->CalcTextSizeA(24.0f, FLT_MAX, 0.0f, title).x;
-            const std::string version = std::string(antares::PRODUCT_VERSION) + "  ·  launcher";
+            // The release label when there is one (version.txt), the program's own otherwise.
+            const std::string version = (update_.installed.empty() ? std::string(antares::PRODUCT_VERSION) : update_.installed) + "  ·  launcher";
             ImGui::GetWindowDrawList()->AddText(chrome::Body_Font(), 17.0f, ImVec2(at.x + title_width + 14.0f, at.y + 7.0f), ImGui::ColorConvertFloat4ToU32(COLOUR_DIM), version.c_str());
+            const float version_width = chrome::Body_Font()->CalcTextSizeA(17.0f, FLT_MAX, 0.0f, version.c_str()).x;
+            Draw_Update_Notice_(at.x + title_width + 14.0f + version_width + 28.0f, at.y);
             ImGui::Dummy(ImVec2(0.0f, 32.0f));
         } else {
             ImGui::TextUnformatted(antares::PRODUCT_NAME);
@@ -1066,7 +1074,7 @@ namespace launcher {
         const s_save_row* save = Find_Save_(load_save_);
         const bool save_fails = load_save_ > 0 && (save == nullptr || !Save_Problem_(*save).empty());
         if (chrome::Ready()) { // look B: the game's metal button, glowing amber (WP5.11b)
-            const bool can_play = files_.ok && check_.ok && !save_fails && game_ == nullptr && !hd_.busy; // not mid-download (owner 2026-11-24)
+            const bool can_play = files_.ok && check_.ok && !save_fails && game_ == nullptr && !hd_.busy && !update_.downloading; // not mid-download (owner 2026-11-24)
             const ImVec2 size(button_width, ImGui::GetFrameHeight() * 1.25f);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - (size.y - ImGui::GetFrameHeight()) * 0.5f);
             if (chrome::Button(game_ != nullptr ? "Running##play" : "Play##play", size, true, can_play)) Launch_(load_save_);
