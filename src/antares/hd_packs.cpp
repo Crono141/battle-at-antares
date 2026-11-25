@@ -9,13 +9,14 @@
 #include "antares/user_folder.h"
 #include "game/user_paths.h"
 #include "yyjson.h"
+#include "antares/utf8_files.h"
 
 namespace antares::hd_packs {
     namespace {
         namespace fs = std::filesystem;
 
         fs::path Path_(const std::string& text) {
-            return fs::path(std::u8string(text.begin(), text.end()));
+            return antares::utf8::Path(text);
         }
 
         // What each pack is, for people; the release only knows file names and sizes.
@@ -239,7 +240,7 @@ namespace antares::hd_packs {
         std::error_code code;
         if (ok) fs::rename(temporary, path, code);
         if (!ok || code) {
-            *error = "can't write " + path.string();
+            *error = "can't write " + antares::utf8::Text(path);
             return false;
         }
         return true;

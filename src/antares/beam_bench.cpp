@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/utf8_files.h"
 #include "antares/beam_bench.h"
 #include "antares/combat_native.h"
 #include "antares/identity.h"
@@ -92,7 +93,7 @@ namespace antares::beam_bench {
         }
         s_done = true;
         const std::string path = std::string(dir) + "/beam_bench.jsonl";
-        s_out = fopen(path.c_str(), "w");
+        s_out = antares::utf8::Open(path.c_str(), "w");
         if (s_out == nullptr) {
             return;
         }

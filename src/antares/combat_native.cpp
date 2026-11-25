@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/utf8_files.h"
 
 #include "antares/combat_native.h"
 #include "antares/beam_bench.h"
@@ -11,6 +12,7 @@
 #include "antares/sprites.h"
 #define STB_IMAGE_WRITE_STATIC // spike 3.9: a private copy for the capture dumps
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STBIW_WINDOWS_UTF8 // file names are UTF-8 (WP5.15: non-ASCII Windows user names)
 #include "stb_image_write.h"
 #include "yyjson.h"
 
@@ -1849,7 +1851,7 @@ namespace antares::combat {
                     }
                 }
                 const std::string path = std::string(dir) + "/w_volley" + std::to_string(m.volley) + "_beams.json";
-                if (FILE* out = fopen(path.c_str(), "w")) {
+                if (FILE* out = antares::utf8::Open(path.c_str(), "w")) {
                     fprintf(out, "{\"volley\":%d,\"weapons\":[%s],\"scale\":%d,\"calls\":[\n", m.volley, weapons.c_str(), S);
                     for (size_t i = 0; i < s_beam_records.size(); ++i) {
                         fprintf(out, "%s%s\n", s_beam_records[i].c_str(), i + 1 < s_beam_records.size() ? "," : "");

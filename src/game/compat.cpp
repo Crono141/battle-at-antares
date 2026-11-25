@@ -3,6 +3,7 @@
 #include "user_paths.h"
 
 #include <mutex>
+#include "antares/utf8_files.h"
 
 namespace {
     constexpr char k_native_path_separator =
@@ -334,17 +335,17 @@ FILE* fopen_case(const char* path, const char* mode) {
 
     if (Mode_Creates_File(mode)) {
         if (File_Exists(open_path)) {
-            return fopen(open_path, mode);
+            return antares::utf8::Open(open_path, mode);
         }
 
         if (has_upper_path && File_Exists(upper_path)) {
-            return fopen(upper_path, mode);
+            return antares::utf8::Open(upper_path, mode);
         }
 
-        return fopen(open_path, mode);
+        return antares::utf8::Open(open_path, mode);
     }
 
-    FILE* file = fopen(open_path, mode);
+    FILE* file = antares::utf8::Open(open_path, mode);
     if (file != nullptr) {
         return file;
     }
@@ -352,7 +353,7 @@ FILE* fopen_case(const char* path, const char* mode) {
     original_errno = errno;
 
     if (has_upper_path) {
-        file = fopen(upper_path, mode);
+        file = antares::utf8::Open(upper_path, mode);
         if (file != nullptr) {
             SDL_LogInfo(
                 SDL_LOG_CATEGORY_APPLICATION,

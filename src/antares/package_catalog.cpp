@@ -13,6 +13,7 @@
 #include "config/config_loader.h"
 #include "game/vfs.h"
 #include "game/vfs_detail.h"
+#include "antares/utf8_files.h"
 
 namespace antares {
     namespace {
@@ -46,7 +47,7 @@ namespace antares {
         bool Has_Package_File_(const std::string& source_path, bool archive, const char* relative) {
             if (!archive) {
                 std::error_code error;
-                return std::filesystem::is_regular_file(std::filesystem::path(source_path + relative), error);
+                return std::filesystem::is_regular_file(antares::utf8::Path(source_path + relative), error);
             }
             mz_zip_archive zip{};
             if (!mz_zip_reader_init_file(&zip, source_path.c_str(), 0)) {
@@ -72,8 +73,8 @@ namespace antares {
         bool Has_Godot_Pack_(const std::string& source_path, bool archive) {
             if (!archive) {
                 std::error_code error;
-                for (std::filesystem::directory_iterator entry(std::filesystem::path(source_path + "godot"), error), end; !error && entry != end; entry.increment(error)) {
-                    if (entry->is_regular_file(error) && Is_Godot_Pack_Path_("godot/" + entry->path().filename().string())) {
+                for (std::filesystem::directory_iterator entry(antares::utf8::Path(source_path + "godot"), error), end; !error && entry != end; entry.increment(error)) {
+                    if (entry->is_regular_file(error) && Is_Godot_Pack_Path_("godot/" + antares::utf8::Text(entry->path().filename()))) {
                         return true;
                     }
                 }
@@ -110,8 +111,8 @@ namespace antares {
             std::vector<std::string> names;
             if (!archive) {
                 std::error_code error;
-                for (std::filesystem::directory_iterator entry(std::filesystem::path(source_path + "godot"), error), end; !error && entry != end; entry.increment(error)) {
-                    const std::string file = entry->path().string();
+                for (std::filesystem::directory_iterator entry(antares::utf8::Path(source_path + "godot"), error), end; !error && entry != end; entry.increment(error)) {
+                    const std::string file = antares::utf8::Text(entry->path());
                     if (!entry->is_regular_file(error) || file.size() < 4 || file.compare(file.size() - 4, 4, ".zip") != 0) {
                         continue;
                     }
@@ -222,15 +223,15 @@ namespace antares {
         // the same id, as in the game's VFS (vfs::Mount_Package).
         std::vector<std::pair<std::filesystem::path, bool>> roots;
         if (state.user_mods_path[0] != '\0') {
-            roots.emplace_back(std::filesystem::path(state.user_mods_path), true);
+            roots.emplace_back(antares::utf8::Path(state.user_mods_path), true);
         }
-        roots.emplace_back(std::filesystem::path(state.base_path) / vfs_detail::VFS_MODS_PATH, false);
+        roots.emplace_back(antares::utf8::Path(state.base_path) / vfs_detail::VFS_MODS_PATH, false);
         std::map<std::string, s_package_info> found; // sorted by id
         for (const auto& [root, user] : roots) {
             std::map<std::string, s_package_info> in_root;
             std::error_code error;
             for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(root, error)) {
-                const std::string name = entry.path().filename().string();
+                const std::string name = antares::utf8::Text(entry.path().filename());
                 if (name.empty() || name[0] == '.') {
                     continue;
                 }
@@ -239,11 +240,11 @@ namespace antares {
                 package.user_folder = user;
                 if (entry.is_directory(type_error)) {
                     package.id = name;
-                    package.source_path = entry.path().string() + "/";
+                    package.source_path = antares::utf8::Text(entry.path()) + "/";
                 } else if (entry.is_regular_file(type_error) && name.size() > 4 &&
                     SDL_strcasecmp(name.c_str() + name.size() - 4, ".zip") == 0) {
                     package.id = name.substr(0, name.size() - 4);
-                    package.source_path = entry.path().string();
+                    package.source_path = antares::utf8::Text(entry.path());
                     package.archive = true;
                 } else {
                     continue;

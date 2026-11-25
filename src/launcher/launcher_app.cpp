@@ -20,6 +20,7 @@
 #include "command_line.h"
 #include "version.h"
 #include "yyjson.h"
+#include "antares/utf8_files.h"
 
 namespace launcher {
     namespace {
@@ -31,7 +32,7 @@ namespace launcher {
         const ImVec4 COLOUR_DIM(0.67f, 0.67f, 0.71f, 1.0f);
 
         bool Read_Text_(const std::string& path, std::string* text) {
-            std::ifstream file(path, std::ios::binary);
+            std::ifstream file(antares::utf8::Path(path), std::ios::binary);
             if (!file) return false;
             std::ostringstream stream;
             stream << file.rdbuf();
@@ -43,19 +44,19 @@ namespace launcher {
         bool Write_Text_(const std::string& path, const std::string& text, std::string* error) {
             const std::string temporary = path + ".tmp";
             std::error_code directory_error; // the user folder's profiles/ may not exist yet
-            std::filesystem::create_directories(std::filesystem::path(path).parent_path(), directory_error);
+            std::filesystem::create_directories(antares::utf8::Path(path).parent_path(), directory_error);
             {
-                std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+                std::ofstream file(antares::utf8::Path(temporary), std::ios::binary | std::ios::trunc);
                 if (!file || !file.write(text.data(), static_cast<std::streamsize>(text.size()))) {
                     *error = "unable to write " + temporary;
                     return false;
                 }
             }
             std::error_code code;
-            std::filesystem::rename(temporary, path, code);
+            std::filesystem::rename(antares::utf8::Path(temporary), antares::utf8::Path(path), code);
             if (code) {
                 *error = "unable to replace " + path + ": " + code.message();
-                std::filesystem::remove(temporary, code);
+                std::filesystem::remove(antares::utf8::Path(temporary), code);
                 return false;
             }
             return true;
@@ -173,8 +174,8 @@ namespace launcher {
         std::vector<std::string> names;
         for (const std::string& folder : {config_dir_, data_dir_}) {
             std::error_code code;
-            for (const auto& entry : std::filesystem::directory_iterator(folder + "profiles", code)) {
-                const std::string file = entry.path().filename().string();
+            for (const auto& entry : std::filesystem::directory_iterator(antares::utf8::Path(folder + "profiles"), code)) {
+                const std::string file = antares::utf8::Text(entry.path().filename());
                 if (entry.is_regular_file() && file.size() > 4 && file.compare(file.size() - 4, 4, ".cfg") == 0 &&
                     file[0] != '.') {
                     names.push_back(file.substr(0, file.size() - 4));
@@ -195,7 +196,7 @@ namespace launcher {
     std::string c_launcher::Profile_Read_Path_(const s_profile_entry& entry) const {
         std::error_code code;
         const std::string own = Profile_File_Path_(entry);
-        return std::filesystem::exists(own, code) ? own : data_dir_ + entry.vfs_path;
+        return std::filesystem::exists(antares::utf8::Path(own), code) ? own : data_dir_ + entry.vfs_path;
     }
 
     const antares::s_package_info* c_launcher::Find_Package_(const std::string& id) const {
@@ -440,13 +441,13 @@ namespace launcher {
         // 0.5.0: on macOS the Godot build is an app bundle beside the launcher; its program is the
         // one file in Contents/MacOS (named by the export).
         std::error_code error;
-        const std::filesystem::path folder = std::filesystem::path(game_dir_) / "antares-godot.app" / "Contents" / "MacOS";
+        const std::filesystem::path folder = antares::utf8::Path(game_dir_) / "antares-godot.app" / "Contents" / "MacOS";
         for (std::filesystem::directory_iterator entry(folder, error), end; !error && entry != end; entry.increment(error)) {
             if (entry->is_regular_file(error)) {
-                return entry->path().string();
+                return antares::utf8::Text(entry->path());
             }
         }
-        return (folder / "antares-godot").string();
+        return antares::utf8::Text(folder / "antares-godot");
 #else
         return game_dir_ + "antares-godot";
 #endif
@@ -745,10 +746,10 @@ namespace launcher {
                 std::error_code code;
                 if (!antares::profile::Is_Valid_Profile_Name(name)) {
                     popup_error_ = "Use letters, digits, spaces, '-', '_' and '.'.";
-                } else if (std::filesystem::exists(path, code) || std::filesystem::exists(data_dir_ + "profiles/" + name + ".cfg", code)) {
+                } else if (std::filesystem::exists(antares::utf8::Path(path), code) || std::filesystem::exists(antares::utf8::Path(data_dir_ + "profiles/" + name + ".cfg"), code)) {
                     popup_error_ = "A profile with that name already exists.";
                 } else {
-                    std::filesystem::create_directories(config_dir_ + "profiles", code);
+                    std::filesystem::create_directories(antares::utf8::Path(config_dir_ + "profiles"), code);
                     std::string error;
                     bool done = false;
                     if (popup_ == 3 && Profile_Read_Path_(profiles_[profile_index_]) != Profile_File_Path_(profiles_[profile_index_])) {
