@@ -112,20 +112,12 @@ namespace antares::game_install {
         std::vector<s_root> roots = registry_roots;
         std::vector<s_root> broad;
         const fs::path home = Path_(home_text);
-        std::vector<fs::path> steam_dirs;
 #if defined(_WIN32)
-        for (const s_root& root : registry_roots) {
-            if (root.source == "Steam") steam_dirs.push_back(Path_(root.path));
-        }
         broad.push_back({"C:/GOG Games/", "GOG", 2});
         broad.push_back({"C:/Program Files (x86)/GOG Galaxy/Games/", "GOG Galaxy", 2});
         broad.push_back({"C:/Program Files/GOG Galaxy/Games/", "GOG Galaxy", 2});
-        steam_dirs.push_back("C:/Program Files (x86)/Steam");
 #else
         if (!home_text.empty()) {
-            steam_dirs.push_back(home / ".local/share/Steam");
-            steam_dirs.push_back(home / ".steam/steam");
-            steam_dirs.push_back(home / ".var/app/com.valvesoftware.Steam/.local/share/Steam");
             broad.push_back({Folder_Text_(home / "GOG Games"), "GOG", 2});
             broad.push_back({Folder_Text_(home / "Games"), "Heroic or Lutris", 5});
             broad.push_back({Folder_Text_(home / ".wine/drive_c"), "Wine", 4});
@@ -136,24 +128,85 @@ namespace antares::game_install {
                 }
             }
 #if defined(__APPLE__)
-            roots.push_back({Folder_Text_(home / "Library/Application Support/Steam/steamapps/common"), "Steam", 2});
             broad.push_back({"/Applications/", "GOG", 6});
             broad.push_back({Folder_Text_(home / "Applications"), "GOG", 6});
 #endif
         }
 #endif
-        std::set<std::string> libraries;
-        for (const fs::path& steam : steam_dirs) {
-            libraries.insert(Folder_Text_(steam));
-            for (const std::string& library : Parse_Steam_Libraries(Read_File_(steam / "steamapps/libraryfolders.vdf"))) {
-                libraries.insert(Folder_Text_(Path_(library)));
-            }
-        }
-        for (const std::string& library : libraries) {
+        for (const std::string& library : Steam_Libraries(home_text, registry_roots)) {
             roots.push_back({Folder_Text_(Path_(library) / "steamapps/common"), "Steam", 2});
         }
         roots.insert(roots.end(), broad.begin(), broad.end());
         return roots;
+    }
+
+    std::vector<std::string> Steam_Libraries(const std::string& home_text, const std::vector<s_root>& registry_roots) {
+        std::vector<fs::path> steam_dirs;
+        for (const s_root& root : registry_roots) {
+            if (root.source == "Steam") steam_dirs.push_back(Path_(root.path));
+        }
+#if defined(_WIN32)
+        (void)home_text;
+        steam_dirs.push_back("C:/Program Files (x86)/Steam");
+#else
+        if (!home_text.empty()) {
+            const fs::path home = Path_(home_text);
+            steam_dirs.push_back(home / ".local/share/Steam");
+            steam_dirs.push_back(home / ".steam/steam");
+            steam_dirs.push_back(home / ".var/app/com.valvesoftware.Steam/.local/share/Steam");
+            steam_dirs.push_back(home / "Library/Application Support/Steam");
+        }
+#endif
+        std::vector<std::string> libraries;
+        std::set<std::string> seen;
+        const auto add = [&](const fs::path& path) {
+            std::error_code error;
+            if (!fs::is_directory(path / "steamapps", error)) return;
+            const fs::path canonical = fs::weakly_canonical(path, error);
+            const std::string key = Folder_Text_(error ? path : canonical);
+            if (seen.insert(key).second) libraries.push_back(key);
+        };
+        for (const fs::path& steam : steam_dirs) {
+            add(steam);
+            for (const std::string& library : Parse_Steam_Libraries(Read_File_(steam / "steamapps/libraryfolders.vdf"))) {
+                add(Path_(library));
+            }
+        }
+        return libraries;
+    }
+
+    std::string Vdf_Value(const std::string& text, const std::string& key) {
+        const std::string quoted = "\"" + key + "\"";
+        size_t at = 0;
+        while ((at = text.find(quoted, at)) != std::string::npos) {
+            const size_t open = text.find('"', at + quoted.size());
+            const size_t close = open == std::string::npos ? open : text.find('"', open + 1);
+            const size_t line_end = text.find('\n', at);
+            if (open != std::string::npos && close != std::string::npos && (line_end == std::string::npos || open < line_end)) {
+                return text.substr(open + 1, close - open - 1);
+            }
+            at += quoted.size();
+        }
+        return "";
+    }
+
+    s_steam_app Steam_App(const std::vector<std::string>& libraries, int app_id) {
+        s_steam_app app;
+        for (const std::string& library : libraries) {
+            const fs::path manifest = Path_(library) / "steamapps" / ("appmanifest_" + std::to_string(app_id) + ".acf");
+            const std::string text = Read_File_(manifest);
+            if (text.empty()) continue;
+            app.known = true;
+            const unsigned long flags = std::strtoul(Vdf_Value(text, "StateFlags").c_str(), nullptr, 10);
+            // 4: fully installed; 2: update required, 1024: update running (Steam's EAppState).
+            app.installed = (flags & 4u) != 0 && (flags & (2u | 1024u)) == 0;
+            app.done = std::strtoull(Vdf_Value(text, "BytesDownloaded").c_str(), nullptr, 10);
+            app.total = std::strtoull(Vdf_Value(text, "BytesToDownload").c_str(), nullptr, 10);
+            const std::string folder = Vdf_Value(text, "installdir");
+            if (!folder.empty()) app.folder = Folder_Text_(Path_(library) / "steamapps" / "common" / Path_(folder));
+            if (app.installed) break; // the copy that is there wins over one being installed elsewhere
+        }
+        return app;
     }
 
     std::vector<s_candidate> Detect(const std::vector<s_root>& roots) {

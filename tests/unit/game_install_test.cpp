@@ -178,4 +178,37 @@ DOCTEST_TEST_SUITE("setup wizard (WP5.11)") {
         DOCTEST_CHECK(read("SAVE1.GAM") == "original one");
         DOCTEST_CHECK(error.empty());
     }
+
+    DOCTEST_TEST_CASE("Steam: libraries, and the app's manifest while it installs and once it's there") {
+        s_tree tree;
+        const std::string home = tree.Path("home");
+        tree.Write("home/.local/share/Steam/steamapps/libraryfolders.vdf",
+            "\"libraryfolders\" { \"0\" { \"path\" \"" + home + "/.local/share/Steam\" } \"1\" { \"path\" \"" + tree.Path("Storage/SteamLibrary") + "\" } }");
+        tree.Write("Storage/SteamLibrary/steamapps/.keep", "");
+        tree.Write("nosteam/.keep", "");
+        const std::vector<std::string> libraries = gi::Steam_Libraries(home);
+        DOCTEST_REQUIRE(libraries.size() == 2);
+        DOCTEST_CHECK(libraries[1] == tree.Path("Storage/SteamLibrary") + "/");
+        DOCTEST_CHECK(gi::Steam_Libraries(tree.Path("nosteam")).empty()); // no Steam: no handoff
+
+        DOCTEST_CHECK_FALSE(gi::Steam_App(libraries, gi::STEAM_APP_ID).known);
+        // Downloading (StateFlags 1026: update required and running).
+        const std::string manifest = "Storage/SteamLibrary/steamapps/appmanifest_410980.acf";
+        tree.Write(manifest, "\"AppState\"\n{\n\t\"appid\"\t\t\"410980\"\n\t\"StateFlags\"\t\t\"1026\"\n\t\"installdir\"\t\t\"Master of Orion 2\"\n"
+                             "\t\"BytesToDownload\"\t\t\"400000000\"\n\t\"BytesDownloaded\"\t\t\"100000000\"\n}\n");
+        gi::s_steam_app app = gi::Steam_App(libraries, gi::STEAM_APP_ID);
+        DOCTEST_CHECK(app.known);
+        DOCTEST_CHECK_FALSE(app.installed);
+        DOCTEST_CHECK(app.done == 100000000ull);
+        DOCTEST_CHECK(app.total == 400000000ull);
+        DOCTEST_CHECK(app.folder == tree.Path("Storage/SteamLibrary") + "/steamapps/common/Master of Orion 2/");
+        // Installed (StateFlags 4), the files in data/ as on the owner's copy: detection finds them.
+        tree.Write(manifest, "\"AppState\" { \"StateFlags\" \"4\" \"installdir\" \"Master of Orion 2\" }");
+        DOCTEST_CHECK(gi::Steam_App(libraries, gi::STEAM_APP_ID).installed);
+        tree.Game("Storage/SteamLibrary/steamapps/common/Master of Orion 2/data");
+        const auto found = gi::Detect(gi::Detect_Roots(home));
+        DOCTEST_REQUIRE(found.size() == 1);
+        DOCTEST_CHECK(found[0].source == "Steam");
+        DOCTEST_CHECK(found[0].path == tree.Path("Storage/SteamLibrary/steamapps/common/Master of Orion 2/data") + "/");
+    }
 }

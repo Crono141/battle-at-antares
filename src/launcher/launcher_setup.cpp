@@ -203,6 +203,15 @@ namespace launcher {
         }
 #endif
 
+#if defined(_WIN32)
+        // GOG Galaxy's program, when it is installed (it has no link to open a game's page).
+        std::string Galaxy_Client_() {
+            const std::string folder = Registry_String_(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\GOG.com\\GalaxyClient\\paths", L"client");
+            const std::string program = Registry_String_(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WOW6432Node\\GOG.com\\GalaxyClient", L"clientExecutable");
+            return folder.empty() || program.empty() ? "" : folder + "\\" + program;
+        }
+#endif
+
         std::string Home_() {
 #if defined(_WIN32)
             const char* profile = SDL_getenv("USERPROFILE");
@@ -211,6 +220,13 @@ namespace launcher {
             const char* home = SDL_getenv("HOME");
             return home != nullptr ? home : "";
 #endif
+        }
+        std::vector<std::string> Steam_Libraries_() {
+            std::vector<gi::s_root> registry;
+#if defined(_WIN32)
+            registry = Registry_Roots_();
+#endif
+            return gi::Steam_Libraries(Home_(), registry);
         }
     } // namespace
 
@@ -222,6 +238,8 @@ namespace launcher {
         setup_.page = SETUP_WELCOME;
         if (folder == "get") {
             setup_.page = SETUP_GET;
+        } else if (folder == "wait-steam" || folder == "wait-gog") {
+            Setup_Wait_(folder == "wait-steam" ? "Steam" : "GOG");
         } else if (folder == "hd") {
             setup_.page = SETUP_HD;
         } else if (folder == "find") {
@@ -332,6 +350,39 @@ namespace launcher {
             }
         }
         if (!folder.empty()) Setup_Check_(folder);
+        if (setup_.page == SETUP_WAIT) Setup_Wait_Poll_();
+    }
+
+    void c_launcher::Setup_Wait_(const std::string& store) {
+        setup_.wait_store = store;
+        setup_.wait_next_poll = 0;
+        setup_.steam = {};
+        setup_.page = SETUP_WAIT;
+        SDL_Log("setup: waiting for %s to install the game", store.c_str());
+    }
+
+    // Every 2 s: is a complete copy there now (Steam, GOG, Heroic, Lutris, anywhere Find looks)?
+    // A Steam copy also waits for Steam to say the install is finished, so a file still being
+    // written is never copied.
+    void c_launcher::Setup_Wait_Poll_() {
+        const uint64_t now = SDL_GetTicks();
+        if (now < setup_.wait_next_poll) return;
+        setup_.wait_next_poll = now + 2000;
+        setup_.steam = gi::Steam_App(Steam_Libraries_(), gi::STEAM_APP_ID);
+        std::vector<gi::s_root> registry;
+#if defined(_WIN32)
+        registry = Registry_Roots_();
+#endif
+        const size_t needed = antares::game_files::Required_Files().size();
+        for (const gi::s_candidate& candidate : gi::Detect(gi::Detect_Roots(Home_(), registry))) {
+            std::error_code error;
+            if (candidate.found != needed || std::filesystem::equivalent(U8_(candidate.path), U8_(setup_.target), error)) continue;
+            const bool in_steam = !setup_.steam.folder.empty() && candidate.path.rfind(setup_.steam.folder, 0) == 0;
+            if (in_steam && !setup_.steam.installed) continue;
+            SDL_Log("setup: %s copy appeared at %s", candidate.source.c_str(), candidate.path.c_str());
+            Setup_Check_(candidate.path);
+            return;
+        }
     }
 
     void c_launcher::Draw_Setup_() {
@@ -349,13 +400,13 @@ namespace launcher {
         const char* brand = "BATTLE AT ANTARES";
         const ImVec2 brand_size = ch::Title_Font()->CalcTextSizeA(25.0f, FLT_MAX, 0.0f, brand);
         ch::Shadowed_Text(back, ch::Title_Font(), 25.0f, ImVec2(centre - brand_size.x * 0.5f, window_min.y + 16), ch::GOLD, brand);
-        const int step = setup_.page == SETUP_WELCOME               ? -1
-            : setup_.page == SETUP_FIND || setup_.page == SETUP_GET ? 0
-            : setup_.page == SETUP_CHECK                            ? 1
-            : setup_.page == SETUP_COPY                             ? 2
-            : setup_.page == SETUP_SAVES                            ? 3
-            : setup_.page == SETUP_HD                               ? 4
-                                                                    : 5;
+        const int step = setup_.page == SETUP_WELCOME                                            ? -1
+            : setup_.page == SETUP_FIND || setup_.page == SETUP_GET || setup_.page == SETUP_WAIT ? 0
+            : setup_.page == SETUP_CHECK                                                         ? 1
+            : setup_.page == SETUP_COPY                                                          ? 2
+            : setup_.page == SETUP_SAVES                                                         ? 3
+            : setup_.page == SETUP_HD                                                            ? 4
+                                                                                                 : 5;
         Steps_(back, centre, window_min.y + 58, step);
 
         const float bezel_top = window_min.y + 98;
@@ -363,7 +414,7 @@ namespace launcher {
         ch::Bezel(back, ImVec2(left, bezel_top), ImVec2(left + column, bezel_bottom));
 
         // The page, inside the bezel.
-        const char* titles[] = {"Welcome", "Where is your Master of Orion II?", "Get Master of Orion II", "Checking your copy", "Copying the game files", "Your saved games", "HD art (optional)", "All set"};
+        const char* titles[] = {"Welcome", "Where is your Master of Orion II?", "Get Master of Orion II", "Waiting for the store", "Checking your copy", "Copying the game files", "Your saved games", "HD art (optional)", "All set"};
         ImGui::SetCursorScreenPos(ImVec2(left + 30, bezel_top + 22));
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(10 / 255.0f, 11 / 255.0f, 14 / 255.0f, 0.85f));
@@ -379,7 +430,7 @@ namespace launcher {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f, 0.0f)); // cards and rows reach the page's edges
         ImGui::BeginChild("page", ImVec2(column - 60, bezel_bottom - bezel_top - 44), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
         ImDrawList* draw = ImGui::GetWindowDrawList();
-        const std::string title = Upper_(titles[setup_.page]);
+        const std::string title = Upper_(setup_.page == SETUP_WAIT ? "Waiting for " + setup_.wait_store : std::string(titles[setup_.page]));
         ch::Shadowed_Text(draw, ch::Title_Font(), 23.0f, ImGui::GetCursorScreenPos(), ch::GOLD, title.c_str());
         ImGui::Dummy(ImVec2(0, 34));
         ImGui::PushFont(ch::Body_Font(), BODY);
@@ -434,19 +485,87 @@ namespace launcher {
                 right_label = "Next";
                 right_enabled = setup_.chosen >= 0;
                 break;
-            case SETUP_GET:
-                Text_("Master of Orion II is sold by GOG and Steam. Buy it there and install it with GOG Galaxy, GOG's installer or "
-                      "Steam, then come back here and press Find again.");
+            case SETUP_GET: {
+                Text_("Master of Orion II is sold by Steam and GOG. Install it with their own app or website; Battle at Antares "
+                      "waits, notices when it's there and carries on by itself.");
+                Text_("Battle at Antares never asks for your Steam or GOG password: you sign in to them, not to us.", ch::DIM, SMALL);
                 ImGui::Spacing();
-                Text_("Battle at Antares never asks for your GOG or Steam password: you sign in to their own website or app.", ch::DIM);
+                const bool steam = !Steam_Libraries_().empty();
+                ImGui::PushFont(ch::Bold_Font(), BODY);
+                ImGui::TextColored(ch::GOLD, "STEAM");
+                ImGui::PopFont();
+                if (steam) {
+                    if (Link_("Install it with Steam (if you own it there)")) {
+                        (void)SDL_OpenURL(("steam://install/" + std::to_string(gi::STEAM_APP_ID)).c_str());
+                        Setup_Wait_("Steam");
+                    }
+                    ImGui::SameLine(0.0f, 24.0f);
+                    if (Link_("Buy it in Steam")) {
+                        (void)SDL_OpenURL(("steam://store/" + std::to_string(gi::STEAM_APP_ID)).c_str());
+                        Setup_Wait_("Steam");
+                    }
+                } else if (Link_("Steam's page for Master of Orion 2")) {
+                    (void)SDL_OpenURL(("https://store.steampowered.com/app/" + std::to_string(gi::STEAM_APP_ID) + "/").c_str());
+                    Setup_Wait_("Steam");
+                }
                 ImGui::Spacing();
-                ImGui::Spacing();
-                if (Link_("Open GOG's page")) (void)SDL_OpenURL("https://www.gog.com/game/master_of_orion_1_2");
-                ImGui::SameLine(0.0f, 24.0f);
-                if (Link_("Open Steam's page")) (void)SDL_OpenURL("https://store.steampowered.com/search/?term=Master+of+Orion+2");
+                ImGui::PushFont(ch::Bold_Font(), BODY);
+                ImGui::TextColored(ch::GOLD, "GOG");
+                ImGui::PopFont();
+                if (Link_("GOG's page for Master of Orion 1+2")) {
+                    (void)SDL_OpenURL("https://www.gog.com/game/master_of_orion_1_2");
+                    Setup_Wait_("GOG");
+                }
+#if defined(_WIN32)
+                const std::string galaxy = Galaxy_Client_();
+                if (!galaxy.empty()) {
+                    ImGui::SameLine(0.0f, 24.0f);
+                    if (Link_("Open GOG Galaxy")) {
+                        const char* argv[] = {galaxy.c_str(), nullptr};
+                        SDL_Process* process = SDL_CreateProcess(argv, false);
+                        if (process != nullptr) SDL_DestroyProcess(process); // it keeps running
+                        Setup_Wait_("GOG");
+                    }
+                }
+#else
+                Text_("On Linux, GOG's games install with Heroic or Lutris; Battle at Antares finds them there.", ch::DIM, SMALL);
+#endif
                 left_label = "Back";
                 right_label = "Find again";
                 break;
+            }
+            case SETUP_WAIT: {
+                Text_("Install Master of Orion II in " + setup_.wait_store + " as usual. Battle at Antares looks for it every few seconds "
+                                                                             "and carries on by itself when it's there; you can leave this window open.");
+                ImGui::Spacing();
+                if (setup_.steam.known && !setup_.steam.installed && setup_.wait_store == "Steam") {
+                    const uint64_t total = std::max<uint64_t>(setup_.steam.total, 1);
+                    const float fraction = static_cast<float>(static_cast<double>(setup_.steam.done) / static_cast<double>(total));
+                    const std::string label = "Steam is installing it: " + Megabytes_(setup_.steam.done) + " of " + Megabytes_(setup_.steam.total);
+                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ch::AMBER);
+                    ImGui::ProgressBar(std::clamp(fraction, 0.0f, 1.0f), ImVec2(-1.0f, 0.0f), label.c_str());
+                    ImGui::PopStyleColor();
+                } else {
+                    // A slow pulse so the page is plainly alive.
+                    const float phase = static_cast<float>(SDL_GetTicks() % 2000) / 2000.0f;
+                    Text_(std::string("Waiting for ") + setup_.wait_store + (phase < 0.33f ? "." : phase < 0.66f ? ".."
+                                                                                                                 : "..."),
+                        ch::AMBER);
+                }
+                ImGui::Spacing();
+                if (Link_("It's installed somewhere else: choose its folder...")) {
+                    const SDL_DialogFileCallback callback = [](void* user, const char* const* list, int) {
+                        auto* setup = static_cast<s_setup*>(user);
+                        if (list == nullptr || list[0] == nullptr) return;
+                        std::lock_guard<std::mutex> lock(setup->dialog_mutex);
+                        setup->dialog_folder = list[0];
+                        setup->dialog_answered = true;
+                    };
+                    SDL_ShowOpenFolderDialog(callback, &setup_, SDL_GetKeyboardFocus(), nullptr, false);
+                }
+                left_label = "Back";
+                break;
+            }
             case SETUP_CHECK: {
                 const gi::s_folder_check& check = setup_.check;
                 Text_(check.folder, ch::DIM, SMALL);
@@ -624,6 +743,9 @@ namespace launcher {
                 } else {
                     Setup_Find_();
                 }
+                break;
+            case SETUP_WAIT:
+                setup_.page = SETUP_GET;
                 break;
             case SETUP_CHECK:
                 if (action == LEFT) {
