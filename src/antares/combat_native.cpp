@@ -58,6 +58,14 @@ namespace antares::combat {
             } else {
                 *lbx = "monster.lbx";
                 *entry = ship.picture_num == 0x2C ? 25 : ship.picture_num;
+                // Its colours: MONSTER.LBX entry owner + 5 (13-19, palettes at 0x20), which
+                // COMBINIT::Load_Combat_Ship_Palette loads for a monster player. Without it the
+                // picture took the attacker's colours at 0x20-0x3F when there's no HD art (sweep
+                // 2026-11-25, after the owner's one-colour battle).
+                const int32_t palette = (int32_t)ship.owner + 5;
+                if (ship.owner >= MAX_PLAYERS && palette >= 13 && palette <= 19) {
+                    *lbx += "@" + std::to_string(palette);
+                }
             }
         }
 

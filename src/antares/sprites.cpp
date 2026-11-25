@@ -202,30 +202,44 @@ namespace antares::sprites {
             const char* lbx;
             int32_t first;
             int32_t last;
-            int32_t palette;
-            bool planets; // the colony backdrop's palette over it
+            int32_t palette;      // a FONTS.LBX palette, or -1
+            const char* over_lbx; // an entry whose embedded palette is laid over it, or nullptr
+            int32_t over_entry;
         };
+        // As the HD pack's sprite.json files declare them, for players without the pack (owner
+        // 2026-11-25: race portraits, spy icons and the Planets panel's pictures came out in the
+        // galaxy's colours without HD art).
         constexpr s_home_palette k_home_palettes[] = {
-            {"OFFICER.LBX", 0xD2, 0x114, 1, true},
-            {"OFFICER.LBX", 0, 0x7FFF, 8, false},
-            {"COLONY.LBX", 0, 0x7FFF, 1, true},
-            {"COLONY2.LBX", 0, 0x7FFF, 1, true},
-            {"COLSYSDI.LBX", 0, 0x7FFF, 1, true},
-            {"COLPUPS.LBX", 0, 0x7FFF, 1, true},
-            {"RACEICON.LBX", 0, 0x7FFF, 1, true},
+            {"OFFICER.LBX", 0xD2, 0x114, 1, "PLANETS.LBX", 0},
+            {"OFFICER.LBX", 0, 0x7FFF, 8, nullptr, -1},
+            {"COLONY.LBX", 0, 0x7FFF, 1, "PLANETS.LBX", 0},
+            {"COLONY2.LBX", 0, 0x7FFF, 1, "PLANETS.LBX", 0},
+            {"COLSYSDI.LBX", 0, 0x7FFF, 1, "PLANETS.LBX", 0},
+            {"COLPUPS.LBX", 0, 0x7FFF, 1, "PLANETS.LBX", 0},
+            {"RACEICON.LBX", 0, 0x7FFF, 1, "PLANETS.LBX", 0},
+            // The Races screen's own palette, where the pack declares it: not entry 4 or the spy
+            // icons (46-58), whose art is the galaxy's colours.
+            {"RACES.LBX", 0, 3, -1, "RACES.LBX", 0},
+            {"RACES.LBX", 5, 45, -1, "RACES.LBX", 0},
+            {"RACES.LBX", 59, 0x7FFF, -1, "RACES.LBX", 0},
+            {"PLNTSUM.LBX", 0, 0x7FFF, 6, "PLNTSUM.LBX", 0},  // the Planets screen
+            {"MAINPUPS.LBX", 0, 0x7FFF, 0, "BUFFER0.LBX", 0}, // the galaxy's popups
         };
 
         bool Home_Palette(const std::string& lbx, int32_t entry, std::vector<render::s_palette_layer>* layers) {
             for (const s_home_palette& home : k_home_palettes) {
                 if (lbx == home.lbx && entry >= home.first && entry <= home.last) {
-                    render::s_palette_layer base;
-                    base.palette = home.palette;
-                    layers->assign(1, base);
-                    if (home.planets) {
-                        render::s_palette_layer backdrop;
-                        backdrop.lbx = "PLANETS.LBX";
-                        backdrop.entry = 0;
-                        layers->push_back(backdrop);
+                    layers->clear();
+                    if (home.palette >= 0) {
+                        render::s_palette_layer base;
+                        base.palette = home.palette;
+                        layers->push_back(base);
+                    }
+                    if (home.over_lbx != nullptr) {
+                        render::s_palette_layer over;
+                        over.lbx = home.over_lbx;
+                        over.entry = home.over_entry;
+                        layers->push_back(over);
                     }
                     return true;
                 }
