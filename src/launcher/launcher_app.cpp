@@ -141,6 +141,8 @@ namespace launcher {
         close_on_launch_ = yyjson_get_bool(yyjson_obj_get(root, "close_on_launch"));
         if (yyjson_is_bool(yyjson_obj_get(root, "auto_window_size"))) auto_window_ = yyjson_get_bool(yyjson_obj_get(root, "auto_window_size"));
         if (yyjson_is_bool(yyjson_obj_get(root, "check_updates"))) update_.check = yyjson_get_bool(yyjson_obj_get(root, "check_updates"));
+        if (yyjson_is_str(yyjson_obj_get(root, "launcher_look")))
+            chrome::Set_Look(SDL_strcmp(yyjson_get_str(yyjson_obj_get(root, "launcher_look")), "glass") == 0 ? chrome::LOOK_GLASS : chrome::LOOK_CHROME);
         load_save_ = std::clamp(static_cast<int>(yyjson_get_int(yyjson_obj_get(root, "load_save"))), 0, 10);
         yyjson_doc_free(document);
     }
@@ -156,6 +158,7 @@ namespace launcher {
         yyjson_mut_obj_add_bool(document, root, "close_on_launch", close_on_launch_);
         yyjson_mut_obj_add_bool(document, root, "auto_window_size", auto_window_);
         yyjson_mut_obj_add_bool(document, root, "check_updates", update_.check);
+        yyjson_mut_obj_add_str(document, root, "launcher_look", chrome::Look() == chrome::LOOK_GLASS ? "glass" : "chrome");
         size_t length = 0;
         char* json = yyjson_mut_write(document, YYJSON_WRITE_PRETTY, &length);
         yyjson_mut_doc_free(document);

@@ -8,6 +8,7 @@
 
 #include "antares/profile_file.h"
 #include "launcher/launcher_app.h"
+#include "launcher/launcher_chrome.h"
 #include "launcher_schema.h"
 
 // The launcher's Settings tab (WP5.2): every scalar setting of the config schema, with the value
@@ -128,6 +129,7 @@ namespace launcher {
                     // The window toggle sits above the scaler, and a note under it when the
                     // scaler can't show (WP5.5).
                     if (SDL_strcmp(name, "interface.scaler") == 0) {
+                        common_settings_.push_back(LOOK_ROW);
                         common_settings_.push_back(UPDATES_ROW);
                         common_settings_.push_back(AUTO_WINDOW_ROW);
                     }
@@ -324,6 +326,29 @@ namespace launcher {
         return edits;
     }
 
+    void c_launcher::Draw_Look_Row_() {
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        if (ImGui::Selectable("Launcher look", selected_setting_ == LOOK_ROW, ImGuiSelectableFlags_AllowOverlap)) {
+            selected_setting_ = LOOK_ROW;
+        }
+        if (ImGui::IsItemHovered() && !ImGui::IsAnyItemActive()) selected_setting_ = LOOK_ROW;
+        ImGui::TableNextColumn();
+        const char* looks[] = {"Chrome", "Glass"};
+        int look = chrome::Look() == chrome::LOOK_GLASS ? 1 : 0;
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+        if (ImGui::Combo("##launcher-look", &look, looks, 2)) {
+            chrome::Set_Look(look == 1 ? chrome::LOOK_GLASS : chrome::LOOK_CHROME);
+            chrome::Style_Look(&ImGui::GetStyle());
+            Save_Settings_();
+        }
+        if (ImGui::IsItemHovered() && !ImGui::IsAnyItemActive()) selected_setting_ = LOOK_ROW;
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(COLOUR_DIM, "launcher");
+        ImGui::TableNextColumn();
+    }
+
     void c_launcher::Draw_Updates_Row_() {
         ImGui::TableNextColumn();
         ImGui::AlignTextToFramePadding();
@@ -473,6 +498,10 @@ namespace launcher {
                 }
                 if (id == AUTO_WINDOW_ROW) {
                     Draw_Auto_Window_Row_();
+                    continue;
+                }
+                if (id == LOOK_ROW) {
+                    Draw_Look_Row_();
                     continue;
                 }
                 if (id == UPDATES_ROW) {

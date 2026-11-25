@@ -369,6 +369,7 @@ int main(int argc, char** argv) {
         io.FontDefault = launcher::chrome::Body_Font();
         ImGui::GetStyle().FontSizeBase = 20.0f;   // Saira draws small for its size
         ImGui::GetStyle().FrameBorderSize = 1.0f; // fields and checkboxes stand out from the dark plates
+        launcher::chrome::Style_Look(&ImGui::GetStyle()); // the saved look's rounding (WP5.20)
     }
 
     int exit_code = 0;
