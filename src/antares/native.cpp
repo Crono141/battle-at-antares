@@ -9,6 +9,7 @@
 #include "config/text_encoding.h"
 #include "miniz.h"
 #include "yyjson.h"
+#include "game/user_paths.h"
 
 #include <algorithm>
 #include <atomic>
@@ -441,7 +442,18 @@ namespace antares::native {
             return SDL_ENUM_CONTINUE;
         }
 
-        // A zipped package's godot/ packs are extracted to cache/godot/<package>/, since Godot
+        // Where zipped packages' packs go: the user's cache folder when the game uses the user
+        // folder (an AppImage, Flatpak or installed copy has a read-only folder: the themes never
+        // loaded, owner 2026-11-25), else cache/ beside the game as before.
+        std::string Pack_Cache_() {
+            if (user_paths::Is_Enabled()) {
+                const char* cache = user_paths::Get_Directory(user_paths::USER_DIRECTORY_CACHE);
+                if (cache != nullptr && cache[0] != '\0') return std::string(cache) + "godot/";
+            }
+            return "cache/godot/";
+        }
+
+        // A zipped package's godot/ packs are extracted to <cache>/godot/<package>/, since Godot
         // loads packs from files.
         void Extract_Archive_Packs(const vfs::s_package_source& source, std::vector<std::string>* out) {
             mz_zip_archive zip{};
@@ -456,7 +468,7 @@ namespace antares::native {
                 if (entry.rfind("godot/", 0) != 0 || entry.find('/', 6) != std::string::npos || !Is_Pack(entry)) {
                     continue;
                 }
-                const std::string dir = "cache/godot/" + source.package_id + "/";
+                const std::string dir = Pack_Cache_() + source.package_id + "/";
                 (void)SDL_CreateDirectory(dir.c_str());
                 const std::string path = dir + entry.substr(6);
                 mz_zip_archive_file_stat stat{};
@@ -726,7 +738,7 @@ namespace antares::native {
         for (auto it = sources.rbegin(); it != sources.rend(); ++it) {
             std::vector<std::string> found;
             if (it->is_archive) {
-                (void)SDL_CreateDirectory("cache/godot");
+                (void)SDL_CreateDirectory(Pack_Cache_().c_str());
                 Extract_Archive_Packs(*it, &found);
             } else {
                 const std::string dir = it->source_path + "godot/";
