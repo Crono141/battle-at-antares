@@ -97,6 +97,9 @@ namespace launcher {
         /** The whole wizard without a window (the -setup-run option): check `folder`, copy, import
          *  the saves keeping Antares's own, and stop on the last page. False when a step failed. */
         bool Run_Setup(const std::string& folder, bool stop_at_saves = false);
+        /** The Done page's buttons: the choices made there (full screen, the applications menu),
+         *  then the launcher, or the game when `play`. */
+        void Finish_Setup(bool play);
         bool Setup_Open() const {
             return setup_.active;
         }
@@ -251,6 +254,7 @@ namespace launcher {
             std::vector<antares::game_install::s_found_save> saves;
             bool import_saves = true;
             bool replace_taken = false; // owner, question 22: keep Antares's saves unless asked
+            bool add_to_menu = true;    // owner 2026-11-25: the applications menu (portable builds)
             bool fullscreen = true;     // owner 2026-11-24: the first game shouldn't open in a 640x480 window
             // Waiting for a store to install the game (WP5.12): "Steam" or "GOG".
             std::string wait_store;

@@ -2,6 +2,7 @@
 #include "antares/utf8_files.h"
 
 #include "launcher/launcher_app.h"
+#include "launcher/launcher_menu.h"
 
 #include <imgui.h>
 
@@ -855,6 +856,14 @@ namespace launcher {
                           "tab has the window size.",
                         ch::DIM,
                         SMALL);
+                    if (menu::Offered(game_dir_) && !menu::Exists(game_dir_)) {
+                        ImGui::Spacing();
+#ifdef _WIN32
+                        ImGui::Checkbox("Add Battle at Antares to the Start menu", &setup_.add_to_menu);
+#else
+                        ImGui::Checkbox("Add Battle at Antares to the applications menu", &setup_.add_to_menu);
+#endif
+                    }
                 }
                 left_label = files_.ok ? "Open the launcher" : "Back";
                 right_label = files_.ok ? "Play" : nullptr;
@@ -961,12 +970,23 @@ namespace launcher {
                 if (action == LEFT && !files_.ok) {
                     Setup_Find_();
                 } else {
-                    // Full screen goes into the selected profile, as the Settings tab would write it.
-                    if (setup_.fullscreen) (void)Apply_Setting("interface.fullscreen=true");
-                    Setup_Close_();
-                    if (action == RIGHT) Launch_(0);
+                    Finish_Setup(action == RIGHT);
                 }
                 break;
         }
+    }
+
+    void c_launcher::Finish_Setup(bool play) {
+        // Full screen goes into the selected profile, as the Settings tab would write it.
+        if (setup_.fullscreen) (void)Apply_Setting("interface.fullscreen=true");
+        if (setup_.add_to_menu && menu::Offered(game_dir_) && !menu::Exists(game_dir_)) {
+            std::string menu_error;
+            if (!menu::Add(game_dir_, &menu_error)) {
+                message_ = menu_error;
+                message_is_error_ = true;
+            }
+        }
+        Setup_Close_();
+        if (play) Launch_(0);
     }
 } // namespace launcher
