@@ -18,6 +18,7 @@
 #include "game/vfs.h"
 #include "launcher/launcher_app.h"
 #include "launcher/launcher_chrome.h"
+#include "k_launcher_icon.h"
 #include "launcher_font.h"
 
 namespace {
@@ -327,6 +328,13 @@ int main(int argc, char** argv) {
         window_height = std::max(window_height, std::min(860.0f * scale, usable.h * 0.85f));
     }
     SDL_Window* window = SDL_CreateWindow(title.c_str(), static_cast<int>(window_width), static_cast<int>(window_height), SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (headless ? SDL_WINDOW_HIDDEN : 0));
+    if (window != nullptr) { // the Antaran's face in the title bar and task switcher (owner 2026-11-25)
+        SDL_IOStream* icon_stream = SDL_IOFromConstMem(k_launcher_icon_data, k_launcher_icon_size);
+        if (SDL_Surface* icon = icon_stream != nullptr ? SDL_LoadPNG_IO(icon_stream, true) : nullptr) {
+            SDL_SetWindowIcon(window, icon);
+            SDL_DestroySurface(icon);
+        }
+    }
     SDL_Renderer* renderer = window != nullptr ? SDL_CreateRenderer(window, headless ? "software" : nullptr) : nullptr;
     if (renderer == nullptr) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: unable to create a window: %s", SDL_GetError());

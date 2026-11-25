@@ -983,6 +983,11 @@ if(ORION2RE_BUILD_GAME)
         ${ORION2RE_YYJSON_SOURCES}
     )
     if(WIN32)
+        # The application icon for Explorer, the taskbar and shortcuts (owner 2026-11-25).
+        enable_language(RC)
+        set(ANTARES_ICON_ICO "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/antares.ico")
+        configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/windows/antares.rc.in" "${CMAKE_CURRENT_BINARY_DIR}/antares.rc" @ONLY)
+        target_sources(orion2re PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/antares.rc")
         set_source_files_properties(src/windows_crash_dump.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
         target_sources(orion2re PRIVATE src/windows_crash_dump.cpp)
         target_link_libraries(orion2re PRIVATE dbghelp)
@@ -1088,6 +1093,21 @@ if(ORION2RE_BUILD_GAME)
         )
         list(APPEND ANTARES_LAUNCHER_CHROME_HEADERS "${ANTARES_CHROME_HEADER}")
     endforeach()
+    # The window icon (owner 2026-11-25: the Antaran's face; resources/icons).
+    set(ANTARES_LAUNCHER_ICON_HEADER "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}/k_launcher_icon.h")
+    add_custom_command(
+        OUTPUT "${ANTARES_LAUNCHER_ICON_HEADER}"
+        COMMAND ${CMAKE_COMMAND}
+            "-DINPUT_FILE=${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/antares-128.png"
+            "-DOUTPUT_FILE=${ANTARES_LAUNCHER_ICON_HEADER}"
+            "-DSYMBOL_NAME=k_launcher_icon"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+        DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/antares-128.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+        VERBATIM
+    )
+    list(APPEND ANTARES_LAUNCHER_CHROME_HEADERS "${ANTARES_LAUNCHER_ICON_HEADER}")
     add_executable(antares-launcher
         src/launcher/main.cpp
         src/launcher/launcher_app.cpp
@@ -1144,6 +1164,7 @@ if(ORION2RE_BUILD_GAME)
     endif()
     if(WIN32)
         target_link_libraries(antares-launcher PRIVATE winhttp) # HD pack downloads (WP5.14)
+        target_sources(antares-launcher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/antares.rc") # the icon
     endif()
     if(ORION2RE_GAME_DIR)
         add_custom_command(TARGET antares-launcher POST_BUILD
