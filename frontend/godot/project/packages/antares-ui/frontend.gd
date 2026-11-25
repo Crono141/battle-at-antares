@@ -2328,7 +2328,9 @@ func _smoke_planets(shots: String) -> bool:
 		var colonies: Control = _view("colonies_panel")
 		if not colonies._rows.is_empty():
 			var first_row: Control = colonies._rows.values()[0]
-			print("smoke: colonies turn %d: row %.0f of table %.0f" % [i, first_row.size.x, colonies.scroll.size.x])
+			print("smoke: colonies turn %d: row %.0f of table %.0f, job columns %.0f" % [i, first_row.size.x, colonies.scroll.size.x, colonies._job_width])
+			if shots != "":
+				await host.shot(shots + "/native-colonies-turn-%d.png" % i)
 			if first_row.size.x < colonies.scroll.size.x - 30.0:
 				print("smoke: FAILED: colonies rows narrower than the table after Planets")
 				return false
