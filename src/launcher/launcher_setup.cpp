@@ -787,6 +787,7 @@ namespace launcher {
                     ImGui::SetCursorScreenPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - width - 4.0f, title_at.y - 2.0f));
                     ImGui::Checkbox(label, &setup_.import_saves);
                     ImGui::SetCursorScreenPos(back);
+                    ImGui::Dummy(ImVec2(0.0f, 0.0f)); // ImGui wants an item after moving the cursor back (owner's error, 2026-11-24)
                 }
                 if (!taken.empty() && setup_.import_saves) {
                     ImGui::Spacing();
@@ -799,14 +800,20 @@ namespace launcher {
             }
             case SETUP_HD:
                 Text_("Battle at Antares can show the whole game in high resolution with these free packs of upscaled art. "
-                      "They download from GitHub while you carry on, and switch on by themselves when they're ready. "
+                      "They download from GitHub and switch on by themselves when they're ready. "
                       "They never affect your saves.");
                 ImGui::Spacing();
                 Text_("Tick the ones you want, or skip: the launcher's HD art button offers them any time.", ch::DIM, SMALL);
                 ImGui::Spacing();
                 Draw_Hd_List_();
-                left_label = "Skip";
-                right_label = Hd_Any_Ticked_() ? "Download" : "Next";
+                // The downloads stay on this page (owner 2026-11-24); Next waits for them.
+                if (hd_.busy) {
+                    ImGui::Spacing();
+                    Text_("Next unlocks when the downloads are done. Each pack switches on by itself when it's ready.", ch::DIM, SMALL);
+                }
+                left_label = hd_.busy || !hd_.session_done.empty() ? nullptr : "Skip";
+                right_label = !hd_.busy && Hd_Any_Ticked_() ? "Download" : "Next";
+                right_enabled = !hd_.busy;
                 break;
             case SETUP_DONE:
                 if (files_.ok) {
@@ -817,10 +824,11 @@ namespace launcher {
                     Text_("Something is still missing:", ch::RED);
                     Text_(antares::game_files::Describe(files_));
                 }
-                if (hd_.busy || !hd_.session_done.empty()) {
+                if (!hd_.session_done.empty()) {
                     ImGui::Spacing();
-                    Draw_Hd_Bars_(false);
-                    if (hd_.busy) Text_("The HD art switches on by itself when each pack is ready; keep the launcher open until then.", ch::DIM, SMALL);
+                    std::string names;
+                    for (const std::string& id : hd_.session_done) names += (names.empty() ? "" : ", ") + Package_Name_(id);
+                    Text_("HD art switched on: " + names + ".", ch::GREEN);
                 }
                 if (setup_.imported > 0) {
                     ImGui::Spacing();
@@ -931,8 +939,11 @@ namespace launcher {
                 }
                 break;
             case SETUP_HD:
-                if (action == RIGHT && Hd_Any_Ticked_()) Hd_Start_();
-                setup_.page = SETUP_DONE;
+                if (action == RIGHT && !hd_.busy && Hd_Any_Ticked_()) {
+                    Hd_Start_(); // stays here: the bars are on this page
+                } else if (!hd_.busy) {
+                    setup_.page = SETUP_DONE;
+                }
                 break;
             case SETUP_DONE:
                 if (action == LEFT && !files_.ok) {

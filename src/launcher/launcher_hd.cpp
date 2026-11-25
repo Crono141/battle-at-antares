@@ -74,6 +74,11 @@ namespace launcher {
                 hd::s_pack pack;
                 {
                     std::lock_guard<std::mutex> lock(hd_.mutex);
+                    if (hd_.progress.cancel && hd_.cancel_index >= 0) {
+                        // A Cancel on one pack that came after it finished: not for the next one.
+                        hd_.progress.cancel = false;
+                        hd_.cancel_index = -1;
+                    }
                     if (hd_.queue.empty() || hd_.progress.cancel) {
                         hd_.queue.clear();
                         hd_.current = -1;
@@ -90,6 +95,11 @@ namespace launcher {
                 std::lock_guard<std::mutex> lock(hd_.mutex);
                 if (ok) {
                     hd_.finished.push_back(pack.id);
+                } else if (error == "cancelled" && hd_.cancel_index == hd_.current) {
+                    // Cancelled on its own: the next pack carries on.
+                    hd_.progress.cancel = false;
+                    hd_.cancel_index = -1;
+                    hd_.current = -1;
                 } else {
                     hd_.error = error == "cancelled" ? "Stopped. What was downloaded is kept: Download carries on from there."
                                                      : pack.title + ": " + error + ".";
@@ -141,7 +151,22 @@ namespace launcher {
         if (!hd_.busy && hd_.worker.joinable()) hd_.worker.join();
     }
 
+    void c_launcher::Hd_Cancel_(size_t index) {
+        std::lock_guard<std::mutex> lock(hd_.mutex);
+        const auto queued = std::find(hd_.queue.begin(), hd_.queue.end(), index);
+        if (queued != hd_.queue.end()) {
+            hd_.queue.erase(queued);
+        } else if (static_cast<int>(index) == hd_.current && hd_.busy) {
+            hd_.cancel_index = static_cast<int>(index);
+            hd_.progress.cancel = true;
+        }
+    }
+
     void c_launcher::Hd_Stop_() {
+        {
+            std::lock_guard<std::mutex> lock(hd_.mutex);
+            hd_.cancel_index = -1;
+        }
         hd_.progress.cancel = true;
         if (hd_.worker.joinable()) hd_.worker.join();
         if (hd_.list_worker.joinable()) hd_.list_worker.join();
@@ -181,7 +206,8 @@ namespace launcher {
             }
             return;
         }
-        std::lock_guard<std::mutex> lock(hd_.mutex);
+        size_t cancel = SIZE_MAX;
+        std::unique_lock<std::mutex> lock(hd_.mutex);
         for (size_t index = 0; index < hd_.packs.size(); ++index) {
             const hd::s_pack& pack = hd_.packs[index];
             const hd::e_state state = hd::State(pack, hd_.mods_folder);
@@ -200,37 +226,48 @@ namespace launcher {
             ImGui::PopFont();
             ImGui::SameLine();
             ImGui::TextDisabled("%s", Size_(pack.size).c_str());
-            if (current) {
-                std::string phase;
-                {
-                    std::lock_guard<std::mutex> phase_lock(hd_.phase_mutex);
-                    phase = hd_.phase;
-                }
-                const float fraction = static_cast<float>(static_cast<double>(hd_.progress.done) / static_cast<double>(std::max<uint64_t>(pack.size, 1)));
-                const std::string label = phase + " " + std::to_string(static_cast<int>(fraction * 100.0f)) + " %";
-                ImGui::SameLine();
-                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, chrome::AMBER);
-                ImGui::ProgressBar(std::min(fraction, 1.0f), ImVec2(ImGui::GetFontSize() * 12.0f, 0.0f), label.c_str());
-                ImGui::PopStyleColor();
-            } else {
+            const bool done = std::find(hd_.session_done.begin(), hd_.session_done.end(), pack.id) != hd_.session_done.end();
+            if (!current && !queued && !done) {
                 // The state, after the size on the same line.
-                const char* note = queued     ? "waiting"
-                    : state == hd::INSTALLED  ? "installed"
-                    : state == hd::UPDATE     ? "update available"
-                    : state == hd::OTHER_COPY ? "installed (your own copy)"
-                    : pack.recommended        ? "start with this one"
-                                              : nullptr;
+                const char* note = state == hd::INSTALLED ? "installed"
+                    : state == hd::UPDATE                 ? "update available"
+                    : state == hd::OTHER_COPY             ? "installed (your own copy)"
+                    : pack.recommended                    ? "start with this one"
+                                                          : nullptr;
                 const ImVec4 colour = state == hd::INSTALLED ? chrome::GREEN : state == hd::UPDATE ? chrome::AMBER
-                    : pack.recommended && state == hd::NOT_INSTALLED && !queued                    ? chrome::GOLD
+                    : pack.recommended && state == hd::NOT_INSTALLED                               ? chrome::GOLD
                                                                                                    : chrome::DIM;
                 if (note != nullptr) {
                     ImGui::SameLine();
                     ImGui::TextColored(colour, "%s", note);
                 }
             }
-            ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextColored(chrome::DIM, "%s", pack.description.c_str());
-            ImGui::PopTextWrapPos();
+            if (!current && !queued && !done) {
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextColored(chrome::DIM, "%s", pack.description.c_str());
+                ImGui::PopTextWrapPos();
+            } else {
+                // Its bar below (owner 2026-11-24): downloading, waiting or done, with a Cancel.
+                float fraction = done ? 1.0f : 0.0f;
+                std::string label = done ? "done, switched on" : "waiting";
+                if (current) {
+                    std::string phase;
+                    {
+                        std::lock_guard<std::mutex> phase_lock(hd_.phase_mutex);
+                        phase = hd_.phase;
+                    }
+                    fraction = std::min(1.0f, static_cast<float>(static_cast<double>(hd_.progress.done) / static_cast<double>(std::max<uint64_t>(pack.size, 1))));
+                    label = (phase == "Checking" ? "checking " : "") + std::to_string(static_cast<int>(fraction * 100.0f)) + " % of " + Size_(pack.size);
+                }
+                const float cancel_width = done ? 0.0f : ImGui::CalcTextSize("Cancel").x + ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetStyle().ItemSpacing.x;
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, done ? chrome::GREEN : chrome::AMBER);
+                ImGui::ProgressBar(fraction, ImVec2(ImGui::GetContentRegionAvail().x - cancel_width, 0.0f), label.c_str());
+                ImGui::PopStyleColor();
+                if (!done) {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel")) cancel = index;
+                }
+            }
             ImGui::EndGroup();
             ImGui::PopID();
             ImGui::Spacing();
@@ -240,6 +277,8 @@ namespace launcher {
             ImGui::TextColored(chrome::RED, "%s", hd_.error.c_str());
             ImGui::PopTextWrapPos();
         }
+        lock.unlock();
+        if (cancel != SIZE_MAX) Hd_Cancel_(cancel);
     }
 
     void c_launcher::Draw_Hd_Bars_(bool compact) {
@@ -291,7 +330,11 @@ namespace launcher {
         ImGui::EndDisabled();
         if (hd_.busy) {
             ImGui::SameLine();
-            if (ImGui::Button("Stop")) hd_.progress.cancel = true;
+            if (ImGui::Button("Stop")) {
+                std::lock_guard<std::mutex> lock(hd_.mutex);
+                hd_.cancel_index = -1;
+                hd_.progress.cancel = true;
+            }
         }
         ImGui::SameLine();
         if (ImGui::Button("Close")) {

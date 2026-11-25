@@ -1065,13 +1065,13 @@ namespace launcher {
         const s_save_row* save = Find_Save_(load_save_);
         const bool save_fails = load_save_ > 0 && (save == nullptr || !Save_Problem_(*save).empty());
         if (chrome::Ready()) { // look B: the game's metal button, glowing amber (WP5.11b)
-            const bool can_play = files_.ok && check_.ok && !save_fails && game_ == nullptr;
+            const bool can_play = files_.ok && check_.ok && !save_fails && game_ == nullptr && !hd_.busy; // not mid-download (owner 2026-11-24)
             const ImVec2 size(button_width, ImGui::GetFrameHeight() * 1.25f);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - (size.y - ImGui::GetFrameHeight()) * 0.5f);
             if (chrome::Button(game_ != nullptr ? "Running##play" : "Play##play", size, true, can_play)) Launch_(load_save_);
             return;
         }
-        ImGui::BeginDisabled(!files_.ok || !check_.ok || save_fails || game_ != nullptr);
+        ImGui::BeginDisabled(!files_.ok || !check_.ok || save_fails || game_ != nullptr || hd_.busy);
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.45f, 0.25f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.55f, 0.30f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.62f, 0.35f, 1.0f));
