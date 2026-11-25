@@ -15,6 +15,7 @@
 #include "miniz.h"
 #include "antares/user_folder.h"
 #include "game/user_paths.h"
+#include "antares/utf8_files.h"
 
 namespace antares::game_install {
     namespace {
@@ -22,12 +23,11 @@ namespace antares::game_install {
 
         // UTF-8 in and out on every platform (a Windows user name may not be ASCII).
         fs::path Path_(const std::string& text) {
-            return fs::path(std::u8string(text.begin(), text.end()));
+            return antares::utf8::Path(text);
         }
 
         std::string Text_(const fs::path& path) {
-            const std::u8string text = path.u8string();
-            return std::string(text.begin(), text.end());
+            return antares::utf8::Text(path);
         }
 
         std::string Folder_Text_(const fs::path& path) {
@@ -349,7 +349,7 @@ namespace antares::game_install {
 #if defined(_WIN32)
             return _wfopen(Path_(path).wstring().c_str(), L"rb");
 #else
-            return std::fopen(path.c_str(), "rb");
+            return antares::utf8::Open(path.c_str(), "rb");
 #endif
         }
 
@@ -357,7 +357,7 @@ namespace antares::game_install {
 #if defined(_WIN32)
             return _wfopen(path.wstring().c_str(), L"wb");
 #else
-            return std::fopen(path.c_str(), "wb");
+            return antares::utf8::Open(path.c_str(), "wb");
 #endif
         }
 

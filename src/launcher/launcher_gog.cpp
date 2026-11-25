@@ -11,6 +11,7 @@
 #include "antares/gog.h"
 #include "antares/hd_packs.h"
 #include "antares/user_folder.h"
+#include "antares/utf8_files.h"
 
 // GOG sign-in and download in the launcher (WP5.13b, D29 case 3). The sign-in window is a separate
 // program (src/gog_signin/); this file runs the rest on a worker. Logs name the steps only: never
@@ -33,7 +34,7 @@ namespace launcher {
 #endif
 
         std::filesystem::path U8_(const std::string& text) {
-            return std::filesystem::path(std::u8string(text.begin(), text.end()));
+            return antares::utf8::Path(text);
         }
 
         std::string Signin_Path_() {

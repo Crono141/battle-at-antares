@@ -7,6 +7,7 @@
 #endif
 
 #include "startup_directory.h"
+#include "antares/utf8_files.h"
 
 namespace startup {
     bool Resolve_Game_Asset_Directory(const std::string& path, std::string* directory, std::string* error) {

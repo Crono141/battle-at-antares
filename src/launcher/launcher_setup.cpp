@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/utf8_files.h"
 
 #include "launcher/launcher_app.h"
 
@@ -35,7 +36,7 @@ namespace launcher {
         }
 
         std::filesystem::path U8_(const std::string& text) {
-            return std::filesystem::path(std::u8string(text.begin(), text.end()));
+            return antares::utf8::Path(text);
         }
 
         std::string Megabytes_(uint64_t bytes) {

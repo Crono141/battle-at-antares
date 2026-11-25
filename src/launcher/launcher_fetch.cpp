@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/utf8_files.h"
 
 #include "antares/hd_packs.h"
 
@@ -19,7 +20,7 @@ namespace antares::hd_packs {
         namespace fs = std::filesystem;
 
         fs::path Path_(const std::string& text) {
-            return fs::path(std::u8string(text.begin(), text.end()));
+            return antares::utf8::Path(text);
         }
 
         uint64_t File_Size_(const fs::path& path) {
@@ -164,7 +165,7 @@ namespace antares::hd_packs {
             const uint64_t offset = File_Size_(path);
             std::ofstream file(path, std::ios::binary | (offset > 0 ? std::ios::app : std::ios::trunc));
             if (!file) {
-                *error = "can't write " + path.string();
+                *error = "can't write " + antares::utf8::Text(path);
                 return false;
             }
             progress->done = offset;

@@ -10,6 +10,7 @@
 #include "game/vfs.h"
 #include "game/vfs_detail.h"
 #include "yyjson.h"
+#include "antares/utf8_files.h"
 
 namespace antares {
     namespace {
@@ -95,9 +96,9 @@ namespace antares {
 
         bool Directory_Is_Art_Only_(const std::string& root, const std::string& relative, const std::string& config_path) {
             std::error_code error;
-            const std::filesystem::path folder = std::filesystem::path(relative.empty() ? root : root + relative);
+            const std::filesystem::path folder = antares::utf8::Path(relative.empty() ? root : root + relative);
             for (std::filesystem::directory_iterator entry(folder, error), end; !error && entry != end; entry.increment(error)) {
-                const std::string name = entry->path().filename().string();
+                const std::string name = antares::utf8::Text(entry->path().filename());
                 const std::string child = relative.empty() ? name : relative + "/" + name;
                 if (entry->is_directory(error)) {
                     const std::string path = Lower_(child);

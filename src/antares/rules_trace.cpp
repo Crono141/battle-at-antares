@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/utf8_files.h"
 
 #include "antares/rules_trace.h"
 
@@ -51,7 +52,7 @@ namespace antares::rules_trace {
                 return;
             }
             const std::string path = std::string(dir) + "/" + where + "-" + std::to_string((int)MOX::stardate) + ".sav";
-            if (FILE* file = fopen(path.c_str(), "wb")) {
+            if (FILE* file = antares::utf8::Open(path.c_str(), "wb")) {
                 fwrite(bytes, 1, length, file);
                 fclose(file);
             }

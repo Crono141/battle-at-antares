@@ -1,4 +1,5 @@
 #include "antares_game.h"
+#include "antares/utf8_files.h"
 
 #include "antares/host.h"
 #include "antares/native.h"
@@ -102,7 +103,7 @@ namespace {
         // Keep the nine newest old logs; this run's makes ten.
         std::vector<fs::directory_entry> old;
         for (const auto& entry : fs::directory_iterator(logs, ec)) {
-            const std::string name = entry.path().filename().string();
+            const std::string name = antares::utf8::Text(entry.path().filename());
             if (entry.is_regular_file(ec) && name.rfind("game.", 0) == 0 && entry.path().extension() == ".log") {
                 old.push_back(entry);
             }
@@ -120,7 +121,7 @@ namespace {
         const int pid = getpid();
 #endif
         const fs::path file = logs / ("game." + std::to_string(pid) + ".log");
-        s_game_log_file = fopen(file.string().c_str(), "w");
+        s_game_log_file = antares::utf8::Open(antares::utf8::Text(file).c_str(), "w");
         if (s_game_log_file != nullptr) {
             SDL_GetLogOutputFunction(&s_console_log_output, &s_console_log_userdata);
             SDL_SetLogOutputFunction(Game_Log_Output, s_game_log_file);
@@ -312,7 +313,7 @@ namespace godot {
         started_ = true;
         game_finished_ = false;
         thread_ = std::thread([this, game_dir, args]() {
-            if (chdir(game_dir.c_str()) != 0) {
+            if (antares::utf8::Change_Directory(game_dir.c_str()) != 0) {
                 game_finished_ = true;
                 return;
             }

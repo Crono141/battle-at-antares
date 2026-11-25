@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/utf8_files.h"
 
 #include <SDL3/SDL_main.h>
 #if defined(ORION2RE_ASAN_BUILD)
@@ -73,7 +74,7 @@ static void Configure_Game_Log_() {
 #endif
 
     const std::string log_file_path = logs_path + path_separator + "game." + std::to_string(process_id) + ".log";
-    _game_log_file = fopen(log_file_path.c_str(), "w");
+    _game_log_file = antares::utf8::Open(log_file_path.c_str(), "w");
     if (_game_log_file == nullptr) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "unable to open log file '%s': %s", log_file_path.c_str(), strerror(errno));
         return;
@@ -140,7 +141,7 @@ static void Configure_Sanitizer_Runtime_() {
     if (SDL_asprintf(&stderr_path, "%s/sanitizer-stderr.%d.log", logs_path, process_id) >= 0) {
         // GCC's separate UBSan runtime does not use ASan's report path. Redirect
         // the descriptor too, since sanitizer diagnostics bypass C stdio.
-        FILE* stderr_log = fopen(stderr_path, "a");
+        FILE* stderr_log = antares::utf8::Open(stderr_path, "a");
         if (stderr_log != nullptr) {
             fflush(stderr);
 #if defined(_WIN32)

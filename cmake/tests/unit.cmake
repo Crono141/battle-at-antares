@@ -75,6 +75,12 @@ function(orion2re_add_unit_test TARGET_NAME)
     if("src/game/compat.cpp" IN_LIST ORION2RE_TEST_PRODUCTION_SOURCES)
         list(APPEND ORION2RE_TEST_PRODUCTION_SOURCES src/game/user_paths.cpp src/antares/user_folder.cpp src/game/legacy_sort.cpp)
     endif()
+    # UTF-8 file names (WP5.15): compat.cpp, dos.cpp and the path helpers open through it.
+    # (Game tests link every game object, this one included.)
+    if(NOT "$<TARGET_OBJECTS:orion2re_game_objects>" IN_LIST ORION2RE_TEST_PRODUCTION_SOURCES)
+        list(APPEND ORION2RE_TEST_PRODUCTION_SOURCES src/antares/utf8_files.cpp)
+        list(REMOVE_DUPLICATES ORION2RE_TEST_PRODUCTION_SOURCES)
+    endif()
 
     orion2re_test_shared_sources(ORION2RE_TEST_OBJECTS
         ${ORION2RE_TEST_SOURCES}
@@ -597,6 +603,7 @@ orion2re_add_unit_test(test_config_loader
         tests/unit/game_install_test.cpp
         tests/unit/hd_packs_test.cpp
         tests/unit/gog_test.cpp
+        tests/unit/utf8_files_test.cpp
         vendors/lzma/LzmaDec.c
     PRODUCTION_SOURCES
         src/antares/gog.cpp

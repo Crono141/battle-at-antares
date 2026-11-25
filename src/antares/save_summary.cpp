@@ -13,6 +13,7 @@
 #include "game/savegame.h"
 #include "game/serialization.h"
 #include "game/vfs_detail.h"
+#include "antares/utf8_files.h"
 
 namespace antares::saves {
     namespace {
@@ -159,24 +160,24 @@ namespace antares::saves {
         if (!state.initialized || slot < 1 || slot > k_slot_count) return summary;
         // The game opens saves case-insensitively in the game folder, or in the user folder when
         // installed (user_paths redirects SAVE?.GAM; WP5.9).
-        const std::filesystem::path folder(antares::user_folder::Saves_Directory(state.base_path));
+        const std::filesystem::path folder = antares::utf8::Path(antares::user_folder::Saves_Directory(state.base_path));
         const std::string wanted = "save" + std::to_string(slot) + ".gam";
         std::error_code error;
         std::filesystem::path path;
         for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(folder, error)) {
-            std::string name = entry.path().filename().string();
+            std::string name = antares::utf8::Text(entry.path().filename());
             for (char& character : name) character = static_cast<char>(SDL_tolower(static_cast<unsigned char>(character)));
             if (name == wanted && entry.is_regular_file(error)) {
                 path = entry.path();
-                if (entry.path().filename().string() == "SAVE" + std::to_string(slot) + ".GAM") break; // exact name wins
+                if (antares::utf8::Text(entry.path().filename()) == "SAVE" + std::to_string(slot) + ".GAM") break; // exact name wins
             }
         }
         if (path.empty()) return summary;
         summary.exists = true;
         SDL_PathInfo info{};
-        if (SDL_GetPathInfo(path.string().c_str(), &info)) summary.modified = info.modify_time;
+        if (SDL_GetPathInfo(antares::utf8::Text(path).c_str(), &info)) summary.modified = info.modify_time;
         size_t size = 0;
-        void* data = SDL_LoadFile(path.string().c_str(), &size);
+        void* data = SDL_LoadFile(antares::utf8::Text(path).c_str(), &size);
         if (data == nullptr) {
             summary.error = std::string("can't be read: ") + SDL_GetError();
             return summary;

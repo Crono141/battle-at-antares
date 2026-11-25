@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "user_paths.h"
+#include "antares/utf8_files.h"
 
 namespace dos {
     namespace {
@@ -109,7 +110,7 @@ namespace dos {
         if (user_paths::Redirect_Legacy_Path(path, true, user_path, sizeof(user_path))) {
             path = user_path;
         }
-        remove(path);
+        antares::utf8::Remove(path);
     }
 
     int32_t __cdecl Disk_Free(void) {

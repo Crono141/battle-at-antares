@@ -3,19 +3,20 @@
 #include <fstream>
 
 #include "game/turn_oracle_history.h"
+#include "antares/utf8_files.h"
 
 namespace turn_oracle {
     bool Read_File(const std::filesystem::path& path, std::vector<uint8_t>* bytes, std::string* error) {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
         const std::streamoff size = file ? static_cast<std::streamoff>(file.tellg()) : -1;
         if (size < 0 || size > 4 * 1024 * 1024) {
-            *error = "cannot read save (missing or exceeds 4 MiB): " + path.string();
+            *error = "cannot read save (missing or exceeds 4 MiB): " + antares::utf8::Text(path);
             return false;
         }
         bytes->resize(static_cast<size_t>(size));
         file.seekg(0);
         if (size != 0 && !file.read(reinterpret_cast<char*>(bytes->data()), size)) {
-            *error = "error reading " + path.string();
+            *error = "error reading " + antares::utf8::Text(path);
             return false;
         }
         return true;
@@ -26,7 +27,7 @@ namespace turn_oracle {
         file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
         file.close();
         if (!file) {
-            *error = "error writing " + path.string();
+            *error = "error writing " + antares::utf8::Text(path);
             return false;
         }
         return true;
@@ -47,7 +48,7 @@ namespace turn_oracle {
         if (offset < expected_bytes.size()) snprintf(expected_value, sizeof(expected_value), "0x%02X", expected_bytes[offset]);
         if (offset < actual_bytes.size()) snprintf(actual_value, sizeof(actual_value), "0x%02X", actual_bytes[offset]);
         snprintf(detail, sizeof(detail), "first difference at byte %zu (0x%zX): canonical=%s actual=%s\nsizes: canonical=%zu actual=%zu", offset, offset, expected_value, actual_value, expected_bytes.size(), actual_bytes.size());
-        *error = "canonical: " + canonical.string() + "\nactual: " + actual.string() + "\n" + detail;
+        *error = "canonical: " + antares::utf8::Text(canonical) + "\nactual: " + antares::utf8::Text(actual) + "\n" + detail;
         return false;
     }
 
