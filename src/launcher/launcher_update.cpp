@@ -20,6 +20,7 @@
 #include "antares/identity.h"
 #include "antares/updates.h"
 #include "antares/utf8_files.h"
+#include "game/vfs.h"
 #include "launcher/launcher_app.h"
 #include "launcher/launcher_chrome.h"
 #include "miniz.h"
@@ -225,7 +226,10 @@ namespace launcher {
 
     void c_launcher::Update_Start_() {
         const up::s_asset* asset = up::Asset_For(update_.release, update_.kind);
-        if (asset == nullptr || update_.downloading || game_ != nullptr) return;
+        if (asset == nullptr || update_.downloading || game_ != nullptr) {
+            SDL_Log("launcher: no update to start (kind %d, file %s, game %s)", static_cast<int>(update_.kind), asset != nullptr ? asset->name.c_str() : "none", game_ != nullptr ? "running" : "not running");
+            return;
+        }
         if (update_.worker.joinable()) update_.worker.join();
         // Where it downloads: beside the AppImage, in the game folder's staging folder, or (the
         // installer) the user's cache.
@@ -238,6 +242,7 @@ namespace launcher {
         std::error_code code;
         fs::create_directories(antares::utf8::Path(folder), code);
         update_.download_path = folder + asset->name;
+        SDL_Log("launcher: downloading %s", asset->name.c_str());
         update_.downloading = true;
         update_.ready = false;
         update_.error.clear();
@@ -307,7 +312,9 @@ namespace launcher {
             case up::KIND_WINDOWS_INSTALLER: {
                 // It waits for this launcher to close (the mutex), installs over this copy and
                 // starts the launcher again (/RELAUNCH=1, antares.iss).
-                if (!Start_({file, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/RELAUNCH=1"})) {
+                const std::string log = "/LOG=" + config_dir_ + "cache/update-install.log"; // for reports
+                vfs::Shutdown();                                                            // the game data released at once (the installer replaces it), not at exit
+                if (!Start_({file, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/RELAUNCH=1", log})) {
                     *error = "couldn't start the installer";
                     return false;
                 }
@@ -338,13 +345,22 @@ namespace launcher {
                 std::error_code code;
                 fs::remove_all(staged, code);
                 const bool unpacked = update_.kind == up::KIND_WINDOWS_ZIP ? Unzip_(file, staged, error) : Untar_(file, staged, error);
-                if (!unpacked || !Swap_In_(staged, antares::utf8::Path(game_dir_), error)) return false;
-                fs::remove_all(antares::utf8::Path(game_dir_ + STAGING), code);
+                if (!unpacked) return false;
+                // The launcher's own hold on the game data goes first: Windows won't move a file
+                // that is open (base.zip, the packages; Wine test: "Device or resource busy").
+                // From here the launcher only restarts, the new copy or (on a failure) the old.
+                vfs::Shutdown();
 #if defined(_WIN32)
                 const std::string launcher = game_dir_ + "antares-launcher.exe";
 #else
                 const std::string launcher = game_dir_ + "antares-launcher";
 #endif
+                if (!Swap_In_(staged, antares::utf8::Path(game_dir_), error)) {
+                    (void)Start_({launcher}); // the old copy again, everything put back
+                    quit_ = true;
+                    return false;
+                }
+                fs::remove_all(antares::utf8::Path(game_dir_ + STAGING), code);
                 if (!Start_({launcher})) {
                     *error = "updated, but couldn't start the new version: start it again";
                     return false;
