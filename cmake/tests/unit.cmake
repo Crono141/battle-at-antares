@@ -101,9 +101,18 @@ function(orion2re_add_unit_test TARGET_NAME)
         )
     endif()
 
-    target_precompile_headers(${TARGET_NAME} PRIVATE
-        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h>"
-    )
+    # Antares: one precompiled header for every test, as the shared objects already use (each
+    # test built its own 142 MB copy: 18.6 GB in all). Same settings, so GCC accepts it.
+    target_link_libraries(${TARGET_NAME} PRIVATE orion2re_test_compile_settings)
+    target_precompile_headers(${TARGET_NAME} REUSE_FROM orion2re_test_pch)
+    # The C sources some tests compile (libsmacker, yyjson) never used the C++ header; say so, or
+    # CMake looks for a C header the shared target doesn't have.
+    get_target_property(ORION2RE_TEST_ALL_SOURCES ${TARGET_NAME} SOURCES)
+    foreach(ORION2RE_TEST_SOURCE IN LISTS ORION2RE_TEST_ALL_SOURCES)
+        if(ORION2RE_TEST_SOURCE MATCHES "\\.c$")
+            set_source_files_properties("${ORION2RE_TEST_SOURCE}" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+        endif()
+    endforeach()
 
     target_link_libraries(${TARGET_NAME} PRIVATE SDL3::Headers)
 
