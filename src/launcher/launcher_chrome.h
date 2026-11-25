@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include <SDL3/SDL.h>
 #include <imgui.h>
 
@@ -16,7 +18,9 @@ namespace launcher::chrome {
 
     /** Loads the fonts into the atlas and the art into textures. Call once after the ImGui context
      *  and the renderer exist. False when something didn't load (the wizard then draws plainly). */
-    bool Load(SDL_Renderer* renderer);
+    /** The look's art and fonts; `data_dir` (the program's data/) is where the theme package is
+     *  read from when the art isn't built in. */
+    bool Load(SDL_Renderer* renderer, const std::string& data_dir);
     void Unload();
     bool Ready();
 

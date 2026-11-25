@@ -360,7 +360,8 @@ int main(int argc, char** argv) {
     io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(k_launcher_font_data), k_launcher_font_size, 17.0f, &font_config);
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
-    if (launcher::chrome::Load(renderer)) { // look B: the wizard's and the launcher's (WP5.11b)
+    const char* base_path = SDL_GetBasePath();                                                            // the program's folder (an app bundle's Resources)
+    if (launcher::chrome::Load(renderer, std::string(base_path != nullptr ? base_path : "") + "data/")) { // look B: the wizard's and the launcher's (WP5.11b)
         io.FontDefault = launcher::chrome::Body_Font();
         ImGui::GetStyle().FontSizeBase = 20.0f;   // Saira draws small for its size
         ImGui::GetStyle().FrameBorderSize = 1.0f; // fields and checkboxes stand out from the dark plates
