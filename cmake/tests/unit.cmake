@@ -549,6 +549,8 @@ orion2re_add_unit_test(test_native_bridge
         tests/unit/save_queries_test.cpp
     PRODUCTION_SOURCES
         src/antares/native.cpp
+        src/game/user_paths.cpp # the theme packs' cache folder (native.cpp)
+        src/antares/user_folder.cpp
         src/antares/commands.cpp
         src/antares/galaxy_queries.cpp
         src/antares/fleet_orders.cpp
