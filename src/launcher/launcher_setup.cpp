@@ -482,7 +482,8 @@ namespace launcher {
         ImGui::BeginChild("page", ImVec2(column - 60, bezel_bottom - bezel_top - 44), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
         ImDrawList* draw = ImGui::GetWindowDrawList();
         const std::string title = Upper_(setup_.page == SETUP_WAIT ? "Waiting for " + setup_.wait_store : std::string(titles[setup_.page]));
-        ch::Shadowed_Text(draw, ch::Title_Font(), 23.0f, ImGui::GetCursorScreenPos(), ch::GOLD, title.c_str());
+        const ImVec2 title_at = ImGui::GetCursorScreenPos();
+        ch::Shadowed_Text(draw, ch::Title_Font(), 23.0f, title_at, ch::GOLD, title.c_str());
         ImGui::Dummy(ImVec2(0, 34));
         ImGui::PushFont(ch::Body_Font(), BODY);
 
@@ -777,8 +778,16 @@ namespace launcher {
                     }
                     ImGui::EndTable();
                 }
-                ImGui::Spacing();
-                ImGui::Checkbox("Bring them into Battle at Antares", &setup_.import_saves);
+                {
+                    // The choice sits on the title's row, at the right (owner 2026-11-24: it was
+                    // under a long list).
+                    const char* label = "Bring them into Battle at Antares";
+                    const ImVec2 back = ImGui::GetCursorScreenPos();
+                    const float width = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(label).x;
+                    ImGui::SetCursorScreenPos(ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - width - 4.0f, title_at.y - 2.0f));
+                    ImGui::Checkbox(label, &setup_.import_saves);
+                    ImGui::SetCursorScreenPos(back);
+                }
                 if (!taken.empty() && setup_.import_saves) {
                     ImGui::Spacing();
                     Text_("Battle at Antares already has saves in slot" + std::string(taken.find(',') != std::string::npos ? "s " : " ") + taken + ". For those:", ch::DIM);
@@ -808,9 +817,10 @@ namespace launcher {
                     Text_("Something is still missing:", ch::RED);
                     Text_(antares::game_files::Describe(files_));
                 }
-                if (hd_.busy) {
+                if (hd_.busy || !hd_.session_done.empty()) {
                     ImGui::Spacing();
-                    Text_(Hd_Status_() + ". The HD art switches on by itself when it's ready; keep the launcher open until then.", ch::AMBER, SMALL);
+                    Draw_Hd_Bars_(false);
+                    if (hd_.busy) Text_("The HD art switches on by itself when each pack is ready; keep the launcher open until then.", ch::DIM, SMALL);
                 }
                 if (setup_.imported > 0) {
                     ImGui::Spacing();

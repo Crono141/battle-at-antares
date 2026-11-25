@@ -127,6 +127,7 @@ namespace launcher {
         {
             std::lock_guard<std::mutex> lock(hd_.mutex);
             finished.swap(hd_.finished);
+            hd_.session_done.insert(hd_.session_done.end(), finished.begin(), finished.end());
         }
         if (!finished.empty()) {
             // A new pack is a new package: list it, and switch it on in this profile.
@@ -238,6 +239,35 @@ namespace launcher {
             ImGui::PushTextWrapPos(0.0f);
             ImGui::TextColored(chrome::RED, "%s", hd_.error.c_str());
             ImGui::PopTextWrapPos();
+        }
+    }
+
+    void c_launcher::Draw_Hd_Bars_(bool compact) {
+        std::lock_guard<std::mutex> lock(hd_.mutex);
+        std::string phase;
+        {
+            std::lock_guard<std::mutex> phase_lock(hd_.phase_mutex);
+            phase = hd_.phase;
+        }
+        for (size_t index = 0; index < hd_.packs.size(); ++index) {
+            const hd::s_pack& pack = hd_.packs[index];
+            const bool current = static_cast<int>(index) == hd_.current && hd_.busy;
+            const bool queued = std::find(hd_.queue.begin(), hd_.queue.end(), index) != hd_.queue.end();
+            const bool done = std::find(hd_.session_done.begin(), hd_.session_done.end(), pack.id) != hd_.session_done.end();
+            if (!current && !queued && !done) continue;
+            float fraction = done ? 1.0f : 0.0f;
+            std::string label = done ? "done" : "waiting";
+            if (current) {
+                fraction = std::min(1.0f, static_cast<float>(static_cast<double>(hd_.progress.done) / static_cast<double>(std::max<uint64_t>(pack.size, 1))));
+                label = (phase == "Checking" ? "checking " : "") + std::to_string(static_cast<int>(fraction * 100.0f)) + " % of " + Size_(pack.size);
+            }
+            ImGui::PushID(static_cast<int>(index));
+            ImGui::TextUnformatted(pack.title.c_str());
+            if (compact) ImGui::SameLine(ImGui::GetFontSize() * 9.0f);
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, done ? chrome::GREEN : chrome::AMBER);
+            ImGui::ProgressBar(fraction, ImVec2(compact ? ImGui::GetFontSize() * 18.0f : -1.0f, 0.0f), label.c_str());
+            ImGui::PopStyleColor();
+            ImGui::PopID();
         }
     }
 

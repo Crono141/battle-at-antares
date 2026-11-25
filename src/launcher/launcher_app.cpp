@@ -1041,8 +1041,7 @@ namespace launcher {
             }
         }
         ImGui::PopTextWrapPos();
-        const std::string hd_status = Hd_Status_();
-        if (!hd_status.empty()) ImGui::TextColored(chrome::AMBER, "%s", hd_status.c_str());
+        if (hd_.busy) Draw_Hd_Bars_(true); // up to three bars, one per HD pack (owner 2026-11-24)
         if (!message_.empty()) {
             ImGui::TextColored(message_is_error_ ? COLOUR_ERROR : COLOUR_DIM, "%s", message_.c_str());
         }

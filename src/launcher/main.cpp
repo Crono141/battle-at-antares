@@ -390,7 +390,7 @@ int main(int argc, char** argv) {
             SDL_Delay(100);
             continue;
         }
-        if (headless && app.Hd_Waiting()) {
+        if (headless && app.Hd_Waiting() && (options.shot_after == 0 || elapsed < static_cast<Uint64>(options.shot_after))) {
             SDL_Delay(100);
             continue;
         }

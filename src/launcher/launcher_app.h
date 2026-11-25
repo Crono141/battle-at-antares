@@ -287,6 +287,7 @@ namespace launcher {
             std::string phase;
             std::string error;
             std::vector<std::string> finished; // ids to switch on (main thread)
+            std::vector<std::string> session_done; // ids finished since the launcher started (for the bars)
             bool window = false;               // the launcher's HD art window is open
             std::string mods_folder;
         } hd_;
@@ -298,6 +299,9 @@ namespace launcher {
         bool Hd_Any_Ticked_() const;
         void Draw_Hd_List_();
         void Draw_Hd_Window_();
+        /** One bar per pack this session (downloading, waiting, done), up to three (owner
+         *  2026-11-24). `compact`: the name beside its bar; otherwise the name above. */
+        void Draw_Hd_Bars_(bool compact);
 
         // GOG sign-in and download (WP5.13b, launcher_gog.cpp): the sign-in program gives a
         // one-time code; a worker trades it for a token, finds the game in the library, downloads

@@ -66,6 +66,9 @@ DOCTEST_TEST_SUITE("setup wizard (WP5.11)") {
         tree.Game("home/GOG Games/Master of Orion 2", 10);                // a partial copy
         tree.Game("home/Games/moo2/drive_c/GOG Games/Master of Orion 2"); // a Lutris prefix
         tree.Write("home/GOG Games/Other Game/game.dat", "not this");
+        // Steam installs Master of Orion 1 beside 2; it has a DIPLOMAT.LBX too, and is no candidate.
+        tree.Write("lib2/steamapps/common/Master of Orion 1/MOO1/DIPLOMAT.LBX", "moo1");
+        tree.Write("lib2/steamapps/common/Master of Orion 1/MOO1/ORION.EXE", "moo1");
 
         const std::vector<gi::s_candidate> found = gi::Detect(gi::Detect_Roots(home));
         const gi::s_candidate* steam = Find_(found, tree.Path("lib2/steamapps/common/Master of Orion 2/MOO2"));
