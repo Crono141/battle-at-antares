@@ -63,6 +63,20 @@ namespace launcher::menu {
             return With_Separator_(game_dir) + "antares-launcher";
         }
 
+        // Another menu entry (not ours) that starts `program`.
+        bool Other_Entry_For_(const std::string& program) {
+            const std::string folder = Data_Home_() + "applications";
+            std::error_code error;
+            for (std::filesystem::directory_iterator entry(antares::utf8::Path(folder), error), end; !error && entry != end; entry.increment(error)) {
+                const std::string path = antares::utf8::Text(entry->path());
+                if (path.size() < 8 || path.compare(path.size() - 8, 8, ".desktop") != 0 || path == Entry_()) continue;
+                std::ifstream file(entry->path(), std::ios::binary);
+                const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+                if (text.find(program) != std::string::npos) return true;
+            }
+            return false;
+        }
+
         // Desktop entry Exec quoting: the path in double quotes, with \ " ` $ escaped.
         std::string Quote_(const std::string& path) {
             std::string quoted = "\"";
@@ -85,7 +99,15 @@ namespace launcher::menu {
         return false;
 #else
         (void)game_dir;
-        return SDL_getenv("FLATPAK_ID") == nullptr && !Entry_().empty();
+        if (SDL_getenv("FLATPAK_ID") != nullptr || Entry_().empty()) return false;
+        // An AppImage that an integrator (Gear Lever, AppImageLauncher, appimaged) put in the menu:
+        // they start it with DESKTOPINTEGRATION set, and their entry starts the file (owner
+        // 2026-11-25: two Battle at Antares entries after Gear Lever).
+        if (SDL_getenv("APPIMAGE") != nullptr) {
+            if (SDL_getenv("DESKTOPINTEGRATION") != nullptr) return false;
+            if (Other_Entry_For_(SDL_getenv("APPIMAGE"))) return false;
+        }
+        return true;
 #endif
     }
 
