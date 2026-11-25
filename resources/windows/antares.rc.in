@@ -1,0 +1,3 @@
+// The application icon (owner 2026-11-25: the Antaran's face), for antares.exe and
+// antares-launcher.exe. Configured by CMake with the icon's absolute path.
+1 ICON "@ANTARES_ICON_ICO@"
