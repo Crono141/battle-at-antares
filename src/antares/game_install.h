@@ -17,6 +17,9 @@ namespace antares::game_install {
         std::string path;   // the folder with the LBX files, ending in '/'
         std::string source; // where it was found: "Steam", "GOG", "GOG Galaxy", "Heroic", "Wine", ...
         size_t found = 0;   // how many of game_files::Required_Files() it has
+        // A GOG installer in Downloads rather than a folder (D29 case 2): `path` is the file.
+        bool installer = false;
+        uint64_t size = 0;
     };
 
     /** Where to look. Detect_Roots() fills it for this machine; tests build their own. */
@@ -58,6 +61,18 @@ namespace antares::game_install {
     /** Steam's libraryfolders.vdf: each library's "path". */
     std::vector<std::string> Parse_Steam_Libraries(const std::string& vdf_text);
 
+    /** A GOG installer of Master of Orion II (D29 case 2): found in Downloads or chosen. */
+    enum e_installer_kind { INSTALLER_NONE,
+        INSTALLER_LINUX,
+        INSTALLER_WINDOWS,
+        INSTALLER_MAC };
+    struct s_installer {
+        std::string path;
+        std::string name; // the file's name
+        e_installer_kind kind = INSTALLER_NONE;
+        uint64_t size = 0;
+    };
+
     /** The checklist for one folder. */
     struct s_folder_check {
         std::string folder; // ends in '/'
@@ -68,14 +83,32 @@ namespace antares::game_install {
         std::vector<std::string> to_copy; // every LBX file in it, as named on disk
         uint64_t bytes = 0;               // their size
         size_t found = 0;                 // required files present (and not empty)
+        // Set when the copy comes out of an installer instead of a folder (D29 case 2): then
+        // `folder` is the installer's path and `to_copy` the archive's entry names.
+        e_installer_kind installer = INSTALLER_NONE;
+        uint64_t archive_offset = 0; // where the zip starts inside a Linux installer
         bool ok() const {
             return exists && missing.empty() && empty.empty();
         }
     };
 
+    /** The kind of a GOG installer from its name: gog_master_of_orion_2_*.sh (Linux),
+     *  setup_master_of_orion_2_*.exe (Windows), *master_of_orion_2*.pkg (Mac). NONE otherwise. */
+    e_installer_kind Installer_Kind(const std::string& name);
+
+    /** The GOG installers of Master of Orion II in `folder` (the player's Downloads), newest first. */
+    std::vector<s_installer> Find_Installers(const std::string& folder);
+
+    /** The player's Downloads folder ('/'-ended), or "" when the system has none. */
+    std::string Downloads_Folder();
+
     /** Checks `folder`. When it doesn't hold the game but one folder below does (a bundle such as
      *  GOG's Master of Orion 1+2, or Steam's), that folder is checked instead. */
     s_folder_check Check_Folder(const std::string& folder);
+
+    /** The checklist for a GOG installer: reads its table of contents without extracting. A
+     *  Windows or Mac installer gives `error` for now (WP5.13c). */
+    s_folder_check Check_Installer(const std::string& path, std::string* error);
 
     /** Where the original files go: game/ in the user folder when installed, else game/ in the game
      *  folder (Mount searches both). */
@@ -97,6 +130,10 @@ namespace antares::game_install {
      *  cancelled or failed copy never leaves a half file under the real name. Files already there
      *  with the same size are kept. Does nothing when `target` is the checked folder itself. */
     bool Copy_Files(const s_folder_check& check, const std::string& target, s_copy_progress* progress);
+
+    /** Extracts the game files of a checked installer into `target`, as Copy_Files copies a
+     *  folder (through temporary names; cancel keeps whole files only). */
+    bool Extract_Installer(const s_folder_check& check, const std::string& target, s_copy_progress* progress);
 
     /** A save found in the player's Master of Orion II. */
     struct s_found_save {
