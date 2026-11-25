@@ -264,6 +264,7 @@ var _sounds_held := false
 
 func _process(delta: float) -> void:
 	_check_orphan_system(delta)
+	_keep_build_pane_beside()
 	if todo_auto:
 		_auto_todo_step()
 	elif _gain_discovery_step():
@@ -4160,6 +4161,21 @@ func _place_landscape() -> void:
 		if build.visible:
 			build.move_to_front() # over it where it overlaps
 	_raise_chrome()
+
+
+## The build list against the colony pane's edge every frame it's open: the colony pane can grow
+## (its rows) just before the build list shows, when the resized hook skips it, and the list then
+## sat over it (smoke 2026-11-25, "the build pane overlaps the colony pane", after a font change
+## moved the timing).
+func _keep_build_pane_beside() -> void:
+	var build: Control = _views.get("build_pane")
+	var colony_pane: Control = _views.get("colony_pane")
+	if build == null or colony_pane == null or not build.visible or not colony_pane.visible:
+		return
+	var gap := maxf(get_theme_constant_from(build, "pane_gap"), 6.0)
+	var colony_end := float(colony_pane._shown_left) + maxf(colony_pane.size.x, float(colony_pane.WIDTH))
+	if absf(float(build._shown_left) - (colony_end + gap)) > 0.5:
+		_place_build_pane()
 
 
 func _place_build_pane() -> void:
