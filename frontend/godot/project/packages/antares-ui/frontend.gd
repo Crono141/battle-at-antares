@@ -2250,6 +2250,18 @@ func _smoke_pin(shots: String) -> bool:
 		print("smoke: pinned second colony: panel %s, colony pane %d (wanted %d)" % [panel.visible, _view("colony_pane").colony_id, int(second.colony)])
 		if not panel.visible or _view("colony_pane").colony_id != int(second.colony):
 			return false
+		# The landscape (owner 2026-11-26, ultra-wide: it flew out over the pinned panel, which
+		# faded): where it opens by itself it ends left of the panel, and the panel stays.
+		await get_tree().create_timer(2.0).timeout
+		var land: Control = _views.get("colony_landscape")
+		var land_shown: bool = land != null and land.visible
+		var land_rect: Rect2 = land.get_global_rect() if land_shown else Rect2()
+		print("smoke: pinned landscape: view %s, shown %s at %s, panel at %.0f, panel alpha %.2f" % [get_viewport().get_visible_rect().size, land_shown, land_rect, panel.rest_left(), panel.modulate.a])
+		if shots != "":
+			await host.shot(shots + "/native-pin-landscape.png")
+		if panel.modulate.a < 0.9 or (land_shown and land_rect.end.x > panel.rest_left() + 1.0):
+			print("smoke: FAILED: the landscape covers the pinned panel")
+			return false
 	_on_star_clicked(int(first.star)) # a star on the map: its system, over the panel
 	await get_tree().create_timer(1.2).timeout
 	print("smoke: pinned star click: panel %s, system %s on %d (wanted %d), row %d" % [panel.visible, system_pane.visible, galaxy.system_star, int(first.star), panel.selected])
@@ -3887,7 +3899,8 @@ func _update_pinned_cover() -> void:
 		if panel.pinned:
 			var rect := panel.get_global_rect()
 			var covered_area := 0.0
-			for pane_name: String in ["system_pane", "colony_pane", "build_pane", "colony_landscape"]:
+			# The glass panes only: the landscape is solid art, drawn over the panel as it is.
+			for pane_name: String in ["system_pane", "colony_pane", "build_pane"]:
 				var pane: Control = _views.get(pane_name)
 				if pane != null and pane.visible and pane.get_index() > panel.get_index():
 					covered_area += rect.intersection(pane.get_global_rect()).get_area()
@@ -4272,11 +4285,29 @@ func _landscape_right_limit() -> float:
 		for b in tabs.find_children("*", "Button", true, false):
 			if (b as Control).is_visible_in_tree():
 				right = minf(right, (b as Control).get_global_rect().position.x - gap)
+	if _pinned_landscape_width() > 0.0:
+		right = minf(right, _pinned_panel().rest_left() - gap)
 	return right
+
+
+## A pinned panel (WP3.12; owner 2026-11-26: on an ultra-wide screen the landscape flew out over
+## the pinned Colonies panel): the width between the colony pane and the panel when the landscape
+## is shown there, smaller if need be (at least half its full width); else 0 (it goes over the panel).
+func _pinned_landscape_width() -> float:
+	var pinned: Control = _pinned_panel()
+	var land: Control = _views.get("colony_landscape")
+	if pinned == null or land == null or not _views.has("colony_pane"):
+		return 0.0
+	var gap := maxf(get_theme_constant_from(land, "pane_gap"), 6.0)
+	var room: float = pinned.rest_left() - gap - (_colony_pane_rest().end.x + gap)
+	var full: float = land.frame_size_for(_pane_band().y).x
+	return room if room >= full * 0.5 else 0.0
 
 
 ## The whole landscape fits between the colony pane and the side tabs (it then opens by itself).
 func _landscape_fits_beside() -> bool:
+	if _pinned_landscape_width() > 0.0:
+		return true
 	var land := _view("colony_landscape")
 	var pane := _colony_pane_rest()
 	var gap := maxf(get_theme_constant_from(land, "pane_gap"), 6.0)
@@ -4298,6 +4329,9 @@ func _place_landscape() -> void:
 	var view_width := get_viewport().get_visible_rect().size.x
 	if frame.x > view_width - 16.0:
 		frame = land.frame_size_for_width(view_width - 16.0)
+	var pinned_width := _pinned_landscape_width()
+	if pinned_width > 0.0 and pinned_width < frame.x:
+		frame = land.frame_size_for_width(pinned_width) # between the colony pane and the pinned panel
 	var left := pane.end.x + gap
 	var build := _view("build_pane")
 	if build.visible:
@@ -6085,6 +6119,7 @@ func _smoke_native() -> void:
 	var panel_steps: Array = ["--colonies", "--planets", "--pin", "--fleets", "--leaders", "--races", "--info", "--design", "--layering"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
 	if not panel_steps.is_empty():
 		galaxy.flight_time = 0.15
+		await _smoke_window_setting() # SMOKE_WINDOW: a player's screen (an ultra-wide one for --pin)
 		for step: String in panel_steps:
 			var passed := false
 			if step == "--colonies":
