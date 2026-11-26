@@ -101,6 +101,7 @@ namespace {
     using t_source = c_handler<ICoreWebView2SourceChangedEventHandler, &IID_ICoreWebView2SourceChangedEventHandler, ICoreWebView2*, ICoreWebView2SourceChangedEventArgs*>;
     using t_new_window = c_handler<ICoreWebView2NewWindowRequestedEventHandler, &IID_ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs*>;
     using t_completed = c_handler<ICoreWebView2NavigationCompletedEventHandler, &IID_ICoreWebView2NavigationCompletedEventHandler, ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*>;
+    using t_failed = c_handler<ICoreWebView2ProcessFailedEventHandler, &IID_ICoreWebView2ProcessFailedEventHandler, ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs*>;
     using t_close = c_handler<ICoreWebView2WindowCloseRequestedEventHandler, &IID_ICoreWebView2WindowCloseRequestedEventHandler, ICoreWebView2*, IUnknown*>;
 
     // One window and its web view: the sign-in page, or a page's own window (Google's and the other
@@ -178,6 +179,20 @@ namespace {
         RECT bounds;
         GetClientRect(view->window, &bounds);
         view->controller->put_Bounds(bounds);
+    }
+
+    // The web view drawn and sized in its window (a page's own window, owner's Windows test
+    // 2026-11-26: Google's page loaded but the window stayed blank).
+    void Reveal_(s_view* view) {
+        if (view->controller == nullptr) return;
+        view->controller->put_IsVisible(TRUE);
+        Fit_(view);
+        view->controller->NotifyParentWindowPositionChanged();
+        RECT bounds;
+        GetClientRect(view->window, &bounds);
+        BOOL visible = FALSE;
+        view->controller->get_IsVisible(&visible);
+        Log_("%s view: %ldx%ld, visible %d, window shown %d", view->main ? "main" : "popup", bounds.right - bounds.left, bounds.bottom - bounds.top, visible, IsWindowVisible(view->window));
     }
 
     HWND New_Window_(int width, int height) {
@@ -275,6 +290,15 @@ namespace {
         view->web->add_NavigationCompleted(completed, &token);
         completed->Release();
 
+        auto* failed = new t_failed([view](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* arguments) -> HRESULT {
+            COREWEBVIEW2_PROCESS_FAILED_KIND kind = COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
+            arguments->get_ProcessFailedKind(&kind);
+            Log_("%s: a web process failed (kind %d)", view->main ? "main" : "popup", static_cast<int>(kind));
+            return S_OK;
+        });
+        view->web->add_ProcessFailed(failed, &token);
+        failed->Release();
+
         // The title shows which site the page is on, so the player can see it is GOG's.
         auto* source = new t_source([view](ICoreWebView2* web, ICoreWebView2SourceChangedEventArgs*) -> HRESULT {
             LPWSTR uri = nullptr;
@@ -307,6 +331,7 @@ namespace {
             auto* popup = new s_view();
             popup->window = New_Window_(520, 700);
             s_views.push_back(popup);
+            ShowWindow(popup->window, SW_SHOWNORMAL); // shown before its web view, as the main window is
             const auto give_up = [arguments, deferral]() {
                 arguments->put_Handled(FALSE);
                 deferral->Complete();
@@ -326,7 +351,8 @@ namespace {
                 deferral->Complete();
                 deferral->Release();
                 arguments->Release();
-                ShowWindow(popup->window, SW_SHOW);
+                Reveal_(popup);
+                SetForegroundWindow(popup->window);
             },
                 give_up);
             Log_("popup controller requested: 0x%08lx", static_cast<unsigned long>(result));
@@ -440,6 +466,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
         s_environment = environment;
         if (FAILED(Create_Controller_(main_view, nullptr, [main_view, start_url](ICoreWebView2Controller*) {
                 KillTimer(main_view->window, ENGINE_TIMER);
+                Reveal_(main_view);
                 main_view->web->Navigate(start_url.c_str());
                 SetForegroundWindow(main_view->window);
             }, [] {}))) {
