@@ -2073,6 +2073,15 @@ func _smoke_colonies(shots: String) -> bool:
 		await host.shot(shots + "/native-colonies.png")
 	if not panel.visible or rows == 0:
 		return false
+	# The panel's own width is what the job columns were measured against, so the table must not
+	# push past it: a table wider than the width the panel opened with grows the panel, the panel
+	# grows the window, the galaxy re-fits, and the queue fills (reported 2026-11-26, the Colonies
+	# tab crashed the game).
+	var wanted: Vector2 = panel._rect.size
+	print("smoke: colonies panel measures %s against the %s it opened with" % [panel.size, wanted])
+	if panel.size.x > wanted.x + 1.0:
+		print("smoke: FAILED: the job columns widened the panel by %d px" % int(panel.size.x - wanted.x))
+		return false
 	# The whole galaxy left of the panel.
 	var far := galaxy.get_global_transform_with_canvas() * Vector2(float(galaxy.data.width), float(galaxy.data.height))
 	var near := galaxy.get_global_transform_with_canvas() * Vector2.ZERO
@@ -2109,13 +2118,21 @@ func _smoke_colonies(shots: String) -> bool:
 		var before := workers.size()
 		var person: Dictionary = workers[0]
 		panel._pick_up(c, [int(person.pop)], 1)
+		# Let the row's layout settle before reading a cell's rect: a cell built in the same frame
+		# still carries the rect it had before the rebuild, so the click below would land where the
+		# cell used to be (found 2026-11-26: the drop did nothing and the cell was freed after).
 		await get_tree().process_frame
+		await get_tree().process_frame
+		await get_tree().create_timer(0.15).timeout
 		var target: Control = panel._job_cells[Vector2i(id, 2)]
-		panel._input(_smoke_click_at(target.get_global_rect().get_center()))
+		var drop_at: Vector2 = target.get_global_rect().get_center()
+		panel._input(_smoke_click_at(drop_at))
 		await get_tree().create_timer(0.4).timeout
 		var after: int = (panel._row_data(id).jobs[1].colonists as Array).size()
 		print("smoke: %s workers %d -> %d" % [c.name, before, after])
 		if after != before - 1:
+			print("smoke: the drop at the science cell of %s (colony %d) did nothing: clicked %s, %d cells, carry %d, cell still there %s" % [
+				c.name, id, drop_at, panel._job_cells.size(), panel._carry.size(), is_instance_valid(target)])
 			return false
 		var back: Dictionary = panel._row_data(id).jobs[2].colonists[0]
 		_send({"verb": "move_colonist", "colony": id, "pops": [int(back.pop)], "job": 1})

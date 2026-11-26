@@ -147,21 +147,35 @@ func shared_width(area: Rect2) -> float:
 	var table := MIN_JOB_WIDTH * 3.0 + _buy_width() + SEPARATION * 6.0 + _row_pad(SIDE_LEFT) + _row_pad(SIDE_RIGHT)
 	for column: Dictionary in COLUMNS:
 		table += float(column.width)
+	var width := maxf(clampf(area.size.x * 0.45, 700.0, 960.0), table + _table_overhead()) # the scroll bar and its gap
+	return minf(width, area.size.x - 16.0)
+
+
+## What the panel spends outside its table: the scroll bar and the clear strip before it, and the
+## pane's own frame. `shared_width` opens the panel wide enough for it and `_fill_jobs` gives the
+## job columns what is left - the two must subtract the same thing. They drifted once: a change
+## added the strip to the open width alone, so every refill gave the columns 10 px the panel did
+## not have, the panel grew a strip at a time, and the galaxy re-fitted on each step until the
+## engine's message queue ran out (reported 2026-11-26, the Colonies tab crashed the game).
+func _table_overhead() -> float:
 	var style := get_theme_stylebox("panel")
 	var frame := style.get_minimum_size().x if style != null else 0.0
-	var width := maxf(clampf(area.size.x * 0.45, 700.0, 960.0), table + 14.0 + preload("../themes.gd").SCROLL_GAP + frame) # the scroll bar and its gap
-	return minf(width, area.size.x - 16.0)
+	return 14.0 + preload("../themes.gd").SCROLL_GAP + frame
 
 
 ## The job columns share the table's width beyond the fixed columns, every row the same.
 func _fill_jobs() -> void:
-	if not visible or scroll.size.x <= 0.0:
+	if not visible or _rect.size.x <= 0.0 or scroll.size.x <= 0.0:
 		return
 	var fixed := 0.0
 	for column: Dictionary in COLUMNS:
 		fixed += float(column.width)
 	fixed += _buy_width() + SEPARATION * 6.0 + _row_pad(SIDE_LEFT) + _row_pad(SIDE_RIGHT)
-	var width := floorf(maxf((scroll.size.x - 14.0 - fixed) / 3.0, MIN_JOB_WIDTH))
+	# The room is the width the panel was opened with, never the live scroll's: the columns and
+	# their cells take this as a minimum size, so a room measured from the scroll widens the table,
+	# which widens the panel, which widens the scroll. The width outside the table comes from the
+	# same place `shared_width` took it, so the two cannot disagree.
+	var width := floorf(maxf((_rect.size.x - _table_overhead() - fixed) / 3.0, MIN_JOB_WIDTH))
 	if absf(width - _job_width) >= 1.0:
 		_job_width = width
 		_show_columns()
