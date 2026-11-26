@@ -225,9 +225,13 @@ namespace antares::hd_packs {
 #endif
 
     bool Gog_Request(const std::string& url, const std::string& bearer, const std::string& output_path, std::string* body, std::string* final_url, s_progress* progress, std::string* error) {
+        // The answer replaces what `body` held (owner's Windows test, 2026-11-25: the game's
+        // details came after the library's answer in the same string, which then wasn't JSON:
+        // "no downloads"; curl's path assigned, this one appended).
+        if (body != nullptr) body->clear();
 #if defined(_WIN32)
         // WinHTTP: redirects followed by hand, so the Authorization header goes to GOG only.
-        // Untested on Windows yet (WP5.15).
+        // Checked on Windows with a real account (test13 dump, 2026-11-25).
         std::string address = url;
         std::ofstream file;
         if (!output_path.empty()) file.open(Path_(output_path), std::ios::binary | std::ios::trunc);
