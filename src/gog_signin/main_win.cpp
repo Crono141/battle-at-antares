@@ -15,6 +15,8 @@
 
 #include <shellapi.h>
 
+#include <cstdarg>
+#include <cstdio>
 #include <cwchar>
 #include <filesystem>
 #include <functional>
@@ -34,6 +36,33 @@ namespace {
 
     int s_exit_code = 1;
     ICoreWebView2Environment* s_environment = nullptr;
+
+    // A step log for reports, %TEMP%\antares-gog-signin.log (new each run): steps, result codes and
+    // host names only, never a full address (the success address carries the code) or a code.
+    FILE* s_log = nullptr;
+    void Log_(const char* format, ...) {
+        if (s_log == nullptr) return;
+        SYSTEMTIME now;
+        GetLocalTime(&now);
+        std::fprintf(s_log, "%02d:%02d:%02d.%03d ", now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
+        va_list arguments;
+        va_start(arguments, format);
+        std::vfprintf(s_log, format, arguments);
+        va_end(arguments);
+        std::fputc('\n', s_log);
+        std::fflush(s_log);
+    }
+
+    // The host of an address, as narrow text for the log.
+    std::string Host_(const wchar_t* uri) {
+        std::wstring text = uri != nullptr ? uri : L"";
+        const size_t start = text.find(L"://");
+        text = start == std::wstring::npos ? L"" : text.substr(start + 3);
+        text = text.substr(0, text.find_first_of(L"/?#"));
+        std::string host;
+        for (wchar_t c : text) host += c < 128 ? static_cast<char>(c) : '?';
+        return host;
+    }
 
     // A COM callback from a lambda: WebView2's handlers are one-method interfaces.
     template <class I, const IID* ID, class... A>
@@ -71,6 +100,7 @@ namespace {
     using t_navigation = c_handler<ICoreWebView2NavigationStartingEventHandler, &IID_ICoreWebView2NavigationStartingEventHandler, ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs*>;
     using t_source = c_handler<ICoreWebView2SourceChangedEventHandler, &IID_ICoreWebView2SourceChangedEventHandler, ICoreWebView2*, ICoreWebView2SourceChangedEventArgs*>;
     using t_new_window = c_handler<ICoreWebView2NewWindowRequestedEventHandler, &IID_ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs*>;
+    using t_completed = c_handler<ICoreWebView2NavigationCompletedEventHandler, &IID_ICoreWebView2NavigationCompletedEventHandler, ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*>;
     using t_close = c_handler<ICoreWebView2WindowCloseRequestedEventHandler, &IID_ICoreWebView2WindowCloseRequestedEventHandler, ICoreWebView2*, IUnknown*>;
 
     // One window and its web view: the sign-in page, or a page's own window (Google's and the other
@@ -157,14 +187,18 @@ namespace {
 
     void Watch_(s_view* view);
 
-    // A controller for `view`'s window, InPrivate where the runtime offers it (WebView2 101 on).
-    HRESULT Create_Controller_(s_view* view, std::function<void(ICoreWebView2Controller*)> done) {
-        auto* handler = new t_controller_done([view, done](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+    // A controller for `view`'s window, InPrivate where the runtime offers it (WebView2 101 on). A
+    // page's own window gets its opener's profile, name and InPrivate alike (WebView2's rule for
+    // put_NewWindow, as Microsoft's sample does it). `failed` runs when it couldn't be made.
+    HRESULT Create_Controller_(s_view* view, ICoreWebView2* opener, std::function<void(ICoreWebView2Controller*)> done, std::function<void()> failed) {
+        auto* handler = new t_controller_done([view, done, failed](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+            Log_("%s controller: 0x%08lx", view->main ? "main" : "popup", static_cast<unsigned long>(result));
             if (FAILED(result) || controller == nullptr) {
                 if (view->main) {
                     s_exit_code = 2;
                     PostQuitMessage(0);
                 } else {
+                    failed();
                     DestroyWindow(view->window);
                 }
                 return S_OK;
@@ -182,7 +216,22 @@ namespace {
         if (SUCCEEDED(s_environment->QueryInterface(IID_ICoreWebView2Environment10, reinterpret_cast<void**>(&environment10)))) {
             ICoreWebView2ControllerOptions* options = nullptr;
             if (SUCCEEDED(environment10->CreateCoreWebView2ControllerOptions(&options))) {
-                options->put_IsInPrivateModeEnabled(TRUE);
+                BOOL in_private = TRUE;
+                ICoreWebView2_13* opener13 = nullptr;
+                if (opener != nullptr && SUCCEEDED(opener->QueryInterface(IID_ICoreWebView2_13, reinterpret_cast<void**>(&opener13)))) {
+                    ICoreWebView2Profile* profile = nullptr;
+                    if (SUCCEEDED(opener13->get_Profile(&profile)) && profile != nullptr) {
+                        LPWSTR name = nullptr;
+                        if (SUCCEEDED(profile->get_ProfileName(&name)) && name != nullptr) {
+                            options->put_ProfileName(name);
+                            CoTaskMemFree(name);
+                        }
+                        profile->get_IsInPrivateModeEnabled(&in_private);
+                        profile->Release();
+                    }
+                    opener13->Release();
+                }
+                options->put_IsInPrivateModeEnabled(in_private);
                 result = environment10->CreateCoreWebView2ControllerWithOptions(view->window, options, handler);
                 options->Release();
             }
@@ -202,6 +251,7 @@ namespace {
             CoTaskMemFree(uri);
             if (code.empty()) return S_OK; // every other page loads as usual
             arguments->put_Cancel(TRUE);   // the success page itself is never loaded
+            Log_("signed in: code passed to the launcher");
             Write_Code_(code);
             code.assign(code.size(), '\0');
             s_exit_code = 0;
@@ -210,6 +260,20 @@ namespace {
         });
         view->web->add_NavigationStarting(navigation, &token);
         navigation->Release();
+
+        auto* completed = new t_completed([view](ICoreWebView2* web, ICoreWebView2NavigationCompletedEventArgs* arguments) -> HRESULT {
+            BOOL success = FALSE;
+            COREWEBVIEW2_WEB_ERROR_STATUS status = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
+            arguments->get_IsSuccess(&success);
+            arguments->get_WebErrorStatus(&status);
+            LPWSTR uri = nullptr;
+            web->get_Source(&uri);
+            Log_("%s page %s: %s (status %d)", view->main ? "main" : "popup", Host_(uri).c_str(), success ? "loaded" : "failed", static_cast<int>(status));
+            if (uri != nullptr) CoTaskMemFree(uri);
+            return S_OK;
+        });
+        view->web->add_NavigationCompleted(completed, &token);
+        completed->Release();
 
         // The title shows which site the page is on, so the player can see it is GOG's.
         auto* source = new t_source([view](ICoreWebView2* web, ICoreWebView2SourceChangedEventArgs*) -> HRESULT {
@@ -226,25 +290,48 @@ namespace {
         view->web->add_SourceChanged(source, &token);
         source->Release();
 
-        auto* new_window = new t_new_window([](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* arguments) -> HRESULT {
+        // Any step failing leaves the window to WebView2's own pop-up (Handled false, no NewWindow):
+        // never an empty window of ours (owner's Windows test, 2026-11-25: Google's sign-in
+        // window stayed blank).
+        auto* new_window = new t_new_window([](ICoreWebView2* opener, ICoreWebView2NewWindowRequestedEventArgs* arguments) -> HRESULT {
+            LPWSTR uri = nullptr;
+            arguments->get_Uri(&uri);
+            Log_("popup requested: %s", Host_(uri).c_str());
+            if (uri != nullptr) CoTaskMemFree(uri);
             ICoreWebView2Deferral* deferral = nullptr;
-            arguments->GetDeferral(&deferral);
+            if (FAILED(arguments->GetDeferral(&deferral)) || deferral == nullptr) {
+                Log_("popup: no deferral; WebView2's own window");
+                return S_OK;
+            }
             arguments->AddRef();
             auto* popup = new s_view();
             popup->window = New_Window_(520, 700);
             s_views.push_back(popup);
-            const HRESULT result = Create_Controller_(popup, [arguments, deferral, popup](ICoreWebView2Controller*) {
-                arguments->put_NewWindow(popup->web); // the page's window, with its opener kept
+            const auto give_up = [arguments, deferral]() {
+                arguments->put_Handled(FALSE);
+                deferral->Complete();
+                deferral->Release();
+                arguments->Release();
+                Log_("popup: WebView2's own window instead");
+            };
+            const HRESULT result = Create_Controller_(popup, opener, [arguments, deferral, popup, give_up](ICoreWebView2Controller*) {
+                const HRESULT handed = arguments->put_NewWindow(popup->web); // the page's window, with its opener kept
+                Log_("popup put_NewWindow: 0x%08lx", static_cast<unsigned long>(handed));
+                if (FAILED(handed)) {
+                    give_up();
+                    DestroyWindow(popup->window);
+                    return;
+                }
                 arguments->put_Handled(TRUE);
                 deferral->Complete();
                 deferral->Release();
                 arguments->Release();
                 ShowWindow(popup->window, SW_SHOW);
-            });
+            },
+                give_up);
+            Log_("popup controller requested: 0x%08lx", static_cast<unsigned long>(result));
             if (FAILED(result)) {
-                deferral->Complete();
-                deferral->Release();
-                arguments->Release();
+                give_up();
                 DestroyWindow(popup->window);
             }
             return S_OK;
@@ -270,6 +357,7 @@ namespace {
                 if (w == ENGINE_TIMER) {
                     KillTimer(window, ENGINE_TIMER);
                     if (view != nullptr && view->main && view->controller == nullptr) {
+                        Log_("no web engine after %u s: giving up", ENGINE_TIMEOUT_MS / 1000);
                         s_exit_code = 2;
                         PostQuitMessage(0);
                     }
@@ -296,6 +384,12 @@ namespace {
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    {
+        wchar_t temp_folder[MAX_PATH];
+        GetTempPathW(MAX_PATH, temp_folder);
+        s_log = _wfopen((std::filesystem::path(temp_folder) / L"antares-gog-signin.log").c_str(), L"w");
+    }
+    Log_("antares-gog-signin (Windows) starting");
     if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) return 2;
 
     int argc = 0;
@@ -310,6 +404,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
     HMODULE loader = LoadLibraryExW((folder / L"WebView2Loader.dll").c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     using t_create = HRESULT(STDAPICALLTYPE*)(PCWSTR, PCWSTR, ICoreWebView2EnvironmentOptions*, ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler*);
     const auto create = loader != nullptr ? reinterpret_cast<t_create>(reinterpret_cast<void*>(GetProcAddress(loader, "CreateCoreWebView2EnvironmentWithOptions"))) : nullptr;
+    Log_("WebView2Loader.dll: %s", create != nullptr ? "loaded" : "missing");
     if (create == nullptr) return 2;
 
     WNDCLASSEXW window_class{};
@@ -335,6 +430,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
     SetTimer(main_view->window, ENGINE_TIMER, ENGINE_TIMEOUT_MS, nullptr);
 
     auto* environment_done = new t_environment_done([main_view, start_url](HRESULT result, ICoreWebView2Environment* environment) -> HRESULT {
+        Log_("environment: 0x%08lx", static_cast<unsigned long>(result));
         if (FAILED(result) || environment == nullptr) { // no WebView2 runtime
             s_exit_code = 2;
             PostQuitMessage(0);
@@ -342,11 +438,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
         }
         environment->AddRef();
         s_environment = environment;
-        if (FAILED(Create_Controller_(main_view, [main_view, start_url](ICoreWebView2Controller*) {
+        if (FAILED(Create_Controller_(main_view, nullptr, [main_view, start_url](ICoreWebView2Controller*) {
                 KillTimer(main_view->window, ENGINE_TIMER);
                 main_view->web->Navigate(start_url.c_str());
                 SetForegroundWindow(main_view->window);
-            }))) {
+            }, [] {}))) {
             s_exit_code = 2;
             PostQuitMessage(0);
         }
@@ -354,7 +450,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
     });
     const HRESULT started = create(nullptr, profile.c_str(), nullptr, environment_done);
     environment_done->Release();
-    if (FAILED(started)) s_exit_code = 2;
+    if (FAILED(started)) {
+        Log_("environment request: 0x%08lx (no WebView2 runtime?)", static_cast<unsigned long>(started));
+        s_exit_code = 2;
+    }
     else {
         MSG message;
         while (GetMessageW(&message, nullptr, 0, 0) > 0) {
@@ -374,5 +473,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
         Sleep(100);
     }
     CoUninitialize();
+    Log_("exit %d", s_exit_code);
+    if (s_log != nullptr) std::fclose(s_log);
     return s_exit_code;
 }
