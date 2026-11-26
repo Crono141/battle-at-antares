@@ -743,6 +743,18 @@ func _smoke_mouse(pressed: bool, at: Vector2) -> void:
 	Input.parse_input_event(click)
 
 
+## A trackpad's two-finger scroll at `at` (screen coordinates), as the platform sends it: a pan
+## gesture, not wheel notches (macOS). Positive `delta.y` is the wheel-down direction.
+func _smoke_pan_gesture(delta: Vector2, at: Vector2) -> void:
+	var move := InputEventMouseMotion.new()
+	move.position = at
+	Input.parse_input_event(move) # the pointer over the map, not over a pane
+	var pan := InputEventPanGesture.new()
+	pan.position = at
+	pan.delta = delta
+	Input.parse_input_event(pan)
+
+
 ## The interface scale (owner, 2026-11-12, after a friend found everything illegibly small on a
 ## 2560x1600 screen): the window's content scale, so panels, text and the map's labels grow
 ## together and every coordinate stays in one space. Saved in the settings; with none saved, the
@@ -9312,7 +9324,8 @@ func _smoke_flash(dir: String) -> void:
 
 
 ## Owner, 2026-11-14: open a system, pan, click another star, back to the galaxy, then a third
-## star: its pane came up blank. Real mouse input: drags and clicks on the map.
+## star: its pane came up blank. Real mouse input: drags and clicks on the map. And a trackpad's
+## two-finger scroll, a pan gesture, zooms the map as a wheel notch does (2026-11-25).
 func _smoke_pan(shots: String) -> void:
 	var pane := _view("system_pane")
 	var report := func(step: String):
@@ -9381,6 +9394,28 @@ func _smoke_pan(shots: String) -> void:
 			await host.shot(shots + "/pan-star-%d.png" % i)
 		pane.close()
 		await get_tree().create_timer(2.0).timeout
+	# A trackpad's two-finger scroll is a pan gesture, not a wheel notch (owner, 2026-11-25: on
+	# macOS two fingers did nothing on the map, though they scroll the panes, which take the
+	# gesture themselves): it must zoom the map as a wheel notch does, in and out. A middle zoom,
+	# so neither step is at its closest or furthest limit.
+	var gesture_middle: float = sqrt(galaxy.zoom_for_scale(galaxy.MIN_SCALE) * galaxy.furthest_zoom())
+	galaxy._fly(Vector2(float(galaxy.data.width), float(galaxy.data.height)) * 0.5, gesture_middle)
+	await get_tree().create_timer(0.6).timeout
+	var gesture_before: float = galaxy.camera.zoom.x
+	_smoke_pan_gesture(Vector2(0.0, -galaxy.PAN_NOTCH_DELTA), get_viewport().get_visible_rect().size * 0.5)
+	await get_tree().create_timer(0.6).timeout
+	var gesture_in: float = galaxy.camera.zoom.x
+	print("smoke: pan gesture zoom %.3f -> %.3f (a notch in)" % [gesture_before, gesture_in])
+	if gesture_in <= gesture_before * 1.001:
+		await host.smoke_fail("a pan gesture did not zoom the map in")
+		return
+	_smoke_pan_gesture(Vector2(0.0, galaxy.PAN_NOTCH_DELTA), get_viewport().get_visible_rect().size * 0.5)
+	await get_tree().create_timer(0.6).timeout
+	print("smoke: pan gesture zoom %.3f -> %.3f (a notch back out)" % [gesture_in, galaxy.camera.zoom.x])
+	if galaxy.camera.zoom.x >= gesture_in * 0.999:
+		await host.smoke_fail("a pan gesture did not zoom the map out")
+		return
+	print("smoke: pan gesture OK")
 
 
 ## Owner, 2026-11-14: windowed, with the build pane open, dragging the window wider crashed.
