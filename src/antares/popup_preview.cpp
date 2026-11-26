@@ -177,10 +177,12 @@ namespace antares::commands::internal {
                     return;
                 }
                 // The targets the turn's combat check would find (Collect_Targets_For_Combat): the
-                // other empires' colonies there, and the sides whose ships are there without a
-                // colony of their own - the other empires', and the space monsters, whose owners
-                // start at MAX_PLAYERS. Without them a monster's battle window could not be
-                // previewed at all, which is how its missing row went unnoticed (issue #17).
+                // other empires' colonies there, and every side with ships at the star - the other
+                // empires', and the space monsters, MAX_PLAYERS through NONPLAYER_SHIP_TYPE_HYDRA.
+                // (The window then drops a side that has a colony there; the check collects no
+                // such side to begin with.) Without the monsters here a monster's battle window
+                // could not be previewed at all, which is how its missing row went unnoticed
+                // (issue #17).
                 const s_combfind_target saved = COMBFIND::target;
                 COMBFIND::target = s_combfind_target{};
                 for (const int16_t p : MOX::star[star].planet_index) {
@@ -195,8 +197,8 @@ namespace antares::commands::internal {
                 for (int16_t i = 0; i < MOX::NUM_SHIPS; ++i) {
                     const s_ship_data& ship = MOX::ship[i];
                     const int16_t owner = ship.owner;
-                    if (ship.location != star || ship.status != 0 || owner < 0 || owner == player ||
-                        COMBFIND::target.num_player_targets >= 15) {
+                    if (ship.location != star || ship.status != 0 || owner < 0 || owner > NONPLAYER_SHIP_TYPE_HYDRA ||
+                        owner == player || COMBFIND::target.num_player_targets >= 15) {
                         continue;
                     }
                     bool seen = false;

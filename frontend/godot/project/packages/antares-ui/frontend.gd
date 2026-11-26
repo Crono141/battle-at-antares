@@ -7381,7 +7381,8 @@ func _smoke_popups(shots: String) -> void:
 ## window exactly as an empire's fleet there is. The window is the game's own preview of the turn's
 ## battle question (`preview_popup attack_target`), at a star where an owner from MAX_PLAYERS up has
 ## ships, and the check is that the window offers it: with no row to pick there was nothing but
-## CANCEL, so a monster could never be engaged from the new interface (owner, 2026-11-26).
+## CANCEL, so a monster could never be engaged from the new interface (reported 2026-11-26,
+## issue #17).
 func _smoke_monster_target(shots: String) -> void:
 	var star := -1
 	var owner := -1
@@ -7409,15 +7410,16 @@ func _smoke_monster_target(shots: String) -> void:
 	var shown := overlay.visible and dialog != null and dialog.visible
 	var offered := false
 	var offered_text := ""
-	var offered_options := 0
+	var offered_index := -1
 	if shown:
-		for option: Dictionary in dialog.options:
-			offered_options += 1
+		for i in dialog.options.size():
+			var option: Dictionary = dialog.options[i]
 			if int(option.get("fleet_owner", -1)) >= 8:
 				offered = true
 				offered_text = String(option.get("text", ""))
+				offered_index = i
 	print("smoke: monster target: window shown %s, %d options, offers the monster %s (%s)" % [
-		shown, offered_options, offered, offered_text])
+		shown, dialog.options.size() if shown else 0, offered, offered_text])
 	if shots != "":
 		await host.shot(shots + "/monster-target.png")
 	if not shown:
@@ -7425,6 +7427,21 @@ func _smoke_monster_target(shots: String) -> void:
 		return
 	if not offered:
 		await host.smoke_fail("the select-combat window did not offer the space monster")
+		return
+	# A row offered is not a row that answers: the game answers an option with its value, which for
+	# a monster is its owner (combfind.cpp's target list). Pick the row and read what comes back -
+	# an index, or a default, would send the fleet after the wrong side without failing the checks
+	# above.
+	dialog._answer(1000 + offered_index)
+	var answered_in := 0.0
+	while not box.has("r") and answered_in < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		answered_in += 0.1
+	var answer := int((box.get("r", {}) as Dictionary).get("answer", -1))
+	print("smoke: monster target: its row answered %d, the monster's owner is %d (after %.1f s)" % [
+		answer, owner, answered_in])
+	if answer != owner:
+		await host.smoke_fail("the monster's row did not answer with its owner")
 		return
 	print("smoke: monster target OK")
 	game.request_game_quit()
