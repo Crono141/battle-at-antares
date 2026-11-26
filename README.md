@@ -9,9 +9,11 @@ Orion II engine, in the way [Augustus](https://github.com/Keriew/augustus) is to
 
 ![The galaxy map](docs/screenshots/galaxy.jpg)
 
-**Version 0.7.0** for Windows, Linux and (experimental) Apple Silicon macOS is on the
-[releases page](https://github.com/Crono141/battle-at-antares/releases). You need your own copy of
-Master of Orion II 1.31 (GOG or Steam).
+**Version 0.8.0** for Windows, Linux and (experimental) Apple Silicon macOS is on the
+[releases page](https://github.com/Crono141/battle-at-antares/releases): an installer for each
+system, and a setup that finds your Master of Orion II by itself. You need your own copy of
+Master of Orion II 1.31 (GOG or Steam); if you don't have it installed, the setup can get it for
+you from GOG or Steam.
 
 If you enjoy it, you can support the work on [Ko-fi](https://ko-fi.com/crono141).
 
@@ -149,67 +151,106 @@ too: [UI packages](docs/content/authoring-mods/ui-packages.md) explains how.
 ## Installing
 
 You need your own copy of **Master of Orion II, version 1.31**: GOG or Steam (both are 1.31), or a CD
-install patched to 1.31. Battle at Antares comes without the original game's files and reads them
-from your copy.
+install patched to 1.31. Battle at Antares comes without the original game's files; the first time
+it starts, its setup finds your copy and takes what it needs from it.
 
-1. **Download** the archive for your system from the
-   [releases page](https://github.com/Crono141/battle-at-antares/releases) and extract it. You get a
-   folder such as `battle-at-antares-0.7.0-windows-x86_64` holding `antares-launcher`, `antares`,
-   `antares-godot` and a `data` folder. Move it wherever you like the game to live, somewhere you can
-   write to (on Windows not inside `Program Files`). This folder is your game folder: saves and
-   settings are kept in it.
-2. **Find your Master of Orion II folder**: the one with `ORION95.EXE` and a few hundred `.LBX`
-   files.
-   - GOG: usually `C:\GOG Games\Master of Orion 2`.
-   - Steam: right-click the game in your library, then Manage > Browse local files.
-   - On Linux or macOS without a Windows install: unpack GOG's Windows installer with
-     [innoextract](https://constexpr.org/innoextract/) (`brew install innoextract` on a Mac).
-3. **Copy everything in it into the game folder**, so `ORION95.EXE` and the `.LBX` files sit right
-   next to `antares-launcher`. Not into `data`, and not in a folder of their own.
-4. **Start `antares-launcher`** (`antares-launcher.exe` on Windows) and press **Play**.
+### 1. Install Battle at Antares
 
-When you're done, the game folder looks like this:
+Download the file for your system from the
+[releases page](https://github.com/Crono141/battle-at-antares/releases):
 
-```
-battle-at-antares-0.7.0-windows-x86_64/
-    antares-launcher.exe     from the download
-    antares-godot.exe        from the download (the game; the launcher starts it)
-    antares.exe              from the download
-    data/                    from the download: settings, themes, mods (leave the original files out of it)
-    ORION95.EXE              from Master of Orion II
-    DIPLOMAT.LBX             from Master of Orion II, and every other .LBX
-    ...
-```
+| System | Download | How |
+|---|---|---|
+| Windows 10 or 11 | `...-windows-x86_64-setup.exe` | Run it. It installs for your user only (no administrator needed), with a Start menu entry and, if you tick it, a desktop icon. Uninstall from Settings > Apps. |
+| Linux, any desktop | `...-x86_64.AppImage` | Make it executable (`chmod +x`, or the file's Properties) and run it. The setup's last page offers to add it to your applications menu. |
+| Linux, Flatpak | `...-x86_64.flatpak` | `flatpak install --user battle-at-antares-0.8.0-x86_64.flatpak`, then start it from your menu or with `flatpak run io.github.crono141.battle-at-antares`. Needs Flathub's GNOME runtime, which Flatpak fetches. |
+| macOS 11 or later, Apple Silicon | `...-macos-arm64.dmg` | Open it and drag **Battle at Antares** into Applications. See [the first start on a Mac](#the-first-start-on-a-mac). |
 
-**macOS** (Apple Silicon, experimental): the build isn't signed by Apple, so macOS blocks it at
-first. After step 3, open Terminal and run `xattr -dr com.apple.quarantine` followed by the game
-folder's path (drag the folder into the Terminal window to fill it in), then open
-`Battle at Antares.app` in the game folder. **Linux:** `./install-desktop-entry.sh` adds the game to
-your application menu.
+Rather not install anything? The `.zip` (Windows) and `.tar.gz` (Linux) archives are the same game
+as a folder: extract it anywhere you can write to and start `antares-launcher`. That folder then holds
+everything, saves and settings included.
 
-**Upgrading:** extract the new download and copy everything in its folder over your game folder,
-replacing the files. Your saves, settings and HD packs stay as they are.
+**Windows says "Windows protected your PC"**: the programs aren't signed. Click More info, then Run
+anyway.
 
-**Saves** from the original game (`SAVE1.GAM` to `SAVE10.GAM`) and from Orion2 Redone load: copy them
-into the game folder.
+### 2. The setup finds your game
 
-**If it doesn't start:**
+The first start opens the setup in the launcher. It looks for Master of Orion II on its own:
 
-- *A message that an `.LBX` file "could not be found"* (often `fonts.lbx` or `diplomat.lbx`), or
-  *"Cannot locate all game files"*: the original files aren't next to the game. Check that `ORION95.EXE` and the `.LBX` files are in the game folder itself, not
-  in `data` or a subfolder.
-- *"ORIONCD.INI not found"* (versions before 0.7): the same cause. Copy the original files as in
-  step 3, `ORIONCD.INI` included. Since 0.7 the game no longer needs that file.
-- *Windows says "Windows protected your PC"*: the programs aren't signed. Click More info, then Run
-  anyway.
-- *Nothing happens on Linux*: run `./antares-launcher` from a terminal to see why. If the files lost
-  their execute permission, `chmod +x antares antares-godot antares-launcher`.
-- Still stuck? The game writes a log to `logs/` in the game folder. Please
-  [open an issue](https://github.com/Crono141/battle-at-antares/issues) and attach it.
+- **Installed copies:** GOG (GOG Galaxy and the GOG installer's folders), every Steam library, Heroic,
+  Lutris and Wine prefixes, and on a Mac the Applications folder.
+- **GOG's offline installers in your Downloads folder:** the Linux `.sh` and the Mac `.pkg` are read
+  directly, nothing needs installing; on Windows the setup runs GOG's `.exe` for you and waits.
+- **Anywhere else:** "Choose a folder..." or "Choose an installer...".
 
-**HD art** (optional, recommended): the art packs from
-[battle-at-antares-hd](https://github.com/Crono141/battle-at-antares-hd/releases) go into
-`data/mods/` as they are; tick them in the launcher. Every sprite, the diplomacy rooms and the
+Pick the copy it lists first, or another, and the setup checks it (every file there, version 1.31),
+copies the game files it needs (about 300 MB) into Battle at Antares's own folder, offers to bring
+your saves along, and offers the HD art. Your Master of Orion II stays exactly as it was: keep
+playing it, or uninstall it later.
+
+**Don't have it installed?** Choose "I don't have it yet":
+
+- **Steam:** the setup opens Steam's install for Master of Orion 2 and carries on by itself when
+  Steam has finished.
+- **GOG, signed in here:** GOG's own sign-in page opens in a small window (with "continue with
+  Google" and the rest), and the setup downloads the offline installer into your Downloads and uses
+  it. You type your password into GOG's page, never into Battle at Antares, and nothing of the
+  sign-in is kept afterwards.
+- **GOG's website:** download the offline installer yourself; the setup notices it in Downloads.
+
+The **Game files** button in the launcher opens the setup again at any time, for instance to switch
+to another copy.
+
+### Where your files live
+
+The installed versions keep saves, settings, logs and the copied game files in your user folder,
+so a reinstall or an update never touches them:
+
+| System | Folder |
+|---|---|
+| Windows | `%APPDATA%\Battle at Antares\` |
+| Linux (installed or AppImage) | `~/.config/antares/`, `~/.local/share/antares/` (saves, game files, mods), `~/.local/state/antares/` (logs) |
+| Linux (Flatpak) | the same, under `~/.var/app/io.github.crono141.battle-at-antares/` |
+| macOS | `~/Library/Application Support/Battle at Antares/` |
+
+The `.zip` and `.tar.gz` archives keep everything in their own folder instead.
+
+**Saves** from the original game (`SAVE1.GAM` to `SAVE10.GAM`) and from Orion2 Redone load: the setup
+offers to import the ones it finds next to your copy, or put them into the saves folder above.
+
+### Updates
+
+The launcher checks for a new release when it starts (you can switch that off in its Settings).
+When one is out, an **Update** button appears beside the version in its title: the Windows
+installer, the Windows and Linux archives and the AppImage download the new version, install it
+and start again, keeping your saves, settings and HD art. The Flatpak and the Mac version open the
+release page.
+
+### The first start on a Mac
+
+The Mac version isn't signed by Apple (experimental: built and checked on GitHub's Mac machines,
+not yet played much on a real Mac, so reports are welcome). macOS stops it the first time:
+
+1. Open Battle at Antares from Applications. macOS says it can't check it; click Done.
+2. Open **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to
+   Battle at Antares. Confirm, and it starts. From then on it opens normally.
+
+Or, in Terminal: `xattr -dr com.apple.quarantine "/Applications/Battle at Antares.app"`.
+
+### If it doesn't start
+
+- *The setup can't find your copy:* use "Choose a folder..." and pick the folder with `ORION95.EXE`
+  and a few hundred `.LBX` files (on Steam: right-click the game, Manage > Browse local files, then its
+  `data` folder), or "Choose an installer..." for a GOG offline installer.
+- *Nothing happens on Linux:* start it from a terminal to see why (`./antares-launcher` in an
+  archive's folder, or the AppImage by its path).
+- Still stuck? The game writes logs (`logs/` in the folders above, or in an archive's folder). Please
+  [open an issue](https://github.com/Crono141/battle-at-antares/issues) and attach the latest.
+
+**HD art** (optional, recommended): the setup's HD art page downloads the packs from
+[battle-at-antares-hd](https://github.com/Crono141/battle-at-antares-hd/releases) for you, and the
+launcher's **HD art** button does the same later. Downloaded by hand, they go into the `mods` folder
+(in the folders above, or `data/mods/` in an archive's folder) as they are; tick them in the launcher. Every sprite, the diplomacy rooms and the
 cutscenes are redrawn or upscaled for today's screens. They are art only and never affect saves.
 
 ## Also different from Redone
@@ -217,8 +258,9 @@ cutscenes are redrawn or upscaled for today's screens. They are art only and nev
 - **HD rendering.** The drawing library works at two resolutions: the original 640x480 palette
   screen stays authoritative for game logic, and every draw also renders at 4x with HD art where a
   pack provides it. Making an art pack: [art packs](docs/content/authoring-mods/art-packs.md).
-- **A launcher** (`antares-launcher`): tick packages, keep named profiles, see which mods a save
-  needs, change settings, and play.
+- **A launcher** (`antares-launcher`): the first-start setup, tick packages, keep named profiles,
+  see which mods a save needs, change settings, download the HD art, update, and play. Its look
+  follows the themes (Settings > Launcher look: Chrome or Glass).
 - **Mouse wheel** scrolls every list; **Ogg Vorbis** music works in mods.
 - **Mods.** Redone's mods load (`requires.engine` still checks Redone's mod API, 2.x); packages that
   need Antares features add `requires: { antares: ">=0.5.0" }`. Art-only packages are not recorded in
@@ -231,8 +273,8 @@ cutscenes are redrawn or upscaled for today's screens. They are art only and nev
 
 ## What's next
 
-The main menu, new-game setup and high scores in the new interface, the last of the original
-screens. Reports on the new battles are very welcome: odd fights (monsters, Antarans, big fleets, heavily defended
+0.9: the title screen, the new-game setup and the high scores in the new interface, the last of the
+original screens. Reports on the new battles are very welcome: odd fights (monsters, Antarans, big fleets, heavily defended
 planets) most of all.
 
 ## Credits
