@@ -7,6 +7,11 @@ on:
   push:
     branches: ['release/**']
   workflow_dispatch:
+    inputs:
+      label:
+        description: 'Release label for version.txt and the disk image (e.g. 0.8.0-test13); empty = the engine version'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -117,8 +122,16 @@ jobs:
       # marker keeps saves and settings in ~/Library/Application Support, and the app is signed
       # (ad hoc) only once everything is in it, or macOS calls it damaged.
       - name: Package the app (Battle at Antares.app, disk image)
+        env:
+          RELEASE_LABEL: ${{ inputs.label }}
         run: |
+          # The release label (the updater compares it with GitHub's latest, WP5.19): the run's
+          # input when given (test builds), else the engine version.
           V=$(sed -n 's/.*PRODUCT_VERSION\[\] = "\([^"]*\)".*/\1/p' src/antares/identity.h)
+          if [ -n "$RELEASE_LABEL" ]; then
+            printf '%s' "$RELEASE_LABEL" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' || { echo "bad label: $RELEASE_LABEL" >&2; exit 1; }
+            V=$RELEASE_LABEL
+          fi
           B=out/build/Darwin/osx-release
           APP="pkg/Battle at Antares.app"
           C="$APP/Contents"
