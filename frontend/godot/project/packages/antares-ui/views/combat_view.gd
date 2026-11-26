@@ -22,6 +22,13 @@ signal help_requested(topic: int, at: Control)
 const SQUARE := 20.0
 const MIN_ZOOM := 0.3
 const MAX_ZOOM := 3.0
+## One wheel notch, and the zoom a trackpad's notch of two-finger scroll asks for: the same factor
+## for both, so the gesture cannot drift from the wheel (owner, 2026-11-26: on a MacBook the battle
+## could only be zoomed with a wheel).
+const WHEEL_NOTCH_ZOOM := 1.12
+## The pan delta (a trackpad's two-finger scroll, `InputEventPanGesture`) that counts as one notch,
+## as the galaxy map's `PAN_NOTCH_DELTA`.
+const PAN_NOTCH_DELTA := 25.0
 const SHIELD_SHADER := preload("combat_shield.gdshader")
 const BeamDraw := preload("beam_draw.gd")
 const Themes := preload("../themes.gd")
@@ -1519,8 +1526,27 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	var wheel := event as InputEventMouseButton
 	if wheel and wheel.pressed and (wheel.button_index == MOUSE_BUTTON_WHEEL_UP or wheel.button_index == MOUSE_BUTTON_WHEEL_DOWN):
-		_zoom_at(wheel.position, 1.12 if wheel.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.12)
+		_zoom_at(wheel.position, WHEEL_NOTCH_ZOOM if wheel.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / WHEEL_NOTCH_ZOOM)
 		accept_event()
+		return
+	# A trackpad's two-finger scroll arrives as a pan gesture and its pinch as a magnify gesture;
+	# this view took only the wheel, so on a MacBook the battle could not be zoomed at all (owner,
+	# 2026-11-26). Same anchor as the wheel (the pointer): the world point under it stays under it.
+	# A gesture whose pointer is over the HUD is the HUD's - its lists and bars scroll with it, as
+	# Godot's own ScrollContainer does - so it is left alone, not swallowed.
+	var pan := event as InputEventPanGesture
+	if pan != null:
+		if _pointer_on_field():
+			var notches := clampf(-pan.delta.y / PAN_NOTCH_DELTA, -1.0, 1.0)
+			if not is_zero_approx(notches):
+				_zoom_at(pan.position, pow(WHEEL_NOTCH_ZOOM, notches))
+			accept_event()
+		return
+	var magnify := event as InputEventMagnifyGesture
+	if magnify != null:
+		if _pointer_on_field():
+			_zoom_at(magnify.position, magnify.factor) # the pinch asks for a ratio, not a step
+			accept_event()
 		return
 	var motion := event as InputEventMouseMotion
 	if motion:
