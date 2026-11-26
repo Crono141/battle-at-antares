@@ -385,8 +385,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 	# A trackpad's two-finger scroll is a pan gesture, not wheel notches: the map must zoom with it
-	# the way it zooms with a wheel (owner, 2026-11-25: on macOS two fingers did nothing on the map,
-	# though they scroll the panes, which handle the gesture themselves). A pan delta uses the
+	# the way it zooms with a wheel (reported 2026-11-25: on macOS two fingers did nothing on the
+	# map, though they scroll the panes, which handle the gesture themselves). A pan delta uses the
 	# wheel's sign - positive is the wheel-down direction (scroll_container.cpp scrolls the same
 	# way) - so the zoom is out for it; the delta is continuous, so it moves in fractions of a notch.
 	var pan := event as InputEventPanGesture
