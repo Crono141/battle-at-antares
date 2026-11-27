@@ -153,6 +153,33 @@ namespace antares::commands::internal {
             return ESTRINGS::E_Strings(ids[difficulty]);
         }
 
+        // The credits the title screen rolls (WP3.13, owner 2026-11-27: the native title rolls them
+        // itself instead of the legacy Credits screen): CREDITS.LBX (or the language's), each line
+        // a role and a name, string overrides applied, as MAINMENU::Load_Credits reads them.
+        void Query_Credits(int16_t, const s_args&, s_out& out) {
+            char path[20];
+            MAINMENU::Init_Credits(path, sizeof(path));
+            allocate::Push_Block(MOX::screen_seg);
+            const char* data = (const char*)farload::Far_Reload_Next_Data(path, 0, MOX::screen_seg, 0, 1, 127);
+            const int count = data != nullptr ? std::clamp(atoi(data), 0, 500) : 0;
+            allocate::Pop_Block(MOX::screen_seg);
+            s_out lines = out.Add_List("lines");
+            int32_t entry = 1;
+            for (int i = 0; i < count; ++i) {
+                char text[2][127];
+                for (int part = 0; part < 2; ++part) {
+                    allocate::Push_Block(MOX::screen_seg);
+                    data = (const char*)farload::Far_Reload_Next_Data(path, 0, MOX::screen_seg, entry++, 1, 127);
+                    strlcpy(text[part], data != nullptr ? data : "", sizeof(text[part]));
+                    allocate::Pop_Block(MOX::screen_seg);
+                    string_overrides::Apply_String(path, i * 2 + 1 + part, text[part], sizeof(text[part]));
+                }
+                s_out line = lines.Append_Object();
+                line.Str("role", Utf8(text[0], sizeof(text[0])));
+                line.Str("name", Utf8(text[1], sizeof(text[1])));
+            }
+        }
+
         void Query_Hall_Of_Fame(int16_t, const s_args&, s_out& out) {
             const bool read = SCORE::Read_HOF_File() != 0;
             out.Int("flash", lobby::Flash_Entry());
@@ -618,6 +645,7 @@ namespace antares::commands::internal {
         table->push_back({"menu", e_kind::query, ANY_SCREEN, 1, "", Query_Menu});
         table->push_back({"menu_choose", e_kind::command, Screen_Bit(SCREEN_MAIN_MENU), 0,
             "item: continue | new | hall_of_fame | multiplayer | credits | quit", Menu_Choose});
+        table->push_back({"credits", e_kind::query, ANY_SCREEN, 1, "", Query_Credits});
         table->push_back({"hall_of_fame", e_kind::query, ANY_SCREEN, 1, "", Query_Hall_Of_Fame});
         table->push_back({"close_hall_of_fame", e_kind::command, Screen_Bit(SCREEN_HALL_OF_FAME), 0, "", Close_Hall_Of_Fame});
         table->push_back({"reset_hall_of_fame", e_kind::command, Screen_Bit(SCREEN_HALL_OF_FAME), 0, "", Reset_Hall_Of_Fame});

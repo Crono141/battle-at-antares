@@ -303,7 +303,18 @@ namespace antares::commands {
                 out.Fail("bad_args", "sound: a game sound number (0x28 the button click)");
                 return;
             }
-            ERICNET::Mox_Play_Sound((int16_t)sound);
+            out.Int("handle", ERICNET::Mox_Play_Sound((int16_t)sound));
+        }
+
+        // Stops a sound play_sound started (its handle): the title panel's motor stops when the
+        // panel locks, as in mainmenu.cpp's animation (WP3.13).
+        void Stop_Sound(int16_t, const s_args& args, s_out& out) {
+            int64_t handle = 0;
+            if (!args.Int("handle", &handle) || handle < 0) {
+                out.Fail("bad_args", "handle: what play_sound returned");
+                return;
+            }
+            sound::Stop_Sound((int32_t)handle);
         }
 
         void Close(int16_t, const s_args&, s_out&) {
@@ -495,6 +506,7 @@ namespace antares::commands {
                 {"open", e_kind::command, ANY_SCREEN, 0, "screen: SCREEN_* number", Open},
                 {"close", e_kind::command, ANY_SCREEN, 0, "", Close},
                 {"play_sound", e_kind::command, ANY_SCREEN, 0, "sound: game sound number (default 0x28, the click)", Play_Sound},
+                {"stop_sound", e_kind::command, ANY_SCREEN, 0, "handle: from play_sound", Stop_Sound},
                 {"leave_game", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "to: main_menu | desktop (asks first)", Leave_Game},
                 {"scrap_ships", e_kind::command, ANY_SCREEN, 0, "ships: [ship id] (one place)", Scrap_Ships},
                 {"set_tax_rate", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "rate: 0..50 in tens", Set_Tax_Rate},

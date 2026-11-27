@@ -257,6 +257,8 @@ namespace sound {
     // WP3.9 stage 1: a native battle's beam sounds (native::Play_Game_Sound, Fade_Game_Sound).
     void __cdecl Pitch_Bend_Sound(int32_t, int32_t) {}
     void __cdecl Fadeout_Sound(int16_t, int8_t) {}
+    // WP3.13: the title panel's motor stops (commands.cpp, stop_sound).
+    void __cdecl Stop_Sound(int32_t) {}
 } // namespace sound
 
 namespace FMTPARA {

@@ -511,6 +511,19 @@ namespace antares::sprites {
             // came out purple.
             Game_Palette(12, palette_rgb);
             Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx == "NEWGAME.LBX") {
+            // The setup screen's pictures (WP3.13): FONTS.LBX palette 9 (newgame.cpp,
+            // New_Game_Screen: Load_Palette(9)), then colours 128-255 from the galaxy age pictures
+            // (entries 1-3, all three the same), which the screen always draws; only those carry
+            // colours, and the others use them. Without them the pictures came out in false
+            // colours (owner, 2026-11-27).
+            Game_Palette(9, palette_rgb);
+            std::vector<uint64_t> age_palette;
+            size_t age_size = 0;
+            if (Read_Entry("NEWGAME.LBX", 2, &age_palette, &age_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(age_palette.data()), age_size, palette_rgb);
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
         } else if (lbx == "RACESEL.LBX" && entry >= 0x22) {
             // The banners (WP3.13): the race select screen's palette 9 with the flag screen's
             // RACESEL.LBX 0x20 over it (racesel.cpp, Flag_Screen: Draw_Palette), then their own.

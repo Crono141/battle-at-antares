@@ -25,6 +25,7 @@ var _step := "galaxy"
 var _choice := {"difficulty": 2, "size": 1, "age": 1, "players": 3, "tech": 1, "tactical": true, "events": true, "antarans": true}
 var _race := 0
 var _custom := false
+var _custom_stage := "looks" # the custom race: "looks" (the portrait) then "picks"
 var _picks := {} # custom: {primary: [9], government, specials: [22]}
 var _custom_name := ""
 var _leader := ""
@@ -43,6 +44,7 @@ var _scroll: ScrollContainer
 
 func _ready() -> void:
 	theme_type_variation = &"Pane"
+	get_viewport().size_changed.connect(_on_window_resized)
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 10)
 	add_child(outer)
@@ -61,6 +63,7 @@ func _ready() -> void:
 	outer.add_child(_scroll)
 	_body = VBoxContainer.new()
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_body.size_flags_vertical = Control.SIZE_EXPAND_FILL # the pages fill the panel's height
 	_body.add_theme_constant_override("separation", 10)
 	_scroll.add_child(_body)
 	_note = Label.new()
@@ -115,11 +118,23 @@ func show_data(result: Dictionary) -> void:
 	_rebuild()
 
 
+## The panel fills the window less a margin, up to 21:9 (owner, 2026-11-27: the first pass kept a
+## 4:3 box on wide screens); the pages lay out across that width.
 func _fit() -> void:
 	var view := get_viewport_rect().size
-	custom_minimum_size = Vector2(minf(1240.0, view.x - 60.0), minf(820.0, view.y - 60.0))
+	var margin := clampf(view.y * 0.03, 12.0, 40.0)
+	var h := view.y - margin * 2.0
+	var w := minf(view.x - margin * 2.0, h * 21.0 / 9.0)
+	custom_minimum_size = Vector2(w, h)
 	size = custom_minimum_size
 	position = (view - size) * 0.5
+
+
+func _on_window_resized() -> void:
+	if visible:
+		_fit()
+		if not _data.is_empty():
+			_rebuild()
 
 
 # ---- Steps ----
@@ -144,15 +159,17 @@ func _rebuild() -> void:
 		"galaxy":
 			_build_galaxy()
 		"race":
-			if _custom:
-				_build_custom()
-			else:
+			if not _custom:
 				_build_race()
+			elif _custom_stage == "looks":
+				_build_looks()
+			else:
+				_build_custom()
 		"leader":
 			_build_leader()
 		"start":
 			_build_start()
-	_back.disabled = _step == "galaxy" and not _custom
+	_back.disabled = false # on the first page it goes back to the title (owner, 2026-11-27)
 	_next.text = "START GAME" if _step == "start" else "NEXT"
 	_scroll.scroll_vertical = 0
 
@@ -166,7 +183,12 @@ func _go_to(step: String) -> void:
 
 func _go_back() -> void:
 	_note.hide()
-	if _step == "race" and _custom:
+	if _step == "galaxy":
+		_cancel_game()
+		return
+	if _step == "race" and _custom and _custom_stage == "picks":
+		_custom_stage = "looks"
+	elif _step == "race" and _custom:
 		_custom = false
 	elif STEPS.find(_step) > 0:
 		_step = STEPS[STEPS.find(_step) - 1]
@@ -177,6 +199,10 @@ func _go_next() -> void:
 	if _busy:
 		return
 	_note.hide()
+	if _step == "race" and _custom and _custom_stage == "looks":
+		_start_custom(_race_picks(_race), "")
+		_rebuild()
+		return
 	if _step == "race" and _custom:
 		var problem := _custom_problem()
 		if problem != "":
@@ -199,8 +225,10 @@ func _cancel_game() -> void:
 	command.emit({"verb": "cancel_new_game", "_reply_to": "_done"})
 
 
-func _done(_result: Dictionary) -> void:
+func _done(result: Dictionary) -> void:
 	_busy = false
+	if not result.get("ok", false):
+		_show_note(str(result.get("message", result.get("error", "Could not go back to the title screen."))))
 
 
 func close() -> void:
@@ -218,10 +246,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if not visible or key == null or not key.pressed or key.echo:
 		return
 	if key.keycode == KEY_ESCAPE:
-		if _step == "galaxy" and not _custom:
-			_cancel_game()
-		else:
-			_go_back()
+		_go_back()
 		get_viewport().set_input_as_handled()
 	elif key.keycode == KEY_SPACE and _step == "galaxy" and not (get_viewport().gui_get_focus_owner() is LineEdit):
 		_go_next() # the legacy setup's Accept key
@@ -230,24 +255,29 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 # ---- Galaxy (newgame.cpp) ----
 
+## Two rows of three (owner, 2026-11-27): difficulty, galaxy size and galaxy age above; players,
+## tech level and the rules below. Each takes a third of the panel's width, so nothing scrolls.
 func _build_galaxy() -> void:
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 24)
-	grid.add_theme_constant_override("v_separation", 14)
-	_body.add_child(grid)
 	var difficulties: Array = []
 	for d: Dictionary in _data.get("difficulties", []):
 		difficulties.append(str(d.name))
 	if difficulties.size() != 5:
 		difficulties = ["Tutor", "Easy", "Average", "Hard", "Impossible"]
 	var sizes := SIZE_NAMES.slice(0, 5 if _data.get("has_maximum", false) else 4)
-	grid.add_child(_option_group("Difficulty", "difficulty", difficulties, "NEWGAME.LBX", func(i: int) -> int: return 4 + i))
-	grid.add_child(_option_group("Galaxy size", "size", sizes, "NEWGAME.LBX", func(i: int) -> int: return 9 + mini(i, 3)))
-	grid.add_child(_option_group("Galaxy age", "age", AGE_NAMES, "NEWGAME.LBX", func(i: int) -> int: return 1 + i))
-	grid.add_child(_option_group("Players", "players", PLAYER_NAMES, "NEWGAME.LBX", func(i: int) -> int: return 31 if i == 7 else 13 + i))
-	grid.add_child(_option_group("Tech level", "tech", TECH_NAMES, "NEWGAME.LBX", func(i: int) -> int: return [20, 21, 32, 22][i]))
+	var rows := VBoxContainer.new()
+	rows.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rows.add_theme_constant_override("separation", 14)
+	_body.add_child(rows)
+	var top := _galaxy_row(rows)
+	top.add_child(_option_group("Difficulty", "difficulty", difficulties, "NEWGAME.LBX", func(i: int) -> int: return 4 + i))
+	top.add_child(_option_group("Galaxy size", "size", sizes, "NEWGAME.LBX", func(i: int) -> int: return 9 + mini(i, 3)))
+	top.add_child(_option_group("Galaxy age", "age", AGE_NAMES, "NEWGAME.LBX", func(i: int) -> int: return 1 + i))
+	var bottom := _galaxy_row(rows)
+	bottom.add_child(_option_group("Players", "players", PLAYER_NAMES, "NEWGAME.LBX", func(i: int) -> int: return 31 if i == 7 else 13 + i))
+	bottom.add_child(_option_group("Tech level", "tech", TECH_NAMES, "NEWGAME.LBX", func(i: int) -> int: return [20, 21, 32, 22][i]))
 	var toggles := VBoxContainer.new()
+	toggles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	toggles.size_flags_stretch_ratio = 1.0
 	toggles.add_theme_constant_override("separation", 6)
 	var heading := Label.new()
 	heading.theme_type_variation = &"Name"
@@ -258,32 +288,42 @@ func _build_galaxy() -> void:
 		check.text = item[1]
 		check.focus_mode = Control.FOCUS_NONE
 		check.button_pressed = bool(_choice[item[0]])
+		check.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		check.custom_minimum_size.x = 300
 		var key: String = item[0]
 		check.toggled.connect(func(on: bool): _choice[key] = on)
 		toggles.add_child(check)
-	grid.add_child(toggles)
+	bottom.add_child(toggles)
 
 
-## One of the setup screen's choices: its picture (NEWGAME.LBX) beside a column of buttons.
+func _galaxy_row(parent: Control) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 24)
+	parent.add_child(row)
+	return row
+
+
+## One of the setup screen's choices: its picture (NEWGAME.LBX), growing with the panel, beside a
+## column of buttons.
 func _option_group(title: String, key: String, names: Array, lbx: String, picture_of: Callable) -> Control:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 12)
+	# All six pictures one size: as large as half the page's height and a third of its width allow.
+	var side := clampf(minf((size.y - 300.0) * 0.5, (size.x - 120.0) / 3.0 - 200.0), 110.0, 400.0)
 	var picture := TextureRect.new()
-	picture.custom_minimum_size = Vector2(150, 112)
+	picture.custom_minimum_size = Vector2(side, side)
+	picture.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	row.add_child(picture)
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 3)
-	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var heading := Label.new()
 	heading.theme_type_variation = &"Name"
 	heading.text = title
 	column.add_child(heading)
-	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 4)
-	flow.add_theme_constant_override("v_separation", 4)
-	column.add_child(flow)
 	row.add_child(column)
 	var group := ButtonGroup.new()
 	var set_picture := func(i: int):
@@ -296,13 +336,13 @@ func _option_group(title: String, key: String, names: Array, lbx: String, pictur
 		button.toggle_mode = true
 		button.button_group = group
 		button.focus_mode = Control.FOCUS_NONE
-		button.custom_minimum_size = Vector2(96, 30)
+		button.custom_minimum_size = Vector2(150, 30)
 		button.button_pressed = int(_choice[key]) == i
 		var index := i
 		button.pressed.connect(func():
 			_choice[key] = index
 			set_picture.call(index))
-		flow.add_child(button)
+		column.add_child(button)
 	set_picture.call(int(_choice[key]))
 	return row
 
@@ -313,28 +353,30 @@ func _races() -> Array:
 	return _data.get("races", [])
 
 
+## As the original screen: the portrait (large) and the race's traits on the left, the races to
+## pick from on the right (owner, 2026-11-27).
 func _build_race() -> void:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 18)
+	row.add_theme_constant_override("separation", 28)
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_body.add_child(row)
-	var list := GridContainer.new()
-	list.columns = 2
-	list.add_theme_constant_override("h_separation", 6)
-	list.add_theme_constant_override("v_separation", 6)
-	row.add_child(list)
-	var group := ButtonGroup.new()
 	var detail := VBoxContainer.new()
 	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	detail.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail.size_flags_stretch_ratio = 1.6
 	detail.add_theme_constant_override("separation", 8)
 	row.add_child(detail)
+	var list := GridContainer.new()
+	list.columns = 2
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("h_separation", 8)
+	list.add_theme_constant_override("v_separation", 8)
+	row.add_child(list)
+	var group := ButtonGroup.new()
 	for race: Dictionary in _races():
-		var button := Button.new()
-		button.text = str(race.name)
+		var button := _race_button(str(race.name))
 		button.toggle_mode = true
 		button.button_group = group
-		button.focus_mode = Control.FOCUS_NONE
-		button.custom_minimum_size = Vector2(190, 40)
 		button.button_pressed = int(race.race) == _race
 		button.disabled = race.get("taken", false)
 		var id := int(race.race)
@@ -342,15 +384,22 @@ func _build_race() -> void:
 			_race = id
 			_show_race(detail))
 		list.add_child(button)
-	var custom := Button.new()
-	custom.text = "CUSTOM RACE..."
-	custom.focus_mode = Control.FOCUS_NONE
-	custom.custom_minimum_size = Vector2(190, 40)
+	var custom := _race_button("CUSTOM RACE...")
 	custom.pressed.connect(func():
-		_start_custom(_race_picks(_race), "")
+		_custom = true
+		_custom_stage = "looks"
 		_rebuild())
 	list.add_child(custom)
 	_show_race(detail)
+
+
+func _race_button(text: String) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.focus_mode = Control.FOCUS_NONE
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.custom_minimum_size = Vector2(200, 46)
+	return button
 
 
 func _race_data(race: int) -> Dictionary:
@@ -360,7 +409,7 @@ func _race_data(race: int) -> Dictionary:
 	return {}
 
 
-## The race's portrait (RACESEL.LBX 15 + race) and its traits, as the selection screen shows them.
+## The race's portrait (RACESEL.LBX 15 + race), as large as the column allows, and its traits.
 func _show_race(detail: VBoxContainer) -> void:
 	for child in detail.get_children():
 		child.queue_free()
@@ -370,14 +419,14 @@ func _show_race(detail: VBoxContainer) -> void:
 	name.text = str(race.get("name", ""))
 	detail.add_child(name)
 	var portrait := TextureRect.new()
-	portrait.custom_minimum_size = Vector2(420, 330)
+	portrait.custom_minimum_size = Vector2(320, 260)
+	portrait.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
 	detail.add_child(portrait)
 	_set_texture(portrait, "RACESEL.LBX", 0x0F + _race)
 	var traits := Label.new()
 	traits.autowrap_mode = TextServer.AUTOWRAP_WORD
-	traits.custom_minimum_size = Vector2(420, 0)
 	var lines: PackedStringArray = []
 	for line: Dictionary in race.get("traits", []):
 		lines.append(str(line.text))
@@ -417,6 +466,52 @@ func _on_art_loaded(_key: String) -> void:
 
 # ---- Custom race (raceopt.cpp; checks as Racial_Option_Screen) ----
 
+## The custom race's first page (owner, 2026-11-27: as the stock flow, the portrait first): the 13
+## portraits; a click picks the look and goes on to the picks, starting from that race's own.
+func _build_looks() -> void:
+	var heading := Label.new()
+	heading.theme_type_variation = &"Name"
+	heading.text = "Choose how your race looks"
+	_body.add_child(heading)
+	var grid := GridContainer.new()
+	grid.columns = 7
+	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	_body.add_child(grid)
+	var cell_w := maxf(110.0, (size.x - 80.0 - 6 * 10.0) / 7.0)
+	var cell_h := minf(cell_w * 1.1, maxf(120.0, (size.y - 330.0) * 0.5))
+	for race: Dictionary in _races():
+		var id := int(race.race)
+		var box := VBoxContainer.new()
+		var button := Button.new()
+		button.toggle_mode = true
+		button.focus_mode = Control.FOCUS_NONE
+		button.button_pressed = id == _race
+		button.custom_minimum_size = Vector2(cell_w, cell_h)
+		var picture := TextureRect.new()
+		picture.set_anchors_preset(Control.PRESET_FULL_RECT)
+		picture.offset_left = 5
+		picture.offset_top = 5
+		picture.offset_right = -5
+		picture.offset_bottom = -5
+		picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.add_child(picture)
+		_set_texture(picture, "RACESEL.LBX", 0x0F + id)
+		button.pressed.connect(func():
+			_race = id
+			_start_custom(_race_picks(id), "")
+			_rebuild())
+		box.add_child(button)
+		var name := Label.new()
+		name.text = str(race.name)
+		name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		box.add_child(name)
+		grid.add_child(box)
+
+
 func _race_picks(race: int) -> Dictionary:
 	var picks: Dictionary = _race_data(race).get("picks", {})
 	return {"primary": (picks.get("primary", [0, 0, 0, 0, 0, 0, 0, 0, 0]) as Array).duplicate(),
@@ -426,6 +521,7 @@ func _race_picks(race: int) -> Dictionary:
 
 func _start_custom(picks: Dictionary, name: String) -> void:
 	_custom = true
+	_custom_stage = "picks"
 	_picks = picks
 	while (_picks.specials as Array).size() < 22:
 		(_picks.specials as Array).append(0)
@@ -476,39 +572,36 @@ func _custom_problem() -> String:
 	return ""
 
 
+const PICKED_COLOR := Color(1.0, 0.62, 0.2) # a chosen pick's text
+
+
+## A pick: a radio button whose text lights when chosen (owner, 2026-11-27).
+func _radio(text: String, group: ButtonGroup, on: bool) -> CheckBox:
+	var radio := CheckBox.new()
+	radio.text = text
+	radio.button_group = group
+	radio.focus_mode = Control.FOCUS_NONE
+	radio.button_pressed = on
+	for state in ["font_pressed_color", "font_hover_pressed_color"]:
+		radio.add_theme_color_override(state, PICKED_COLOR)
+	return radio
+
+
 func _build_custom() -> void:
 	var rules := _rules()
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 12)
 	_body.add_child(top)
-	var base_label := Label.new()
-	base_label.text = "Looks like:"
-	top.add_child(base_label)
-	var base := OptionButton.new()
-	base.focus_mode = Control.FOCUS_NONE
-	for race: Dictionary in _races():
-		base.add_item(str(race.name), int(race.race))
-	base.select(_race)
-	base.item_selected.connect(func(i: int): _race = base.get_item_id(i))
-	top.add_child(base)
 	var name_label := Label.new()
+	name_label.theme_type_variation = &"Name"
 	name_label.text = "Race name:"
 	top.add_child(name_label)
 	var name_edit := LineEdit.new()
 	name_edit.max_length = 14
-	name_edit.custom_minimum_size = Vector2(220, 0)
+	name_edit.custom_minimum_size = Vector2(240, 0)
 	name_edit.text = _custom_name
 	name_edit.text_changed.connect(func(t: String): _custom_name = t)
 	top.add_child(name_edit)
-	var gap := Control.new()
-	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top.add_child(gap)
-	var picks_label := Label.new()
-	picks_label.theme_type_variation = &"Name"
-	top.add_child(picks_label)
-	var buttons := HBoxContainer.new()
-	buttons.add_theme_constant_override("separation", 8)
-	_body.add_child(buttons)
 	var defaults := Button.new()
 	defaults.text = "DEFAULT"
 	defaults.focus_mode = Control.FOCUS_NONE
@@ -517,7 +610,7 @@ func _build_custom() -> void:
 		for _i in 22:
 			(_picks.specials as Array).append(0)
 		_rebuild())
-	buttons.add_child(defaults)
+	top.add_child(defaults)
 	var last: Dictionary = _data.get("last_custom", {})
 	if not last.is_empty():
 		var load_last := Button.new()
@@ -529,48 +622,51 @@ func _build_custom() -> void:
 			_start_custom({"primary": (p.get("primary", []) as Array).duplicate(), "government": int(p.get("government", 1)),
 				"specials": (p.get("specials", []) as Array).duplicate()}, str(last.get("name", "")))
 			_rebuild())
-		buttons.add_child(load_last)
+		top.add_child(load_last)
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(gap)
+	# Picks left, and the race's total (owner, 2026-11-27: "need total score").
+	var counts := _count_picks()
+	var starting := int(rules.get("starting", 10))
+	var total := Label.new()
+	total.text = "Total: %d of %d    Negative: %d of %d" % [starting - counts.x, starting, counts.y, int(rules.get("negative_limit", -10))]
+	top.add_child(total)
+	var picks_label := Label.new()
+	picks_label.theme_type_variation = &"Name"
+	picks_label.text = "Picks left: %d" % counts.x
+	picks_label.add_theme_color_override("font_color", Color(1, 0.5, 0.4) if counts.x < 0 else Color(0.7, 1, 0.7))
+	top.add_child(picks_label)
 
 	var columns := HBoxContainer.new()
-	columns.add_theme_constant_override("separation", 22)
+	columns.add_theme_constant_override("separation", 26)
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_body.add_child(columns)
-	var left := VBoxContainer.new()
-	left.add_theme_constant_override("separation", 6)
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	columns.add_child(left)
-	var right := VBoxContainer.new()
-	right.add_theme_constant_override("separation", 2)
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	columns.add_child(right)
-
-	var update := func():
-		var counts := _count_picks()
-		picks_label.text = "Picks left: %d" % counts.x
-		picks_label.add_theme_color_override("font_color", Color(1, 0.5, 0.4) if counts.x < 0 else Color(0.7, 1, 0.7))
-
+	# The stats in three columns (owner, 2026-11-27), the government last.
+	var stat_columns: Array[VBoxContainer] = []
+	for _c in 3:
+		var column := VBoxContainer.new()
+		column.add_theme_constant_override("separation", 10)
+		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		columns.add_child(column)
+		stat_columns.append(column)
 	var groups: Array = rules.get("primary", [])
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 14)
-	grid.add_theme_constant_override("v_separation", 8)
-	left.add_child(grid)
+	var boxes: Array[Control] = []
 	for g in groups.size():
 		var box := VBoxContainer.new()
+		box.add_theme_constant_override("separation", 0)
 		var title := Label.new()
 		title.theme_type_variation = &"Name"
 		title.text = str(groups[g].title)
 		box.add_child(title)
+		var group := ButtonGroup.new()
+		group.allow_unpress = true
 		var choices: Array = groups[g].choices
 		for c in choices.size():
-			var button := Button.new()
-			button.toggle_mode = true
-			button.focus_mode = Control.FOCUS_NONE
-			button.text = "%s   %+d" % [str(choices[c].label), int(choices[c].cost)]
-			button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			button.button_pressed = int(_picks.primary[g]) == c + 1
+			var radio := _radio("%s   %+d" % [str(choices[c].label), int(choices[c].cost)], group, int(_picks.primary[g]) == c + 1)
 			var gi := g
 			var value := c + 1
-			button.pressed.connect(func():
+			radio.pressed.connect(func():
 				# Clicking the current choice clears it (the legacy screen does the same).
 				if int(_picks.primary[gi]) == value:
 					_picks.primary[gi] = 0
@@ -585,10 +681,11 @@ func _build_custom() -> void:
 						_picks.primary[gi] = before
 						_show_note("That is more negative picks than allowed.")
 				_rebuild())
-			box.add_child(button)
-		grid.add_child(box)
+			box.add_child(radio)
+		boxes.append(box)
 	var gov: Dictionary = rules.get("government", {})
 	var gov_box := VBoxContainer.new()
+	gov_box.add_theme_constant_override("separation", 0)
 	var gov_title := Label.new()
 	gov_title.theme_type_variation = &"Name"
 	gov_title.text = str(gov.get("title", "Government"))
@@ -596,35 +693,45 @@ func _build_custom() -> void:
 	var gov_group := ButtonGroup.new()
 	var gov_choices: Array = gov.get("choices", [])
 	for c in gov_choices.size():
-		var button := Button.new()
-		button.toggle_mode = true
-		button.button_group = gov_group
-		button.focus_mode = Control.FOCUS_NONE
-		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		button.text = "%s   %+d" % [str(gov_choices[c].label), int(gov_choices[c].cost)]
-		button.button_pressed = int(_picks.government) == c
+		var radio := _radio("%s   %+d" % [str(gov_choices[c].label), int(gov_choices[c].cost)], gov_group, int(_picks.government) == c)
 		var index := c
-		button.pressed.connect(func():
+		radio.pressed.connect(func():
 			var before := int(_picks.government)
 			_picks.government = index
 			if _count_picks().y < int(rules.get("negative_limit", -10)):
 				_picks.government = before
 				_show_note("That is more negative picks than allowed.")
 			_rebuild())
-		gov_box.add_child(button)
-	grid.add_child(gov_box)
+		gov_box.add_child(radio)
+	boxes.append(gov_box)
+	var per_column := ceili(boxes.size() / 3.0)
+	for i in boxes.size():
+		stat_columns[mini(i / per_column, 2)].add_child(boxes[i])
 
+	# The special abilities, two columns beside them.
+	var specials_box := VBoxContainer.new()
+	specials_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	specials_box.size_flags_stretch_ratio = 2.2
+	columns.add_child(specials_box)
 	var specials_title := Label.new()
 	specials_title.theme_type_variation = &"Name"
 	specials_title.text = str(rules.get("specials_title", "Special abilities"))
-	right.add_child(specials_title)
+	specials_box.add_child(specials_title)
+	var specials_grid := GridContainer.new()
+	specials_grid.columns = 2
+	specials_grid.add_theme_constant_override("h_separation", 18)
+	specials_grid.add_theme_constant_override("v_separation", 0)
+	specials_box.add_child(specials_grid)
 	var specials: Array = rules.get("specials", [])
 	var exclusive: Array = rules.get("exclusive", [])
 	for s in specials.size():
-		var check := CheckButton.new()
+		var check := CheckBox.new()
 		check.focus_mode = Control.FOCUS_NONE
+		check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		check.text = "%s   %+d" % [str(specials[s].label), int(specials[s].cost)]
 		check.button_pressed = int(_picks.specials[s]) != 0
+		for state in ["font_pressed_color", "font_hover_pressed_color"]:
+			check.add_theme_color_override(state, PICKED_COLOR)
 		var index := s
 		check.toggled.connect(func(on: bool):
 			_picks.specials[index] = 1 if on else 0
@@ -641,18 +748,14 @@ func _build_custom() -> void:
 					if index == int(rules.get("lithovore", 9)):
 						_picks.primary[int(rules.get("food_group", 1))] = 0
 			_rebuild())
-		right.add_child(check)
-	update.call()
+		specials_grid.add_child(check)
 
 
 # ---- Leader and banner (racesel.cpp, Naming_Popup and Flag_Screen) ----
 
 func _build_leader() -> void:
 	if _leader_race != _race or _leader == "":
-		var names: Array = _race_data(_race).get("leaders", [])
-		if not names.is_empty():
-			_leader = str(names[randi() % names.size()].name)
-		_leader_race = _race
+		_random_leader()
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	_body.add_child(row)
@@ -662,36 +765,40 @@ func _build_leader() -> void:
 	row.add_child(label)
 	var edit := LineEdit.new()
 	edit.max_length = 19
-	edit.custom_minimum_size = Vector2(320, 0)
+	edit.custom_minimum_size = Vector2(360, 0)
 	edit.text = _leader
 	edit.text_changed.connect(func(t: String): _leader = t)
 	row.add_child(edit)
 	var again := Button.new()
-	again.text = "ANOTHER NAME"
+	again.text = "RANDOM"
 	again.focus_mode = Control.FOCUS_NONE
+	again.custom_minimum_size.x = 140
 	again.pressed.connect(func():
-		var names: Array = _race_data(_race).get("leaders", [])
-		if not names.is_empty():
-			_leader = str(names[randi() % names.size()].name)
+		_random_leader()
 		_rebuild())
 	row.add_child(again)
 	var heading := Label.new()
 	heading.theme_type_variation = &"Name"
 	heading.text = "Banner"
 	_body.add_child(heading)
+	# Four across the whole panel, as large as two rows allow (owner, 2026-11-27).
 	var banners := GridContainer.new()
 	banners.columns = 4
-	banners.add_theme_constant_override("h_separation", 12)
+	banners.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	banners.add_theme_constant_override("h_separation", 16)
 	banners.add_theme_constant_override("v_separation", 12)
 	_body.add_child(banners)
+	var cell_w := maxf(160.0, (size.x - 80.0 - 3 * 16.0) / 4.0)
+	var cell_h := clampf((size.y - 360.0) * 0.5, 120.0, cell_w * 0.85)
 	var group := ButtonGroup.new()
 	for c in 8:
 		var box := VBoxContainer.new()
+		box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var button := Button.new()
 		button.toggle_mode = true
 		button.button_group = group
 		button.focus_mode = Control.FOCUS_NONE
-		button.custom_minimum_size = Vector2(180, 150)
+		button.custom_minimum_size = Vector2(cell_w, cell_h)
 		button.button_pressed = _color == c
 		button.tooltip_text = BANNER_NAMES[c]
 		var picture := TextureRect.new()
@@ -715,6 +822,18 @@ func _build_leader() -> void:
 		banners.add_child(box)
 
 
+## A leader's name from the race's eight, not the one shown.
+func _random_leader() -> void:
+	var names: Array = _race_data(_race).get("leaders", [])
+	if not names.is_empty():
+		var pick := str(names[randi() % names.size()].name)
+		if names.size() > 1:
+			while pick == _leader:
+				pick = str(names[randi() % names.size()].name)
+		_leader = pick
+	_leader_race = _race
+
+
 # ---- Start ----
 
 func _build_start() -> void:
@@ -734,7 +853,7 @@ func _build_start() -> void:
 	row.add_theme_constant_override("separation", 24)
 	_body.add_child(row)
 	var portrait := TextureRect.new()
-	portrait.custom_minimum_size = Vector2(360, 280)
+	portrait.custom_minimum_size = Vector2(minf(size.x * 0.4, 640.0), minf(size.y * 0.6, 520.0))
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_set_texture(portrait, "RACESEL.LBX", 0x0F + _race)

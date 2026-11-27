@@ -401,6 +401,13 @@ func show_flight(seconds: float) -> void:
 	_flight_pick.select(best)
 
 
+## Opened from the title screen (WP3.13): no map, so its rows are left out.
+func set_title_mode(on: bool) -> void:
+	for path in ["Fit/Box/MapTitle", "Fit/Box/Influence", "Fit/Box/Map"]:
+		(get_node(path) as Control).visible = not on
+	_fit.call_deferred()
+
+
 ## While a battle's question is up (owner 2026-11-24): MERGE RELOC. and DISTANCE greyed out.
 func set_map_tools_enabled(on: bool) -> void:
 	for b: Button in [$Fit/Box/Map/Relocations, $Fit/Box/Map/Distance]:

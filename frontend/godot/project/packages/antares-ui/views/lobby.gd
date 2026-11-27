@@ -17,6 +17,8 @@ extends Control
 ## its own logo and frame included, and the new wordmark is left off.
 
 signal command(dict: Dictionary)
+## OPTIONS: the frontend opens its options flyout over the title.
+signal options_requested
 
 var art: Node
 
@@ -26,6 +28,7 @@ const MENU_ITEMS := [
 	["new", "NEW GAME", KEY_N],
 	["multiplayer", "MULTI PLAYER", KEY_M],
 	["hall_of_fame", "HALL OF FAME", KEY_H],
+	["options", "OPTIONS", KEY_O], # the options flyout: volumes, interface scale, theme (owner, 2026-11-27)
 	["quit", "QUIT GAME", KEY_Q],
 ]
 const SWING_TIME := 1.1
@@ -46,14 +49,25 @@ var _buttons := {} # item -> Button
 var _version: Label
 var _mods: PanelContainer
 var _credits: Button
+## The credits roll (WP3.13; owner 2026-11-27: on the title itself, not the legacy Credits
+## screen): CREDITS.LBX's lines climb through a window under the wordmark, fading in at the bottom
+## and out at the top, as MAINMENU::Draw_Credits. It rolls whenever the package list is off (as the
+## original title); with the list on, CREDITS swaps between the two.
+var _roll: Control
+var _credit_lines: Array = []
+var _roll_y := 0.0
+var _rolling := false
+const ROLL_SPEED := 0.075 # picture heights a second (the original's 2 pixels a tick)
 var _slots: PanelContainer # the shared Load page (save_slots.gd)
 var _note: Label
 var _swing: Tween
 var _panel_in := false
 var _busy := false # a choice was sent: no second one until the screen changes
 ## The 3D panel (title/panel.glb, our own Blender model): it swings in on its hinge at the right
-## edge and slides to its place; the live buttons then lie over its face. Without the model the
-## 2D panel squeezes in instead.
+## edge, its free (left) edge coming round towards the viewer (owner, 2026-11-27: the first pass
+## swung the other way), then slides to its place; the live buttons then lie over its face. The
+## motor (sound 0x35) runs while it moves and the lock (0x36) sounds when it stops, as in
+## mainmenu.cpp. Without the model the 2D panel squeezes in instead.
 var _rig: SubViewportContainer
 var _camera: Camera3D
 var _model: Node3D # the glb's scene; its "Panel" node is the hinge
@@ -61,6 +75,7 @@ var _hinge: Node3D
 var _arm3d: Node3D
 var _turn := 0.0 # 0 edge-on, 1 facing the viewer
 var _slide := 0.0 # 0 at the right edge, 1 home
+var _motor := -1 # the motor sound's handle while the panel moves
 const FACE_CENTER := Vector2(-1.0, 0.0) # the face's middle from the hinge (model units)
 const FACE_SIZE := Vector2(1.70, 1.40)
 const ARM_LENGTH := 2.5
@@ -127,8 +142,15 @@ func _ready() -> void:
 	_credits.focus_mode = Control.FOCUS_NONE
 	_credits.add_theme_color_override("font_color", Color(0.55, 0.85, 0.6))
 	_credits.add_theme_color_override("font_hover_color", PANEL_GREEN)
-	_credits.pressed.connect(func(): _choose("credits"))
+	_credits.pressed.connect(_toggle_credits)
 	add_child(_credits)
+
+	_roll = Control.new()
+	_roll.clip_contents = true
+	_roll.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_roll.draw.connect(_draw_roll)
+	_roll.hide()
+	add_child(_roll)
 
 	_mods = PanelContainer.new()
 	_mods.theme_type_variation = &"Pane"
@@ -206,10 +228,12 @@ func _build_rig() -> void:
 	var face := _model.find_child("Face", true, false)
 	if face is MeshInstance3D:
 		var glass := StandardMaterial3D.new()
-		glass.albedo_color = Color(0.03, 0.16, 0.05)
+		# See-through green glass over the station (owner, 2026-11-27).
+		glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		glass.albedo_color = Color(0.03, 0.16, 0.05, 0.55)
 		glass.emission_enabled = true
 		glass.emission = Color(0.05, 0.35, 0.10)
-		glass.emission_energy_multiplier = 0.6
+		glass.emission_energy_multiplier = 0.35
 		glass.roughness = 0.25
 		glass.metallic_specular = 0.8
 		(face as MeshInstance3D).material_override = glass
@@ -251,10 +275,10 @@ func _build_rig() -> void:
 ## The live buttons over the 3D face: no frame of their own.
 func _face_style() -> StyleBoxEmpty:
 	var style := StyleBoxEmpty.new()
-	style.content_margin_left = 26
-	style.content_margin_right = 26
-	style.content_margin_top = 24
-	style.content_margin_bottom = 24
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
 	return style
 
 
@@ -275,19 +299,22 @@ func _update_3d() -> void:
 		return
 	_panel.reset_size()
 	var home := Rect2(_panel_home(), _panel.size)
-	var k := home.size.y / (FACE_SIZE.y * 0.9 * _ppu()) # the buttons inside the face's safe area
+	# The face fits the buttons closely (owner, 2026-11-27): scaled to them on each axis.
+	var k := home.size.y / (FACE_SIZE.y * 0.94 * _ppu())
+	var kx := home.size.x / (FACE_SIZE.x * 0.94 * _ppu())
 	var face_world := _screen_to_world(home.get_center())
-	var hinge_home := face_world - FACE_CENTER * k
+	var hinge_home := face_world - FACE_CENTER * kx
 	var shown := picture_rect()
 	var edge := _screen_to_world(Vector2(shown.end.x - shown.size.y * 0.02, 0)).x
 	var hinge_x := lerpf(edge, hinge_home.x, _slide)
 	_hinge.position = Vector3(hinge_x, hinge_home.y, 0)
-	_hinge.scale = Vector3(k, k, k)
-	_hinge.rotation = Vector3(0, deg_to_rad(-90.0 * (1.0 - _turn)), 0)
+	_hinge.scale = Vector3(kx, k, k)
+	# Edge-on, the free edge points at the viewer; it swings round to face us.
+	_hinge.rotation = Vector3(0, deg_to_rad(90.0 * (1.0 - _turn)), 0)
 	if _arm3d:
 		# The arm reaches past the screen's right edge, wherever the panel is.
 		var right := _screen_to_world(Vector2(size.x + 40, 0)).x
-		var needed := (right - hinge_x) / k
+		var needed := (right - hinge_x) / kx
 		var arm_parent_scale := 1.0
 		_arm3d.scale.x = maxf(0.2, needed / ARM_LENGTH) * arm_parent_scale
 		_arm3d.rotation.y = -_hinge.rotation.y # the arm stays fixed to the wall while the panel turns
@@ -302,10 +329,10 @@ func _panel_style() -> StyleBoxFlat:
 	style.set_corner_radius_all(26)
 	style.shadow_color = Color(0, 0, 0, 0.6)
 	style.shadow_size = 18
-	style.content_margin_left = 26
-	style.content_margin_right = 26
-	style.content_margin_top = 24
-	style.content_margin_bottom = 24
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
 	return style
 
 
@@ -349,16 +376,20 @@ func show_screen(new_screen: int) -> void:
 		_logo.show()
 		_version.show()
 		_credits.show()
+		_roll.visible = _rolling
 		if not _panel_in:
 			_swing_in(was == -1 or was == Screens.LEGACY)
 	else:
 		_slots.close_slots()
 		_mods.hide()
 		_credits.hide()
+		_roll.hide()
 		_version.hide()
 		_logo.hide()
 		if _panel_in:
 			_swing_out()
+		elif _swing == null or not _swing.is_running():
+			_panel.hide() # first shown for another screen: no menu until the title
 	queue_redraw()
 
 
@@ -367,6 +398,7 @@ func leave() -> void:
 	_panel_in = false
 	_turn = 0.0
 	_slide = 0.0
+	_motor_off(false)
 	if _model:
 		_model.visible = false
 	if _swing:
@@ -384,6 +416,8 @@ func show_menu(result: Dictionary) -> void:
 	_version.text = str(result.get("version_label", ""))
 	for child in _mods.get_children():
 		child.queue_free()
+	if _credit_lines.is_empty():
+		command.emit({"verb": "query", "what": "credits", "_reply_to": "_show_credits"})
 	if result.get("show_mod_list", false):
 		var list := VBoxContainer.new()
 		var title := Label.new()
@@ -400,10 +434,67 @@ func show_menu(result: Dictionary) -> void:
 			row.text = "%d. %s  %s" % [int(mod.get("priority", 0)) + 1, str(mod.get("name", "")), str(mod.get("version", ""))]
 			list.add_child(row)
 		_mods.add_child(list)
+		_mods.visible = not _rolling
+	else:
+		_mods.hide()
+		_start_roll()
+	_layout.call_deferred()
+
+
+func _show_credits(result: Dictionary) -> void:
+	if result.get("ok", false):
+		_credit_lines = result.get("lines", [])
+		_roll.queue_redraw()
+
+
+## CREDITS: the roll, or (with the package list on) back to the list.
+func _toggle_credits() -> void:
+	if screen != Screens.MAIN_MENU:
+		return
+	command.emit({"verb": "play_sound"})
+	if _rolling and _menu.get("show_mod_list", false):
+		_rolling = false
+		_roll.hide()
 		_mods.show()
 	else:
 		_mods.hide()
-	_layout.call_deferred()
+		_start_roll()
+
+
+func _start_roll() -> void:
+	if _rolling:
+		return
+	_rolling = true
+	_roll_y = 0.0
+	_roll.show()
+	set_process(true)
+
+
+func _draw_roll() -> void:
+	if _credit_lines.is_empty():
+		return
+	var h := picture_rect().size.y
+	var line_h := h * 14.0 / 480.0
+	var font := get_theme_default_font()
+	var font_size := int(round(line_h * 0.78))
+	var w := _roll.size.x
+	var column := w * 0.46
+	var fade := line_h * 2.0
+	var y := _roll.size.y - _roll_y
+	for line: Dictionary in _credit_lines:
+		if y > -line_h and y < _roll.size.y + line_h:
+			var alpha := clampf(minf(y / fade, (_roll.size.y - y) / fade), 0.0, 1.0)
+			var role := str(line.get("role", ""))
+			var name := str(line.get("name", ""))
+			var base := y + line_h * 0.75
+			if role != "":
+				_roll.draw_string(font, Vector2(0, base), role, HORIZONTAL_ALIGNMENT_LEFT, column - 6, font_size, Color(0.55, 0.85, 0.6, alpha))
+			if name != "":
+				_roll.draw_string(font, Vector2(column, base), name, HORIZONTAL_ALIGNMENT_LEFT, w - column, font_size, Color(0.8, 1.0, 0.8, alpha))
+		y += line_h
+	if y < -line_h: # all gone off the top: again from the bottom
+		_roll_y = 0.0
+
 
 
 func _choose(item: String) -> void:
@@ -411,6 +502,10 @@ func _choose(item: String) -> void:
 		return
 	var button: Button = _buttons.get(item)
 	if button != null and button.disabled:
+		return
+	if item == "options":
+		command.emit({"verb": "play_sound"})
+		options_requested.emit()
 		return
 	if item == "load":
 		if _slots.visible:
@@ -557,7 +652,7 @@ func _panel_home() -> Vector2:
 	var width := panel_size.x
 	if _rig != null:
 		# The 3D panel round the buttons: its face (the buttons' safe area) and the bezel.
-		width = panel_size.y / 0.9 * FACE_SIZE.x / FACE_SIZE.y * 1.22
+		width = panel_size.x / 0.94 * 1.12
 	var center_x := shown.end.x - margin - width * 0.5
 	var y := shown.position.y + shown.size.y * 0.47 - panel_size.y * 0.5
 	return Vector2(center_x - panel_size.x * 0.5, y)
@@ -584,6 +679,11 @@ func _layout() -> void:
 	_credits.position = Vector2(shown.position.x + shown.size.y * 0.09, shown.end.y - shown.size.y * 0.12 - _credits.size.y)
 	_mods.reset_size()
 	_mods.position = Vector2(shown.position.x + shown.size.y * 0.09, _credits.position.y - _mods.size.y - 8)
+	# The roll: under the wordmark, down to CREDITS, short of the panel.
+	var roll_top := (_logo.position.y + _logo.size.y if _logo.visible else shown.position.y + shown.size.y * 0.3) + shown.size.y * 0.04
+	var roll_right := minf(_panel_home().x - shown.size.y * 0.06, shown.position.x + shown.size.y * 0.09 + shown.size.y * 0.75)
+	_roll.position = Vector2(shown.position.x + shown.size.y * 0.09, roll_top)
+	_roll.size = Vector2(maxf(100.0, roll_right - _roll.position.x), maxf(60.0, _credits.position.y - 8 - roll_top))
 	if _slots.visible:
 		_slots.reset_size()
 		_slots.position = Vector2(_panel_home().x - _slots.size.x - 16, clampf(_panel_home().y, 8, size.y - _slots.size.y - 8))
@@ -617,9 +717,11 @@ func _swing_in(first: bool) -> void:
 		var swing_time := SWING_TIME if first else SWING_TIME * 0.6
 		_swing = create_tween()
 		_swing.tween_interval(0.25 if first else 0.05)
+		_swing.tween_callback(_motor_on)
 		_swing.tween_property(self, "_turn", 1.0, swing_time).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 		_swing.tween_property(self, "_slide", 1.0, SLIDE_TIME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
 		_swing.tween_callback(func():
+			_motor_off(true)
 			_layout()
 			_panel.position = _panel_home()
 			_panel.show())
@@ -637,10 +739,13 @@ func _swing_in(first: bool) -> void:
 	var swing_time := SWING_TIME if first else SWING_TIME * 0.6
 	_swing = create_tween()
 	_swing.tween_interval(0.25 if first else 0.05)
+	_swing.tween_callback(_motor_on)
 	_swing.tween_property(_panel, "scale:x", 1.0, swing_time).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	_swing.parallel().tween_property(_panel, "modulate", Color.WHITE, swing_time)
 	_swing.tween_property(_panel, "position:x", home.x, SLIDE_TIME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
-	_swing.tween_callback(_layout)
+	_swing.tween_callback(func():
+		_motor_off(true)
+		_layout())
 	_swing.set_process_mode(Tween.TWEEN_PROCESS_IDLE)
 	_swing.step_finished.connect(func(_i: int): _place_arm())
 	set_process(true)
@@ -665,9 +770,29 @@ func _swing_out() -> void:
 	_swing.tween_callback(func(): _panel.hide())
 
 
-func _process(_delta: float) -> void:
+## The original's motor (0x35) while the panel moves; the lock (0x36) when it stops.
+func _motor_on() -> void:
+	command.emit({"verb": "play_sound", "sound": 0x35, "_reply_to": "_motor_started"})
+
+
+func _motor_started(result: Dictionary) -> void:
+	_motor = int(result.get("handle", -1))
+
+
+func _motor_off(lock: bool) -> void:
+	if _motor >= 0:
+		command.emit({"verb": "stop_sound", "handle": _motor})
+	_motor = -1
+	if lock:
+		command.emit({"verb": "play_sound", "sound": 0x36})
+
+
+func _process(delta: float) -> void:
 	if not visible:
 		return
+	if _rolling and _roll.visible:
+		_roll_y += picture_rect().size.y * ROLL_SPEED * delta
+		_roll.queue_redraw()
 	if _rig != null:
 		_update_3d()
 	elif _panel.visible:
