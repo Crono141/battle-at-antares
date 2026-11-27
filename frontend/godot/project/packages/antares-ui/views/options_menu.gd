@@ -334,11 +334,15 @@ const FLIGHT_CHOICES := [["Slow", 1.5], ["Medium", 1.0], ["Fast", 0.5], ["Instan
 var _flight_pick: OptionButton
 
 
+var _flight_title: Label
+
+
 func _add_flight_row() -> void:
 	var box: VBoxContainer = $Fit/Box
 	var title := Label.new()
 	title.theme_type_variation = &"Section"
 	title.text = "SYSTEM ZOOM"
+	_flight_title = title
 	box.add_child(title)
 	box.move_child(title, $Fit/Box/ThemeTitle.get_index())
 	_flight_pick = OptionButton.new()
@@ -455,6 +459,8 @@ static func apply_saved_display(window: Window) -> void:
 		var value: Variant = Themes.saved_value("display", key, null)
 		if value != null:
 			apply_display(window, key, value)
+	print("display: window mode %d, vsync %s, frame limit %d" % [window.mode,
+		DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED, Engine.max_fps])
 
 
 ## AUTO ADDRESS TO-DOS (owner, 2026-11-20): the stock game's way with the turn's to-dos, each
@@ -508,10 +514,14 @@ func show_flight(seconds: float) -> void:
 	_flight_pick.select(best)
 
 
-## Opened from the title screen (WP3.13): no map, so its rows are left out.
+## Opened from the title screen (WP3.13): no game, so the map's rows, the game options (they
+## change a game: `toggle_option` runs on the galaxy only), the system zoom and the to-dos switch
+## are left out; sound, display, interface scale and theme stay.
 func set_title_mode(on: bool) -> void:
-	for path in ["Fit/Box/MapTitle", "Fit/Box/Influence", "Fit/Box/Map"]:
-		(get_node(path) as Control).visible = not on
+	var rows: Array[Control] = [$Fit/Box/MapTitle, $Fit/Box/Influence, $Fit/Box/Map, $Fit/Box/GameTitle, options_box,
+		_flight_title, _flight_pick, todo_auto_button.get_parent().get_parent() as Control]
+	for row in rows:
+		row.visible = not on
 	_fit.call_deferred()
 
 

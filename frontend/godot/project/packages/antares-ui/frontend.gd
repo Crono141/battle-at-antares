@@ -1772,7 +1772,9 @@ func _on_view_closed(scene_name: String) -> void:
 			galaxy.clear_system_view()
 			galaxy.redraw()
 	elif scene_name == "options_menu":
-		_view("side_tabs").show_open("options", false)
+		var tabs: Control = _views.get("side_tabs") # none yet on a cold title
+		if tabs != null:
+			tabs.show_open("options", false)
 	elif scene_name == "game_menu":
 		_view("galaxy_bar").show_game_menu(false)
 	elif scene_name == "fleet_panel":
@@ -7381,6 +7383,7 @@ func _smoke_title(shots: String) -> bool:
 	await get_tree().create_timer(0.7).timeout
 	if shots != "":
 		await host.shot(shots + "/title-swing.png") # mid-swing
+	print("smoke: title: motor sound handle mid-swing %d" % lobby._motor)
 	await get_tree().create_timer(1.8).timeout # the rest of the panel's swing
 	if shots != "":
 		await host.shot(shots + "/title.png")
@@ -7407,6 +7410,19 @@ func _smoke_title(shots: String) -> bool:
 		return false
 	lobby._choose("options")
 	await get_tree().create_timer(0.6).timeout
+	# The swing's turn at three points (owner, 2026-11-27: it turned the wrong way): held still.
+	if lobby._rig != null and shots != "":
+		lobby._panel.hide()
+		for t in [0.2, 0.5, 0.8]:
+			lobby._turn = t
+			lobby._slide = 0.0
+			lobby._update_3d()
+			await get_tree().create_timer(0.3).timeout
+			await host.shot(shots + "/title-turn-%d.png" % int(t * 10))
+		lobby._turn = 1.0
+		lobby._slide = 1.0
+		lobby._update_3d()
+		lobby._panel.show()
 	lobby._choose("hall_of_fame")
 	if not await _wait_screen(Screens.HALL_OF_FAME, 10.0):
 		print("smoke: title: no native Hall of Fame")
@@ -7502,6 +7518,21 @@ func _smoke_title_cold(shots: String) -> bool:
 		await host.shot(shots + "/cold-credits.png")
 	print("smoke: title-cold: credits %d lines, rolling %s, screen %d" % [title_view._credit_lines.size(), title_view._rolling, native_screen])
 	if title_view._credit_lines.is_empty() or not title_view._rolling or native_screen != Screens.MAIN_MENU:
+		return false
+	# OPTIONS on a cold title (no galaxy yet): opens without the game's rows, closes, and leaves no
+	# galaxy chrome behind.
+	title_view._choose("options")
+	await get_tree().create_timer(1.0).timeout
+	var cold_options := _view("options_menu")
+	if shots != "":
+		await host.shot(shots + "/cold-options.png")
+	var game_rows_hidden: bool = not cold_options.options_box.visible
+	title_view._choose("options")
+	await get_tree().create_timer(0.6).timeout
+	var tabs: Control = _views.get("side_tabs")
+	print("smoke: title-cold: options shown and closed %s, game rows hidden %s, side tabs %s" % [not cold_options.visible,
+		game_rows_hidden, "none" if tabs == null else str(tabs.visible)])
+	if cold_options.visible or not game_rows_hidden or (tabs != null and tabs.visible):
 		return false
 	# Multi Player (legacy), its Cancel.
 	_view("lobby")._choose("multiplayer")

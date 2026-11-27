@@ -787,10 +787,9 @@ namespace antares::commands::internal {
         }
 
         // The Alt+F1..F8 game options (MOX::settings), for the options menu.
+        // The settings are the game's own, loaded before the title (WP3.13: the title's Options
+        // shows the volumes; it hides the options, which `toggle_option` changes on the galaxy only).
         void Query_Options(int16_t, const s_args&, s_out& out) {
-            if (!Have_Game(out)) {
-                return;
-            }
             const struct {
                 int option;
                 int16_t message;

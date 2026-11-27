@@ -237,6 +237,18 @@ func _build_rig() -> void:
 		glass.roughness = 0.25
 		glass.metallic_specular = 0.8
 		(face as MeshInstance3D).material_override = glass
+	# The plate closing the screen's recess (the bezel's DarkMetal; the arm keeps its own) would
+	# hide the station behind the glass: left out.
+	var bezel := _model.find_child("Bezel", true, false) as MeshInstance3D
+	if bezel != null and bezel.mesh != null:
+		for i in bezel.mesh.get_surface_count():
+			var material := bezel.mesh.surface_get_material(i)
+			if material != null and material.resource_name == "DarkMetal":
+				var clear := StandardMaterial3D.new()
+				clear.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				clear.albedo_color = Color(0, 0, 0, 0)
+				clear.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				bezel.set_surface_override_material(i, clear)
 	_rig = SubViewportContainer.new()
 	_rig.stretch = true
 	_rig.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -338,17 +350,17 @@ func _panel_style() -> StyleBoxFlat:
 
 func _style_menu_button(button: Button) -> void:
 	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.07, 0.26, 0.09)
+	normal.bg_color = Color(0.07, 0.26, 0.09, 0.45) # the station shows through (owner, 2026-11-27)
 	normal.border_color = Color(0.13, 0.42, 0.16)
 	normal.set_border_width_all(2)
 	normal.set_corner_radius_all(4)
 	var hover := normal.duplicate() as StyleBoxFlat
-	hover.bg_color = Color(0.10, 0.36, 0.13)
+	hover.bg_color = Color(0.10, 0.36, 0.13, 0.7)
 	hover.border_color = PANEL_GREEN
 	var pressed := hover.duplicate() as StyleBoxFlat
-	pressed.bg_color = Color(0.14, 0.46, 0.18)
+	pressed.bg_color = Color(0.14, 0.46, 0.18, 0.85)
 	var disabled := normal.duplicate() as StyleBoxFlat
-	disabled.bg_color = Color(0.05, 0.14, 0.06)
+	disabled.bg_color = Color(0.05, 0.14, 0.06, 0.35)
 	disabled.border_color = Color(0.08, 0.22, 0.10)
 	button.add_theme_stylebox_override("normal", normal)
 	button.add_theme_stylebox_override("hover", hover)
@@ -753,6 +765,7 @@ func _swing_in(first: bool) -> void:
 
 func _swing_out() -> void:
 	_panel_in = false
+	_motor_off(false) # a choice made mid-swing
 	if _swing:
 		_swing.kill()
 	if _rig != null:
@@ -777,6 +790,8 @@ func _motor_on() -> void:
 
 func _motor_started(result: Dictionary) -> void:
 	_motor = int(result.get("handle", -1))
+	if _swing == null or not _swing.is_running():
+		_motor_off(false) # the panel stopped before the sound's handle came back
 
 
 func _motor_off(lock: bool) -> void:
