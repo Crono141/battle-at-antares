@@ -14,3 +14,7 @@ namespace antares::lobby {
 namespace antares::commands::internal {
     void Add_Lobby_Entries(std::vector<s_entry>*) {}
 } // namespace antares::commands::internal
+
+namespace MAINMENU {
+    int16_t autoload_save_slot = -1; // native.cpp: -load-save stays with the legacy menu
+} // namespace MAINMENU
