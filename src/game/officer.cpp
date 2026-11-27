@@ -1400,9 +1400,17 @@ namespace OFFICER {
         }
 
         Deassign_Officer(officer_idx);
-        Build_Captain_Id_List();
-        Get_Officer_Pictures();
-        EVANHELP::Set_Officer_Screen_Help();
+
+        // Antares: the Leaders panel runs this code with no Leaders screen behind it
+        // (antares::native::Officer_Panel_Command). officer_id_list, the portrait slots and the
+        // help list all belong to that screen and are never allocated on this path, so touching
+        // them faults - owner, 2026-11-26: dismissing a leader from the native Leaders panel
+        // crashed in Build_Captain_Id_List, which wrote through the null officer_id_list.
+        if (!antares::native::Officer_Panel_Command()) {
+            Build_Captain_Id_List();
+            Get_Officer_Pictures();
+            EVANHELP::Set_Officer_Screen_Help();
+        }
 
         SHIPMOVE::Recalculate_Moving_Fleet(location);
         OFFICER::officer_button_mode = -1;
