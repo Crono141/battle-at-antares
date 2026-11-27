@@ -211,6 +211,9 @@ namespace antares::host {
     uint64_t Frame_Generation() {
         return 0;
     }
+    bool Native_UI() {
+        return false;
+    }
 } // namespace antares::host
 
 namespace fonts {

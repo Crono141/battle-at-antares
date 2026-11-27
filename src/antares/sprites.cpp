@@ -504,6 +504,24 @@ namespace antares::sprites {
                 palette_entry = -1; // not an entry of this file
             }
             Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx == "SCORE.LBX") {
+            // The Hall of Fame (WP3.13): FONTS.LBX palette 12, then the picture's own colours
+            // (score.cpp, Init_Hall_Of_Fame_Screen: Load_Palette(12), Draw_Palette of the
+            // background). The pack's declaration names SCORE.LBX 0 instead, and its masked pixels
+            // came out purple.
+            Game_Palette(12, palette_rgb);
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
+        } else if (lbx == "RACESEL.LBX" && entry >= 0x22) {
+            // The banners (WP3.13): the race select screen's palette 9 with the flag screen's
+            // RACESEL.LBX 0x20 over it (racesel.cpp, Flag_Screen: Draw_Palette), then their own.
+            // The pack says only "captured", and without these they came out white.
+            Game_Palette(9, palette_rgb);
+            std::vector<uint64_t> flag_palette;
+            size_t flag_size = 0;
+            if (Read_Entry("RACESEL.LBX", 0x20, &flag_palette, &flag_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(flag_palette.data()), flag_size, palette_rgb);
+            }
+            Apply_Embedded_Palette(bytes, size, palette_rgb);
         } else if (lbx == "RACESEL.LBX") {
             // The race select screen's pictures (the Info panel's portrait): the declared palette,
             // then the entry's own colours over it, as animate::Draw applies them (without them the

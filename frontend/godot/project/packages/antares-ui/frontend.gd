@@ -13,7 +13,9 @@ extends Node
 ## pack can replace any one of them by putting a file at the same path.
 
 ## The game's screens (SCREEN_* values, res://screens.gd) this package draws natively.
-@export var claimed_screens: Array[int] = [Screens.MAIN, Screens.SHOW_COMMAND_POINTS]
+@export var claimed_screens: Array[int] = [Screens.MAIN, Screens.SHOW_COMMAND_POINTS, Screens.MAIN_MENU, Screens.NEW_GAME, Screens.HALL_OF_FAME]
+## WP3.13 (D30): the title screen, the new game and the Hall of Fame, over one backdrop (views/lobby).
+const LOBBY_SCREENS := [Screens.MAIN_MENU, Screens.NEW_GAME, Screens.HALL_OF_FAME]
 ## The request kinds its dialog answers; the rest ("choose") keep the legacy popup.
 @export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup", "choose", "todo", "combat", "animate"]
 ## Start with the native views on (Ctrl+G switches); `-- --smoke` without `--native` starts off.
@@ -401,6 +403,9 @@ func _on_native_screen(screen: int) -> void:
 	elif screen == Screens.LEGACY:
 		_galaxy_behind = false
 		_sounds_held = true
+	elif screen in LOBBY_SCREENS:
+		_galaxy_behind = false # no game behind the title screen
+		held = false
 	native_screen = screen
 	var in_galaxy := screen == Screens.MAIN or (screen != Screens.LEGACY and _galaxy_behind)
 	legacy.visible = not in_galaxy and screen == Screens.LEGACY and not _in_battle()
@@ -511,8 +516,43 @@ func _on_native_screen(screen: int) -> void:
 			legacy.hide()
 			points.as_screen = true
 			_drop_down("command_points", points, "", get_viewport().get_visible_rect().size.x * 0.5)
+	_show_lobby(screen)
 	if screen == Screens.LEGACY:
 		game.grab_focus()
+
+
+## WP3.13: the title backdrop for the title screen, the new game and the Hall of Fame, with the
+## new game's panel or the Hall of Fame over it; gone for any other screen.
+func _show_lobby(screen: int) -> void:
+	var lobby: Control = _views.get("lobby")
+	if not screen in LOBBY_SCREENS:
+		if lobby != null and lobby.visible:
+			lobby.leave()
+			for name in ["new_game", "hall_of_fame"]:
+				var view: Control = _views.get(name)
+				if view != null:
+					view.hide()
+			if not _revealed:
+				for item: CanvasItem in _reveal_items():
+					item.modulate.a = 0.0 # the galaxy's own fade-in still comes
+		return
+	lobby = _view("lobby")
+	native_layer.move_child(lobby, 0) # under every other view and the dialog
+	native_layer.modulate.a = 1.0 # the galaxy's reveal hides the layer until a map is placed
+	galaxy.hide()
+	legacy.hide()
+	lobby.show_screen(screen)
+	var new_game := _view("new_game")
+	var hall := _view("hall_of_fame")
+	if screen == Screens.NEW_GAME:
+		hall.hide()
+		new_game.open()
+	elif screen == Screens.HALL_OF_FAME:
+		new_game.hide()
+		hall.open()
+	else:
+		new_game.hide()
+		hall.hide()
 
 
 ## What fades in together: the starfield, the map and the panels.
@@ -6116,7 +6156,7 @@ func _smoke_native() -> void:
 		return
 	# The side panels' steps, any of them in one launch (one game start for several checks), with
 	# quick camera flights: the steps wait on the flights.
-	var panel_steps: Array = ["--colonies", "--planets", "--pin", "--fleets", "--leaders", "--races", "--info", "--design", "--layering"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
+	var panel_steps: Array = ["--colonies", "--planets", "--pin", "--fleets", "--leaders", "--races", "--info", "--design", "--layering", "--title"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
 	if not panel_steps.is_empty():
 		galaxy.flight_time = 0.15
 		await _smoke_window_setting() # SMOKE_WINDOW: a player's screen (an ultra-wide one for --pin)
@@ -6138,6 +6178,8 @@ func _smoke_native() -> void:
 				passed = await _smoke_design_panel(shots)
 			elif step == "--layering":
 				passed = await _smoke_layering(shots)
+			elif step == "--title":
+				passed = await _smoke_title(shots)
 			else:
 				passed = await _smoke_races_panel(shots)
 			if not passed:
@@ -6678,16 +6720,16 @@ func _smoke_galaxy(shots: String) -> bool:
 	# slot 5 with a description, then loaded from there; the native galaxy comes back.
 	game_menu.get_node("Fit/Box/Save").pressed.emit()
 	await get_tree().create_timer(0.8).timeout
-	var rows: Array = game_menu._slots_box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
+	var rows: Array = game_menu._slots._box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
 	print("smoke: save page: %d slots shown natively, legacy screen %s" % [rows.size(), native_screen == Screens.LEGACY])
 	if rows.size() != 10 or native_screen != Screens.MAIN:
 		await host.smoke_fail("Save did not show the slots natively")
 		return false
 	(rows[4] as Button).pressed.emit()
-	game_menu._name_edit.text = "Smoke save"
+	game_menu._slots._name_edit.text = "Smoke save"
 	if shots != "":
 		await host.shot(shots + "/native-save.png")
-	game_menu._save()
+	game_menu._slots._save()
 	await get_tree().create_timer(1.5).timeout
 	var saves: Dictionary = await _query("saves")
 	var slot5: Dictionary = saves.get("slots", [{}, {}, {}, {}, {}])[4]
@@ -6699,7 +6741,7 @@ func _smoke_galaxy(shots: String) -> bool:
 	await get_tree().create_timer(0.6).timeout
 	game_menu.get_node("Fit/Box/Load").pressed.emit()
 	await get_tree().create_timer(0.8).timeout
-	rows = game_menu._slots_box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
+	rows = game_menu._slots._box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
 	if shots != "":
 		await host.shot(shots + "/native-load.png")
 	var visit := int(game.get_native_visit())
@@ -7263,6 +7305,86 @@ func _wait_screen(screen: int, timeout: float) -> bool:
 		waited += 0.1
 		_smoke_answer()
 	return native_screen == screen
+
+
+## `--title` (WP3.13): the game menu's New Game to the native new game, Cancel to the native
+## title screen (the panel swings in), the Hall of Fame and back, the Load page, then a new game
+## through every step (a stock race; the custom race page is shown) to the native galaxy.
+func _smoke_title(shots: String) -> bool:
+	_send({"verb": "leave_game", "to": "main_menu"})
+	if not await _wait_screen(Screens.NEW_GAME, 20.0):
+		print("smoke: title: the game menu's New Game did not reach the native new game (screen %d)" % native_screen)
+		return false
+	var new_game := _view("new_game")
+	await get_tree().create_timer(1.5).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-galaxy.png")
+	new_game._cancel_game()
+	if not await _wait_screen(Screens.MAIN_MENU, 10.0):
+		print("smoke: title: Cancel did not reach the native title screen")
+		return false
+	var lobby := _view("lobby")
+	await get_tree().create_timer(2.5).timeout # the panel's swing
+	if shots != "":
+		await host.shot(shots + "/title.png")
+	print("smoke: title: menu %s" % JSON.stringify(lobby._menu).left(300))
+	lobby._choose("hall_of_fame")
+	if not await _wait_screen(Screens.HALL_OF_FAME, 10.0):
+		print("smoke: title: no native Hall of Fame")
+		return false
+	await get_tree().create_timer(1.5).timeout
+	var hall := _view("hall_of_fame")
+	print("smoke: title: hall of fame rows %d" % hall._rows.size())
+	if shots != "":
+		await host.shot(shots + "/title-hall-of-fame.png")
+	if hall._rows.size() != 10:
+		return false
+	hall._leave()
+	if not await _wait_screen(Screens.MAIN_MENU, 10.0):
+		print("smoke: title: the Hall of Fame did not close to the title screen")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	lobby._choose("load")
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-load.png")
+	print("smoke: title: load page shown %s" % lobby._slots.visible)
+	lobby._slots.close_slots()
+	lobby._choose("new")
+	if not await _wait_screen(Screens.NEW_GAME, 10.0):
+		print("smoke: title: New Game did not open the native new game")
+		return false
+	await get_tree().create_timer(1.5).timeout
+	new_game._choice["size"] = 0 # small: quick to make
+	new_game._go_next()
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-race.png")
+	new_game._start_custom(new_game._race_picks(3), "")
+	new_game._rebuild()
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-custom.png")
+	new_game._custom = false
+	new_game._rebuild()
+	new_game._go_next()
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-leader.png")
+	new_game._go_next()
+	await get_tree().create_timer(0.5).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-start.png")
+	new_game._go_next()
+	if not await _wait_screen(Screens.MAIN, 90.0):
+		print("smoke: title: the new game did not reach the native galaxy (screen %d, note '%s')" % [native_screen, new_game._note.text])
+		return false
+	await get_tree().create_timer(3.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-galaxy-view.png")
+	var empire: Dictionary = await _query("empire")
+	print("smoke: title: new game on the galaxy: %s" % JSON.stringify(empire).left(200))
+	return true
 
 
 ## `--new-game` (no save loaded): the new game flow through the legacy menus (the render suite's

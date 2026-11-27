@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "antares/cosmetic_random.h"
+#include "antares/native.h"
 
 namespace SCORE {
     s_hof hof;
@@ -280,6 +281,9 @@ namespace SCORE {
         int16_t scan_val;
         bool exit_screen = false;
 
+        if (antares::native::Run_Hall_Of_Fame(entry_to_flash_idx)) { // Antares (WP3.13): native view
+            return;
+        }
         SCORE::entry_to_flash = entry_to_flash_idx;
 
         strlcpy(SCORE::difficulty_string[GAME_DIFFICULTY_TUTOR], ESTRINGS::E_Strings(0x221), sizeof(SCORE::difficulty_string[GAME_DIFFICULTY_TUTOR]));
