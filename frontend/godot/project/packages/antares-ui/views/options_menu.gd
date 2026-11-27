@@ -74,6 +74,7 @@ func _ready() -> void:
 		scale_changed.emit(v, true))
 	_add_flight_row()
 	_add_todo_row()
+	_add_display_rows()
 	# Sound first, above the map (owner 2026-11-24).
 	var box: VBoxContainer = $Fit/Box
 	for i in 3:
@@ -104,6 +105,7 @@ func _restyle() -> void:
 
 
 func open() -> void:
+	_show_display() # Alt+Enter may have changed the window since
 	if not visible:
 		_slide(true)
 
@@ -348,6 +350,111 @@ func _add_flight_row() -> void:
 	_flight_pick.item_selected.connect(func(i: int): flight_changed.emit(float(FLIGHT_CHOICES[i][1])))
 	box.add_child(_flight_pick)
 	box.move_child(_flight_pick, $Fit/Box/ThemeTitle.get_index())
+
+
+## DISPLAY (owner, 2026-11-27; in game and on the title): the window mode, V-sync and a frame
+## limit, applied at once and kept in the interface's settings (user://antares-ui.cfg, "display"),
+## which the frontend applies at start. No resolution or refresh rate lists: the interface draws at
+## the window's own size and has its own scale; the launcher sets the windowed size. A choice made
+## here wins over the launcher's "full screen" from then on.
+const WINDOW_MODES := [["Windowed", Window.MODE_WINDOWED], ["Full screen", Window.MODE_FULLSCREEN],
+	["Exclusive full screen", Window.MODE_EXCLUSIVE_FULLSCREEN]]
+const FRAME_LIMITS := [["No limit", 0], ["30 fps", 30], ["60 fps", 60], ["120 fps", 120], ["144 fps", 144], ["240 fps", 240]]
+var _mode_pick: OptionButton
+var _vsync_button: Button
+var _limit_pick: OptionButton
+
+
+func _add_display_rows() -> void:
+	var box: VBoxContainer = $Fit/Box
+	var before: int = $Fit/Box/ScaleTitle.get_index()
+	var title := Label.new()
+	title.theme_type_variation = &"Section"
+	title.text = "DISPLAY"
+	_mode_pick = OptionButton.new()
+	_mode_pick.focus_mode = Control.FOCUS_NONE
+	_mode_pick.custom_minimum_size = Vector2(0, 32)
+	_mode_pick.tooltip_text = "Windowed, full screen (borderless) or exclusive full screen (Alt+Enter switches too)"
+	for choice: Array in WINDOW_MODES:
+		_mode_pick.add_item(String(choice[0]))
+	_mode_pick.item_selected.connect(func(i: int): _set_display("mode", int(WINDOW_MODES[i][1])))
+	var row := PanelContainer.new()
+	row.theme_type_variation = &"Row"
+	var line := HBoxContainer.new()
+	row.add_child(line)
+	var label := Label.new()
+	label.text = "V-sync"
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.tooltip_text = "Wait for the display between frames: no tearing"
+	label.mouse_filter = Control.MOUSE_FILTER_PASS
+	line.add_child(label)
+	_vsync_button = Button.new()
+	_vsync_button.theme_type_variation = &"Toggle"
+	_vsync_button.toggle_mode = true
+	_vsync_button.focus_mode = Control.FOCUS_NONE
+	_vsync_button.custom_minimum_size = Vector2(60, 26)
+	_vsync_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_vsync_button.add_theme_font_size_override("font_size", 12)
+	Themes.glowing(_vsync_button)
+	_vsync_button.toggled.connect(func(on: bool):
+		_vsync_button.text = "ON" if on else "OFF"
+		_set_display("vsync", on))
+	line.add_child(_vsync_button)
+	_limit_pick = OptionButton.new()
+	_limit_pick.focus_mode = Control.FOCUS_NONE
+	_limit_pick.custom_minimum_size = Vector2(0, 32)
+	_limit_pick.tooltip_text = "The most frames a second"
+	for choice: Array in FRAME_LIMITS:
+		_limit_pick.add_item(String(choice[0]))
+	_limit_pick.item_selected.connect(func(i: int): _set_display("max_fps", int(FRAME_LIMITS[i][1])))
+	var items: Array[Control] = [title, _mode_pick, row, _limit_pick]
+	for i in items.size():
+		box.add_child(items[i])
+		box.move_child(items[i], before + i)
+	_show_display()
+
+
+func _show_display() -> void:
+	if _mode_pick == null:
+		return
+	var mode := get_window().mode
+	var index := 0
+	for i in WINDOW_MODES.size():
+		if int(WINDOW_MODES[i][1]) == mode:
+			index = i
+	_mode_pick.select(index)
+	var vsync := DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED
+	_vsync_button.set_pressed_no_signal(vsync)
+	_vsync_button.text = "ON" if vsync else "OFF"
+	Themes.glow(_vsync_button)
+	var limit := 0
+	for i in FRAME_LIMITS.size():
+		if int(FRAME_LIMITS[i][1]) == Engine.max_fps:
+			limit = i
+	_limit_pick.select(limit)
+
+
+func _set_display(key: String, value: Variant) -> void:
+	Themes.save_value("display", key, value)
+	apply_display(get_window(), key, value)
+
+
+static func apply_display(window: Window, key: String, value: Variant) -> void:
+	match key:
+		"mode":
+			window.mode = int(value) as Window.Mode
+		"vsync":
+			DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if bool(value) else DisplayServer.VSYNC_DISABLED)
+		"max_fps":
+			Engine.max_fps = int(value)
+
+
+## At start: the display choices the player made here, if any.
+static func apply_saved_display(window: Window) -> void:
+	for key in ["mode", "vsync", "max_fps"]:
+		var value: Variant = Themes.saved_value("display", key, null)
+		if value != null:
+			apply_display(window, key, value)
 
 
 ## AUTO ADDRESS TO-DOS (owner, 2026-11-20): the stock game's way with the turn's to-dos, each

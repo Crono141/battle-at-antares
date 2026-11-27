@@ -403,8 +403,18 @@ func _end_film() -> void:
 		_turn_clearing_polls = int(game.get_stats().get("input_polls", 0))
 
 
+## The Options panel's DISPLAY choices are applied once, after the launcher's window settings (the
+## game control applies those as the game starts running), so a choice made in the panel wins.
+var _display_applied := false
+
+
 func _on_native_screen(screen: int) -> void:
 	_legacy_after_frame = -1
+	if not _display_applied:
+		_display_applied = true
+		if not "--smoke" in OS.get_cmdline_user_args():
+			get_tree().create_timer(0.3).timeout.connect(func():
+				preload("views/options_menu.gd").apply_saved_display(get_window()))
 	# Just after TURN the galaxy stays a moment: if the turns pass by themselves their notices
 	# follow, and the legacy frame before the first one flashed (owner, 2026-11-13).
 	var held: bool = screen == Screens.LEGACY and native_screen == Screens.MAIN and native and \
@@ -7381,7 +7391,18 @@ func _smoke_title(shots: String) -> bool:
 	var title_options := _view("options_menu")
 	if shots != "":
 		await host.shot(shots + "/title-options.png")
-	print("smoke: title: options shown %s, map rows hidden %s" % [title_options.visible, not title_options.get_node("Fit/Box/Map").visible])
+	print("smoke: title: options shown %s, map rows hidden %s, display rows %s" % [title_options.visible,
+		not title_options.get_node("Fit/Box/Map").visible, title_options._mode_pick != null and title_options._mode_pick.is_visible_in_tree()])
+	# The frame limit: applied at once (V-sync and the window mode are left alone under the
+	# virtual display).
+	title_options._limit_pick.select(2)
+	title_options._limit_pick.item_selected.emit(2)
+	print("smoke: title: frame limit %d" % Engine.max_fps)
+	var limit_ok := Engine.max_fps == 60
+	title_options._limit_pick.select(0)
+	title_options._limit_pick.item_selected.emit(0)
+	if not limit_ok:
+		return false
 	if not title_options.visible or title_options.get_node("Fit/Box/Map").visible:
 		return false
 	lobby._choose("options")
