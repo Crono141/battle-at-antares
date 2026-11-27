@@ -43,6 +43,7 @@ static func discover(package_ids: PackedStringArray) -> Array:
 			push_warning("themes: %s did not build" % id)
 			continue
 		_add_screen_constants(built)
+		add_symbol_fallback(built.theme)
 		found.append({"id": id, "name": String(built.get("name", id)), "built": built})
 	return found
 
@@ -65,7 +66,43 @@ static func plain() -> Dictionary:
 	t.set_color("font_color", "Dim", Color8(170, 172, 180))
 	t.set_font_size("font_size", "Dim", 14)
 	_add_screen_constants(built)
+	add_symbol_fallback(t)
 	return built
+
+
+static var _symbols: FontFile = null
+
+
+## The interface's symbols (sort arrows, bullets, markers, close crosses) in every font: themes'
+## fonts rarely have them, and a system without fallback fonts (Wine, owner 2026-11-25: the to-do
+## bullet was a box reading 25B8) drew boxes. Also Godot's own default font, for unthemed text.
+static func add_symbol_fallback(t: Theme) -> void:
+	if _symbols == null:
+		# The imported font in an exported build (the export keeps no raw .ttf of antares-ui), the
+		# file itself when run from source before an import.
+		const PATH := "res://packages/antares-ui/fonts/AntaresSymbols.ttf"
+		_symbols = load(PATH) as FontFile if ResourceLoader.exists(PATH) else null
+		if _symbols == null:
+			_symbols = FontFile.new()
+			if _symbols.load_dynamic_font(PATH) != OK:
+				_symbols = null
+				push_warning("themes: no symbol font")
+				return
+		_with_fallback(ThemeDB.fallback_font)
+	if t == null:
+		return
+	_with_fallback(t.default_font)
+	for type in t.get_font_type_list():
+		for font_name in t.get_font_list(type):
+			_with_fallback(t.get_font(font_name, type))
+
+
+static func _with_fallback(font: Font) -> void:
+	if font == null or font == _symbols or font.fallbacks.has(_symbols):
+		return
+	var fallbacks := font.fallbacks.duplicate()
+	fallbacks.append(_symbols)
+	font.fallbacks = fallbacks
 
 
 static func _add_screen_constants(built: Dictionary) -> void:

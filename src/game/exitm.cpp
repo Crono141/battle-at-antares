@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include "antares/host.h"
+
 namespace exitm {
     [[noreturn]] void Exit_With_Message(const char* message) {
         SDL_LogCritical(SDL_LOG_CATEGORY_APPLICATION, "fatal exit: %s", message != nullptr ? message : "<null>");
@@ -24,6 +26,7 @@ namespace exitm {
         }
 
         const bool is_error = platform::Exit_Status() != EXIT_SUCCESS;
+        if (antares::host::Active()) return antares::host::Set_Exit_Message(message, is_error); // Antares: the frontend shows it (WP5.10)
         Show_Message_Box(window_handle, message, "Microprose", is_error);
     }
 

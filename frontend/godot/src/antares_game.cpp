@@ -1,9 +1,11 @@
 #include "antares_game.h"
+#include "antares/utf8_files.h"
 
 #include "antares/host.h"
 #include "antares/native.h"
 #include "antares/combat_native.h"
 #include "antares/stall_trace.h"
+#include "antares/user_folder.h"
 #include "pch.h"
 #include "command_line.h"
 
@@ -95,12 +97,13 @@ namespace {
         }
         namespace fs = std::filesystem;
         std::error_code ec;
-        const fs::path logs = fs::path(game_dir) / "logs";
+        // <game folder>/logs/, or the user folder's when installed (WP5.9).
+        const fs::path logs = [&] { const std::string folder = antares::user_folder::Logs_Directory(game_dir); return fs::path(std::u8string(folder.begin(), folder.end())); }();
         fs::create_directories(logs, ec);
         // Keep the nine newest old logs; this run's makes ten.
         std::vector<fs::directory_entry> old;
         for (const auto& entry : fs::directory_iterator(logs, ec)) {
-            const std::string name = entry.path().filename().string();
+            const std::string name = antares::utf8::Text(entry.path().filename());
             if (entry.is_regular_file(ec) && name.rfind("game.", 0) == 0 && entry.path().extension() == ".log") {
                 old.push_back(entry);
             }
@@ -118,7 +121,7 @@ namespace {
         const int pid = getpid();
 #endif
         const fs::path file = logs / ("game." + std::to_string(pid) + ".log");
-        s_game_log_file = fopen(file.string().c_str(), "w");
+        s_game_log_file = antares::utf8::Open(antares::utf8::Text(file).c_str(), "w");
         if (s_game_log_file != nullptr) {
             SDL_GetLogOutputFunction(&s_console_log_output, &s_console_log_userdata);
             SDL_SetLogOutputFunction(Game_Log_Output, s_game_log_file);
@@ -203,6 +206,8 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("get_resource_packs"), &AntaresGame::get_resource_packs);
         ClassDB::bind_method(D_METHOD("get_packages"), &AntaresGame::get_packages);
         ClassDB::bind_method(D_METHOD("get_native_ui"), &AntaresGame::get_native_ui);
+        ClassDB::bind_method(D_METHOD("get_exit_message"), &AntaresGame::get_exit_message);
+        ClassDB::bind_method(D_METHOD("get_exit_status"), &AntaresGame::get_exit_status);
         ClassDB::bind_method(D_METHOD("get_frame_image"), &AntaresGame::get_frame_image);
         ClassDB::bind_method(D_METHOD("request_sprite", "lbx", "entry"), &AntaresGame::request_sprite);
         ADD_PROPERTY(PropertyInfo(Variant::STRING, "game_dir", PROPERTY_HINT_GLOBAL_DIR), "set_game_dir", "get_game_dir");
@@ -308,7 +313,7 @@ namespace godot {
         started_ = true;
         game_finished_ = false;
         thread_ = std::thread([this, game_dir, args]() {
-            if (chdir(game_dir.c_str()) != 0) {
+            if (antares::utf8::Change_Directory(game_dir.c_str()) != 0) {
                 game_finished_ = true;
                 return;
             }
@@ -559,6 +564,16 @@ namespace godot {
             out.push_back(String::utf8(id.c_str()));
         }
         return out;
+    }
+
+    // Why the game stopped (WP5.10): hosted, the game's own message box goes to SDL's dummy window,
+    // where nobody sees it, so the frontend shows this instead.
+    String AntaresGame::get_exit_message() const {
+        return String::utf8(antares::host::Exit_Message().c_str());
+    }
+
+    int64_t AntaresGame::get_exit_status() const {
+        return antares::host::Exit_Failed() ? 1 : 0;
     }
 
     bool AntaresGame::get_native_ui() const {

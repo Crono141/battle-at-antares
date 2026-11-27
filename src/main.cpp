@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/utf8_files.h"
 
 #include <SDL3/SDL_main.h>
 #if defined(ORION2RE_ASAN_BUILD)
@@ -13,6 +14,7 @@
 #include "startup_options.h"
 #include "antares/identity.h"
 #include "antares/host.h"
+#include "antares/user_folder.h"
 
 #if defined(_WIN32)
 #include <io.h>
@@ -72,7 +74,7 @@ static void Configure_Game_Log_() {
 #endif
 
     const std::string log_file_path = logs_path + path_separator + "game." + std::to_string(process_id) + ".log";
-    _game_log_file = fopen(log_file_path.c_str(), "w");
+    _game_log_file = antares::utf8::Open(log_file_path.c_str(), "w");
     if (_game_log_file == nullptr) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "unable to open log file '%s': %s", log_file_path.c_str(), strerror(errno));
         return;
@@ -139,7 +141,7 @@ static void Configure_Sanitizer_Runtime_() {
     if (SDL_asprintf(&stderr_path, "%s/sanitizer-stderr.%d.log", logs_path, process_id) >= 0) {
         // GCC's separate UBSan runtime does not use ASan's report path. Redirect
         // the descriptor too, since sanitizer diagnostics bypass C stdio.
-        FILE* stderr_log = fopen(stderr_path, "a");
+        FILE* stderr_log = antares::utf8::Open(stderr_path, "a");
         if (stderr_log != nullptr) {
             fflush(stderr);
 #if defined(_WIN32)
@@ -185,7 +187,7 @@ int main(int argc, char** argv) {
 #else
     const char* installed_datadir = nullptr;
 #endif
-    user_paths::Init(SDL_GetBasePath(), user_paths::PLATFORM_USES_XDG, installed_datadir);
+    user_paths::Init(antares::Install_Directory().c_str(), user_paths::PLATFORM_USES_XDG, installed_datadir); // Antares: hosted, the host's folder (WP5.9)
     if (logging_enabled && !hosted) {
         Configure_Game_Log_();
     }
@@ -253,21 +255,12 @@ int main(int argc, char** argv) {
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "original game directory: %s", original_game_directory.c_str());
     }
 
-    if (user_paths::Is_Enabled()) {
-        const std::string user_mods_path = std::string(user_paths::Get_Directory(user_paths::USER_DIRECTORY_DATA)) + "mods/";
-        bool paths_valid = vfs::Set_User_Config_Path(user_paths::Get_Directory(user_paths::USER_DIRECTORY_CONFIG)) != 0 &&
-            vfs::Set_User_Mods_Path(user_mods_path.c_str()) != 0 &&
-            vfs::Add_Raw_Search_Path(game_directory.c_str()) != 0;
-        for (const std::string& directory : user_paths::Get_Game_Asset_Directories()) {
-            paths_valid = vfs::Add_Raw_Search_Path(directory.c_str()) != 0 && paths_valid;
-        }
-        if (!paths_valid) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: XDG search path exceeds the supported path length");
-            vfs::Shutdown();
-            Shutdown_Game_Log_();
-            user_paths::Shutdown();
-            return -1;
-        }
+    if (!antares::user_folder::Mount(game_directory)) { // Antares: shared with the launcher (WP5.9)
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "main: XDG search path exceeds the supported path length");
+        vfs::Shutdown();
+        Shutdown_Game_Log_();
+        user_paths::Shutdown();
+        return -1;
     }
 
     config::s_effective_config effective_config;

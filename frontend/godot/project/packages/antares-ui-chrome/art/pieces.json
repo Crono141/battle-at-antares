@@ -1,0 +1,32 @@
+{
+ "button": {
+  "caps": 150,
+  "height": 84
+ },
+ "slot": {
+  "margins": [
+   44,
+   20,
+   44,
+   20
+  ],
+  "scale": 0.46
+ },
+ "tee": {
+  "anchor": [
+   32.5,
+   32.0
+  ],
+  "bar_center": 13
+ },
+ "bezel": {
+  "margins": [
+   40,
+   40,
+   40,
+   40
+  ],
+  "scale": 0.5,
+  "screen_scale": 0.3
+ }
+}

@@ -2,6 +2,8 @@
 
 #include "user_paths.h"
 
+#include "antares/user_folder.h"
+
 #if !defined(_WIN32)
 #include <pwd.h>
 #include <sys/stat.h>
@@ -10,10 +12,6 @@
 
 namespace user_paths {
     namespace {
-        constexpr const char* APPLICATION_DIRECTORY_NAME = "orion2re/";
-        constexpr const char* GAME_ASSET_DIRECTORY_NAME = "orion2re/game/";
-        constexpr const char* DEFAULT_DATA_DIRS = "/usr/local/share/:/usr/share/";
-
         enum e_legacy_file_kind {
             LEGACY_FILE_USER,
             LEGACY_FILE_USER_WITH_INSTALL_FALLBACK,
@@ -46,41 +44,11 @@ namespace user_paths {
 
         s_user_paths_state state;
 
-        bool Is_Absolute_(const char* path) {
-            return path != nullptr && path[0] == '/';
-        }
-
         std::string With_Trailing_Separator_(std::string path) {
             if (path.empty() || path.back() != '/') {
                 path += '/';
             }
             return path;
-        }
-
-        const char* Absolute_Environment_Value_(const char* name) {
-            const char* value = SDL_getenv(name);
-            return Is_Absolute_(value) ? value : nullptr;
-        }
-
-        bool Find_Home_Directory_(std::string* home) {
-            const char* value = Absolute_Environment_Value_("HOME");
-            if (value != nullptr) {
-                *home = With_Trailing_Separator_(value);
-                return true;
-            }
-#if !defined(_WIN32)
-            const struct passwd* entry = getpwuid(getuid());
-            if (entry != nullptr && Is_Absolute_(entry->pw_dir)) {
-                *home = With_Trailing_Separator_(entry->pw_dir);
-                return true;
-            }
-#endif
-            return false;
-        }
-
-        std::string Base_Directory_(const char* variable, const std::string& home, const char* home_relative_default) {
-            const char* value = Absolute_Environment_Value_(variable);
-            return value != nullptr ? With_Trailing_Separator_(value) : home + home_relative_default;
         }
 
         bool Create_Directories_(const std::string& path) {
@@ -98,23 +66,6 @@ namespace user_paths {
             }
             struct stat info;
             return stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
-#endif
-        }
-
-        bool Xdg_Mode_Selected_(const char* executable_directory) {
-            const char* value = SDL_getenv("ORION2RE_XDG");
-            if (value != nullptr && value[0] != '\0') {
-                return strcmp(value, "0") != 0;
-            }
-            const std::string marker = std::string(executable_directory) + XDG_MARKER_NAME;
-            SDL_PathInfo info;
-            if (SDL_GetPathInfo(marker.c_str(), &info)) {
-                return true;
-            }
-#if !defined(_WIN32)
-            return access(executable_directory, W_OK) != 0;
-#else
-            return false;
 #endif
         }
 
@@ -164,40 +115,16 @@ namespace user_paths {
 
     bool Init(const char* executable_directory, bool platform_uses_xdg, const char* installed_data_directory) {
         Shutdown();
-        if (!platform_uses_xdg || executable_directory == nullptr || !Xdg_Mode_Selected_(executable_directory)) {
+        // Antares: the user folder on every platform, with Antares's names (D28, WP5.9).
+        antares::user_folder::s_layout layout;
+        if (executable_directory == nullptr || !antares::user_folder::Resolve(executable_directory, antares::user_folder::Platform_For(platform_uses_xdg), &layout)) {
             return false;
         }
-
-        std::string home;
-        if (!Find_Home_Directory_(&home)) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "user paths: no home directory; using portable mode");
-            return false;
-        }
-
-        const std::string data_home = Base_Directory_("XDG_DATA_HOME", home, ".local/share/");
-        state.directories[USER_DIRECTORY_CONFIG] = Base_Directory_("XDG_CONFIG_HOME", home, ".config/") + APPLICATION_DIRECTORY_NAME;
-        state.directories[USER_DIRECTORY_DATA] = data_home + APPLICATION_DIRECTORY_NAME;
-        state.directories[USER_DIRECTORY_STATE] = Base_Directory_("XDG_STATE_HOME", home, ".local/state/") + APPLICATION_DIRECTORY_NAME;
-        state.directories[USER_DIRECTORY_CACHE] = Base_Directory_("XDG_CACHE_HOME", home, ".cache/") + APPLICATION_DIRECTORY_NAME;
-
-        state.game_asset_directories.push_back(data_home + GAME_ASSET_DIRECTORY_NAME);
-        state.game_asset_directories.push_back(data_home + APPLICATION_DIRECTORY_NAME);
-        const char* data_dirs = SDL_getenv("XDG_DATA_DIRS");
-        if (data_dirs == nullptr || data_dirs[0] == '\0') {
-            data_dirs = DEFAULT_DATA_DIRS;
-        }
-        const char* cursor = data_dirs;
-        while (*cursor != '\0') {
-            const char* end = strchr(cursor, ':');
-            const std::string entry = end != nullptr ? std::string(cursor, end) : std::string(cursor);
-            if (Is_Absolute_(entry.c_str())) {
-                state.game_asset_directories.push_back(With_Trailing_Separator_(entry) + GAME_ASSET_DIRECTORY_NAME);
-            }
-            if (end == nullptr) {
-                break;
-            }
-            cursor = end + 1;
-        }
+        state.directories[USER_DIRECTORY_CONFIG] = layout.config;
+        state.directories[USER_DIRECTORY_DATA] = layout.data;
+        state.directories[USER_DIRECTORY_STATE] = layout.state;
+        state.directories[USER_DIRECTORY_CACHE] = layout.cache;
+        state.game_asset_directories = layout.game_asset_directories;
 
         for (const std::string& directory : state.directories) {
             if (!Create_Directories_(directory)) {

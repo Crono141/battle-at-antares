@@ -73,7 +73,13 @@ function(orion2re_add_unit_test TARGET_NAME)
     cmake_parse_arguments(ORION2RE_TEST "LINK_SDL" "" "SOURCES;PRODUCTION_SOURCES;FAKE_SOURCES;LIBRARIES" ${ARGN})
 
     if("src/game/compat.cpp" IN_LIST ORION2RE_TEST_PRODUCTION_SOURCES)
-        list(APPEND ORION2RE_TEST_PRODUCTION_SOURCES src/game/user_paths.cpp src/game/legacy_sort.cpp)
+        list(APPEND ORION2RE_TEST_PRODUCTION_SOURCES src/game/user_paths.cpp src/antares/user_folder.cpp src/game/legacy_sort.cpp)
+    endif()
+    # UTF-8 file names (WP5.15): compat.cpp, dos.cpp and the path helpers open through it.
+    # (Game tests link every game object, this one included.)
+    if(NOT "$<TARGET_OBJECTS:orion2re_game_objects>" IN_LIST ORION2RE_TEST_PRODUCTION_SOURCES)
+        list(APPEND ORION2RE_TEST_PRODUCTION_SOURCES src/antares/utf8_files.cpp)
+        list(REMOVE_DUPLICATES ORION2RE_TEST_PRODUCTION_SOURCES)
     endif()
 
     orion2re_test_shared_sources(ORION2RE_TEST_OBJECTS
@@ -101,9 +107,18 @@ function(orion2re_add_unit_test TARGET_NAME)
         )
     endif()
 
-    target_precompile_headers(${TARGET_NAME} PRIVATE
-        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h>"
-    )
+    # Antares: one precompiled header for every test, as the shared objects already use (each
+    # test built its own 142 MB copy: 18.6 GB in all). Same settings, so GCC accepts it.
+    target_link_libraries(${TARGET_NAME} PRIVATE orion2re_test_compile_settings)
+    target_precompile_headers(${TARGET_NAME} REUSE_FROM orion2re_test_pch)
+    # The C sources some tests compile (libsmacker, yyjson) never used the C++ header; say so, or
+    # CMake looks for a C header the shared target doesn't have.
+    get_target_property(ORION2RE_TEST_ALL_SOURCES ${TARGET_NAME} SOURCES)
+    foreach(ORION2RE_TEST_SOURCE IN LISTS ORION2RE_TEST_ALL_SOURCES)
+        if(ORION2RE_TEST_SOURCE MATCHES "\\.c$")
+            set_source_files_properties("${ORION2RE_TEST_SOURCE}" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+        endif()
+    endforeach()
 
     target_link_libraries(${TARGET_NAME} PRIVATE SDL3::Headers)
 
@@ -534,6 +549,8 @@ orion2re_add_unit_test(test_native_bridge
         tests/unit/save_queries_test.cpp
     PRODUCTION_SOURCES
         src/antares/native.cpp
+        src/game/user_paths.cpp # the theme packs' cache folder (native.cpp)
+        src/antares/user_folder.cpp
         src/antares/commands.cpp
         src/antares/galaxy_queries.cpp
         src/antares/fleet_orders.cpp
@@ -585,8 +602,21 @@ orion2re_add_unit_test(test_config_loader
     SOURCES
         tests/unit/config_loader_test.cpp
         tests/unit/launcher_packages_test.cpp
+        tests/unit/game_install_test.cpp
+        tests/unit/hd_packs_test.cpp
+        tests/unit/gog_test.cpp
+        tests/unit/utf8_files_test.cpp
+        tests/unit/updates_test.cpp
+        vendors/lzma/LzmaDec.c
     PRODUCTION_SOURCES
+        src/antares/gog.cpp
+        src/antares/hd_packs.cpp
+        src/launcher/launcher_fetch.cpp
+        src/antares/game_install.cpp
+        src/antares/game_files.cpp
+        src/antares/updates.cpp
         src/antares/package_catalog.cpp
+        src/antares/user_folder_vfs.cpp
         src/antares/profile_file.cpp
         src/antares/save_summary.cpp
         src/antares/settings_docs.cpp
@@ -1607,6 +1637,7 @@ orion2re_add_unit_test(test_fields
         src/game/fields.cpp
         src/game/mouse_wheel.cpp
     FAKE_SOURCES
+        tests/fakes/fake_host_inactive.cpp
         tests/fakes/fake_animate.cpp
         tests/fakes/fake_fields_runtime.cpp
         tests/fakes/fake_native_requests.cpp
@@ -1703,3 +1734,4 @@ orion2re_add_unit_test(test_router_client
         ${ORION2RE_LZ4_TARGET}
     LINK_SDL
 )
+target_compile_definitions(test_config_loader PRIVATE UPDATES_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")

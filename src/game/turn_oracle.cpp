@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/utf8_files.h"
 
 #include "game/turn_oracle.h"
 
@@ -118,7 +119,7 @@ namespace turn_oracle {
         if (!code && recording) {
             std::filesystem::create_directories(history_directory.parent_path(), code);
             if (!code && !std::filesystem::create_directory(history_directory, code)) {
-                *error = "oracle record directory must not already exist: " + history_directory.string();
+                *error = "oracle record directory must not already exist: " + antares::utf8::Text(history_directory);
                 return false;
             }
         }
@@ -127,7 +128,7 @@ namespace turn_oracle {
             std::string header;
             std::getline(manifest, header);
             if (header != "orion2re-turn-oracle 1" || !(manifest >> turns) || turns < 1 || turns > 100000) {
-                *error = "invalid or incomplete oracle history: " + history_directory.string();
+                *error = "invalid or incomplete oracle history: " + antares::utf8::Text(history_directory);
                 return false;
             }
             manifest >> std::ws;
@@ -157,8 +158,8 @@ namespace turn_oracle {
             *error = "cannot prepare oracle directories: " + code.message();
             return false;
         }
-        user_paths::Set_Session_Directory(temporary_directory.string());
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "oracle history: %s; temporary files: %s", history_directory.string().c_str(), temporary_directory.string().c_str());
+        user_paths::Set_Session_Directory(antares::utf8::Text(temporary_directory));
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "oracle history: %s; temporary files: %s", antares::utf8::Text(history_directory).c_str(), antares::utf8::Text(temporary_directory).c_str());
         return true;
     }
 
@@ -168,7 +169,7 @@ namespace turn_oracle {
 
     void Run() {
         std::string error;
-        printf("oracle: %s %s\n", recording ? "recording" : "replaying", history_directory.string().c_str());
+        printf("oracle: %s %s\n", recording ? "recording" : "replaying", antares::utf8::Text(history_directory).c_str());
         fflush(stdout);
         if (Run_(&error)) {
             exit_status = EXIT_SUCCESS;
@@ -177,7 +178,7 @@ namespace turn_oracle {
         } else {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", error.c_str());
             // Sanitizer builds redirect stderr to a log; keep CLI diagnostics visible.
-            printf("%s\ntemporary files retained: %s\n", error.c_str(), temporary_directory.string().c_str());
+            printf("%s\ntemporary files retained: %s\n", error.c_str(), antares::utf8::Text(temporary_directory).c_str());
         }
     }
 

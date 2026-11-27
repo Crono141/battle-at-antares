@@ -13,8 +13,8 @@
 // (a dry run that enables only it), and the manual's keyboard page.
 namespace launcher {
     namespace {
-        const ImVec4 COLOUR_DIM(0.60f, 0.62f, 0.68f, 1.0f);
-        const ImVec4 COLOUR_ACCENT(0.55f, 0.75f, 1.0f, 1.0f);
+        const ImVec4 COLOUR_DIM(0.67f, 0.67f, 0.71f, 1.0f);
+        const ImVec4 COLOUR_ACCENT(0.94f, 0.84f, 0.59f, 1.0f); // gold (look B)
         const ImVec4 COLOUR_ERROR(1.0f, 0.45f, 0.40f, 1.0f);
 
         enum e_block_kind { BLOCK_H1, BLOCK_H2, BLOCK_H3, BLOCK_PARAGRAPH, BLOCK_BULLET, BLOCK_TABLE };

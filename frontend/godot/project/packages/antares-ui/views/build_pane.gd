@@ -881,6 +881,16 @@ var _cost_item := -1
 
 
 ## The detail box: picture, name, cost here, build time, upkeep; a design's parts.
+## Smoke: the detail box for the first ground building on the list (BLDG art; owner 2026-11-25:
+## tiny without HD art). Returns its name, or "" when the list has none.
+func smoke_show_ground_building() -> String:
+	for item: Dictionary in _names.values():
+		if String(item.get("picture", {}).get("lbx", "")).begins_with("BLDG"):
+			_show_detail(item)
+			return String(item.get("name", "?"))
+	return ""
+
+
 func _show_detail(item: Dictionary) -> void:
 	_cost_label = null
 	_cost_item = -1

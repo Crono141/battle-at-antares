@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "antares/game_files.h"
 #include "antares/identity.h"
 #include "antares/native.h"
 
@@ -322,13 +323,13 @@ namespace MOX2 {
         sound::Set_Audio_Buffer(MOX::sound_buffer);
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "mox2: font selected '%s'", font_file);
 
+        MOX2::Set_Mox_Alt_Path(); // Antares: before the fonts load, so a missing file is named (WP5.10)
         if (init::Init_Drivers(4, font_file) == 0) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "mox2: Init_Drivers returned failure");
             return;
         }
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "mox2: Init_Drivers succeeded");
 
-        MOX2::Set_Mox_Alt_Path();
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "mox2: alternate path set to '%s'", farload::secondary_drive_path);
         fields::Assign_Update_Function(RUSS::Mox_Update);
         fonts::Load_Palette(5, 0, 0xFF);
@@ -505,16 +506,6 @@ namespace MOX2 {
         }
     }
 
-    static void Append_Missing_Data_File_Hint_(std::string* message, const char* missing_file) {
-        message->append("\nRequired original game file: ");
-        message->append(missing_file);
-        message->append("\nOriginal Master of Orion II data directories:");
-        for (const std::string& directory : vfs::Get_Data_Search_Paths()) {
-            message->append("\n  ");
-            message->append(directory);
-        }
-    }
-
     void __cdecl Set_Mox_Alt_Path() {
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "mox2: Set_Mox_Alt_Path start");
 
@@ -536,8 +527,9 @@ namespace MOX2 {
             vfs::Set_Raw_Fallback_Path(farload::secondary_drive_path);
         }
 
-        if (vfs::File_Exists("diplomat.lbx") != 0) {
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "mox2: diplomat.lbx resolved through vfs");
+        const antares::game_files::s_files_check files = antares::game_files::Check_Original_Files(); // Antares: the whole list (WP5.10)
+        if (files.ok) {
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "mox2: %zu original files found", antares::game_files::Required_Files().size());
             return;
         }
 
@@ -555,7 +547,7 @@ namespace MOX2 {
         }
 
         std::string error_message = error_text;
-        Append_Missing_Data_File_Hint_(&error_message, "diplomat.lbx");
+        error_message += "\n\n" + antares::game_files::Describe(files); // Antares (WP5.10)
         exitm::Exit_With_Message(error_message.c_str());
     }
 

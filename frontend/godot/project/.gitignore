@@ -1,4 +1,7 @@
 bin/
 .godot/
-# Theme art cut from the player's game (Moo2Mods tools/themeart.py, WP3.3g): never committed.
+# Theme art cut from the player's game (Moo2Mods tools/themeart.py, WP3.3g): not committed, except
+# the Chrome theme's (owner 2026-11-25), which the launcher and the macOS app build need from a
+# clean checkout (GitHub's runner).
 packages/*/art/
+!packages/antares-ui-chrome/art/

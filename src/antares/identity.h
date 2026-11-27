@@ -11,11 +11,11 @@
 namespace antares {
     inline constexpr char PRODUCT_NAME[] = "Battle at Antares";
     inline constexpr uint32_t PRODUCT_VERSION_MAJOR = 0;
-    inline constexpr uint32_t PRODUCT_VERSION_MINOR = 7;
+    inline constexpr uint32_t PRODUCT_VERSION_MINOR = 8;
     inline constexpr uint32_t PRODUCT_VERSION_PATCH = 0;
-    inline constexpr char PRODUCT_VERSION[] = "0.7.0";
+    inline constexpr char PRODUCT_VERSION[] = "0.8.0";
     /** Shown on the main menu where the original prints "Version 2.00". */
-    inline constexpr char PRODUCT_VERSION_LABEL[] = "Antares 0.7.0";
+    inline constexpr char PRODUCT_VERSION_LABEL[] = "Antares 0.8.0";
 
     inline constexpr char CONFIG_FILE[] = "antares.cfg";
     /** Read on first run when antares.cfg doesn't exist yet. */
@@ -28,6 +28,10 @@ namespace antares {
     // The game folder (Redone cd117a3 uses the executable's folder). Hosted (the Godot build), the
     // executable is the host's, which has already changed into the game folder: keep that.
     bool Set_Game_Directory(std::string* directory, std::string* error);
+
+    /** The folder that decides portable or user folder (WP5.9): the executable's, or hosted the
+     *  host's game folder (its working directory), since a macOS app's executable sits deeper. */
+    std::string Install_Directory();
 
     /** Reads ANTARES_<name>, falling back to the legacy ORION2RE_<name> for one release. */
     const char* Get_Env(const char* name);

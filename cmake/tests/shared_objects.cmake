@@ -4,6 +4,7 @@ add_library(orion2re_test_compile_settings INTERFACE)
 target_compile_features(orion2re_test_compile_settings INTERFACE cxx_std_20)
 target_include_directories(orion2re_test_compile_settings INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendors/lzma"
     ${ORION2RE_LIBSMACKER_INCLUDE_DIRS}
     ${ORION2RE_YYJSON_INCLUDE_DIRS}
 )

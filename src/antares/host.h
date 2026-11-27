@@ -23,6 +23,12 @@ namespace antares::host {
     void Activate();
     bool Active();
 
+    /** Hosted, the game's closing message (a fatal error, WP5.10) is kept here instead of shown in
+     *  a message box on SDL's dummy window, where nobody would see it; the frontend shows it. */
+    void Set_Exit_Message(const char* message, bool error);
+    std::string Exit_Message();
+    bool Exit_Failed();
+
     // The host starts the game itself, by calling the game's main() on its own thread (the Godot
     // host compiles src/main.cpp in under another name).
     /** Asks the game to quit (the platform loop ends after the game thread). */
