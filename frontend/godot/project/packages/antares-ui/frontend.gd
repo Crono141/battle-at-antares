@@ -195,6 +195,17 @@ func packs_changed() -> void:
 		if scene_name != "dialog":
 			_views[scene_name].queue_free()
 			_views.erase(scene_name)
+	if native_screen in LOBBY_SCREENS:
+		_rebuild_lobby()
+
+
+## WP3.13: the title screen changes the packages back to the launch set (a loaded save had its
+## own): the lobby's views were just freed with the rest, so they come back from the new files.
+func _rebuild_lobby() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if native_screen in LOBBY_SCREENS:
+		_show_lobby(native_screen)
 
 
 func _input(event: InputEvent) -> void:
@@ -4708,6 +4719,13 @@ func _smoke_native() -> void:
 	if "--new-game" in OS.get_cmdline_user_args():
 		await _smoke_new_game(shots)
 		return
+	if "--title-cold" in OS.get_cmdline_user_args():
+		if await _smoke_title_cold(shots):
+			print("smoke: title-cold OK")
+			game.request_game_quit()
+		else:
+			await host.smoke_fail("title-cold")
+		return
 	if not await _wait_screen(Screens.MAIN, 120.0):
 		await host.smoke_fail("never reached the native galaxy")
 		return
@@ -7388,6 +7406,115 @@ func _smoke_title(shots: String) -> bool:
 	var empire: Dictionary = await _query("empire")
 	print("smoke: title: new game on the galaxy: %s" % JSON.stringify(empire).left(200))
 	return true
+
+
+## `--title-cold` (no save loaded, godot_smoke.sh SAVE "none"): the game starts on the native title
+## screen; Credits and Multi Player (legacy) come back to it; a slot loads from the title's Load
+## page; the game menu's New Game, Cancel, then Continue; a custom-race new game to the galaxy.
+func _smoke_title_cold(shots: String) -> bool:
+	if not await _wait_screen(Screens.MAIN_MENU, 60.0):
+		print("smoke: title-cold: the game did not start on the native title (screen %d)" % native_screen)
+		return false
+	await get_tree().create_timer(2.5).timeout
+	if shots != "":
+		await host.shot(shots + "/cold-title.png")
+	print("smoke: title-cold: menu %s" % JSON.stringify(_view("lobby")._menu).left(160))
+	# Credits (legacy), Esc back.
+	_view("lobby")._choose("credits")
+	if not await _wait_screen(Screens.LEGACY, 10.0):
+		print("smoke: title-cold: Credits did not open")
+		return false
+	await get_tree().create_timer(3.0).timeout
+	if shots != "":
+		game.get_frame_image().save_png(shots + "/cold-credits.png")
+	for i in 20:
+		if native_screen == Screens.MAIN_MENU:
+			break
+		game.send_key(KEY_ESCAPE, false, false, false)
+		await get_tree().create_timer(0.5).timeout
+	if not await _wait_screen(Screens.MAIN_MENU, 15.0):
+		print("smoke: title-cold: Credits did not return to the title")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	# Multi Player (legacy), its Cancel.
+	_view("lobby")._choose("multiplayer")
+	if not await _wait_screen(Screens.LEGACY, 10.0):
+		print("smoke: title-cold: Multi Player did not open")
+		return false
+	await get_tree().create_timer(3.0).timeout
+	if shots != "":
+		game.get_frame_image().save_png(shots + "/cold-multiplayer.png")
+	await host.click_game(Vector2(320, 370)) # CANCEL
+	if not await _wait_screen(Screens.MAIN_MENU, 15.0):
+		print("smoke: title-cold: Multi Player's Cancel did not return to the title")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	# Load slot 5 from the title's Load page.
+	_view("lobby")._choose("load")
+	await get_tree().create_timer(1.0).timeout
+	var rows: Array = _view("lobby")._slots._box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
+	if rows.size() != 10:
+		print("smoke: title-cold: the Load page showed %d slots" % rows.size())
+		return false
+	(rows[4] as Button).pressed.emit()
+	if not await _wait_screen(Screens.MAIN, 40.0):
+		print("smoke: title-cold: loading slot 5 from the title did not reach the native galaxy")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	_smoke_answer()
+	var loaded: Dictionary = await _query("empire")
+	print("smoke: title-cold: loaded slot 5: %s" % JSON.stringify(loaded).left(120))
+	if shots != "":
+		await host.shot(shots + "/cold-loaded.png")
+	# Game menu > New Game, Cancel to the title, then Continue (SAVE10).
+	_send({"verb": "leave_game", "to": "main_menu"})
+	if not await _wait_screen(Screens.NEW_GAME, 20.0):
+		return false
+	await get_tree().create_timer(1.0).timeout
+	_view("new_game")._cancel_game()
+	if not await _wait_screen(Screens.MAIN_MENU, 10.0):
+		return false
+	await get_tree().create_timer(2.5).timeout
+	_view("lobby")._choose("continue")
+	if not await _wait_screen(Screens.MAIN, 40.0):
+		print("smoke: title-cold: Continue did not reach the native galaxy")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	_smoke_answer()
+	print("smoke: title-cold: Continue OK")
+	# A custom race: the Sakkra's picks plus Telepathic, named "Smokers".
+	_send({"verb": "leave_game", "to": "main_menu"})
+	if not await _wait_screen(Screens.NEW_GAME, 20.0):
+		return false
+	var new_game := _view("new_game")
+	await get_tree().create_timer(1.5).timeout
+	new_game._choice["size"] = 0
+	new_game._go_next()
+	new_game._race = 10
+	new_game._start_custom(new_game._race_picks(10), "Smokers")
+	new_game._picks.specials[16] = 1 # telepathic
+	new_game._rebuild()
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/cold-custom.png")
+	print("smoke: title-cold: custom picks left %d (problem '%s')" % [new_game._count_picks().x, new_game._custom_problem()])
+	if new_game._custom_problem() != "":
+		new_game._picks.specials[16] = 0 # not enough picks: the Sakkra as they are
+		new_game._rebuild()
+	new_game._go_next()
+	await get_tree().create_timer(0.5).timeout
+	new_game._go_next()
+	await get_tree().create_timer(0.5).timeout
+	new_game._go_next()
+	if not await _wait_screen(Screens.MAIN, 90.0):
+		print("smoke: title-cold: the custom race game did not start (note '%s')" % new_game._note.text)
+		return false
+	await get_tree().create_timer(3.0).timeout
+	var empire: Dictionary = await _query("empire")
+	print("smoke: title-cold: custom race game: race '%s'" % str(empire.get("race", "")))
+	if shots != "":
+		await host.shot(shots + "/cold-custom-galaxy.png")
+	return str(empire.get("race", "")) == "Smokers"
 
 
 ## `--new-game` (no save loaded): the new game flow through the legacy menus (the render suite's

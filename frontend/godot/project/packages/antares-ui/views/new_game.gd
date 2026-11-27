@@ -404,9 +404,9 @@ var _waiting: Array = []
 func _on_art_loaded(_key: String) -> void:
 	var still: Array = []
 	for item: Array in _waiting:
+		if not is_instance_valid(item[0]):
+			continue # its page was rebuilt
 		var target: TextureRect = item[0]
-		if not is_instance_valid(target):
-			continue
 		var tex: Texture2D = art.texture(item[1], item[2], item[3])
 		if tex == null:
 			still.append(item)
