@@ -188,6 +188,17 @@ copies the game files it needs (about 300 MB) into Battle at Antares's own folde
 your saves along, and offers the HD art. Your Master of Orion II stays exactly as it was: keep
 playing it, or uninstall it later.
 
+<table>
+<tr>
+<td><img src="docs/screenshots/setup-find.jpg" alt="The setup's Find page listing a Steam copy, a GOG copy and GOG's Linux installer in Downloads"></td>
+<td><img src="docs/screenshots/setup-check.jpg" alt="The setup's check of a copy: all 353 game files, version 1.31, room on disk"></td>
+</tr>
+<tr>
+<td align="center">The copies it found, best first</td>
+<td align="center">Checking a copy before it copies anything</td>
+</tr>
+</table>
+
 **Don't have it installed?** Choose "I don't have it yet":
 
 - **Steam:** the setup opens Steam's install for Master of Orion 2 and carries on by itself when
@@ -198,8 +209,36 @@ playing it, or uninstall it later.
   sign-in is kept afterwards.
 - **GOG's website:** download the offline installer yourself; the setup notices it in Downloads.
 
+<table>
+<tr>
+<td><img src="docs/screenshots/setup-get.jpg" alt="The setup's page for getting the game: Steam's page, signing in to GOG, or GOG's page"></td>
+<td><img src="docs/screenshots/setup-hd.jpg" alt="The setup's HD art page with its three packs and their sizes"></td>
+</tr>
+<tr>
+<td align="center">Getting the game from Steam or GOG</td>
+<td align="center">The HD art, downloaded for you</td>
+</tr>
+</table>
+
 The **Game files** button in the launcher opens the setup again at any time, for instance to switch
 to another copy.
+
+### The launcher
+
+After the setup, the launcher opens: tick packages and mods, keep profiles, change settings,
+manage saves and the HD art, and press **Play**. Its look follows the game's themes: Settings >
+Launcher look, Chrome or Glass.
+
+<table>
+<tr>
+<td><img src="docs/screenshots/setup-launcher-chrome.jpg" alt="The launcher in the Chrome look"></td>
+<td><img src="docs/screenshots/setup-launcher-glass.jpg" alt="The launcher in the Glass look"></td>
+</tr>
+<tr>
+<td align="center">Chrome</td>
+<td align="center">Glass</td>
+</tr>
+</table>
 
 ### Where your files live
 
