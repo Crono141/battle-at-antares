@@ -5260,6 +5260,47 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--dismiss-officer":
+			# Owner, 2026-11-26: dismissing a leader from the native Leaders panel crashed the
+			# game (OFFICER::Dismiss_Officer -> Build_Captain_Id_List wrote through the null
+			# officer_id_list; the Leaders screen that owns it is never built on this path).
+			_on_view_action("leaders")
+			await get_tree().create_timer(0.8).timeout
+			var lp := _view("leaders_panel")
+			var victim := -1
+			for l: Dictionary in lp.leaders:
+				if int(l.get("status", -1)) >= 0 and int(l.get("status", -1)) != 4:
+					victim = int(l.leader)
+					break
+			print("smoke: dismissing leader %d (of %d on the '%s' tab)" % [victim, lp.leaders.size(), lp.tab])
+			if victim < 0:
+				await host.smoke_fail("no hired leader to dismiss")
+				return
+			lp.picked = victim
+			lp._act("dismiss")
+			for i in 30:
+				await get_tree().create_timer(0.2).timeout
+				_smoke_answer()
+			var pings := 0
+			for i in 15:
+				var got := {}
+				_send({"verb": "query", "what": "leaders", "type": lp.tab}, func(r: Dictionary): got["r"] = r)
+				for k in 20:
+					await get_tree().create_timer(0.05).timeout
+					if got.has("r"):
+						break
+				if got.has("r"):
+					pings += 1
+				await get_tree().create_timer(1.0).timeout
+				_smoke_answer()
+			var after: Dictionary = lp._leader(victim)
+			print("smoke: after the dismissal the game answered %d of 15 queries over 15 s; leader %d %s" % [pings, victim,
+				"is gone" if after.is_empty() else "status %d" % int(after.get("status", -1))])
+			if pings < 15 or not after.is_empty():
+				await host.smoke_fail("the game stopped answering after the leader dismissal")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--select-combat":
 			await _smoke_window_setting()
 			# The select-combat window (WP, owner 2026-11-20): an attack_target preview at a star
