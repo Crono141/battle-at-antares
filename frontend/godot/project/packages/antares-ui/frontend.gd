@@ -9649,15 +9649,35 @@ func _smoke_pan(shots: String) -> void:
 		await get_tree().create_timer(0.6).timeout
 		var over_pane := _view("system_pane")
 		if over_pane.visible:
-			var over_zoom: float = galaxy.camera.zoom.x
-			var over: Vector2 = over_pane.get_global_rect().get_center()
-			_smoke_pan_gesture(Vector2(0.0, -galaxy.PAN_NOTCH_DELTA), over)
-			await get_tree().create_timer(0.4).timeout
-			print("smoke: pan gesture over the system pane at (%.0f,%.0f): zoom %.4f -> %.4f (must not move)" % [
-				over.x, over.y, over_zoom, galaxy.camera.zoom.x])
-			if not is_equal_approx(galaxy.camera.zoom.x, over_zoom):
-				await host.smoke_fail("a pan gesture over an open pane zoomed the map")
-				return
+			# A point of the pane that has one of its controls under the pointer: the map takes the
+			# gesture only when nothing is hovered (galaxy.gd, as it does the wheel). A motion
+			# parsed into the input queue moves the viewport's hover a frame later, so a check that
+			# reads it in the same breath sees nothing hovered - which is what the map zooms on -
+			# and so read the map's own zoom instead of the pane's guard (found 2026-11-26 on 0.8.0,
+			# failing while the guard was behaving). So the point is probed, with a settle.
+			var pane_rect: Rect2 = over_pane.get_global_rect()
+			var over := Vector2.ZERO
+			var covered: Control = null
+			for fraction: Vector2 in [Vector2(0.5, 0.5), Vector2(0.5, 0.2), Vector2(0.5, 0.8), Vector2(0.2, 0.5), Vector2(0.8, 0.5),
+					Vector2(0.3, 0.3), Vector2(0.7, 0.3), Vector2(0.3, 0.7), Vector2(0.7, 0.7)]:
+				var probe_at := Vector2(pane_rect.position.x + pane_rect.size.x * fraction.x, pane_rect.position.y + pane_rect.size.y * fraction.y)
+				_smoke_pan_gesture(Vector2.ZERO, probe_at)
+				await get_tree().create_timer(0.1).timeout
+				covered = get_viewport().gui_get_hovered_control()
+				if covered != null:
+					over = probe_at
+					break
+			if over == Vector2.ZERO:
+				print("smoke: pan: no point of the system pane had one of its controls under the pointer, so the over-a-pane check was skipped")
+			else:
+				var over_zoom: float = galaxy.camera.zoom.x
+				_smoke_pan_gesture(Vector2(0.0, -galaxy.PAN_NOTCH_DELTA), over)
+				await get_tree().create_timer(0.4).timeout
+				print("smoke: pan gesture over the system pane at (%.0f,%.0f) (under it %s): zoom %.4f -> %.4f (must not move)" % [
+					over.x, over.y, covered, over_zoom, galaxy.camera.zoom.x])
+				if not is_equal_approx(galaxy.camera.zoom.x, over_zoom):
+					await host.smoke_fail("a pan gesture over an open pane zoomed the map")
+					return
 		else:
 			print("smoke: pan: no system pane opened to aim the gesture at (skipped)")
 		over_pane.close()
