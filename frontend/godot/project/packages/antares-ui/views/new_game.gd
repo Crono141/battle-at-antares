@@ -304,46 +304,55 @@ func _galaxy_row(parent: Control) -> HBoxContainer:
 	return row
 
 
-## One of the setup screen's choices: its picture (NEWGAME.LBX), growing with the panel, beside a
-## column of buttons.
+## One of the setup screen's choices (owner, 2026-11-27): its picture (NEWGAME.LBX), as large as
+## half the page's height allows, beside its name and a drop-down. A click on the picture steps to
+## the next choice (a right click, the one before), as the original's picture buttons did.
 func _option_group(title: String, key: String, names: Array, lbx: String, picture_of: Callable) -> Control:
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("separation", 12)
-	# All six pictures one size: as large as half the page's height and a third of its width allow.
-	var side := clampf(minf((size.y - 300.0) * 0.5, (size.x - 120.0) / 3.0 - 200.0), 110.0, 400.0)
+	row.add_theme_constant_override("separation", 14)
+	var side := clampf(minf((size.y - 290.0) * 0.5, (size.x - 120.0) / 3.0 - 230.0), 110.0, 480.0)
 	var picture := TextureRect.new()
 	picture.custom_minimum_size = Vector2(side, side)
 	picture.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	picture.mouse_filter = Control.MOUSE_FILTER_STOP
+	picture.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	picture.tooltip_text = "Click for the next choice (right click: the one before)"
 	row.add_child(picture)
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 3)
+	column.add_theme_constant_override("separation", 6)
 	var heading := Label.new()
 	heading.theme_type_variation = &"Name"
 	heading.text = title
 	column.add_child(heading)
+	var pick := OptionButton.new()
+	pick.focus_mode = Control.FOCUS_NONE
+	pick.custom_minimum_size = Vector2(190, 36)
+	for n in names:
+		pick.add_item(str(n))
+	column.add_child(pick)
 	row.add_child(column)
-	var group := ButtonGroup.new()
-	var set_picture := func(i: int):
+	var choose := func(i: int):
+		_choice[key] = i
+		pick.select(i)
 		if art:
-			var entry: int = picture_of.call(i)
-			_set_texture(picture, lbx, entry)
-	for i in names.size():
-		var button := Button.new()
-		button.text = str(names[i])
-		button.toggle_mode = true
-		button.button_group = group
-		button.focus_mode = Control.FOCUS_NONE
-		button.custom_minimum_size = Vector2(150, 30)
-		button.button_pressed = int(_choice[key]) == i
-		var index := i
-		button.pressed.connect(func():
-			_choice[key] = index
-			set_picture.call(index))
-		column.add_child(button)
-	set_picture.call(int(_choice[key]))
+			_set_texture(picture, lbx, int(picture_of.call(i)))
+	pick.item_selected.connect(func(i: int): choose.call(i))
+	picture.gui_input.connect(func(event: InputEvent):
+		var press := event as InputEventMouseButton
+		if press == null or not press.pressed:
+			return
+		if press.button_index == MOUSE_BUTTON_LEFT:
+			choose.call((int(_choice[key]) + 1) % names.size())
+		elif press.button_index == MOUSE_BUTTON_RIGHT:
+			choose.call((int(_choice[key]) + names.size() - 1) % names.size())
+		else:
+			return
+		command.emit({"verb": "play_sound"})
+		picture.accept_event())
+	choose.call(clampi(int(_choice[key]), 0, names.size() - 1))
 	return row
 
 
@@ -353,22 +362,20 @@ func _races() -> Array:
 	return _data.get("races", [])
 
 
-## As the original screen: the portrait (large) and the race's traits on the left, the races to
-## pick from on the right (owner, 2026-11-27).
+## As the original screen (owner, 2026-11-27): the portrait as large as the page allows (its own
+## shape kept), the race's traits beside it, and the races to pick from on the right.
 func _build_race() -> void:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 28)
+	row.add_theme_constant_override("separation", 24)
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_body.add_child(row)
-	var detail := VBoxContainer.new()
+	var detail := HBoxContainer.new()
 	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	detail.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	detail.size_flags_stretch_ratio = 1.6
-	detail.add_theme_constant_override("separation", 8)
+	detail.add_theme_constant_override("separation", 20)
 	row.add_child(detail)
 	var list := GridContainer.new()
 	list.columns = 2
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("h_separation", 8)
 	list.add_theme_constant_override("v_separation", 8)
 	row.add_child(list)
@@ -397,8 +404,7 @@ func _race_button(text: String) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.focus_mode = Control.FOCUS_NONE
-	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.custom_minimum_size = Vector2(200, 46)
+	button.custom_minimum_size = Vector2(190, 46)
 	return button
 
 
@@ -409,29 +415,40 @@ func _race_data(race: int) -> Dictionary:
 	return {}
 
 
-## The race's portrait (RACESEL.LBX 15 + race), as large as the column allows, and its traits.
-func _show_race(detail: VBoxContainer) -> void:
+const PORTRAIT_ASPECT := 290.0 / 322.0 # RACESEL.LBX 15-27, width over height
+const TRAITS_WIDTH := 300.0
+const RACE_LIST_WIDTH := 2 * 190.0 + 8.0
+
+
+## The portrait (RACESEL.LBX 15 + race) at the largest size that fits beside the traits and the
+## list, then the race's name and traits to its right.
+func _show_race(detail: HBoxContainer) -> void:
 	for child in detail.get_children():
 		child.queue_free()
 	var race := _race_data(_race)
+	var room := Vector2(size.x - 80.0 - RACE_LIST_WIDTH - 24.0 - TRAITS_WIDTH - 20.0, size.y - 250.0)
+	var height := minf(room.y, room.x / PORTRAIT_ASPECT)
+	var portrait := TextureRect.new()
+	portrait.custom_minimum_size = Vector2(height * PORTRAIT_ASPECT, height)
+	portrait.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	detail.add_child(portrait)
+	_set_texture(portrait, "RACESEL.LBX", 0x0F + _race)
+	var text := VBoxContainer.new()
+	text.custom_minimum_size.x = TRAITS_WIDTH
+	text.add_theme_constant_override("separation", 8)
+	detail.add_child(text)
 	var name := Label.new()
 	name.theme_type_variation = &"Heading"
 	name.text = str(race.get("name", ""))
-	detail.add_child(name)
-	var portrait := TextureRect.new()
-	portrait.custom_minimum_size = Vector2(320, 260)
-	portrait.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
-	detail.add_child(portrait)
-	_set_texture(portrait, "RACESEL.LBX", 0x0F + _race)
-	var traits := Label.new()
-	traits.autowrap_mode = TextServer.AUTOWRAP_WORD
-	var lines: PackedStringArray = []
+	text.add_child(name)
 	for line: Dictionary in race.get("traits", []):
-		lines.append(str(line.text))
-	traits.text = "\n".join(lines)
-	detail.add_child(traits)
+		var trait_label := Label.new()
+		trait_label.text = str(line.text)
+		trait_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+		trait_label.custom_minimum_size.x = TRAITS_WIDTH
+		text.add_child(trait_label)
 
 
 func _set_texture(target: TextureRect, lbx: String, entry: int, frame := 0) -> void:
@@ -575,9 +592,16 @@ func _custom_problem() -> String:
 const PICKED_COLOR := Color(1.0, 0.62, 0.2) # a chosen pick's text
 
 
+## The picks' rows, smaller than the theme's buttons so the page fits without scrolling.
+func _compact(button: Button) -> void:
+	button.add_theme_font_size_override("font_size", 15)
+	button.custom_minimum_size.y = 26 # the theme's own boxes (a copy made before the theme applies lost them)
+
+
 ## A pick: a radio button whose text lights when chosen (owner, 2026-11-27).
 func _radio(text: String, group: ButtonGroup, on: bool) -> CheckBox:
 	var radio := CheckBox.new()
+	_compact(radio)
 	radio.text = text
 	radio.button_group = group
 	radio.focus_mode = Control.FOCUS_NONE
@@ -642,9 +666,9 @@ func _build_custom() -> void:
 	columns.add_theme_constant_override("separation", 26)
 	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_body.add_child(columns)
-	# The stats in three columns (owner, 2026-11-27), the government last.
+	# The stats in four columns (owner, 2026-11-27: no scrolling), the government last.
 	var stat_columns: Array[VBoxContainer] = []
-	for _c in 3:
+	for _c in 4:
 		var column := VBoxContainer.new()
 		column.add_theme_constant_override("separation", 10)
 		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -704,14 +728,16 @@ func _build_custom() -> void:
 			_rebuild())
 		gov_box.add_child(radio)
 	boxes.append(gov_box)
-	var per_column := ceili(boxes.size() / 3.0)
+	# Three groups in each of the first two columns, two in the others (the government has four
+	# choices, so it shares the last with one group).
+	var column_of := func(i: int) -> int: return 0 if i < 3 else (1 if i < 6 else (2 if i < 8 else 3))
 	for i in boxes.size():
-		stat_columns[mini(i / per_column, 2)].add_child(boxes[i])
+		stat_columns[mini(int(column_of.call(i)), 3)].add_child(boxes[i])
 
 	# The special abilities, two columns beside them.
 	var specials_box := VBoxContainer.new()
 	specials_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	specials_box.size_flags_stretch_ratio = 2.2
+	specials_box.size_flags_stretch_ratio = 2.0
 	columns.add_child(specials_box)
 	var specials_title := Label.new()
 	specials_title.theme_type_variation = &"Name"
@@ -726,6 +752,7 @@ func _build_custom() -> void:
 	var exclusive: Array = rules.get("exclusive", [])
 	for s in specials.size():
 		var check := CheckBox.new()
+		_compact(check)
 		check.focus_mode = Control.FOCUS_NONE
 		check.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		check.text = "%s   %+d" % [str(specials[s].label), int(specials[s].cost)]
@@ -836,12 +863,13 @@ func _random_leader() -> void:
 
 # ---- Start ----
 
+## The summary (owner, 2026-11-27): the portrait, and beside it the chosen banner above the text.
 func _build_start() -> void:
 	var race_name := _custom_name if _custom else str(_race_data(_race).get("name", ""))
 	var lines: PackedStringArray = []
 	var difficulties: Array = _data.get("difficulties", [])
 	var difficulty := str(difficulties[int(_choice.difficulty)].name) if int(_choice.difficulty) < difficulties.size() else ""
-	lines.append("%s of the %s, under the %s banner." % [_leader, race_name, BANNER_NAMES[_color]])
+	lines.append("%s of the %s" % [_leader, race_name])
 	lines.append("")
 	lines.append("Difficulty: %s" % difficulty)
 	lines.append("Galaxy: %s, %s" % [SIZE_NAMES[int(_choice.size)], AGE_NAMES[int(_choice.age)]])
@@ -853,16 +881,28 @@ func _build_start() -> void:
 	row.add_theme_constant_override("separation", 24)
 	_body.add_child(row)
 	var portrait := TextureRect.new()
-	portrait.custom_minimum_size = Vector2(minf(size.x * 0.4, 640.0), minf(size.y * 0.6, 520.0))
+	var height := minf(size.y - 260.0, (size.x * 0.45) / PORTRAIT_ASPECT)
+	portrait.custom_minimum_size = Vector2(height * PORTRAIT_ASPECT, height)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_set_texture(portrait, "RACESEL.LBX", 0x0F + _race)
 	row.add_child(portrait)
+	var column := VBoxContainer.new()
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_theme_constant_override("separation", 12)
+	row.add_child(column)
+	var banner := TextureRect.new()
+	banner.custom_minimum_size = Vector2(200, 200 * 94.0 / 84.0)
+	banner.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	banner.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	banner.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	banner.tooltip_text = BANNER_NAMES[_color]
+	_set_texture(banner, "RACESEL.LBX", 0x22 + _race * 8 + _color)
+	column.add_child(banner)
 	var text := Label.new()
 	text.text = "\n".join(lines)
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD
-	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(text)
+	column.add_child(text)
 
 
 func _create() -> void:

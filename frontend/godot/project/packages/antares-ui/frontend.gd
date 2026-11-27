@@ -7580,6 +7580,23 @@ func _smoke_title_cold(shots: String) -> bool:
 	await get_tree().create_timer(2.0).timeout
 	_smoke_answer()
 	print("smoke: title-cold: Continue OK")
+	# RETURN TO TITLE (owner, 2026-11-27): the game menu's button, its question answered; the game
+	# is saved for Continue, which brings it back.
+	var title_button: Button = _view("game_menu").get_node("Fit/Box/Title")
+	title_button.pressed.emit()
+	if not await _wait_screen(Screens.MAIN_MENU, 20.0):
+		print("smoke: title-cold: RETURN TO TITLE did not reach the title (screen %d)" % native_screen)
+		return false
+	await get_tree().create_timer(2.5).timeout
+	if shots != "":
+		await host.shot(shots + "/cold-return-title.png")
+	_view("lobby")._choose("continue")
+	if not await _wait_screen(Screens.MAIN, 40.0):
+		print("smoke: title-cold: Continue after RETURN TO TITLE did not reach the galaxy")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	_smoke_answer()
+	print("smoke: title-cold: return to title and Continue OK")
 	# A custom race: the Sakkra's picks plus Telepathic, named "Smokers".
 	_send({"verb": "leave_game", "to": "main_menu"})
 	if not await _wait_screen(Screens.NEW_GAME, 20.0):

@@ -267,12 +267,17 @@ namespace antares::commands {
         // frontend when it answers confirmations; No leaves the galaxy as it was.
         void Leave_Game(int16_t, const s_args& args, s_out& out) {
             std::string to;
-            if (!args.Str("to", &to) || (to != "main_menu" && to != "desktop")) {
-                out.Fail("bad_args", "to: \"main_menu\" or \"desktop\"");
+            if (!args.Str("to", &to) || (to != "main_menu" && to != "desktop" && to != "title")) {
+                out.Fail("bad_args", "to: \"main_menu\", \"title\" or \"desktop\"");
                 return;
             }
             char text[200];
-            strlcpy(text, HAROLD::H_Message(to == "main_menu" ? 0xBA : 0xBB), sizeof(text));
+            if (to == "title") {
+                // RETURN TO TITLE (WP3.13, owner 2026-11-27): ours, so its question is too.
+                strlcpy(text, "Return to the title screen? The game is saved first, so Continue picks it up again.", sizeof(text));
+            } else {
+                strlcpy(text, HAROLD::H_Message(to == "main_menu" ? 0xBA : 0xBB), sizeof(text));
+            }
             if (GENDRAW::Do_Confirmation_Box(text) == 0) {
                 out.Bool("left", false);
                 return;
@@ -282,6 +287,18 @@ namespace antares::commands {
                 LOADSAVE::Save_Session_Related_Settings();
                 ERIC::Fast_Fade_Out();
                 MOX::current_screen = SCREEN_NEW_GAME;
+            } else if (to == "title") {
+                // As Quit (the auto save slot, for Continue), then the title instead of the desktop.
+                FILEDEF::Save_Game(9);
+                MOX::settings.active_save_slot = 9;
+                LOADSAVE::Save_Session_Related_Settings();
+                if (MOX::game_type == 2 || MOX::game_type == 3) {
+                    NETMOX::Human_Abdicates(static_cast<int32_t>(MOX::PLAYER_NUM));
+                    netcode::Net_Uninit();
+                }
+                MOX::game_type = 0;
+                ERIC::Fast_Fade_Out();
+                MOX::current_screen = SCREEN_MAIN_MENU;
             } else {
                 FILEDEF::Save_Game(9);
                 MOX::settings.active_save_slot = 9;
@@ -507,7 +524,7 @@ namespace antares::commands {
                 {"close", e_kind::command, ANY_SCREEN, 0, "", Close},
                 {"play_sound", e_kind::command, ANY_SCREEN, 0, "sound: game sound number (default 0x28, the click)", Play_Sound},
                 {"stop_sound", e_kind::command, ANY_SCREEN, 0, "handle: from play_sound", Stop_Sound},
-                {"leave_game", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "to: main_menu | desktop (asks first)", Leave_Game},
+                {"leave_game", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "to: main_menu (new game) | title | desktop (asks first)", Leave_Game},
                 {"scrap_ships", e_kind::command, ANY_SCREEN, 0, "ships: [ship id] (one place)", Scrap_Ships},
                 {"set_tax_rate", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "rate: 0..50 in tens", Set_Tax_Rate},
                 {"empire", e_kind::query, ANY_SCREEN, 3, "", Query_Empire},
