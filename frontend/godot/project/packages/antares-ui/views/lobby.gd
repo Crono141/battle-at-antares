@@ -146,48 +146,57 @@ func _ready() -> void:
 	resized.connect(_layout)
 
 
+## A picture: imported in an exported build (only the .import is there then), a plain file when
+## run from the project or a package's zip (as themes.gd's icons).
+static func _texture_at(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		var imported := load(path) as Texture2D
+		if imported != null:
+			return imported
+	if FileAccess.file_exists(path):
+		var image := Image.load_from_file(path)
+		if image != null and not image.is_empty():
+			return ImageTexture.create_from_image(image)
+	return null
+
+
 func _load_art() -> void:
 	var base: String = scene_file_path.get_base_dir().get_base_dir() # the package folder
-	var wide := base + "/art/title/backdrop_wide.webp"
-	if FileAccess.file_exists(wide):
-		var image := Image.load_from_file(wide)
-		if image != null and not image.is_empty():
-			_backdrop_tex = ImageTexture.create_from_image(image)
-			_wide = true
-			var info_path := base + "/art/title/backdrop_wide.json"
-			if FileAccess.file_exists(info_path):
-				var info: Variant = JSON.parse_string(FileAccess.get_file_as_string(info_path))
-				if info is Dictionary and info.has("inner_rect"):
-					var r: Array = info.inner_rect
-					_backdrop_inner = Rect2(r[0], r[1], r[2], r[3])
+	_backdrop_tex = _texture_at(base + "/art/title/backdrop_wide.webp")
+	if _backdrop_tex != null:
+		_wide = true
+		var info_path := base + "/art/title/backdrop_wide.json"
+		if FileAccess.file_exists(info_path):
+			var info: Variant = JSON.parse_string(FileAccess.get_file_as_string(info_path))
+			if info is Dictionary and info.has("inner_rect"):
+				var r: Array = info.inner_rect
+				_backdrop_inner = Rect2(r[0], r[1], r[2], r[3])
 	var frame_dir := base + "/art/title/frame"
 	if FileAccess.file_exists(frame_dir + "/frame.json"):
 		var info: Variant = JSON.parse_string(FileAccess.get_file_as_string(frame_dir + "/frame.json"))
 		if info is Dictionary:
 			_frame["info"] = info
 		for piece in ["corner_tl", "corner_tr", "corner_bl", "corner_br", "edge_top", "edge_bottom", "edge_left", "edge_right", "bottom_center"]:
-			var path := "%s/%s.png" % [frame_dir, piece]
-			if FileAccess.file_exists(path):
-				var image := Image.load_from_file(path)
-				if image != null and not image.is_empty():
-					_frame[piece] = ImageTexture.create_from_image(image)
-	var logo := base + "/title/logo.png"
-	if FileAccess.file_exists(logo):
-		var image := Image.load_from_file(logo)
-		if image != null and not image.is_empty():
-			_logo_tex = ImageTexture.create_from_image(image)
+			var tex := _texture_at("%s/%s.png" % [frame_dir, piece])
+			if tex != null:
+				_frame[piece] = tex
+	_logo_tex = _texture_at(base + "/title/logo.png")
 
 
 func _build_rig() -> void:
 	var path: String = scene_file_path.get_base_dir().get_base_dir() + "/title/panel.glb"
-	if not FileAccess.file_exists(path):
+	if ResourceLoader.exists(path):
+		# Imported in an exported build.
+		var scene := load(path) as PackedScene
+		if scene != null:
+			_model = scene.instantiate() as Node3D
+	elif FileAccess.file_exists(path):
+		var doc := GLTFDocument.new()
+		var state := GLTFState.new()
+		if doc.append_from_file(path, state) == OK:
+			_model = doc.generate_scene(state) as Node3D
+	if _model == null:
 		return
-	var doc := GLTFDocument.new()
-	var state := GLTFState.new()
-	if doc.append_from_file(path, state) != OK:
-		push_warning("lobby: could not read %s" % path)
-		return
-	_model = doc.generate_scene(state) as Node3D
 	if _model == null:
 		return
 	_hinge = _model.find_child("Panel", true, false) as Node3D
