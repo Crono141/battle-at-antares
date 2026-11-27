@@ -821,6 +821,8 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
     # Battle at Antares: the launcher (WP5.1) is its own executable.
     list(FILTER ORION2RE_SOURCES EXCLUDE REGEX "/src/launcher/")
     list(FILTER ORION2RE_HEADERS EXCLUDE REGEX "/src/launcher/")
+    # The GOG sign-in programs (WP5.13b, 5.15b, 5.17b) are separate executables too.
+    list(FILTER ORION2RE_SOURCES EXCLUDE REGEX "/src/gog_signin/")
     # imgui_stb.cpp is compiled by the orion2re_imgui OBJECT library when
     # the prebuilt system library is used; keep it out of the game
     # objects or the stb symbols would be defined twice. When the
@@ -828,13 +830,18 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
     # the stb implementations already come from imgui_draw.cpp there.
     list(REMOVE_ITEM ORION2RE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/imgui_stb.cpp")
 
+    # The LZMA decoder (LZMA SDK, public domain): GOG's Windows installer headers (WP5.13c).
+    set(ANTARES_LZMA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/vendors/lzma/LzmaDec.c")
+    set_source_files_properties(${ANTARES_LZMA_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
     add_library(orion2re_game_objects OBJECT
         ${ORION2RE_SOURCES}
         ${ORION2RE_HEADERS}
+        ${ANTARES_LZMA_SOURCES}
     )
     target_compile_features(orion2re_game_objects PRIVATE cxx_std_20)
     target_include_directories(orion2re_game_objects PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendors/lzma"
         ${ORION2RE_LIBSMACKER_INCLUDE_DIRS}
         ${ORION2RE_YYJSON_INCLUDE_DIRS}
         ${ORION2RE_LIBWEBP_INCLUDE_DIRS}
@@ -978,6 +985,11 @@ if(ORION2RE_BUILD_GAME)
         ${ORION2RE_YYJSON_SOURCES}
     )
     if(WIN32)
+        # The application icon for Explorer, the taskbar and shortcuts (owner 2026-11-25).
+        enable_language(RC)
+        set(ANTARES_ICON_ICO "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/antares.ico")
+        configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/windows/antares.rc.in" "${CMAKE_CURRENT_BINARY_DIR}/antares.rc" @ONLY)
+        target_sources(orion2re PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/antares.rc")
         set_source_files_properties(src/windows_crash_dump.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
         target_sources(orion2re PRIVATE src/windows_crash_dump.cpp)
         target_link_libraries(orion2re PRIVATE dbghelp)
@@ -1057,14 +1069,70 @@ if(ORION2RE_BUILD_GAME)
             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
         VERBATIM
     )
+    # The setup wizard's look (WP5.11b, look B): the Chrome theme's metal and fonts, embedded so the
+    # wizard has them before any game file exists.
+    set(ANTARES_CHROME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frontend/godot/project/packages/antares-ui-chrome")
+    set(ANTARES_LAUNCHER_CHROME_HEADERS)
+    # The theme's art is cut from the HD pack and never committed (a clean checkout, such as the
+    # macOS runner's, has none): embedded when it is there, else the launcher reads it from the
+    # shipped theme package at run time (launcher_chrome.cpp). The fonts are committed.
+    set(ANTARES_CHROME_ITEMS "fonts/RussoOne.ttf:k_chrome_russo" "fonts/SairaSemiCondensed-Medium.ttf:k_chrome_saira"
+        "fonts/SairaSemiCondensed-Bold.ttf:k_chrome_saira_bold")
+    set(ANTARES_LAUNCHER_EMBEDDED_ART OFF)
+    if(EXISTS "${ANTARES_CHROME_DIR}/art/panel.png" AND EXISTS "${ANTARES_CHROME_DIR}/art/bezel.png" AND EXISTS "${ANTARES_CHROME_DIR}/art/button.png")
+        list(APPEND ANTARES_CHROME_ITEMS "art/panel.png:k_chrome_panel" "art/bezel.png:k_chrome_bezel" "art/button.png:k_chrome_button")
+        set(ANTARES_LAUNCHER_EMBEDDED_ART ON)
+    endif()
+    foreach(ANTARES_CHROME_ITEM IN LISTS ANTARES_CHROME_ITEMS)
+        string(REPLACE ":" ";" ANTARES_CHROME_PARTS "${ANTARES_CHROME_ITEM}")
+        list(GET ANTARES_CHROME_PARTS 0 ANTARES_CHROME_FILE)
+        list(GET ANTARES_CHROME_PARTS 1 ANTARES_CHROME_SYMBOL)
+        set(ANTARES_CHROME_HEADER "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}/${ANTARES_CHROME_SYMBOL}.h")
+        add_custom_command(
+            OUTPUT "${ANTARES_CHROME_HEADER}"
+            COMMAND ${CMAKE_COMMAND}
+                "-DINPUT_FILE=${ANTARES_CHROME_DIR}/${ANTARES_CHROME_FILE}"
+                "-DOUTPUT_FILE=${ANTARES_CHROME_HEADER}"
+                "-DSYMBOL_NAME=${ANTARES_CHROME_SYMBOL}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+            DEPENDS
+                "${ANTARES_CHROME_DIR}/${ANTARES_CHROME_FILE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+            VERBATIM
+        )
+        list(APPEND ANTARES_LAUNCHER_CHROME_HEADERS "${ANTARES_CHROME_HEADER}")
+    endforeach()
+    # The window icon (owner 2026-11-25: the Antaran's face; resources/icons).
+    set(ANTARES_LAUNCHER_ICON_HEADER "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}/k_launcher_icon.h")
+    add_custom_command(
+        OUTPUT "${ANTARES_LAUNCHER_ICON_HEADER}"
+        COMMAND ${CMAKE_COMMAND}
+            "-DINPUT_FILE=${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/antares-128.png"
+            "-DOUTPUT_FILE=${ANTARES_LAUNCHER_ICON_HEADER}"
+            "-DSYMBOL_NAME=k_launcher_icon"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+        DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/antares-128.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+        VERBATIM
+    )
+    list(APPEND ANTARES_LAUNCHER_CHROME_HEADERS "${ANTARES_LAUNCHER_ICON_HEADER}")
     add_executable(antares-launcher
         src/launcher/main.cpp
         src/launcher/launcher_app.cpp
         src/launcher/launcher_saves.cpp
         src/launcher/launcher_settings.cpp
         src/launcher/launcher_info.cpp
+        src/launcher/launcher_setup.cpp
+        src/launcher/launcher_chrome.cpp
+        src/launcher/launcher_fetch.cpp
+        src/launcher/launcher_hd.cpp
+        src/launcher/launcher_gog.cpp
+        src/launcher/launcher_menu.cpp
+        src/launcher/launcher_update.cpp
         "${ANTARES_LAUNCHER_FONT_HEADER}"
         "${ANTARES_LAUNCHER_SCHEMA_HEADER}"
+        ${ANTARES_LAUNCHER_CHROME_HEADERS}
         "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp"
         "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp"
         $<TARGET_OBJECTS:orion2re_game_objects>
@@ -1075,6 +1143,9 @@ if(ORION2RE_BUILD_GAME)
         set_target_properties(antares-launcher PROPERTIES EXCLUDE_FROM_ALL YES)
     endif()
     target_compile_features(antares-launcher PRIVATE cxx_std_20)
+    if(ANTARES_LAUNCHER_EMBEDDED_ART)
+        target_compile_definitions(antares-launcher PRIVATE ANTARES_LAUNCHER_EMBEDDED_ART=1)
+    endif()
     target_include_directories(antares-launcher PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${ORION2RE_VENDORED_IMGUI_DIR}/backends"
@@ -1104,6 +1175,14 @@ if(ORION2RE_BUILD_GAME)
     endif()
     if(MSVC)
         target_compile_definitions(antares-launcher PRIVATE WIN32 _CRT_SECURE_NO_DEPRECATE _CRT_NONSTDC_NO_DEPRECATE)
+    endif()
+    if(WIN32)
+        target_link_libraries(antares-launcher PRIVATE winhttp) # HD pack downloads (WP5.14)
+        target_link_libraries(antares-launcher PRIVATE ole32 uuid shell32) # the Start menu entry
+        target_sources(antares-launcher PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/antares.rc") # the icon
+        # A windowed program: no console window beside it (owner's Wine test 2026-11-25). Its log
+        # still goes to standard error when started from a shell with 2> log.txt.
+        set_target_properties(antares-launcher PROPERTIES WIN32_EXECUTABLE TRUE)
     endif()
     if(ORION2RE_GAME_DIR)
         add_custom_command(TARGET antares-launcher POST_BUILD
@@ -1571,4 +1650,65 @@ endif()
 
 if(ANTARES_BUILD_GODOT)
     add_subdirectory(frontend/godot)
+endif()
+
+# GOG sign-in (WP5.13b, D29 case 3): GOG's own page in a window, a separate program so the
+# launcher never depends on a web engine. Linux: WebKitGTK 4.1, built when it is found.
+if(TARGET antares-launcher AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(ANTARES_WEBKITGTK IMPORTED_TARGET webkit2gtk-4.1 gtk+-3.0)
+    endif()
+    if(ANTARES_WEBKITGTK_FOUND)
+        add_executable(antares-gog-signin src/gog_signin/main_gtk.c)
+        target_link_libraries(antares-gog-signin PRIVATE PkgConfig::ANTARES_WEBKITGTK)
+        if(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL)
+            set_target_properties(antares-gog-signin PROPERTIES EXCLUDE_FROM_ALL YES)
+        endif()
+        if(ORION2RE_GAME_DIR)
+            add_custom_command(TARGET antares-gog-signin POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:antares-gog-signin> "${ORION2RE_GAME_DIR}/$<TARGET_FILE_NAME:antares-gog-signin>")
+        endif()
+    else()
+        message(STATUS "antares-gog-signin: WebKitGTK 4.1 not found; GOG sign-in falls back to GOG's website")
+    endif()
+endif()
+
+# Windows (WP5.15b): WebView2, the Edge engine in Windows 10 and 11. Microsoft's SDK (BSD licence)
+# from NuGet, pinned by version and SHA-256; WebView2Loader.dll ships beside the program, which
+# loads it at run time (so MinGW needs no import library).
+if(TARGET antares-launcher AND WIN32)
+    set(ANTARES_WEBVIEW2_VERSION 1.0.4314.35)
+    set(ANTARES_WEBVIEW2_DIR "${CMAKE_BINARY_DIR}/_deps/webview2-${ANTARES_WEBVIEW2_VERSION}")
+    if(NOT EXISTS "${ANTARES_WEBVIEW2_DIR}/build/native/include/WebView2.h")
+        file(DOWNLOAD "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/${ANTARES_WEBVIEW2_VERSION}/microsoft.web.webview2.${ANTARES_WEBVIEW2_VERSION}.nupkg"
+            "${CMAKE_BINARY_DIR}/_deps/webview2.nupkg"
+            EXPECTED_HASH SHA256=90778deb1b77e36292828b4b5833c9255c27533f40e0ddd55891ae718944edc4)
+        file(ARCHIVE_EXTRACT INPUT "${CMAKE_BINARY_DIR}/_deps/webview2.nupkg" DESTINATION "${ANTARES_WEBVIEW2_DIR}")
+    endif()
+    # WebView2.h includes "EventToken.h"; MinGW's header is eventtoken.h (a case-sensitive host).
+    file(WRITE "${ANTARES_WEBVIEW2_DIR}/shim/EventToken.h" "#pragma once\n#include <eventtoken.h>\n")
+    add_executable(antares-gog-signin WIN32 src/gog_signin/main_win.cpp)
+    target_include_directories(antares-gog-signin PRIVATE "${ANTARES_WEBVIEW2_DIR}/build/native/include" "${ANTARES_WEBVIEW2_DIR}/shim")
+    target_link_libraries(antares-gog-signin PRIVATE ole32 shell32 user32)
+    if(MINGW)
+        target_link_options(antares-gog-signin PRIVATE -municode -s -static -static-libgcc -static-libstdc++)
+    endif()
+    add_custom_command(TARGET antares-gog-signin POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ANTARES_WEBVIEW2_DIR}/build/native/x64/WebView2Loader.dll" "$<TARGET_FILE_DIR:antares-gog-signin>/WebView2Loader.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ANTARES_WEBVIEW2_DIR}/LICENSE.txt" "$<TARGET_FILE_DIR:antares-gog-signin>/WebView2-LICENSE.txt")
+    if(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL)
+        set_target_properties(antares-gog-signin PROPERTIES EXCLUDE_FROM_ALL YES)
+    endif()
+endif()
+
+# macOS (WP5.17b): WKWebView, part of the system.
+if(TARGET antares-launcher AND APPLE)
+    enable_language(OBJC)
+    add_executable(antares-gog-signin src/gog_signin/main_mac.m)
+    target_compile_options(antares-gog-signin PRIVATE -fobjc-arc)
+    target_link_libraries(antares-gog-signin PRIVATE "-framework Cocoa" "-framework WebKit")
+    if(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL)
+        set_target_properties(antares-gog-signin PROPERTIES EXCLUDE_FROM_ALL YES)
+    endif()
 endif()

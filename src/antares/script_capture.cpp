@@ -5,6 +5,7 @@
 #include <vector>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STBIW_WINDOWS_UTF8 // file names are UTF-8 (WP5.15: non-ASCII Windows user names)
 #define STB_IMAGE_WRITE_STATIC
 #include "stb_image_write.h"
 

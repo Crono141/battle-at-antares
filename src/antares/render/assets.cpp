@@ -283,6 +283,7 @@ namespace render {
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %s lists %zu sprites", where.c_str(), added);
             }
         }
+        Preload_Packaged_Cursors(); // owner 2026-11-24: the zipped HD pack had no HD pointer
     }
 
     namespace {

@@ -1,4 +1,8 @@
 #include "pch.h"
+#include "miniz.h"
+#include <cstring>
+#include <set>
+#include <mutex>
 
 #include "antares/render/internal.h"
 #include "antares/render/twin_internal.h"
@@ -275,6 +279,54 @@ namespace render {
 
     // ------------------------------------------------------------------ cursor
 
+    namespace {
+        struct s_packaged_cursor {
+            std::vector<uint8_t> png;
+            std::vector<uint8_t> mask;
+            std::string root; // "art" or "hd", for the frame's name
+        };
+        std::mutex s_packaged_mutex;
+        std::unordered_map<uint32_t, s_packaged_cursor> s_packaged_cursors;
+    } // namespace
+
+    void Preload_Packaged_Cursors() {
+        // Every cursor file in the zipped packages (art/CURSORS/<hash>.png, or the hd/ alias),
+        // then each read through the VFS, so the highest-priority package's copy wins.
+        std::set<std::string> names;
+        for (const vfs::s_package_source& source : vfs::Package_Sources()) {
+            if (!source.is_archive) continue;
+            mz_zip_archive zip{};
+            if (!mz_zip_reader_init_file(&zip, source.source_path.c_str(), 0)) continue;
+            const mz_uint count = mz_zip_reader_get_num_files(&zip);
+            for (mz_uint index = 0; index < count; ++index) {
+                char name[512];
+                if (mz_zip_reader_get_filename(&zip, index, name, sizeof(name)) == 0) continue;
+                std::string entry = name;
+                for (const char* prefix : {"data/art/CURSORS/", "data/hd/CURSORS/"}) {
+                    const size_t length = std::strlen(prefix);
+                    if (entry.size() == length + 12 && entry.compare(0, length, prefix) == 0 && entry.compare(entry.size() - 4, 4, ".png") == 0) {
+                        names.insert(entry.substr(5)); // without "data/": the VFS path
+                    }
+                }
+            }
+            mz_zip_reader_end(&zip);
+        }
+        std::unordered_map<uint32_t, s_packaged_cursor> found;
+        for (const std::string& name : names) {
+            const std::string root = name.substr(0, name.find('/'));
+            const uint32_t hash = static_cast<uint32_t>(std::strtoul(name.substr(name.size() - 12, 8).c_str(), nullptr, 16));
+            if (found.count(hash) != 0) continue; // art/ was listed before hd/
+            s_packaged_cursor cursor;
+            cursor.root = root;
+            if (!Read_Vfs_File(name.c_str(), &cursor.png)) continue;
+            (void)Read_Vfs_File((name.substr(0, name.size() - 4) + ".mask.png").c_str(), &cursor.mask);
+            found.emplace(hash, std::move(cursor));
+        }
+        std::lock_guard<std::mutex> lock(s_packaged_mutex);
+        s_packaged_cursors = std::move(found);
+        if (!s_packaged_cursors.empty()) SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "hd: %zu cursors from zipped packages", s_packaged_cursors.size());
+    }
+
     bool Cursor_Art(const uint8_t* pixels, int32_t size, const video::s_palette_color* palette, uint32_t* argb) {
         static std::unordered_map<uint32_t, s_hd_frame*> cursors;
         if (!enabled || pixels == nullptr || size <= 0) {
@@ -310,6 +362,22 @@ namespace render {
                 char mask_path[64];
                 snprintf(mask_path, sizeof(mask_path), "%s/CURSORS/%08x.mask.png", root, hash);
                 mask = vfs::Resolve_Read_Path_No_Zip(mask_path, disk, sizeof(disk)) != 0 ? SDL_LoadFile(disk, &mask_size) : nullptr;
+            }
+            // Not on disk: a zipped package's copy, read earlier on the main thread.
+            if (bytes == nullptr) {
+                std::lock_guard<std::mutex> lock(s_packaged_mutex);
+                const auto packaged = s_packaged_cursors.find(hash);
+                if (packaged != s_packaged_cursors.end()) {
+                    bytes = SDL_malloc(packaged->second.png.size());
+                    bytes_size = packaged->second.png.size();
+                    if (bytes != nullptr) SDL_memcpy(bytes, packaged->second.png.data(), bytes_size);
+                    snprintf(path, sizeof(path), "%s/CURSORS/%08x.png", packaged->second.root.c_str(), hash);
+                    if (!packaged->second.mask.empty() && bytes != nullptr && art::Is_Full_Colour((const uint8_t*)bytes, bytes_size)) {
+                        mask = SDL_malloc(packaged->second.mask.size());
+                        mask_size = packaged->second.mask.size();
+                        if (mask != nullptr) SDL_memcpy(mask, packaged->second.mask.data(), mask_size);
+                    }
+                }
             }
             const bool ok = bytes != nullptr && Decode_Frame_Bytes((const uint8_t*)bytes, bytes_size, path, frame, (const uint8_t*)mask, mask_size) &&
                 (frame->index != nullptr || frame->rgb != nullptr) && frame->width == size * S && frame->height == size * S;

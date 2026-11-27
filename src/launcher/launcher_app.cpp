@@ -9,25 +9,30 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <cstring>
 #include <sstream>
 
 #include "antares/identity.h"
 #include "antares/profile_file.h"
+#include "antares/user_folder.h"
+#include "launcher/launcher_chrome.h"
+#include "game/user_paths.h"
 #include "command_line.h"
 #include "version.h"
 #include "yyjson.h"
+#include "antares/utf8_files.h"
 
 namespace launcher {
     namespace {
         constexpr char SETTINGS_FILE[] = "launcher.json";
         constexpr char PAYLOAD_TYPE[] = "ANTARES_PACKAGE";
 
-        const ImVec4 COLOUR_OK(0.45f, 0.85f, 0.45f, 1.0f);
+        const ImVec4 COLOUR_OK(0.55f, 0.90f, 0.47f, 1.0f);
         const ImVec4 COLOUR_ERROR(1.0f, 0.45f, 0.40f, 1.0f);
-        const ImVec4 COLOUR_DIM(0.60f, 0.62f, 0.68f, 1.0f);
+        const ImVec4 COLOUR_DIM(0.67f, 0.67f, 0.71f, 1.0f);
 
         bool Read_Text_(const std::string& path, std::string* text) {
-            std::ifstream file(path, std::ios::binary);
+            std::ifstream file(antares::utf8::Path(path), std::ios::binary);
             if (!file) return false;
             std::ostringstream stream;
             stream << file.rdbuf();
@@ -38,18 +43,20 @@ namespace launcher {
         // Writes through a temporary file, so a crash never leaves half a profile.
         bool Write_Text_(const std::string& path, const std::string& text, std::string* error) {
             const std::string temporary = path + ".tmp";
+            std::error_code directory_error; // the user folder's profiles/ may not exist yet
+            std::filesystem::create_directories(antares::utf8::Path(path).parent_path(), directory_error);
             {
-                std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+                std::ofstream file(antares::utf8::Path(temporary), std::ios::binary | std::ios::trunc);
                 if (!file || !file.write(text.data(), static_cast<std::streamsize>(text.size()))) {
                     *error = "unable to write " + temporary;
                     return false;
                 }
             }
             std::error_code code;
-            std::filesystem::rename(temporary, path, code);
+            std::filesystem::rename(antares::utf8::Path(temporary), antares::utf8::Path(path), code);
             if (code) {
                 *error = "unable to replace " + path + ": " + code.message();
-                std::filesystem::remove(temporary, code);
+                std::filesystem::remove(antares::utf8::Path(temporary), code);
                 return false;
             }
             return true;
@@ -83,13 +90,20 @@ namespace launcher {
             game_dir_ += '/';
         }
         data_dir_ = game_dir_ + "data/";
+        // Installed builds keep profiles, antares.cfg and launcher.json in the user folder; the
+        // bundled copies in data/ are read until the player changes one (WP5.9).
+        config_dir_ = antares::user_folder::Config_Directory(game_dir_);
+        settings_path_ = user_paths::Is_Enabled() ? config_dir_ + SETTINGS_FILE : game_dir_ + SETTINGS_FILE;
         Load_Settings_();
+        Update_Begin_(); // after the settings: they say whether to look
         Init_Settings_();
         if (!start_profile.empty()) {
             last_profile_ = start_profile;
         }
         Refresh_Packages_();
         Refresh_Profiles_();
+        Check_Files_();
+        if (!files_.ok) Open_Setup(); // first run, or the files went missing (WP5.11)
         size_t index = 0;
         for (size_t candidate = 0; candidate < profiles_.size(); ++candidate) {
             if (profiles_[candidate].name == last_profile_ || (last_profile_.empty() && profiles_[candidate].is_base)) {
@@ -101,6 +115,10 @@ namespace launcher {
     }
 
     void c_launcher::Shutdown() {
+        Setup_Close_(); // stops a copy in progress
+        Hd_Stop_();     // a partial download is kept and resumed next time
+        Update_Stop_();
+        Gog_Stop_();
         Save_Settings_();
         if (game_ != nullptr) {
             SDL_DestroyProcess(game_); // the game keeps running
@@ -110,7 +128,7 @@ namespace launcher {
 
     void c_launcher::Load_Settings_() {
         std::string text;
-        if (!Read_Text_(game_dir_ + SETTINGS_FILE, &text)) {
+        if (!Read_Text_(settings_path_, &text)) {
             return;
         }
         yyjson_doc* document = yyjson_read(text.data(), text.size(), 0);
@@ -122,6 +140,9 @@ namespace launcher {
         skip_intro_ = yyjson_get_bool(yyjson_obj_get(root, "skip_intro"));
         close_on_launch_ = yyjson_get_bool(yyjson_obj_get(root, "close_on_launch"));
         if (yyjson_is_bool(yyjson_obj_get(root, "auto_window_size"))) auto_window_ = yyjson_get_bool(yyjson_obj_get(root, "auto_window_size"));
+        if (yyjson_is_bool(yyjson_obj_get(root, "check_updates"))) update_.check = yyjson_get_bool(yyjson_obj_get(root, "check_updates"));
+        if (yyjson_is_str(yyjson_obj_get(root, "launcher_look")))
+            chrome::Set_Look(SDL_strcmp(yyjson_get_str(yyjson_obj_get(root, "launcher_look")), "glass") == 0 ? chrome::LOOK_GLASS : chrome::LOOK_CHROME);
         load_save_ = std::clamp(static_cast<int>(yyjson_get_int(yyjson_obj_get(root, "load_save"))), 0, 10);
         yyjson_doc_free(document);
     }
@@ -136,12 +157,14 @@ namespace launcher {
         yyjson_mut_obj_add_int(document, root, "load_save", load_save_);
         yyjson_mut_obj_add_bool(document, root, "close_on_launch", close_on_launch_);
         yyjson_mut_obj_add_bool(document, root, "auto_window_size", auto_window_);
+        yyjson_mut_obj_add_bool(document, root, "check_updates", update_.check);
+        yyjson_mut_obj_add_str(document, root, "launcher_look", chrome::Look() == chrome::LOOK_GLASS ? "glass" : "chrome");
         size_t length = 0;
         char* json = yyjson_mut_write(document, YYJSON_WRITE_PRETTY, &length);
         yyjson_mut_doc_free(document);
         if (json != nullptr) {
             std::string error;
-            (void)Write_Text_(game_dir_ + SETTINGS_FILE, std::string(json, length) + "\n", &error);
+            (void)Write_Text_(settings_path_, std::string(json, length) + "\n", &error);
             free(json);
         }
     }
@@ -156,22 +179,31 @@ namespace launcher {
         profiles_.clear();
         profiles_.push_back({"Default (antares.cfg)", antares::CONFIG_FILE, "", true});
         std::vector<std::string> names;
-        std::error_code code;
-        for (const auto& entry : std::filesystem::directory_iterator(data_dir_ + "profiles", code)) {
-            const std::string file = entry.path().filename().string();
-            if (entry.is_regular_file() && file.size() > 4 && file.compare(file.size() - 4, 4, ".cfg") == 0 &&
-                file[0] != '.') {
-                names.push_back(file.substr(0, file.size() - 4));
+        for (const std::string& folder : {config_dir_, data_dir_}) {
+            std::error_code code;
+            for (const auto& entry : std::filesystem::directory_iterator(antares::utf8::Path(folder + "profiles"), code)) {
+                const std::string file = antares::utf8::Text(entry.path().filename());
+                if (entry.is_regular_file() && file.size() > 4 && file.compare(file.size() - 4, 4, ".cfg") == 0 &&
+                    file[0] != '.') {
+                    names.push_back(file.substr(0, file.size() - 4));
+                }
             }
         }
         std::sort(names.begin(), names.end());
+        names.erase(std::unique(names.begin(), names.end()), names.end());
         for (const std::string& name : names) {
             profiles_.push_back({name, "profiles/" + name + ".cfg", name, false});
         }
     }
 
     std::string c_launcher::Profile_File_Path_(const s_profile_entry& entry) const {
-        return data_dir_ + entry.vfs_path;
+        return config_dir_ + entry.vfs_path;
+    }
+
+    std::string c_launcher::Profile_Read_Path_(const s_profile_entry& entry) const {
+        std::error_code code;
+        const std::string own = Profile_File_Path_(entry);
+        return std::filesystem::exists(antares::utf8::Path(own), code) ? own : data_dir_ + entry.vfs_path;
     }
 
     const antares::s_package_info* c_launcher::Find_Package_(const std::string& id) const {
@@ -184,7 +216,7 @@ namespace launcher {
     void c_launcher::Select_Profile_(size_t index) {
         profile_index_ = std::min(index, profiles_.size() - 1);
         profile_text_.clear();
-        if (!Read_Text_(Profile_File_Path_(profiles_[profile_index_]), &profile_text_)) {
+        if (!Read_Text_(Profile_Read_Path_(profiles_[profile_index_]), &profile_text_)) {
             profile_text_.clear(); // a missing base config is fine: the game uses defaults
         }
         enabled_ = antares::profile::Enabled_Packages(profile_text_);
@@ -257,6 +289,98 @@ namespace launcher {
         return package != nullptr && package->valid ? package->manifest.name : package_id;
     }
 
+    void c_launcher::Check_Files_() {
+        files_ = antares::game_files::Check_Original_Files();
+        if (!files_.ok) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "launcher: %s", antares::game_files::Describe(files_).c_str());
+        }
+    }
+
+    // The game logs to logs/game.<pid>.log (the user folder's when installed). A fatal message is
+    // "CRITICAL: fatal exit: <message>", and the message may run over several lines; the Godot
+    // build puts the time first ("15:59:20 INFO: ...").
+    void c_launcher::Read_Exit_Log_(int exit_code) {
+        exit_ = {};
+        exit_.show = true;
+        exit_.code = exit_code;
+        exit_.log_path = antares::user_folder::Logs_Directory(game_dir_) + "game." + std::to_string(game_pid_) + ".log";
+        std::string text;
+        if (game_pid_ == 0 || !Read_Text_(exit_.log_path, &text)) {
+            exit_.reason = "It left no log at " + exit_.log_path + ".";
+            exit_.log_path.clear();
+            return;
+        }
+        std::vector<std::string> lines;
+        std::istringstream stream(text);
+        for (std::string line; std::getline(stream, line);) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            lines.push_back(line);
+        }
+        const auto starts_entry = [](const std::string& line) {
+            size_t at = 0;
+            if (line.size() > 9 && line[2] == ':' && line[5] == ':' && line[8] == ' ') at = 9;
+            for (const char* level : {"TRACE: ", "VERBOSE: ", "DEBUG: ", "INFO: ", "WARN: ", "WARNING: ", "ERROR: ", "CRITICAL: "}) {
+                if (line.compare(at, strlen(level), level) == 0) return true;
+            }
+            return false;
+        };
+        for (size_t index = 0; index < lines.size(); ++index) {
+            const size_t found = lines[index].find("fatal exit: ");
+            if (found == std::string::npos) continue;
+            exit_.reason = lines[index].substr(found + strlen("fatal exit: "));
+            for (size_t next = index + 1; next < lines.size() && !starts_entry(lines[next]); ++next) {
+                exit_.reason += "\n" + lines[next];
+            }
+            break;
+        }
+        while (!exit_.reason.empty() && exit_.reason.back() == '\n') exit_.reason.pop_back();
+        const size_t first = lines.size() > 25 ? lines.size() - 25 : 0;
+        for (size_t index = first; index < lines.size(); ++index) exit_.log_tail += lines[index] + "\n";
+    }
+
+    void c_launcher::Draw_Exit_Popup_() {
+        if (!exit_.show) return;
+        const char* title = "The game stopped";
+        ImGui::OpenPopup(title);
+        const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSizeConstraints(ImVec2(ImGui::GetFontSize() * 26.0f, 0.0f), ImVec2(ImGui::GetFontSize() * 40.0f, FLT_MAX));
+        if (!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            return;
+        }
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 38.0f);
+        if (!exit_.reason.empty()) {
+            ImGui::TextUnformatted(exit_.reason.c_str());
+        } else {
+            ImGui::Text("The game stopped with an error (code %d) without saying why.", exit_.code);
+        }
+        ImGui::PopTextWrapPos();
+        if (!exit_.log_tail.empty()) {
+            ImGui::Spacing();
+            if (ImGui::CollapsingHeader("The end of the game's log")) {
+                ImGui::BeginChild("log", ImVec2(ImGui::GetFontSize() * 38.0f, ImGui::GetFontSize() * 14.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::TextUnformatted(exit_.log_tail.c_str());
+                ImGui::EndChild();
+            }
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 38.0f);
+            ImGui::TextColored(COLOUR_DIM, "%s", exit_.log_path.c_str());
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::Spacing();
+        if (ImGui::Button("OK", ImVec2(ImGui::GetFontSize() * 7.0f, 0.0f))) {
+            exit_.show = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if (!exit_.log_path.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Open the logs folder")) {
+                const std::string folder = antares::user_folder::Logs_Directory(game_dir_);
+                (void)SDL_OpenURL(("file://" + folder).c_str());
+            }
+        }
+        ImGui::EndPopup();
+    }
+
     void c_launcher::Draw_Toggle_Popup_() {
         if (pending_toggle_.id.empty()) return;
         const char* title = pending_toggle_.on ? "Conflicting packages" : "Packages that need it";
@@ -307,7 +431,7 @@ namespace launcher {
         const auto start = std::chrono::steady_clock::now();
         const s_profile_entry& entry = profiles_[profile_index_];
         std::error_code code;
-        if (entry.is_base && !std::filesystem::exists(Profile_File_Path_(entry), code)) {
+        if (entry.is_base && !std::filesystem::exists(Profile_Read_Path_(entry), code)) {
             check_ = {};
             check_.ok = true; // the game starts with defaults
         } else {
@@ -324,13 +448,13 @@ namespace launcher {
         // 0.5.0: on macOS the Godot build is an app bundle beside the launcher; its program is the
         // one file in Contents/MacOS (named by the export).
         std::error_code error;
-        const std::filesystem::path folder = std::filesystem::path(game_dir_) / "antares-godot.app" / "Contents" / "MacOS";
+        const std::filesystem::path folder = antares::utf8::Path(game_dir_) / "antares-godot.app" / "Contents" / "MacOS";
         for (std::filesystem::directory_iterator entry(folder, error), end; !error && entry != end; entry.increment(error)) {
             if (entry->is_regular_file(error)) {
-                return entry->path().string();
+                return antares::utf8::Text(entry->path());
             }
         }
-        return (folder / "antares-godot").string();
+        return antares::utf8::Text(folder / "antares-godot");
 #else
         return game_dir_ + "antares-godot";
 #endif
@@ -354,6 +478,9 @@ namespace launcher {
         const std::string prefix(1, command_line::OPTION_PREFIX);
         // Both builds take the same options in the platform's style (/config on Windows).
         std::vector<std::string> arguments = {executable};
+        if (!godot) {
+            arguments.push_back(prefix + "log"); // a log to explain an error (the Godot build always writes one)
+        }
         if (!entry.is_base) {
             arguments.push_back(prefix + "config");
             arguments.push_back(entry.vfs_path);
@@ -381,6 +508,7 @@ namespace launcher {
             message_is_error_ = true;
             return;
         }
+        game_pid_ = SDL_GetNumberProperty(SDL_GetProcessProperties(game_), SDL_PROP_PROCESS_PID_NUMBER, 0);
         const char* name = godot ? "antares-godot" : "antares";
         SDL_Log("launcher: started %s%s", name, command.c_str());
         message_ = std::string("Game running: ") + name + command;
@@ -392,6 +520,12 @@ namespace launcher {
     }
 
     bool c_launcher::Play() {
+        if (!files_.ok) {
+            const std::string text = antares::game_files::Describe(files_);
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: %s", text.c_str());
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Battle at Antares launcher", text.c_str(), nullptr);
+            return false;
+        }
         if (!check_.ok) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "launcher: %s: %s", profiles_[profile_index_].vfs_path.c_str(), check_.error.c_str());
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Battle at Antares launcher", check_.error.c_str(), nullptr);
@@ -417,13 +551,18 @@ namespace launcher {
     }
 
     void c_launcher::Update() {
+        Setup_Poll_();
+        Hd_Poll_();
+        Update_Poll_();
         if (game_ == nullptr) return;
         int exit_code = 0;
         if (SDL_WaitProcess(game_, false, &exit_code)) {
             SDL_DestroyProcess(game_);
             game_ = nullptr;
-            message_ = exit_code == 0 ? "The game closed." : "The game exited with code " + std::to_string(exit_code) + ".";
+            message_ = exit_code == 0 ? "The game closed." : "The game stopped with an error (code " + std::to_string(exit_code) + ").";
             message_is_error_ = exit_code != 0;
+            if (exit_code != 0) Read_Exit_Log_(exit_code);
+            Check_Files_();      // a player may have fixed the files while it ran
             Refresh_Profiles_(); // the game doesn't write profiles, but a player may have
             saves_dirty_ = true; // it may have saved
         }
@@ -434,11 +573,32 @@ namespace launcher {
         ImGui::SetNextWindowPos(viewport->WorkPos);
         ImGui::SetNextWindowSize(viewport->WorkSize);
         ImGui::Begin("Launcher", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
-
-        ImGui::TextUnformatted(antares::PRODUCT_NAME);
-        ImGui::SameLine();
-        ImGui::TextColored(COLOUR_DIM, "%s  ·  launcher", antares::PRODUCT_VERSION);
-        ImGui::Separator();
+        if (setup_.active) { // the setup wizard has the whole window (WP5.11)
+            Draw_Setup_();
+            ImGui::End();
+            return !quit_;
+        }
+        const bool chrome_look = chrome::Ready(); // look B (WP5.11b), as the wizard
+        if (chrome_look) {
+            const ImVec2 window_min = ImGui::GetWindowPos();
+            const ImVec2 window_size = ImGui::GetWindowSize();
+            chrome::Background(ImGui::GetWindowDrawList(), window_min, ImVec2(window_min.x + window_size.x, window_min.y + window_size.y));
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const char* title = "BATTLE AT ANTARES";
+            chrome::Shadowed_Text(ImGui::GetWindowDrawList(), chrome::Title_Font(), 24.0f, at, chrome::GOLD, title);
+            const float title_width = chrome::Title_Font()->CalcTextSizeA(24.0f, FLT_MAX, 0.0f, title).x;
+            // The release label when there is one (version.txt), the program's own otherwise.
+            const std::string version = (update_.installed.empty() ? std::string(antares::PRODUCT_VERSION) : update_.installed) + "  ·  launcher";
+            ImGui::GetWindowDrawList()->AddText(chrome::Body_Font(), 17.0f, ImVec2(at.x + title_width + 14.0f, at.y + 7.0f), ImGui::ColorConvertFloat4ToU32(COLOUR_DIM), version.c_str());
+            const float version_width = chrome::Body_Font()->CalcTextSizeA(17.0f, FLT_MAX, 0.0f, version.c_str()).x;
+            Draw_Update_Notice_(at.x + title_width + 14.0f + version_width + 28.0f, at.y);
+            ImGui::Dummy(ImVec2(0.0f, 32.0f));
+        } else {
+            ImGui::TextUnformatted(antares::PRODUCT_NAME);
+            ImGui::SameLine();
+            ImGui::TextColored(COLOUR_DIM, "%s  ·  launcher", antares::PRODUCT_VERSION);
+            ImGui::Separator();
+        }
 
         Draw_Profile_Bar_();
         ImGui::Spacing();
@@ -448,23 +608,36 @@ namespace launcher {
         const float bottom = ImGui::GetFrameHeightWithSpacing() + ImGui::GetTextLineHeightWithSpacing() * 3.0f + style.ItemSpacing.y * 3.0f;
         const float body = std::max(120.0f, ImGui::GetContentRegionAvail().y - bottom);
         const int wanted_tab = force_tab_ ? tab_ : -1;
+        if (chrome_look) ImGui::PushFont(chrome::Title_Font(), 16.0f);
         if (ImGui::BeginTabBar("tabs")) {
-            if (ImGui::BeginTabItem("Packages", nullptr, wanted_tab == 0 ? ImGuiTabItemFlags_SetSelected : 0)) {
+            if (ImGui::BeginTabItem(chrome_look ? " PACKAGES ###packages" : "Packages###packages", nullptr, wanted_tab == 0 ? ImGuiTabItemFlags_SetSelected : 0)) {
                 tab_ = 0;
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Settings", nullptr, wanted_tab == 1 ? ImGuiTabItemFlags_SetSelected : 0)) {
+            if (ImGui::BeginTabItem(chrome_look ? " SETTINGS ###settings" : "Settings###settings", nullptr, wanted_tab == 1 ? ImGuiTabItemFlags_SetSelected : 0)) {
                 tab_ = 1;
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Saves", nullptr, wanted_tab == 2 ? ImGuiTabItemFlags_SetSelected : 0)) {
+            if (ImGui::BeginTabItem(chrome_look ? " SAVES ###saves" : "Saves###saves", nullptr, wanted_tab == 2 ? ImGuiTabItemFlags_SetSelected : 0)) {
                 tab_ = 2;
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();
             force_tab_ = false;
         }
-        const float tab_body = std::max(120.0f, body - ImGui::GetFrameHeightWithSpacing());
+        if (chrome_look) ImGui::PopFont();
+        float tab_body = std::max(120.0f, body - ImGui::GetFrameHeightWithSpacing());
+        // Look B: the tab's content sits in the bezel, as the wizard's pages.
+        constexpr float BEZEL_INSET = 16.0f;
+        if (chrome_look) {
+            const ImVec2 min = ImGui::GetCursorScreenPos();
+            const ImVec2 max(min.x + ImGui::GetContentRegionAvail().x, min.y + tab_body);
+            chrome::Bezel(ImGui::GetWindowDrawList(), min, max);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(BEZEL_INSET, BEZEL_INSET - 2.0f));
+            ImGui::BeginChild("tab-body", ImVec2(0.0f, tab_body), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);
+            ImGui::PopStyleVar();
+            tab_body -= BEZEL_INSET * 2.0f - 4.0f;
+        }
         if (tab_ == 0) {
             const float table_width = ImGui::GetContentRegionAvail().x * 0.60f;
             ImGui::BeginChild("mods", ImVec2(table_width, tab_body));
@@ -479,6 +652,7 @@ namespace launcher {
         } else {
             Draw_Saves_(tab_body);
         }
+        if (chrome_look) ImGui::EndChild();
 
         ImGui::Spacing();
         Draw_Check_();
@@ -489,6 +663,8 @@ namespace launcher {
         Draw_Launch_Bar_();
         Draw_Profile_Popups_();
         Draw_Toggle_Popup_();
+        Draw_Exit_Popup_();
+        Draw_Hd_Window_();
         ImGui::End();
         return !quit_;
     }
@@ -526,8 +702,13 @@ namespace launcher {
         if (ImGui::Button("Delete")) open(4, profiles_[profile_index_].name);
         ImGui::EndDisabled();
         ImGui::SameLine();
+        if (ImGui::Button("Game files")) Open_Setup();
+        ImGui::SameLine();
+        if (ImGui::Button("HD art")) hd_.window = true;
+        ImGui::SameLine();
         if (ImGui::Button("Rescan")) {
             const std::string current = profiles_[profile_index_].vfs_path;
+            Check_Files_();
             Refresh_Packages_();
             Refresh_Profiles_();
             size_t index = 0;
@@ -536,9 +717,9 @@ namespace launcher {
             }
             Select_Profile_(index);
         }
-        Help_Marker_("Profiles are files in data/profiles/. The game starts with one through "
+        Help_Marker_("Profiles are files in profiles/ (in data/, or in your user folder when installed). The game starts with one through "
                      "-config profiles/<name>.cfg. The launcher only changes their enable lines; "
-                     "anything else you write in them is kept. Rescan reads data/mods/ and the "
+                     "anything else you write in them is kept. Rescan reads the packages and the "
                      "profiles again.");
     }
 
@@ -554,7 +735,7 @@ namespace launcher {
         bool close = false;
         if (popup_ == 4) {
             ImGui::Text("Delete the profile \"%s\"?", name_buffer_);
-            ImGui::TextColored(COLOUR_DIM, "data/profiles/%s.cfg is removed. Packages are not touched.", name_buffer_);
+            ImGui::TextColored(COLOUR_DIM, "%s is removed. Packages are not touched.", Profile_File_Path_(profiles_[profile_index_]).c_str());
             if (ImGui::Button("Delete", ImVec2(ImGui::GetFontSize() * 7.0f, 0.0f))) {
                 std::error_code code;
                 std::filesystem::remove(Profile_File_Path_(profiles_[profile_index_]), code);
@@ -572,17 +753,19 @@ namespace launcher {
             const bool entered = ImGui::InputText("Name", name_buffer_, sizeof(name_buffer_), ImGuiInputTextFlags_EnterReturnsTrue);
             const std::string name = name_buffer_;
             if (ImGui::Button("OK", ImVec2(ImGui::GetFontSize() * 7.0f, 0.0f)) || entered) {
-                const std::string path = data_dir_ + "profiles/" + name + ".cfg";
+                const std::string path = config_dir_ + "profiles/" + name + ".cfg";
                 std::error_code code;
                 if (!antares::profile::Is_Valid_Profile_Name(name)) {
                     popup_error_ = "Use letters, digits, spaces, '-', '_' and '.'.";
-                } else if (std::filesystem::exists(path, code)) {
+                } else if (std::filesystem::exists(antares::utf8::Path(path), code) || std::filesystem::exists(antares::utf8::Path(data_dir_ + "profiles/" + name + ".cfg"), code)) {
                     popup_error_ = "A profile with that name already exists.";
                 } else {
-                    std::filesystem::create_directories(data_dir_ + "profiles", code);
+                    std::filesystem::create_directories(antares::utf8::Path(config_dir_ + "profiles"), code);
                     std::string error;
                     bool done = false;
-                    if (popup_ == 3) {
+                    if (popup_ == 3 && Profile_Read_Path_(profiles_[profile_index_]) != Profile_File_Path_(profiles_[profile_index_])) {
+                        done = Write_Text_(path, profile_text_, &error); // a bundled profile: rename a copy
+                    } else if (popup_ == 3) {
                         std::filesystem::rename(Profile_File_Path_(profiles_[profile_index_]), path, code);
                         done = !code;
                         if (code) error = code.message();
@@ -836,7 +1019,11 @@ namespace launcher {
 
     void c_launcher::Draw_Check_() {
         ImGui::PushTextWrapPos(0.0f);
-        if (check_.ok) {
+        if (!files_.ok) {
+            ImGui::TextColored(COLOUR_ERROR, "Can't play yet.");
+            ImGui::SameLine();
+            ImGui::TextUnformatted(antares::game_files::Describe(files_).c_str());
+        } else if (check_.ok) {
             ImGui::TextColored(COLOUR_OK, "Ready.");
             ImGui::SameLine();
             if (check_.package_order.empty()) {
@@ -866,6 +1053,7 @@ namespace launcher {
             }
         }
         ImGui::PopTextWrapPos();
+        if (hd_.busy) Draw_Hd_Bars_(true); // up to three bars, one per HD pack (owner 2026-11-24)
         if (!message_.empty()) {
             ImGui::TextColored(message_is_error_ ? COLOUR_ERROR : COLOUR_DIM, "%s", message_.c_str());
         }
@@ -888,7 +1076,14 @@ namespace launcher {
         ImGui::SameLine(ImGui::GetContentRegionMax().x - button_width);
         const s_save_row* save = Find_Save_(load_save_);
         const bool save_fails = load_save_ > 0 && (save == nullptr || !Save_Problem_(*save).empty());
-        ImGui::BeginDisabled(!check_.ok || save_fails || game_ != nullptr);
+        if (chrome::Ready()) { // look B: the game's metal button, glowing amber (WP5.11b)
+            const bool can_play = files_.ok && check_.ok && !save_fails && game_ == nullptr && !hd_.busy && !update_.downloading; // not mid-download (owner 2026-11-24)
+            const ImVec2 size(button_width, ImGui::GetFrameHeight() * 1.25f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - (size.y - ImGui::GetFrameHeight()) * 0.5f);
+            if (chrome::Button(game_ != nullptr ? "Running##play" : "Play##play", size, true, can_play)) Launch_(load_save_);
+            return;
+        }
+        ImGui::BeginDisabled(!files_.ok || !check_.ok || save_fails || game_ != nullptr || hd_.busy);
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.45f, 0.25f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.55f, 0.30f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.62f, 0.35f, 1.0f));

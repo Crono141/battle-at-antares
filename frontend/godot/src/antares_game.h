@@ -74,6 +74,8 @@ namespace godot {
         PackedStringArray get_packages() const;
         // The profile's `interface legacy_ui` is off (D27), once the game has loaded its configuration.
         bool get_native_ui() const;
+        String get_exit_message() const;
+        int64_t get_exit_status() const;
         // WP3.3a: the game's art (an LBX entry's frames) as images; sprite_ready(id, sprite) follows.
         int64_t request_sprite(const String& lbx, int64_t entry);
         // The last legacy frame as an image (tests: works headless).

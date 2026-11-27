@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "antares/utf8_files.h"
 
 #include "antares/combat_native.h"
 #include "antares/beam_bench.h"
@@ -11,6 +12,7 @@
 #include "antares/sprites.h"
 #define STB_IMAGE_WRITE_STATIC // spike 3.9: a private copy for the capture dumps
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STBIW_WINDOWS_UTF8 // file names are UTF-8 (WP5.15: non-ASCII Windows user names)
 #include "stb_image_write.h"
 #include "yyjson.h"
 
@@ -56,6 +58,14 @@ namespace antares::combat {
             } else {
                 *lbx = "monster.lbx";
                 *entry = ship.picture_num == 0x2C ? 25 : ship.picture_num;
+                // Its colours: MONSTER.LBX entry owner + 5 (13-19, palettes at 0x20), which
+                // COMBINIT::Load_Combat_Ship_Palette loads for a monster player. Without it the
+                // picture took the attacker's colours at 0x20-0x3F when there's no HD art (sweep
+                // 2026-11-25, after the owner's one-colour battle).
+                const int32_t palette = (int32_t)ship.owner + 5;
+                if (ship.owner >= MAX_PLAYERS && palette >= 13 && palette <= 19) {
+                    *lbx += "@" + std::to_string(palette);
+                }
             }
         }
 
@@ -1849,7 +1859,7 @@ namespace antares::combat {
                     }
                 }
                 const std::string path = std::string(dir) + "/w_volley" + std::to_string(m.volley) + "_beams.json";
-                if (FILE* out = fopen(path.c_str(), "w")) {
+                if (FILE* out = antares::utf8::Open(path.c_str(), "w")) {
                     fprintf(out, "{\"volley\":%d,\"weapons\":[%s],\"scale\":%d,\"calls\":[\n", m.volley, weapons.c_str(), S);
                     for (size_t i = 0; i < s_beam_records.size(); ++i) {
                         fprintf(out, "%s%s\n", s_beam_records[i].c_str(), i + 1 < s_beam_records.size() ? "," : "");
