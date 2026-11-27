@@ -35,7 +35,42 @@ namespace antares::sprites {
 
         // The original pixels of every frame, drawn by the game's own decoder into a scratch
         // bitmap (index 0 is transparent).
-        void Export_1x(s_animation_header* anim, const uint32_t palette_rgb[256], s_sprite* out, const uint32_t* glass_argb = nullptr) {
+        // A frame cut down to its visible pixels, its place in the entry's frame kept as the origin,
+        // as HD art comes (sprite.json origins). The colony buildings are whole 640x480 frames with
+        // the building where it stands on the landscape: shown whole, the build list's picture of a
+        // ground building was tiny without HD art (owner, 2026-11-25).
+        void Crop_To_Picture(s_frame* frame) {
+            int32_t left = frame->width, top = frame->height, right = -1, bottom = -1;
+            for (int32_t y = 0; y < frame->height; ++y) {
+                for (int32_t x = 0; x < frame->width; ++x) {
+                    if (frame->rgba[((size_t)y * frame->width + x) * 4 + 3] == 0) continue;
+                    left = std::min(left, x);
+                    right = std::max(right, x);
+                    top = std::min(top, y);
+                    bottom = std::max(bottom, y);
+                }
+            }
+            if (right < 0) { // nothing drawn: one clear pixel
+                frame->width = 1;
+                frame->height = 1;
+                frame->rgba.assign(4, 0);
+                return;
+            }
+            if (left == 0 && top == 0 && right == frame->width - 1 && bottom == frame->height - 1) return;
+            const int32_t w = right - left + 1;
+            const int32_t h = bottom - top + 1;
+            std::vector<uint8_t> cropped((size_t)w * h * 4);
+            for (int32_t y = 0; y < h; ++y) {
+                memcpy(&cropped[(size_t)y * w * 4], &frame->rgba[(((size_t)(top + y)) * frame->width + left) * 4], (size_t)w * 4);
+            }
+            frame->rgba = std::move(cropped);
+            frame->origin_x += left;
+            frame->origin_y += top;
+            frame->width = w;
+            frame->height = h;
+        }
+
+        void Export_1x(s_animation_header* anim, const uint32_t palette_rgb[256], s_sprite* out, const uint32_t* glass_argb = nullptr, bool keep_glass = false) {
             const int32_t width = anim->width;
             const int32_t height = anim->height;
             std::vector<uint64_t> storage((k_bitmap_data_offset + (size_t)width * height + 7) / 8 + 1, 0);
@@ -80,6 +115,13 @@ namespace antares::sprites {
                         frame.rgba[i * 4 + 3] = (uint8_t)(c >> 24);
                         continue;
                     }
+                    if (glassed && pixels[i] >= 0xF0 && !keep_glass) {
+                        // Glass tints what is under it, which a picture can't: left out, as the
+                        // HD path does (owner 2026-11-25: building shadows in the build list as a
+                        // tint from whichever glass table was loaded).
+                        frame.rgba[i * 4 + 3] = 0;
+                        continue;
+                    }
                     if (glassed && pixels[i] >= 0xF0) {
                         const auto& glass = video::glass_colors[pixels[i] - 0xF0];
                         frame.rgba[i * 4] = (uint8_t)(glass.r << 2);
@@ -94,6 +136,7 @@ namespace antares::sprites {
                     frame.rgba[i * 4 + 2] = (uint8_t)rgb;
                     frame.rgba[i * 4 + 3] = pixels[i] != 0 ? 255 : 0;
                 }
+                Crop_To_Picture(&frame);
                 out->frames.push_back(std::move(frame));
             }
             if (glassed) {
@@ -166,30 +209,44 @@ namespace antares::sprites {
             const char* lbx;
             int32_t first;
             int32_t last;
-            int32_t palette;
-            bool planets; // the colony backdrop's palette over it
+            int32_t palette;      // a FONTS.LBX palette, or -1
+            const char* over_lbx; // an entry whose embedded palette is laid over it, or nullptr
+            int32_t over_entry;
         };
+        // As the HD pack's sprite.json files declare them, for players without the pack (owner
+        // 2026-11-25: race portraits, spy icons and the Planets panel's pictures came out in the
+        // galaxy's colours without HD art).
         constexpr s_home_palette k_home_palettes[] = {
-            {"OFFICER.LBX", 0xD2, 0x114, 1, true},
-            {"OFFICER.LBX", 0, 0x7FFF, 8, false},
-            {"COLONY.LBX", 0, 0x7FFF, 1, true},
-            {"COLONY2.LBX", 0, 0x7FFF, 1, true},
-            {"COLSYSDI.LBX", 0, 0x7FFF, 1, true},
-            {"COLPUPS.LBX", 0, 0x7FFF, 1, true},
-            {"RACEICON.LBX", 0, 0x7FFF, 1, true},
+            {"OFFICER.LBX", 0xD2, 0x114, 1, "PLANETS.LBX", 0},
+            {"OFFICER.LBX", 0, 0x7FFF, 8, nullptr, -1},
+            {"COLONY.LBX", 0, 0x7FFF, 1, "PLANETS.LBX", 0},
+            {"COLONY2.LBX", 0, 0x7FFF, 1, "PLANETS.LBX", 0},
+            {"COLSYSDI.LBX", 0, 0x7FFF, 1, "PLANETS.LBX", 0},
+            {"COLPUPS.LBX", 0, 0x7FFF, 1, "PLANETS.LBX", 0},
+            {"RACEICON.LBX", 0, 0x7FFF, 1, "PLANETS.LBX", 0},
+            // The Races screen's own palette, where the pack declares it: not entry 4 or the spy
+            // icons (46-58), whose art is the galaxy's colours.
+            {"RACES.LBX", 0, 3, -1, "RACES.LBX", 0},
+            {"RACES.LBX", 5, 45, -1, "RACES.LBX", 0},
+            {"RACES.LBX", 59, 0x7FFF, -1, "RACES.LBX", 0},
+            {"PLNTSUM.LBX", 0, 0x7FFF, 6, "PLNTSUM.LBX", 0},  // the Planets screen
+            {"MAINPUPS.LBX", 0, 0x7FFF, 0, "BUFFER0.LBX", 0}, // the galaxy's popups
         };
 
         bool Home_Palette(const std::string& lbx, int32_t entry, std::vector<render::s_palette_layer>* layers) {
             for (const s_home_palette& home : k_home_palettes) {
                 if (lbx == home.lbx && entry >= home.first && entry <= home.last) {
-                    render::s_palette_layer base;
-                    base.palette = home.palette;
-                    layers->assign(1, base);
-                    if (home.planets) {
-                        render::s_palette_layer backdrop;
-                        backdrop.lbx = "PLANETS.LBX";
-                        backdrop.entry = 0;
-                        layers->push_back(backdrop);
+                    layers->clear();
+                    if (home.palette >= 0) {
+                        render::s_palette_layer base;
+                        base.palette = home.palette;
+                        layers->push_back(base);
+                    }
+                    if (home.over_lbx != nullptr) {
+                        render::s_palette_layer over;
+                        over.lbx = home.over_lbx;
+                        over.entry = home.over_entry;
+                        layers->push_back(over);
                     }
                     return true;
                 }
@@ -228,7 +285,7 @@ namespace antares::sprites {
         Apply_Embedded_Palette(entry_bytes, size, palette_rgb);
     }
 
-    void Apply_Embedded_Palette(const uint8_t* entry_bytes, size_t size, uint32_t palette_rgb[256]) {
+    void Apply_Embedded_Palette(const uint8_t* entry_bytes, size_t size, uint32_t palette_rgb[256], int32_t start_override) {
         if (entry_bytes == nullptr || size < sizeof(s_animation_header)) {
             return;
         }
@@ -244,13 +301,17 @@ namespace antares::sprites {
         memcpy(&header, entry_bytes + header_at, sizeof(header));
         const uint8_t* entries = entry_bytes + header_at + sizeof(s_palette_header);
         for (int32_t i = 0; i < header.count; ++i) {
-            const int32_t index = header.start_index + i;
+            const int32_t index = (start_override >= 0 ? start_override : header.start_index) + i;
             if (index < 0 || index >= 256 || header_at + sizeof(s_palette_header) + (size_t)(i + 1) * 4 > size) {
                 break;
             }
             const uint8_t* c = entries + (size_t)i * 4; // {changed, r, g, b}, 6-bit
             palette_rgb[index] = ((uint32_t)(c[1] << 2) << 16) | ((uint32_t)(c[2] << 2) << 8) | (uint32_t)(c[3] << 2);
         }
+    }
+
+    void Apply_Embedded_Palette(const uint8_t* entry_bytes, size_t size, uint32_t palette_rgb[256]) {
+        Apply_Embedded_Palette(entry_bytes, size, palette_rgb, -1);
     }
 
     bool Export(const std::string& requested, int32_t entry, s_sprite* out) {
@@ -495,6 +556,17 @@ namespace antares::sprites {
             if (Read_Entry(lbx, palette_entry, &own_palette, &own_size)) {
                 Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(own_palette.data()), own_size, palette_rgb);
             }
+        } else if (SDL_strcasecmp(lbx.c_str(), "CMBTSHP.LBX") == 0 && entry >= 0 && entry % 45 != 44) {
+            // A combat ship's colours: its colour set's palette, entry colour * 45 + 44, which
+            // COMBINIT::Load_Combat_Ship_Palette shifts to 0x20 (the attacker's slots; the
+            // defender's ships are remapped from 0x20 to 0x60 with theirs). Without it every
+            // empire's ships came out in one colour when there's no HD art to recolour (owner,
+            // 2026-11-25, the Windows build without the HD packs).
+            std::vector<uint64_t> set_palette;
+            size_t set_size = 0;
+            if (Read_Entry(lbx, entry / 45 * 45 + 44, &set_palette, &set_size)) {
+                Apply_Embedded_Palette(reinterpret_cast<const uint8_t*>(set_palette.data()), set_size, palette_rgb, 0x20);
+            }
         } else if (lbx == "SHIPS.LBX" && entry >= 0 && entry < 400 && entry % 50 != 49) {
             // A ship's player markings (0xC0-0xDF) take its colour set's palette, entry
             // colour * 50 + 49, as KEN::Load_Player_Ship_Palette loads it for the design screen
@@ -547,7 +619,10 @@ namespace antares::sprites {
             out->scale = render::SCALE / shrink;
             out->hd = true;
         } else {
-            Export_1x(anim, palette_rgb, out, glass ? glass_argb : nullptr);
+            // The colony landing's pods keep their glass beams (owner 2026-11-19: drawn as the level's
+            // colour over transparency).
+            const bool landing_pods = SDL_strcasecmp(lbx.c_str(), "COLONY.LBX") == 0 && entry == 6;
+            Export_1x(anim, palette_rgb, out, glass ? glass_argb : nullptr, landing_pods);
             out->hd_pending = still_decoding;
         }
         render::Forget_Loads(bytes, bytes + size);

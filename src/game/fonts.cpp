@@ -80,6 +80,7 @@ namespace fonts {
         struct_::Copy_Structure(dst, src, byte_count);
 
         video::mouse_palette = (uint8_t*)loaded_palette + sizeof(video::current_palette);
+        if (palette_id == 0) platform::Remember_Pointer_Palette((const uint8_t*)loaded_palette);
 
         // Signal that the specified color range has been modified.
         palette::Set_Palette_Changes(start_index, end_index);

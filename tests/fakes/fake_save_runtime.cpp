@@ -44,6 +44,13 @@ bool File_Exists(const char* path) {
 }
 
 // The header as a save starts: type, description, stardate.
+// user_paths.cpp's case lookup (native.cpp's theme pack cache reaches user_paths): the path as is.
+bool Resolve_File_Path_Case(const char* path, char* resolved_path, size_t resolved_path_size) {
+    if (path == nullptr || resolved_path == nullptr || resolved_path_size == 0) return false;
+    SDL_strlcpy(resolved_path, path, resolved_path_size);
+    return true;
+}
+
 FILE* fopen_case(const char* path, const char* mode) {
     const auto it = TEST_SAVE::slots.find(TEST_SAVE::Slot_Of(path));
     if (it == TEST_SAVE::slots.end() || mode[0] != 'r') {

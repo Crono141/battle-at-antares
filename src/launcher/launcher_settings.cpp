@@ -8,6 +8,7 @@
 
 #include "antares/profile_file.h"
 #include "launcher/launcher_app.h"
+#include "launcher/launcher_chrome.h"
 #include "launcher_schema.h"
 
 // The launcher's Settings tab (WP5.2): every scalar setting of the config schema, with the value
@@ -15,11 +16,11 @@
 // the profile and checked with the game's own dry run; an edit the game would refuse is undone.
 namespace launcher {
     namespace {
-        const ImVec4 COLOUR_OK(0.45f, 0.85f, 0.45f, 1.0f);
+        const ImVec4 COLOUR_OK(0.55f, 0.90f, 0.47f, 1.0f);
         const ImVec4 COLOUR_ERROR(1.0f, 0.45f, 0.40f, 1.0f);
-        const ImVec4 COLOUR_WARN(1.0f, 0.75f, 0.35f, 1.0f);
-        const ImVec4 COLOUR_DIM(0.60f, 0.62f, 0.68f, 1.0f);
-        const ImVec4 COLOUR_ACCENT(0.55f, 0.75f, 1.0f, 1.0f);
+        const ImVec4 COLOUR_WARN(1.0f, 0.54f, 0.11f, 1.0f); // amber (look B)
+        const ImVec4 COLOUR_DIM(0.67f, 0.67f, 0.71f, 1.0f);
+        const ImVec4 COLOUR_ACCENT(0.94f, 0.84f, 0.59f, 1.0f); // gold (look B)
 
         struct s_common_section {
             const char* title;
@@ -127,7 +128,11 @@ namespace launcher {
                 if (config::Find_Variable(name, SDL_strlen(name), &id)) {
                     // The window toggle sits above the scaler, and a note under it when the
                     // scaler can't show (WP5.5).
-                    if (SDL_strcmp(name, "interface.scaler") == 0) common_settings_.push_back(AUTO_WINDOW_ROW);
+                    if (SDL_strcmp(name, "interface.scaler") == 0) {
+                        common_settings_.push_back(LOOK_ROW);
+                        common_settings_.push_back(UPDATES_ROW);
+                        common_settings_.push_back(AUTO_WINDOW_ROW);
+                    }
                     common_settings_.push_back(id);
                     if (SDL_strcmp(name, "interface.scaler") == 0) common_settings_.push_back(SCALER_NOTE_ROW);
                 } else {
@@ -321,6 +326,45 @@ namespace launcher {
         return edits;
     }
 
+    void c_launcher::Draw_Look_Row_() {
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        if (ImGui::Selectable("Launcher look", selected_setting_ == LOOK_ROW, ImGuiSelectableFlags_AllowOverlap)) {
+            selected_setting_ = LOOK_ROW;
+        }
+        if (ImGui::IsItemHovered() && !ImGui::IsAnyItemActive()) selected_setting_ = LOOK_ROW;
+        ImGui::TableNextColumn();
+        const char* looks[] = {"Chrome", "Glass"};
+        int look = chrome::Look() == chrome::LOOK_GLASS ? 1 : 0;
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+        if (ImGui::Combo("##launcher-look", &look, looks, 2)) {
+            chrome::Set_Look(look == 1 ? chrome::LOOK_GLASS : chrome::LOOK_CHROME);
+            chrome::Style_Look(&ImGui::GetStyle());
+            Save_Settings_();
+        }
+        if (ImGui::IsItemHovered() && !ImGui::IsAnyItemActive()) selected_setting_ = LOOK_ROW;
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(COLOUR_DIM, "launcher");
+        ImGui::TableNextColumn();
+    }
+
+    void c_launcher::Draw_Updates_Row_() {
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        if (ImGui::Selectable("Check for updates at start", selected_setting_ == UPDATES_ROW, ImGuiSelectableFlags_AllowOverlap)) {
+            selected_setting_ = UPDATES_ROW;
+        }
+        if (ImGui::IsItemHovered() && !ImGui::IsAnyItemActive()) selected_setting_ = UPDATES_ROW;
+        ImGui::TableNextColumn();
+        if (ImGui::Checkbox("##check-updates", &update_.check)) Save_Settings_();
+        if (ImGui::IsItemHovered() && !ImGui::IsAnyItemActive()) selected_setting_ = UPDATES_ROW;
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(COLOUR_DIM, "launcher");
+        ImGui::TableNextColumn();
+    }
+
     void c_launcher::Draw_Auto_Window_Row_() {
         ImGui::TableNextColumn();
         ImGui::AlignTextToFramePadding();
@@ -454,6 +498,14 @@ namespace launcher {
                 }
                 if (id == AUTO_WINDOW_ROW) {
                     Draw_Auto_Window_Row_();
+                    continue;
+                }
+                if (id == LOOK_ROW) {
+                    Draw_Look_Row_();
+                    continue;
+                }
+                if (id == UPDATES_ROW) {
+                    Draw_Updates_Row_();
                     continue;
                 }
                 if (id == SCALER_NOTE_ROW) {

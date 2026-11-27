@@ -26,6 +26,16 @@ namespace antares {
         return true;
     }
 
+    std::string Install_Directory() {
+        if (host::Active()) {
+            std::error_code error;
+            const std::u8string text = (std::filesystem::current_path(error) / "").u8string();
+            if (!error) return std::string(text.begin(), text.end());
+        }
+        const char* base = SDL_GetBasePath();
+        return base != nullptr ? base : "";
+    }
+
     std::string Resolve_Startup_Config_Path(const std::string& requested, bool selected, const std::function<bool(const char*)>& file_exists) {
         if (selected || file_exists(CONFIG_FILE) || !file_exists(LEGACY_CONFIG_FILE)) {
             return requested;

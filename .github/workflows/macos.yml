@@ -7,6 +7,11 @@ on:
   push:
     branches: ['release/**']
   workflow_dispatch:
+    inputs:
+      label:
+        description: 'Release label for version.txt and the disk image (e.g. 0.8.0-test13); empty = the engine version'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -30,11 +35,11 @@ jobs:
           test "$(uname -m)" = arm64
           command -v ninja >/dev/null || brew install ninja
           cmake --preset osx-release
-          cmake --build --preset osx-release --target orion2re antares-launcher package-runtime-data --parallel 3
+          cmake --build --preset osx-release --target orion2re antares-launcher antares-gog-signin package-runtime-data --parallel 3
       - name: Check the binaries
         working-directory: out/build/Darwin/osx-release
         run: |
-          for B in antares antares-launcher; do
+          for B in antares antares-launcher antares-gog-signin; do
             file "$B"
             otool -L "$B"
             # Only system libraries and frameworks: a Homebrew library would not be on the player's Mac.
@@ -99,7 +104,7 @@ jobs:
         run: |
           B=out/build/Darwin/osx-release
           mkdir -p stage/data/mods
-          cp "$B/antares" "$B/antares-launcher" stage/
+          cp "$B/antares" "$B/antares-launcher" "$B/antares-gog-signin" stage/
           cp -R godot-out/antares-godot.app stage/
           cp "$B/data/base.zip" stage/data/
           cp "$B"/data/mods/*.zip stage/data/mods/
@@ -110,5 +115,121 @@ jobs:
         with:
           name: antares-macos-arm64
           path: antares-macos-arm64.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+      # WP5.17: one self-contained app on a disk image. Everything the game needs is inside the
+      # bundle (Resources/ is the program's folder: SDL's base path in an app), the user-folder
+      # marker keeps saves and settings in ~/Library/Application Support, and the app is signed
+      # (ad hoc) only once everything is in it, or macOS calls it damaged.
+      - name: Package the app (Battle at Antares.app, disk image)
+        env:
+          RELEASE_LABEL: ${{ inputs.label }}
+        run: |
+          # The release label (the updater compares it with GitHub's latest, WP5.19): the run's
+          # input when given (test builds), else the engine version.
+          V=$(sed -n 's/.*PRODUCT_VERSION\[\] = "\([^"]*\)".*/\1/p' src/antares/identity.h)
+          if [ -n "$RELEASE_LABEL" ]; then
+            printf '%s' "$RELEASE_LABEL" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' || { echo "bad label: $RELEASE_LABEL" >&2; exit 1; }
+            V=$RELEASE_LABEL
+          fi
+          B=out/build/Darwin/osx-release
+          APP="pkg/Battle at Antares.app"
+          C="$APP/Contents"
+          R="$C/Resources"
+          rm -rf pkg && mkdir -p "$C/MacOS" "$R/data/mods" "$R/licenses"
+          cp "$B/antares-launcher" "$C/MacOS/"
+          cp "$B/antares" "$B/antares-gog-signin" "$R/" # the sign-in beside the engine: the launcher looks in its base path
+          cp -R godot-out/antares-godot.app "$R/"
+          cp "$B/data/base.zip" "$R/data/"
+          cp "$B"/data/mods/*.zip "$R/data/mods/"
+          cp data/antares.cfg "$R/data/antares.cfg"
+          printf '\n# The themes of the native interface (Options > Theme switches; the last is the default).\nenable antares-ui-glass;\nenable antares-ui-chrome;\n' >> "$R/data/antares.cfg"
+          for T in antares-ui-glass antares-ui-chrome; do
+            python3 - "$PWD/frontend/godot/project" "$T" "$R/data/mods/$T.zip" <<'PY'
+          import io, sys, zipfile
+          from pathlib import Path
+          src, pkg, out = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+          root = src / "packages" / pkg
+          pack = io.BytesIO()
+          with zipfile.ZipFile(pack, "w", zipfile.ZIP_DEFLATED) as z:
+              for f in sorted(root.rglob("*")):
+                  if f.is_file():
+                      z.write(f, f.relative_to(src).as_posix())
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as z:
+              for name in ["mod.json5", "README.md", "config/main.cfg"]:
+                  z.write(root / name, name)
+              z.writestr(f"godot/{pkg}.zip", pack.getvalue())
+          PY
+          done
+          cp frontend/godot/licenses/* "$R/licenses/"
+          cp LICENSE "$R/LICENSE"
+          for D in SDL imgui libsmacker libuv libwebp lz4 lzma miniz stb yyjson; do
+            for F in vendors/$D/LICENSE vendors/$D/LICENSE.txt vendors/$D/LICENSE.md vendors/$D/COPYING; do
+              [ -f "$F" ] && cp "$F" "$R/licenses/$D-$(basename "$F")"
+            done
+          done
+          echo "$V" > "$R/version.txt"
+          printf 'This file keeps saves, settings, packages and the copied Master of Orion II files in\n~/Library/Application Support/Battle at Antares, not in this app.\n' > "$R/user-folder"
+          cp resources/icons/antares.icns "$R/antares.icns"
+          cat > "$C/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleIdentifier</key><string>io.github.crono141.battle-at-antares</string>
+              <key>CFBundleName</key><string>Battle at Antares</string>
+              <key>CFBundleDisplayName</key><string>Battle at Antares</string>
+              <key>CFBundleExecutable</key><string>antares-launcher</string>
+              <key>CFBundleIconFile</key><string>antares</string>
+              <key>CFBundlePackageType</key><string>APPL</string>
+              <key>CFBundleShortVersionString</key><string>$V</string>
+              <key>CFBundleVersion</key><string>$V</string>
+              <key>LSMinimumSystemVersion</key><string>11.0</string>
+              <key>NSHighResolutionCapable</key><true/>
+              <key>LSApplicationCategoryType</key><string>public.app-category.strategy-games</string>
+          </dict>
+          </plist>
+          PLIST
+          sed -i '' 's/^          //' "$C/Info.plist"
+          plutil -lint "$C/Info.plist"
+          codesign --force --deep -s - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          mkdir -p dmgroot && cp -R "$APP" dmgroot/ && ln -s /Applications dmgroot/Applications
+          for i in 1 2 3; do
+            hdiutil create -volname "Battle at Antares" -srcfolder dmgroot -ov -format UDZO "battle-at-antares-$V-macos-arm64.dmg" && break
+            sleep 10
+          done
+          ls -la *.dmg
+      - name: Check the app from the disk image
+        run: |
+          DMG=$(ls *.dmg)
+          MNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk -F'\t' '/\/Volumes\//{print $NF}')
+          CHECK="$RUNNER_TEMP/check"
+          mkdir -p "$CHECK" && cp -R "$MNT/Battle at Antares.app" "$CHECK/"
+          hdiutil detach "$MNT"
+          APP="$CHECK/Battle at Antares.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          echo "== Gatekeeper's verdict (ad hoc: expected rejected; the first-run text covers it):"
+          spctl -a -vv "$APP" || true
+          echo "== the launcher, headless:"
+          SDL_VIDEODRIVER=dummy SDL_AUDIO_DRIVER=dummy "$APP/Contents/MacOS/antares-launcher" -setup -screenshot "$RUNNER_TEMP/welcome.png" 2>&1 | head -8 || true
+          ls -la "$RUNNER_TEMP/welcome.png"
+          ls "$HOME/Library/Application Support/Battle at Antares/" || true
+          echo "== the engine with no game files (expects its missing-files message):"
+          (cd "$APP/Contents/Resources" && SDL_VIDEODRIVER=dummy SDL_AUDIO_DRIVER=dummy ./antares -log; echo "exit $?") 2>&1 | grep -iE "original|missing|exit|data directory|user paths" | head -6 || true
+          echo "== GOG sign-in window (WP5.17b): a local page that goes to GOG's success address with a fake code"
+          printf '<html><body>test<script>setTimeout(function(){location.href="https://embed.gog.com/on_login_success?origin=client&code=FAKE-CODE-123";},500);</script></body></html>' > "$RUNNER_TEMP/redirect.html"
+          SIGNIN_OUT=$(perl -e 'alarm 60; exec @ARGV' "$APP/Contents/Resources/antares-gog-signin" --page "file://$RUNNER_TEMP/redirect.html" 2>/dev/null); SIGNIN_EXIT=$?
+          echo "sign-in: exit $SIGNIN_EXIT, printed [$SIGNIN_OUT]"
+          [ "$SIGNIN_EXIT" = 0 ] && [ "$SIGNIN_OUT" = FAKE-CODE-123 ] && echo "sign-in: OK" || echo "sign-in: FAILED (see above)"
+          echo "== the seal after running (nothing wrote into the app):"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          cp "$RUNNER_TEMP/welcome.png" .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: battle-at-antares-macos-app
+          path: |
+            *.dmg
+            welcome.png
           if-no-files-found: error
           retention-days: 30

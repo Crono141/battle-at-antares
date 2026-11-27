@@ -102,6 +102,12 @@ namespace platform {
     void Destroy_Main_Window();
     void __cdecl Prepare_Exit();
     void __cdecl Update_Cursor_Image();
+    /** The galaxy's palette entry (FONTS palette 0: 256 {changed, r, g, b} 6-bit colours, then the
+     *  pointer images drawn for them, 1024 bytes a shape; the entry is 12544 bytes), kept for the
+     *  native interface's pointer without HD art: the live palette and its pointer images may be a
+     *  hidden legacy screen's (a bug report 2026-11-25: the hand came out in another screen's
+     *  colours). */
+    void Remember_Pointer_Palette(const uint8_t* entries);
     void __cdecl Toggle_Pages_Stub();
     int Run_Main_Loop(const char* command_line);
     void __cdecl Copy_Dwords(uint32_t* destination, const uint32_t* source, uint32_t dword_count);

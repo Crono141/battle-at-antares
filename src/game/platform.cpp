@@ -1,4 +1,5 @@
 #include "pch.h"
+#include <mutex>
 
 #include "antares/control.h"
 #include "antares/host.h"
@@ -1177,6 +1178,13 @@ namespace platform {
             SDL_DestroyTexture(cursor);
         }
 
+        // The native interface's pointer colours without HD art (Remember_Pointer_Palette).
+        std::mutex g_pointer_palette_mutex;
+        constexpr int32_t k_pointer_entry_bytes = 12544; // a FONTS.LBX palette entry
+        video::s_palette_color g_pointer_palette[256];
+        uint8_t g_pointer_images[k_pointer_entry_bytes - 1024];
+        bool g_pointer_palette_set = false;
+
         // Antares (WP3.1a): a hosting frontend draws the cursor itself; it gets the current image
         // (HD art when there is some) with each presented frame.
         void Publish_Host_Cursor() {
@@ -1189,9 +1197,24 @@ namespace platform {
                     size = k_cursor_dimension * render::SCALE;
                 } else {
                     size = k_cursor_dimension;
+                    // The galaxy's colours, not whichever palette a hidden legacy screen loaded
+                    // (the HD pointer is full colour and never had this problem).
+                    // Its image too: each palette carries pointer images drawn for its colours.
+                    video::s_palette_color palette[256];
+                    uint8_t pixels[k_cursor_pixel_count];
+                    memcpy(palette, g_present_palette_entries, sizeof(palette));
+                    memcpy(pixels, cursor_state.pixels, sizeof(pixels));
+                    {
+                        std::lock_guard<std::mutex> lock(g_pointer_palette_mutex);
+                        const size_t at = ((size_t)cursor_state.shape - 1) * k_cursor_pixel_count;
+                        if (g_pointer_palette_set && at + k_cursor_pixel_count <= sizeof(g_pointer_images)) {
+                            memcpy(palette, g_pointer_palette, sizeof(palette));
+                            memcpy(pixels, g_pointer_images + at, sizeof(pixels));
+                        }
+                    }
                     for (int32_t i = 0; i < k_cursor_pixel_count; ++i) {
-                        const video::s_palette_color& c = g_present_palette_entries[cursor_state.pixels[i]];
-                        argb[i] = cursor_state.pixels[i] == 0 ? 0u : (0xFF000000u | ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | c.b);
+                        const video::s_palette_color& c = palette[pixels[i]];
+                        argb[i] = pixels[i] == 0 ? 0u : (0xFF000000u | ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | c.b);
                     }
                 }
             }
@@ -2326,6 +2349,18 @@ namespace platform {
                 Queue_Key_Code(event.key_code, event.scan_code);
             }
         }
+    }
+
+    void Remember_Pointer_Palette(const uint8_t* entries) {
+        if (entries == nullptr) return;
+        std::lock_guard<std::mutex> lock(g_pointer_palette_mutex);
+        for (int32_t i = 0; i < 256; ++i) {
+            g_pointer_palette[i].r = (uint8_t)(entries[i * 4 + 1] << 2);
+            g_pointer_palette[i].g = (uint8_t)(entries[i * 4 + 2] << 2);
+            g_pointer_palette[i].b = (uint8_t)(entries[i * 4 + 3] << 2);
+        }
+        memcpy(g_pointer_images, entries + 1024, sizeof(g_pointer_images));
+        g_pointer_palette_set = true;
     }
 
     void __cdecl Update_Cursor_Image() {
