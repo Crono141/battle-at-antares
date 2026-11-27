@@ -819,12 +819,24 @@ namespace MAINPUPS {
             }
             for (int16_t i = 0; i < COMBFIND::target.num_player_targets && i < 15; ++i) {
                 const int16_t owner = COMBFIND::target.player_targets[i];
-                if (owner < 0 || owner >= MAX_PLAYERS || owner == player_idx ||
+                // A monster is a target like an empire's ships here (the non-player owners,
+                // MAX_PLAYERS through NONPLAYER_SHIP_TYPE_HYDRA, are what combfind.cpp collects
+                // into this same list). Skipping them left the window with no rows at all when the
+                // only hostile was a monster, so its fleet could never engage one from here: the
+                // window came up with CANCEL alone, nothing was chosen, and the star was marked
+                // ignore_combat_ships again (issue #17: a Space Eel at a planet could not be
+                // attacked from the new interface, while the classic system display, which takes
+                // the owner of the ship clicked in orbit without this test, could fight it). Its
+                // name comes from HACCESS::Race_Name, which knows the non-player ids that
+                // MOX::player, a pointer to the empire records alone, does not.
+                if (owner < 0 || owner > NONPLAYER_SHIP_TYPE_HYDRA || owner == player_idx ||
                     Player_Has_Colony_Or_Outpost_At_Star(owner, star_idx) != 0) {
                     continue;
                 }
+                char owner_name[80];
+                HACCESS::Race_Name(owner, owner_name, sizeof(owner_name));
                 s_native_option o;
-                o.text = std::string(MOX::player[owner].race_name) + " ships";
+                o.text = std::string(owner_name) + " ships";
                 o.value = owner;
                 o.fleet_owner = owner;
                 options.push_back(o);

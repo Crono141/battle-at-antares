@@ -6133,6 +6133,9 @@ func _smoke_native() -> void:
 	if "--popups" in OS.get_cmdline_user_args():
 		await _smoke_popups(shots)
 		return
+	if "--monster-target" in OS.get_cmdline_user_args():
+		await _smoke_monster_target(shots)
+		return
 	# The side panels' steps, any of them in one launch (one game start for several checks), with
 	# quick camera flights: the steps wait on the flights.
 	var panel_steps: Array = ["--colonies", "--planets", "--pin", "--fleets", "--leaders", "--races", "--info", "--design", "--layering"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
@@ -7600,6 +7603,76 @@ func _smoke_popups(shots: String) -> void:
 		return
 	game.request_game_quit()
 	print("smoke: asked the game to quit")
+
+
+## `--monster-target` (issue #17): a space monster's ships at a star are a target of the attack
+## window exactly as an empire's fleet there is. The window is the game's own preview of the turn's
+## battle question (`preview_popup attack_target`), at a star where an owner from MAX_PLAYERS up has
+## ships, and the check is that the window offers it: with no row to pick there was nothing but
+## CANCEL, so a monster could never be engaged from the new interface (reported 2026-11-26,
+## issue #17).
+func _smoke_monster_target(shots: String) -> void:
+	var star := -1
+	var owner := -1
+	for st: Dictionary in galaxy.stars:
+		var cf: Dictionary = await _query_args({"what": "combat_fleet", "star": int(st.id)})
+		for enemy: Dictionary in cf.get("enemies", []):
+			if int(enemy.get("player", -1)) >= 8:
+				star = int(st.id)
+				owner = int(enemy.player)
+				break
+		if star >= 0:
+			break
+	print("smoke: monster target: owner %d at star %d" % [owner, star])
+	if star < 0:
+		await host.smoke_fail("no star has a space monster's ships to attack")
+		return
+	var box := {}
+	_send({"verb": "preview_popup", "popup": "attack_target", "star": star}, func(r: Dictionary): box["r"] = r)
+	var waited := 0.0
+	while not overlay.visible and waited < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(1.2).timeout # the camera's flight into the system
+	var dialog: Control = _views.get("dialog")
+	var shown := overlay.visible and dialog != null and dialog.visible
+	var offered := false
+	var offered_text := ""
+	var offered_index := -1
+	if shown:
+		for i in dialog.options.size():
+			var option: Dictionary = dialog.options[i]
+			if int(option.get("fleet_owner", -1)) >= 8:
+				offered = true
+				offered_text = String(option.get("text", ""))
+				offered_index = i
+	print("smoke: monster target: window shown %s, %d options, offers the monster %s (%s)" % [
+		shown, dialog.options.size() if shown else 0, offered, offered_text])
+	if shots != "":
+		await host.shot(shots + "/monster-target.png")
+	if not shown:
+		await host.smoke_fail("the attack window did not show at the monster's star")
+		return
+	if not offered:
+		await host.smoke_fail("the select-combat window did not offer the space monster")
+		return
+	# A row offered is not a row that answers: the game answers an option with its value, which for
+	# a monster is its owner (combfind.cpp's target list). Pick the row and read what comes back -
+	# an index, or a default, would send the fleet after the wrong side without failing the checks
+	# above.
+	dialog._answer(1000 + offered_index)
+	var answered_in := 0.0
+	while not box.has("r") and answered_in < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		answered_in += 0.1
+	var answer := int((box.get("r", {}) as Dictionary).get("answer", -1))
+	print("smoke: monster target: its row answered %d, the monster's owner is %d (after %.1f s)" % [
+		answer, owner, answered_in])
+	if answer != owner:
+		await host.smoke_fail("the monster's row did not answer with its owner")
+		return
+	print("smoke: monster target OK")
+	game.request_game_quit()
 
 
 ## Ends `--turns=N` turns (default 1), answering what they ask; false when the galaxy did not come back.
