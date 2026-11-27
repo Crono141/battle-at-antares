@@ -242,10 +242,15 @@ DOCTEST_TEST_CASE("build_options lists what CHANGE offers; build_commit replays 
     c_players_[0].ship_designs[0].ship_weapon[0].type = 1;
     c_players_[0].ship_designs[0].ship_weapon[0].count = 4;
     COLONY::colony_handle = -7; // the popup's globals before: put back after
+    // The build time if built next: 200 already put in, 450 industry less 50 upkeep: 2,000 left
+    // at 400 a turn is 5 turns (from nothing, cost / industry + 1, it would be 7).
+    c_colonies_[0].production_spent = 200;
+    c_colonies_[0].production[ECON_INDUSTRY] = 450;
+    c_colonies_[0].maintenance[ECON_INDUSTRY] = 50;
     const std::string options = Run_("{\"verb\":\"query\",\"what\":\"build_options\",\"colony\":0}");
     DOCTEST_CHECK(Has_(options, "\"buildings\":[{\"id\":-2,"));
     DOCTEST_CHECK(Has_(options, "{\"id\":22,\"name\":\"B22\""));
-    DOCTEST_CHECK(Has_(options, "\"cost\":2200,\"turns\":7,\"upkeep\":"));
+    DOCTEST_CHECK(Has_(options, "\"cost\":2200,\"turns\":5,\"upkeep\":"));
     DOCTEST_CHECK(Has_(options, "{\"separator\":true}"));
     DOCTEST_CHECK(Has_(options, "\"name\":\"Warship\""));
     DOCTEST_CHECK(Has_(options, "\"hull\":\"Cruiser\",\"shield\":\"Part\""));
