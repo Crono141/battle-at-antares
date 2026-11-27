@@ -51,6 +51,21 @@ var _note: Label
 var _swing: Tween
 var _panel_in := false
 var _busy := false # a choice was sent: no second one until the screen changes
+## The 3D panel (title/panel.glb, our own Blender model): it swings in on its hinge at the right
+## edge and slides to its place; the live buttons then lie over its face. Without the model the
+## 2D panel squeezes in instead.
+var _rig: SubViewportContainer
+var _camera: Camera3D
+var _model: Node3D # the glb's scene; its "Panel" node is the hinge
+var _hinge: Node3D
+var _arm3d: Node3D
+var _turn := 0.0 # 0 edge-on, 1 facing the viewer
+var _slide := 0.0 # 0 at the right edge, 1 home
+const FACE_CENTER := Vector2(-1.0, 0.0) # the face's middle from the hinge (model units)
+const FACE_SIZE := Vector2(1.70, 1.40)
+const ARM_LENGTH := 2.5
+const CAMERA_DISTANCE := 12.0
+const CAMERA_FOV := 30.0
 
 
 func _ready() -> void:
@@ -64,13 +79,15 @@ func _ready() -> void:
 	_logo.texture = _logo_tex
 	add_child(_logo)
 
+	_build_rig()
+
 	_arm = ColorRect.new()
 	_arm.color = Color(0.20, 0.21, 0.23)
 	_arm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_arm)
 
 	_panel = PanelContainer.new()
-	_panel.add_theme_stylebox_override("panel", _panel_style())
+	_panel.add_theme_stylebox_override("panel", _panel_style() if _rig == null else _face_style())
 	add_child(_panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
@@ -161,6 +178,113 @@ func _load_art() -> void:
 			_logo_tex = ImageTexture.create_from_image(image)
 
 
+func _build_rig() -> void:
+	var path: String = scene_file_path.get_base_dir().get_base_dir() + "/title/panel.glb"
+	if not FileAccess.file_exists(path):
+		return
+	var doc := GLTFDocument.new()
+	var state := GLTFState.new()
+	if doc.append_from_file(path, state) != OK:
+		push_warning("lobby: could not read %s" % path)
+		return
+	_model = doc.generate_scene(state) as Node3D
+	if _model == null:
+		return
+	_hinge = _model.find_child("Panel", true, false) as Node3D
+	if _hinge == null:
+		_hinge = _model
+	_arm3d = _model.find_child("Arm", true, false) as Node3D
+	var face := _model.find_child("Face", true, false)
+	if face is MeshInstance3D:
+		var glass := StandardMaterial3D.new()
+		glass.albedo_color = Color(0.03, 0.16, 0.05)
+		glass.emission_enabled = true
+		glass.emission = Color(0.05, 0.35, 0.10)
+		glass.emission_energy_multiplier = 0.6
+		glass.roughness = 0.25
+		glass.metallic_specular = 0.8
+		(face as MeshInstance3D).material_override = glass
+	_rig = SubViewportContainer.new()
+	_rig.stretch = true
+	_rig.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rig.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var viewport := SubViewport.new()
+	viewport.transparent_bg = true
+	viewport.own_world_3d = true
+	viewport.msaa_3d = Viewport.MSAA_4X
+	_rig.add_child(viewport)
+	_camera = Camera3D.new()
+	_camera.fov = CAMERA_FOV
+	_camera.position = Vector3(0, 0, CAMERA_DISTANCE)
+	viewport.add_child(_camera)
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-30, -35, 0)
+	sun.light_energy = 1.4
+	viewport.add_child(sun)
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(10, 120, 0)
+	fill.light_energy = 0.35
+	fill.light_color = Color(0.7, 0.8, 1.0)
+	viewport.add_child(fill)
+	var env := Environment.new()
+	env.background_mode = Environment.BG_CLEAR_COLOR
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.45, 0.47, 0.5)
+	env.ambient_light_energy = 0.6
+	var world_env := WorldEnvironment.new()
+	world_env.environment = env
+	viewport.add_child(world_env)
+	viewport.add_child(_model)
+	_model.visible = false
+	add_child(_rig)
+
+
+## The live buttons over the 3D face: no frame of their own.
+func _face_style() -> StyleBoxEmpty:
+	var style := StyleBoxEmpty.new()
+	style.content_margin_left = 26
+	style.content_margin_right = 26
+	style.content_margin_top = 24
+	style.content_margin_bottom = 24
+	return style
+
+
+## Pixels per model unit at the panel's depth (the hinge is at z = 0).
+func _ppu() -> float:
+	return size.y / (2.0 * CAMERA_DISTANCE * tan(deg_to_rad(CAMERA_FOV) * 0.5))
+
+
+func _screen_to_world(at: Vector2) -> Vector2:
+	var ppu := _ppu()
+	return Vector2((at.x - size.x * 0.5) / ppu, -(at.y - size.y * 0.5) / ppu)
+
+
+## Places the 3D panel for the current swing (_turn) and slide (_slide): its face, facing the
+## viewer at home, covers the buttons' rectangle; the hinge starts at the picture's right edge.
+func _update_3d() -> void:
+	if _rig == null or _model == null:
+		return
+	_panel.reset_size()
+	var home := Rect2(_panel_home(), _panel.size)
+	var k := home.size.y / (FACE_SIZE.y * 0.9 * _ppu()) # the buttons inside the face's safe area
+	var face_world := _screen_to_world(home.get_center())
+	var hinge_home := face_world - FACE_CENTER * k
+	var shown := picture_rect()
+	var edge := _screen_to_world(Vector2(shown.end.x - shown.size.y * 0.02, 0)).x
+	var hinge_x := lerpf(edge, hinge_home.x, _slide)
+	_hinge.position = Vector3(hinge_x, hinge_home.y, 0)
+	_hinge.scale = Vector3(k, k, k)
+	_hinge.rotation = Vector3(0, deg_to_rad(-90.0 * (1.0 - _turn)), 0)
+	if _arm3d:
+		# The arm reaches past the screen's right edge, wherever the panel is.
+		var right := _screen_to_world(Vector2(size.x + 40, 0)).x
+		var needed := (right - hinge_x) / k
+		var arm_parent_scale := 1.0
+		_arm3d.scale.x = maxf(0.2, needed / ARM_LENGTH) * arm_parent_scale
+		_arm3d.rotation.y = -_hinge.rotation.y # the arm stays fixed to the wall while the panel turns
+	_model.visible = visible and (_turn > 0.0 or _slide > 0.0 or _panel_in)
+
+
 func _panel_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.04, 0.16, 0.06, 0.96)
@@ -232,6 +356,10 @@ func show_screen(new_screen: int) -> void:
 func leave() -> void:
 	screen = -1
 	_panel_in = false
+	_turn = 0.0
+	_slide = 0.0
+	if _model:
+		_model.visible = false
 	if _swing:
 		_swing.kill()
 	_slots.close_slots()
@@ -417,9 +545,13 @@ func _panel_home() -> Vector2:
 	var shown := picture_rect()
 	var panel_size := _panel.get_combined_minimum_size()
 	var margin := shown.size.y * 0.09
-	var x := shown.end.x - margin - panel_size.x
+	var width := panel_size.x
+	if _rig != null:
+		# The 3D panel round the buttons: its face (the buttons' safe area) and the bezel.
+		width = panel_size.y / 0.9 * FACE_SIZE.x / FACE_SIZE.y * 1.22
+	var center_x := shown.end.x - margin - width * 0.5
 	var y := shown.position.y + shown.size.y * 0.47 - panel_size.y * 0.5
-	return Vector2(x, y)
+	return Vector2(center_x - panel_size.x * 0.5, y)
 
 
 func _layout() -> void:
@@ -437,7 +569,8 @@ func _layout() -> void:
 		_logo.size = Vector2(logo_w, logo_h)
 		_logo.position = Vector2(shown.position.x + shown.size.y * 0.09, shown.position.y + shown.size.y * 0.07)
 	_version.reset_size()
-	_version.position = Vector2(_panel_home().x + (_panel.size.x - _version.size.x) * 0.5, _panel_home().y + _panel.size.y + 10)
+	var below := _panel.size.y * (0.2 if _rig != null else 0.0) + 10.0 # under the bezel
+	_version.position = Vector2(_panel_home().x + (_panel.size.x - _version.size.x) * 0.5, _panel_home().y + _panel.size.y + below)
 	_credits.reset_size()
 	_credits.position = Vector2(shown.position.x + shown.size.y * 0.09, shown.end.y - shown.size.y * 0.12 - _credits.size.y)
 	_mods.reset_size()
@@ -453,7 +586,7 @@ func _place_arm() -> void:
 	var shown := picture_rect()
 	var thickness := _panel.size.y * 0.16
 	var x0 := _panel.position.x + _panel.size.x * _panel.scale.x - 6
-	_arm.visible = _panel.visible and _panel.scale.x > 0.6
+	_arm.visible = _rig == null and _panel.visible and _panel.scale.x > 0.6
 	_arm.position = Vector2(x0, _panel.position.y + _panel.size.y * 0.5 - thickness * 0.5)
 	_arm.size = Vector2(maxf(0.0, shown.end.x - x0), thickness)
 
@@ -464,6 +597,25 @@ func _swing_in(first: bool) -> void:
 	_panel_in = true
 	if _swing:
 		_swing.kill()
+	if _rig != null:
+		_panel.hide()
+		_panel.scale = Vector2.ONE
+		_panel.modulate = Color.WHITE
+		_turn = 0.0
+		_slide = 0.0
+		_update_3d()
+		_model.visible = true
+		var swing_time := SWING_TIME if first else SWING_TIME * 0.6
+		_swing = create_tween()
+		_swing.tween_interval(0.25 if first else 0.05)
+		_swing.tween_property(self, "_turn", 1.0, swing_time).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		_swing.tween_property(self, "_slide", 1.0, SLIDE_TIME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+		_swing.tween_callback(func():
+			_layout()
+			_panel.position = _panel_home()
+			_panel.show())
+		set_process(true)
+		return
 	_panel.reset_size()
 	var home := _panel_home()
 	var shown := picture_rect()
@@ -489,6 +641,13 @@ func _swing_out() -> void:
 	_panel_in = false
 	if _swing:
 		_swing.kill()
+	if _rig != null:
+		_panel.hide()
+		_swing = create_tween()
+		_swing.tween_property(self, "_slide", 0.0, SLIDE_TIME * 0.6).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		_swing.tween_property(self, "_turn", 0.0, SWING_TIME * 0.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		_swing.tween_callback(func(): _model.visible = false)
+		return
 	var shown := picture_rect()
 	var hinge_x := shown.end.x - shown.size.y * 0.02
 	_swing = create_tween()
@@ -498,7 +657,11 @@ func _swing_out() -> void:
 
 
 func _process(_delta: float) -> void:
-	if visible and _panel.visible:
+	if not visible:
+		return
+	if _rig != null:
+		_update_3d()
+	elif _panel.visible:
 		_place_arm()
 
 

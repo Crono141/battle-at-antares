@@ -7324,7 +7324,10 @@ func _smoke_title(shots: String) -> bool:
 		print("smoke: title: Cancel did not reach the native title screen")
 		return false
 	var lobby := _view("lobby")
-	await get_tree().create_timer(2.5).timeout # the panel's swing
+	await get_tree().create_timer(0.7).timeout
+	if shots != "":
+		await host.shot(shots + "/title-swing.png") # mid-swing
+	await get_tree().create_timer(1.8).timeout # the rest of the panel's swing
 	if shots != "":
 		await host.shot(shots + "/title.png")
 	print("smoke: title: menu %s" % JSON.stringify(lobby._menu).left(300))
