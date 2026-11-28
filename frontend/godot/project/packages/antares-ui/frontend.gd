@@ -835,6 +835,25 @@ func _smoke_mouse(pressed: bool, at: Vector2) -> void:
 	Input.parse_input_event(click)
 
 
+## A trackpad's two-finger scroll at `at` (screen coordinates), as the platform sends it: a pan
+## gesture, not wheel notches (macOS). Positive `delta.y` is the wheel-down direction.
+func _smoke_pan_gesture(delta: Vector2, at: Vector2) -> void:
+	var move := InputEventMouseMotion.new()
+	move.position = at
+	# Two different routes, because each event needs a different one (found 2026-11-26):
+	#  - the motion goes through `Input`: that is what moves the viewport's "control under the
+	#    pointer", which the map consults before it zooms. `push_input` alone leaves it stale, so a
+	#    gesture aimed at the map was refused because a control from an earlier frame was under it.
+	#  - the gesture is pushed into the viewport: `Input.parse_input_event` hands a pan gesture to
+	#    `_unhandled_input` twice, so a notch zoomed by 1.2 twice over (1.44) and a smoke that fed
+	#    it that way could not tell a doubled gesture from a correct one.
+	Input.parse_input_event(move) # the pointer over the map, not over a pane
+	var pan := InputEventPanGesture.new()
+	pan.position = at
+	pan.delta = delta
+	get_viewport().push_input(pan)
+
+
 ## The interface scale (owner, 2026-11-12, after a friend found everything illegibly small on a
 ## 2560x1600 screen): the window's content scale, so panels, text and the map's labels grow
 ## together and every coordinate stays in one space. Saved in the settings; with none saved, the
@@ -5359,6 +5378,47 @@ func _smoke_native() -> void:
 				return
 			game.request_game_quit()
 			return
+		if arg == "--dismiss-officer":
+			# Owner, 2026-11-26: dismissing a leader from the native Leaders panel crashed the
+			# game (OFFICER::Dismiss_Officer -> Build_Captain_Id_List wrote through the null
+			# officer_id_list; the Leaders screen that owns it is never built on this path).
+			_on_view_action("leaders")
+			await get_tree().create_timer(0.8).timeout
+			var lp := _view("leaders_panel")
+			var victim := -1
+			for l: Dictionary in lp.leaders:
+				if int(l.get("status", -1)) >= 0 and int(l.get("status", -1)) != 4:
+					victim = int(l.leader)
+					break
+			print("smoke: dismissing leader %d (of %d on the '%s' tab)" % [victim, lp.leaders.size(), lp.tab])
+			if victim < 0:
+				await host.smoke_fail("no hired leader to dismiss")
+				return
+			lp.picked = victim
+			lp._act("dismiss")
+			for i in 30:
+				await get_tree().create_timer(0.2).timeout
+				_smoke_answer()
+			var pings := 0
+			for i in 15:
+				var got := {}
+				_send({"verb": "query", "what": "leaders", "type": lp.tab}, func(r: Dictionary): got["r"] = r)
+				for k in 20:
+					await get_tree().create_timer(0.05).timeout
+					if got.has("r"):
+						break
+				if got.has("r"):
+					pings += 1
+				await get_tree().create_timer(1.0).timeout
+				_smoke_answer()
+			var after: Dictionary = lp._leader(victim)
+			print("smoke: after the dismissal the game answered %d of 15 queries over 15 s; leader %d %s" % [pings, victim,
+				"is gone" if after.is_empty() else "status %d" % int(after.get("status", -1))])
+			if pings < 15 or not after.is_empty():
+				await host.smoke_fail("the game stopped answering after the leader dismissal")
+				return
+			game.request_game_quit()
+			return
 		if arg == "--select-combat":
 			await _smoke_window_setting()
 			# The select-combat window (WP, owner 2026-11-20): an attack_target preview at a star
@@ -6212,6 +6272,9 @@ func _smoke_native() -> void:
 			return
 	if "--popups" in OS.get_cmdline_user_args():
 		await _smoke_popups(shots)
+		return
+	if "--monster-target" in OS.get_cmdline_user_args():
+		await _smoke_monster_target(shots)
 		return
 	# The side panels' steps, any of them in one launch (one game start for several checks), with
 	# quick camera flights: the steps wait on the flights.
@@ -7988,6 +8051,76 @@ func _smoke_popups(shots: String) -> void:
 	print("smoke: asked the game to quit")
 
 
+## `--monster-target` (issue #17): a space monster's ships at a star are a target of the attack
+## window exactly as an empire's fleet there is. The window is the game's own preview of the turn's
+## battle question (`preview_popup attack_target`), at a star where an owner from MAX_PLAYERS up has
+## ships, and the check is that the window offers it: with no row to pick there was nothing but
+## CANCEL, so a monster could never be engaged from the new interface (reported 2026-11-26,
+## issue #17).
+func _smoke_monster_target(shots: String) -> void:
+	var star := -1
+	var owner := -1
+	for st: Dictionary in galaxy.stars:
+		var cf: Dictionary = await _query_args({"what": "combat_fleet", "star": int(st.id)})
+		for enemy: Dictionary in cf.get("enemies", []):
+			if int(enemy.get("player", -1)) >= 8:
+				star = int(st.id)
+				owner = int(enemy.player)
+				break
+		if star >= 0:
+			break
+	print("smoke: monster target: owner %d at star %d" % [owner, star])
+	if star < 0:
+		await host.smoke_fail("no star has a space monster's ships to attack")
+		return
+	var box := {}
+	_send({"verb": "preview_popup", "popup": "attack_target", "star": star}, func(r: Dictionary): box["r"] = r)
+	var waited := 0.0
+	while not overlay.visible and waited < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(1.2).timeout # the camera's flight into the system
+	var dialog: Control = _views.get("dialog")
+	var shown := overlay.visible and dialog != null and dialog.visible
+	var offered := false
+	var offered_text := ""
+	var offered_index := -1
+	if shown:
+		for i in dialog.options.size():
+			var option: Dictionary = dialog.options[i]
+			if int(option.get("fleet_owner", -1)) >= 8:
+				offered = true
+				offered_text = String(option.get("text", ""))
+				offered_index = i
+	print("smoke: monster target: window shown %s, %d options, offers the monster %s (%s)" % [
+		shown, dialog.options.size() if shown else 0, offered, offered_text])
+	if shots != "":
+		await host.shot(shots + "/monster-target.png")
+	if not shown:
+		await host.smoke_fail("the attack window did not show at the monster's star")
+		return
+	if not offered:
+		await host.smoke_fail("the select-combat window did not offer the space monster")
+		return
+	# A row offered is not a row that answers: the game answers an option with its value, which for
+	# a monster is its owner (combfind.cpp's target list). Pick the row and read what comes back -
+	# an index, or a default, would send the fleet after the wrong side without failing the checks
+	# above.
+	dialog._answer(1000 + offered_index)
+	var answered_in := 0.0
+	while not box.has("r") and answered_in < 10.0:
+		await get_tree().create_timer(0.1).timeout
+		answered_in += 0.1
+	var answer := int((box.get("r", {}) as Dictionary).get("answer", -1))
+	print("smoke: monster target: its row answered %d, the monster's owner is %d (after %.1f s)" % [
+		answer, owner, answered_in])
+	if answer != owner:
+		await host.smoke_fail("the monster's row did not answer with its owner")
+		return
+	print("smoke: monster target OK")
+	game.request_game_quit()
+
+
 ## Ends `--turns=N` turns (default 1), answering what they ask; false when the galaxy did not come back.
 func _smoke_turns() -> bool:
 	var empire := {}
@@ -8855,6 +8988,121 @@ func _smoke_combat_auto(shots: String) -> bool:
 	return false
 
 
+## The pointer at a screen point, as this file's other steps do it: `Input.warp_mouse` and a parsed
+## motion. The parsed motion is what moves the viewport's "control under the pointer", which the
+## battle consults before it answers the wheel or a gesture (`_pointer_on_field`), and it takes a
+## frame or two to land (found 2026-11-26: read in the same breath, it was still nothing).
+func _smoke_pointer(at: Vector2) -> void:
+	Input.warp_mouse(at)
+	var move := InputEventMouseMotion.new()
+	move.position = at
+	move.global_position = at
+	Input.parse_input_event(move)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await get_tree().create_timer(0.1).timeout
+
+
+## A trackpad's two-finger scroll (a pan gesture) at a screen point, pushed into the viewport: that
+## delivers it once, where `Input.parse_input_event` hands it to `_unhandled_input` twice (a notch
+## then measures 1.2 squared - found 2026-11-26). Positive `delta.y` is the wheel-down direction.
+func _smoke_scroll_gesture(delta: Vector2, at: Vector2) -> void:
+	var pan := InputEventPanGesture.new()
+	pan.position = at
+	pan.delta = delta
+	get_viewport().push_input(pan)
+
+
+## A trackpad's pinch (a magnify gesture) at a screen point: the factor is a ratio, as the platform
+## sends it.
+func _smoke_pinch_gesture(factor: float, at: Vector2) -> void:
+	var pinch := InputEventMagnifyGesture.new()
+	pinch.position = at
+	pinch.factor = factor
+	get_viewport().push_input(pinch)
+
+
+## The battle's zoom by a trackpad (owner, 2026-11-26: with only a wheel taken, a MacBook could not
+## zoom the battle at all). The wheel is measured first as the control the gesture has to match, then
+## a notch of two-finger scroll in and back out, then a pinch and back: each as its own factor rather
+## than as "it moved", and each round trip has to come back where it started.
+func _smoke_combat_zoom(view: Control) -> bool:
+	var at: Vector2 = (view._clear_area() as Rect2).get_center()
+	await _smoke_pointer(at)
+	print("smoke: battle zoom: the pointer at (%.0f,%.0f), under it %s, on the field %s" % [at.x, at.y,
+		get_viewport().gui_get_hovered_control(), view._pointer_on_field()])
+	if not view._pointer_on_field():
+		print("smoke: FAILED: the pointer could not be put on the battle field: (%.0f,%.0f) is over %s" % [at.x, at.y,
+			get_viewport().gui_get_hovered_control()])
+		return false
+	# The wheel, which the gesture has to match.
+	var wheel_before: float = view._zoom
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.pressed = true
+	wheel.position = at
+	get_viewport().push_input(wheel)
+	await get_tree().process_frame
+	var wheel_factor: float = view._zoom / wheel_before
+	print("smoke: battle zoom: the wheel %.4f -> %.4f = x%.4f (a notch is x%.4f)" % [wheel_before, view._zoom, wheel_factor, view.WHEEL_NOTCH_ZOOM])
+	if absf(wheel_factor - view.WHEEL_NOTCH_ZOOM) > 0.01:
+		print("smoke: FAILED: the battle's wheel zoomed by x%.4f, not by its notch (x%.4f)" % [wheel_factor, view.WHEEL_NOTCH_ZOOM])
+		return false
+	wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN # and back
+	await get_tree().process_frame
+	# A notch of two-finger scroll in, and the same notch back out.
+	var start: float = view._zoom
+	_smoke_scroll_gesture(Vector2(0.0, -view.PAN_NOTCH_DELTA), at)
+	await get_tree().process_frame
+	var into: float = view._zoom
+	var in_factor: float = into / start
+	print("smoke: battle zoom: two-finger scroll %.4f -> %.4f = x%.4f (a notch in)" % [start, into, in_factor])
+	if absf(in_factor - view.WHEEL_NOTCH_ZOOM) > 0.01:
+		print("smoke: FAILED: a two-finger scroll zoomed the battle by x%.4f, not by a wheel notch (x%.4f; the field answered the wheel above)" % [in_factor, view.WHEEL_NOTCH_ZOOM])
+		return false
+	_smoke_scroll_gesture(Vector2(0.0, view.PAN_NOTCH_DELTA), at)
+	await get_tree().process_frame
+	var out_factor: float = view._zoom / into
+	print("smoke: battle zoom: two-finger scroll back %.4f -> %.4f = x%.4f (a notch out)" % [into, view._zoom, out_factor])
+	if absf(out_factor - 1.0 / view.WHEEL_NOTCH_ZOOM) > 0.01:
+		print("smoke: FAILED: the scroll back zoomed by x%.4f, not by a notch (x%.4f)" % [out_factor, 1.0 / view.WHEEL_NOTCH_ZOOM])
+		return false
+	# A pinch: the ratio the platform names, applied as it comes, and taken back.
+	var pinch_before: float = view._zoom
+	_smoke_pinch_gesture(1.25, at)
+	await get_tree().process_frame
+	var pinch_factor: float = view._zoom / pinch_before
+	print("smoke: battle zoom: a pinch %.4f -> %.4f = x%.4f (asked x1.2500)" % [pinch_before, view._zoom, pinch_factor])
+	if absf(pinch_factor - 1.25) > 0.01:
+		print("smoke: FAILED: a pinch zoomed the battle by x%.4f, not by the ratio it named" % pinch_factor)
+		return false
+	_smoke_pinch_gesture(1.0 / 1.25, at)
+	await get_tree().process_frame
+	# Over the HUD the gesture is the HUD's: the battle's zoom must not move.
+	var hud_at := Vector2.ZERO
+	for panel: Control in [view._bottom, view._console, view._log_panel, view._minimap, view._timeline, view._fleets_panel]:
+		if panel == null or not panel.visible:
+			continue
+		var point: Vector2 = panel.get_global_rect().get_center()
+		await _smoke_pointer(point)
+		if not view._pointer_on_field():
+			hud_at = point
+			break
+	if hud_at == Vector2.ZERO:
+		print("smoke: battle zoom: the scroll over the HUD was not checked, no panel of it took the pointer")
+		return true
+	var kept: float = view._zoom
+	_smoke_scroll_gesture(Vector2(0.0, -view.PAN_NOTCH_DELTA), hud_at)
+	await get_tree().process_frame
+	print("smoke: battle zoom: a scroll over the HUD at (%.0f,%.0f) (under it %s) left the battle at %.4f (was %.4f)" % [hud_at.x, hud_at.y,
+		get_viewport().gui_get_hovered_control(), view._zoom, kept])
+	if absf(view._zoom - kept) > 0.0001:
+		print("smoke: FAILED: a scroll over the HUD zoomed the battle")
+		return false
+	print("smoke: battle zoom OK")
+	return true
+
+
 func _smoke_combat(shots: String) -> bool:
 	_send({"verb": "end_turn"})
 	var waited := 0.0
@@ -8898,6 +9146,10 @@ func _smoke_combat(shots: String) -> bool:
 	get_tree().process_frame.connect(planet_sampler)
 	print("smoke: battle open, round %d, %d ships, acting %d, %d legal squares" % [int(view.state.round), (view.state.ships as Array).size(),
 		int(view.state.ship), (view.state.legal as Array).size()])
+	# The battle's zoom by a trackpad (owner, 2026-11-26: a MacBook could not zoom the battle at all,
+	# since the view took only the wheel).
+	if not await _smoke_combat_zoom(view):
+		return false
 	if shots != "":
 		await host.shot(shots + "/combat-start.png")
 		# A monster's picture as a battle asks for it, under each monster player's palette
@@ -9977,8 +10229,154 @@ func _smoke_flash(dir: String) -> void:
 
 
 ## Owner, 2026-11-14: open a system, pan, click another star, back to the galaxy, then a third
-## star: its pane came up blank. Real mouse input: drags and clicks on the map.
+## star: its pane came up blank. Real mouse input: drags and clicks on the map. And a trackpad's
+## two-finger scroll, a pan gesture, zooms the map as a wheel notch does (2026-11-25).
+## A point on the map with nothing of the interface under it: the map refuses a gesture aimed at a
+## control (an open pane, a star's own label), and which controls sit where depends on the layout and
+## on the zoom, so the point is looked for rather than assumed (found 2026-11-26: zooming in brought
+## a label under the pointer, and the gesture back out was refused). Vector2.ZERO means none was
+## found.
+func _smoke_clear_map_point() -> Vector2:
+	var size := get_viewport().get_visible_rect().size
+	for fraction: Vector2 in [Vector2(0.5, 0.5), Vector2(0.3, 0.5), Vector2(0.5, 0.7), Vector2(0.7, 0.35),
+			Vector2(0.2, 0.25), Vector2(0.45, 0.3), Vector2(0.55, 0.75), Vector2(0.25, 0.7),
+			Vector2(0.75, 0.6), Vector2(0.35, 0.15), Vector2(0.65, 0.45), Vector2(0.15, 0.45)]:
+		var at := size * fraction
+		_smoke_pan_gesture(Vector2.ZERO, at)
+		var hovered: Control = get_viewport().gui_get_hovered_control()
+		if hovered == null:
+			return at
+		# Which control covers it, for the log: a star's own label comes and goes with the zoom, so
+		# which points are free depends on the state the check is run in.
+		print("smoke: pan: (%.0f,%.0f) is over %s" % [at.x, at.y, hovered])
+	# A scrim with no dialog behind it is the state `-skip-intro` leaves: hide it and look again. With
+	# a dialog up the whole map is the game's for the moment, and Vector2.ZERO says so.
+	if overlay.visible and not (_views.has("dialog") and _views.dialog.visible):
+		print("smoke: pan: the map's scrim was up with no dialog; hiding it")
+		overlay.hide()
+		for fraction: Vector2 in [Vector2(0.5, 0.5), Vector2(0.3, 0.5), Vector2(0.5, 0.7), Vector2(0.7, 0.35)]:
+			var again := size * fraction
+			_smoke_pan_gesture(Vector2.ZERO, again)
+			if get_viewport().gui_get_hovered_control() == null:
+				return again
+	return Vector2.ZERO
+
+
+## True while the game has a dialog of its own up, which is what Vector2.ZERO from
+## `_smoke_clear_map_point` means.
+func _smoke_map_is_the_games() -> bool:
+	return overlay.visible and _views.has("dialog") and _views.dialog.visible
+
+
 func _smoke_pan(shots: String) -> void:
+	# The scrim over the map: with `-skip-intro` the screens that hide it never run, so it is still
+	# up and swallows both pointer events and zooms (found 2026-11-26 while checking a trackpad fix:
+	# this step was measuring a covered map - its star clicks did nothing and its loose zoom checks
+	# still said OK). A player reaches the map without it; the step puts itself in that state.
+	if overlay.visible:
+		print("smoke: pan: the map's scrim was still up (the intro was skipped); hiding it")
+		overlay.hide()
+	# A trackpad's two-finger scroll is a pan gesture, not a wheel notch (reported 2026-11-25: on
+	# macOS two fingers did nothing on the map, though they scroll the panes, which take the
+	# gesture themselves): it must zoom the map as a wheel notch does, in and out, by the same
+	# factor. A middle zoom, so neither step is at its closest or furthest limit.
+	var gesture_middle: float = sqrt(galaxy.zoom_for_scale(galaxy.MIN_SCALE) * galaxy.furthest_zoom())
+	galaxy._fly(Vector2(float(galaxy.data.width), float(galaxy.data.height)) * 0.5, gesture_middle)
+	await get_tree().create_timer(0.6).timeout
+	var clear_at: Vector2 = _smoke_clear_map_point()
+	if clear_at == Vector2.ZERO:
+		await host.smoke_fail("no point on the map was free of the interface, so a gesture could not be aimed at it")
+		return
+	var in_at: Vector2 = _smoke_clear_map_point()
+	if in_at == Vector2.ZERO:
+		await host.smoke_fail("no free point on the map to aim a gesture at")
+		return
+	var gesture_before: float = galaxy.camera.zoom.x
+	_smoke_pan_gesture(Vector2(0.0, -galaxy.PAN_NOTCH_DELTA), in_at)
+	await get_tree().create_timer(0.6).timeout
+	var gesture_in: float = galaxy.camera.zoom.x
+	var in_factor: float = gesture_in / gesture_before
+	print("smoke: pan gesture zoom %.4f -> %.4f = x%.4f (a notch in; a wheel notch is x%.4f)" % [
+		gesture_before, gesture_in, in_factor, galaxy.WHEEL_NOTCH_ZOOM])
+	if absf(in_factor - galaxy.WHEEL_NOTCH_ZOOM) > 0.01:
+		await host.smoke_fail("a pan gesture zoomed by x%.4f, not by a wheel notch (x%.4f)" % [
+			in_factor, galaxy.WHEEL_NOTCH_ZOOM])
+		return
+	var out_at: Vector2 = _smoke_clear_map_point()
+	if out_at == Vector2.ZERO:
+		print("smoke: pan: one notch in measured; the checks after it were skipped, the game has a dialog up (%s)" % _smoke_map_is_the_games())
+		return
+	_smoke_pan_gesture(Vector2(0.0, galaxy.PAN_NOTCH_DELTA), out_at)
+	await get_tree().create_timer(0.6).timeout
+	var out_factor: float = galaxy.camera.zoom.x / gesture_in
+	print("smoke: pan gesture zoom %.4f -> %.4f = x%.4f (a notch back out)" % [gesture_in, galaxy.camera.zoom.x, out_factor])
+	if absf(out_factor * galaxy.WHEEL_NOTCH_ZOOM - 1.0) > 0.01:
+		await host.smoke_fail("a pan gesture back out zoomed by x%.4f, not by one notch (x%.4f)" % [
+			out_factor, 1.0 / galaxy.WHEEL_NOTCH_ZOOM])
+		return
+	# Over an open pane the gesture is the pane's, as the wheel is: the map must not move at all.
+	# The pane is opened directly rather than by aiming a click at a star, so the check does not
+	# depend on a click landing first.
+	var over_stars: Array = galaxy.data.get("stars", [])
+	if not over_stars.is_empty():
+		_on_star_clicked(int(over_stars[0].get("id", 0)))
+		await get_tree().create_timer(0.6).timeout
+		var over_pane := _view("system_pane")
+		if over_pane.visible:
+			# A point of the pane that has one of its controls under the pointer: the map takes the
+			# gesture only when nothing is hovered (galaxy.gd, as it does the wheel). A motion
+			# parsed into the input queue moves the viewport's hover a frame later, so a check that
+			# reads it in the same breath sees nothing hovered - which is what the map zooms on -
+			# and so read the map's own zoom instead of the pane's guard (found 2026-11-26 on 0.8.0,
+			# failing while the guard was behaving). So the point is probed, with a settle.
+			var pane_rect: Rect2 = over_pane.get_global_rect()
+			var over := Vector2.ZERO
+			var covered: Control = null
+			for fraction: Vector2 in [Vector2(0.5, 0.5), Vector2(0.5, 0.2), Vector2(0.5, 0.8), Vector2(0.2, 0.5), Vector2(0.8, 0.5),
+					Vector2(0.3, 0.3), Vector2(0.7, 0.3), Vector2(0.3, 0.7), Vector2(0.7, 0.7)]:
+				var probe_at := Vector2(pane_rect.position.x + pane_rect.size.x * fraction.x, pane_rect.position.y + pane_rect.size.y * fraction.y)
+				_smoke_pan_gesture(Vector2.ZERO, probe_at)
+				await get_tree().create_timer(0.1).timeout
+				covered = get_viewport().gui_get_hovered_control()
+				if covered != null:
+					over = probe_at
+					break
+			if over == Vector2.ZERO:
+				print("smoke: pan: no point of the system pane had one of its controls under the pointer, so the over-a-pane check was skipped")
+			else:
+				var over_zoom: float = galaxy.camera.zoom.x
+				_smoke_pan_gesture(Vector2(0.0, -galaxy.PAN_NOTCH_DELTA), over)
+				await get_tree().create_timer(0.4).timeout
+				print("smoke: pan gesture over the system pane at (%.0f,%.0f) (under it %s): zoom %.4f -> %.4f (must not move)" % [
+					over.x, over.y, covered, over_zoom, galaxy.camera.zoom.x])
+				if not is_equal_approx(galaxy.camera.zoom.x, over_zoom):
+					await host.smoke_fail("a pan gesture over an open pane zoomed the map")
+					return
+		else:
+			print("smoke: pan: no system pane opened to aim the gesture at (skipped)")
+		over_pane.close()
+		await get_tree().create_timer(0.5).timeout
+	# And the wheel it stands in for: one notch, the same factor, with the pointer back over the map
+	# (the wheel follows the pointer, as the gesture does).
+	var wheel_at: Vector2 = _smoke_clear_map_point()
+	if wheel_at == Vector2.ZERO:
+		print("smoke: pan: the wheel notch check was skipped, the game has a dialog up (%s)" % _smoke_map_is_the_games())
+		return
+	await get_tree().create_timer(0.3).timeout
+	var wheel_before: float = galaxy.camera.zoom.x
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.position = wheel_at
+	wheel.pressed = true
+	get_viewport().push_input(wheel)
+	await get_tree().create_timer(0.6).timeout
+	var wheel_factor: float = galaxy.camera.zoom.x / wheel_before
+	print("smoke: wheel notch zoom %.4f -> %.4f = x%.4f (the pan's factor is x%.4f)" % [
+		wheel_before, galaxy.camera.zoom.x, wheel_factor, galaxy.WHEEL_NOTCH_ZOOM])
+	if absf(wheel_factor - galaxy.WHEEL_NOTCH_ZOOM) > 0.01:
+		await host.smoke_fail("a wheel notch zoomed by x%.4f, not by x%.4f" % [wheel_factor, galaxy.WHEEL_NOTCH_ZOOM])
+		return
+	print("smoke: pan gesture OK")
 	var pane := _view("system_pane")
 	var report := func(step: String):
 		var controls: Control = _views.get("map_controls")
@@ -10046,6 +10444,7 @@ func _smoke_pan(shots: String) -> void:
 			await host.shot(shots + "/pan-star-%d.png" % i)
 		pane.close()
 		await get_tree().create_timer(2.0).timeout
+
 
 
 ## Owner, 2026-11-14: windowed, with the build pane open, dragging the window wider crashed.

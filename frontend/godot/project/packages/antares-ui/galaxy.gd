@@ -54,6 +54,10 @@ const MIN_SCALE := 4.0
 const MAX_SCALE := 70.0
 const FIT_MARGIN := 1.08
 const PICK_PIXELS := 10.0
+## One wheel notch's zoom factor, and how much of a trackpad pan gesture's delta counts as one
+## notch. A pan gesture reports a continuous delta, not notches, so it zooms in fractions of one.
+const WHEEL_NOTCH_ZOOM := 1.2
+const PAN_NOTCH_DELTA := 25.0
 
 @onready var camera: Camera2D = $Camera
 
@@ -338,7 +342,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				var at := button.position
 				if not system.is_empty() and not panned:
 					at = get_global_transform_with_canvas() * star_position(system_star)
-				zoom_by(1.2 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.2, at)
+				zoom_by(WHEEL_NOTCH_ZOOM if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / WHEEL_NOTCH_ZOOM, at)
 			get_viewport().set_input_as_handled()
 		elif button.button_index == MOUSE_BUTTON_RIGHT:
 			# A right click cancels F4's or F9's mode, or in a system shows a planet's potential.
@@ -379,6 +383,23 @@ func _unhandled_input(event: InputEvent) -> void:
 					elif not stars_only:
 						empty_clicked.emit()
 			get_viewport().set_input_as_handled()
+		return
+	# A trackpad's two-finger scroll is a pan gesture, not wheel notches: the map must zoom with it
+	# the way it zooms with a wheel (reported 2026-11-25: on macOS two fingers did nothing on the
+	# map, though they scroll the panes, which handle the gesture themselves). A pan delta uses the
+	# wheel's sign - positive is the wheel-down direction (scroll_container.cpp scrolls the same
+	# way) - so the zoom is out for it; the delta is continuous, so it moves in fractions of a notch.
+	var pan := event as InputEventPanGesture
+	if pan:
+		# Over a panel the gesture is the panel's, as the wheel is (see above).
+		if get_viewport().gui_get_hovered_control() == null:
+			var pan_at := pan.position
+			if not system.is_empty() and not panned:
+				pan_at = get_global_transform_with_canvas() * star_position(system_star)
+			var notches := clampf(-pan.delta.y / PAN_NOTCH_DELTA, -1.0, 1.0)
+			if not is_zero_approx(notches):
+				zoom_by(pow(WHEEL_NOTCH_ZOOM, notches), pan_at)
+		get_viewport().set_input_as_handled()
 		return
 	var motion := event as InputEventMouseMotion
 	if motion and not _dragging:

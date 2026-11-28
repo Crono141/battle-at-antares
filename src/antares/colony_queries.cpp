@@ -1082,6 +1082,27 @@ namespace antares::commands::internal {
         // One buildable item with what the popup's detail box shows (Draw_Cost_And_Time_Info,
         // Build_Ship_Design_Info_Formatted_Paragraph): cost here, build time, upkeep, the picture,
         // and a design's parts.
+        // An item's build time if it builds next: the colony's production already put in counts
+        // toward whatever builds next (nothing but bombing empties it), and the turns are those
+        // Colony_N_Turns_To_Produce gives the item building now: net industry, rounded up. The
+        // build screen's Calculate_Colony_Turn_Count_From_Scrap_For_Prod starts from nothing and
+        // gives exact multiples a turn too many.
+        int16_t Turns_If_Built_Next(int16_t c, int16_t id) {
+            const s_colony& colony = MOX::colony[c];
+            if (id == colony.producing[0] && colony.bought_outright != 0) {
+                return 1;
+            }
+            const int32_t remaining = COLCALC::Colony_Product_Cost(&MOX::colony[c], id) - (int32_t)colony.production_spent;
+            if (remaining <= 0) {
+                return 1;
+            }
+            const int32_t net = (int32_t)colony.production[ECON_INDUSTRY] - (int32_t)(uint8_t)colony.maintenance[ECON_INDUSTRY];
+            if (net <= 0) {
+                return 10000; // as the build screen gives never
+            }
+            return (int16_t)std::min<int32_t>((remaining + net - 1) / net, 10000);
+        }
+
         void Build_Item(int16_t c, int16_t id, s_out item) {
             s_colony& colony = MOX::colony[c];
             item.Int("id", id);
@@ -1095,7 +1116,7 @@ namespace antares::commands::internal {
                 return; // settings, not items
             }
             item.Int("cost", COLCALC::Colony_Product_Cost(&colony, id));
-            item.Int("turns", COLONY::Calculate_Colony_Turn_Count_From_Scrap_For_Prod(c, id));
+            item.Int("turns", Turns_If_Built_Next(c, id));
             if (COLBLDG::Colony_Production_Is_Building(id)) {
                 item.Int("upkeep", TECHDATA::buildings[id].maintenance);
             }
@@ -1199,7 +1220,7 @@ namespace antares::commands::internal {
             s_build_scope scope(c);
             COLBLDG::Build_Arrays();
             out.Int("cost", COLCALC::Colony_Product_Cost(&MOX::colony[c], (int16_t)id));
-            out.Int("turns", COLONY::Calculate_Colony_Turn_Count_From_Scrap_For_Prod(c, (int16_t)id));
+            out.Int("turns", Turns_If_Built_Next(c, (int16_t)id));
             out.Int("industry", MOX::colony[c].production[ECON_INDUSTRY]);
         }
 
