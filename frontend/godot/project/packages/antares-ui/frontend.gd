@@ -585,6 +585,8 @@ func _show_lobby(screen: int) -> void:
 func _open_title_options() -> void:
 	var options := _view("options_menu")
 	options.set_title_mode(true)
+	options.theme = _view("lobby").title_theme() # the title's copper and green, not the game theme
+	options.title_anchor = _view("lobby").panel_rect()
 	options.keys_active = false
 	if options.visible:
 		options.close()
@@ -597,9 +599,10 @@ func _open_title_options() -> void:
 func _close_title_options() -> void:
 	var options: Control = _views.get("options_menu")
 	if options != null:
-		options.set_title_mode(false)
 		if options.visible:
 			options.close()
+		options.set_title_mode(false)
+		options.theme = null # the game theme again (the native layer's)
 
 
 ## What fades in together: the starfield, the map and the panels.
@@ -7505,6 +7508,11 @@ func _smoke_title(shots: String) -> bool:
 		await host.shot(shots + "/title-newgame-galaxy-view.png")
 	var empire: Dictionary = await _query("empire")
 	print("smoke: title: new game on the galaxy: %s" % JSON.stringify(empire).left(200))
+	# The galaxy's Options: the game theme and the map rows again after the title's.
+	var galaxy_options := _view("options_menu")
+	print("smoke: title: galaxy options theme cleared %s, map rows shown %s" % [galaxy_options.theme == null, galaxy_options.get_node("Fit/Box/Map").visible])
+	if galaxy_options.theme != null or not galaxy_options.get_node("Fit/Box/Map").visible:
+		return false
 	return true
 
 

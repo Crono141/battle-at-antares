@@ -88,7 +88,9 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and is_node_ready():
 		_restyle()
-	elif what == NOTIFICATION_RESIZED and visible and not (_tween and _tween.is_running()):
+	elif what == NOTIFICATION_RESIZED and visible and _title_mode and title_anchor.size.x > 0.0:
+		_center_on_anchor() # its height settles after it opens (rows hidden in title mode)
+	elif what == NOTIFICATION_RESIZED and visible and not (_tween and _tween.is_running()) and not _title_mode:
 		# Rows laid out after the slide (or a refresh) widened it: keep the right edge by the tabs.
 		position.x = get_parent_area_size().x + _shown_right - size.x
 
@@ -107,13 +109,50 @@ func _restyle() -> void:
 func open() -> void:
 	_show_display() # Alt+Enter may have changed the window since
 	if not visible:
-		_slide(true)
+		if _title_mode and title_anchor.size.x > 0.0:
+			_fly_from_panel(true)
+		else:
+			_slide(true)
 
 
 func close() -> void:
 	if visible:
-		_slide(false)
+		if _title_mode and title_anchor.size.x > 0.0:
+			_fly_from_panel(false)
+		else:
+			_slide(false)
 		closed.emit()
+
+
+func _anchor_y() -> float:
+	var area := get_parent_area_size()
+	return clampf(title_anchor.get_center().y - size.y * 0.5, 8.0, maxf(8.0, area.y - size.y - 8.0))
+
+
+func _center_on_anchor() -> void:
+	position.y = _anchor_y()
+
+
+## On the title (owner, 2026-11-27): out from behind the menu panel to its left, fading in, and back.
+func _fly_from_panel(opening: bool) -> void:
+	if _tween:
+		_tween.kill()
+	_fit()
+	var shown_x := maxf(8.0, title_anchor.position.x - size.x - 14.0)
+	var tucked_x := title_anchor.position.x + 10.0
+	var y := _anchor_y()
+	if opening:
+		show()
+		position = Vector2(tucked_x, y)
+		modulate.a = 0.0
+		_center_on_anchor.call_deferred()
+	_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT if opening else Tween.EASE_IN)
+	_tween.tween_property(self, "position:x", shown_x if opening else tucked_x, 0.3)
+	_tween.tween_property(self, "modulate:a", 1.0 if opening else 0.0, 0.22 if opening else 0.25)
+	if not opening:
+		_tween.chain().tween_callback(func():
+			hide()
+			modulate.a = 1.0)
 
 
 ## The Alt+F1..F8 options (the `options` snapshot) as rows with an ON / OFF switch.
@@ -520,7 +559,13 @@ func show_flight(seconds: float) -> void:
 ## Opened from the title screen (WP3.13): no game, so the map's rows, the game options (they
 ## change a game: `toggle_option` runs on the galaxy only), the system zoom and the to-dos switch
 ## are left out; sound, display, interface scale and theme stay.
+## Set by the frontend in title mode: the menu panel's rectangle it flies out of.
+var title_anchor := Rect2()
+var _title_mode := false
+
+
 func set_title_mode(on: bool) -> void:
+	_title_mode = on
 	var rows: Array[Control] = [$Fit/Box/MapTitle, $Fit/Box/Influence, $Fit/Box/Map, $Fit/Box/GameTitle, options_box,
 		_flight_title, _flight_pick, todo_auto_button.get_parent().get_parent() as Control]
 	for row in rows:

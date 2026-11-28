@@ -327,6 +327,108 @@ func _build_rig() -> void:
 	add_child(_rig)
 
 
+## The title's own look for what opens over it (owner, 2026-11-27: the Options panel in the
+## panel's worn copper and green, not the game theme): a light green see-through pane with a copper
+## edge, the menu's green buttons and drop-downs, copper section titles.
+var _title_theme: Theme
+
+
+func title_theme() -> Theme:
+	if _title_theme != null:
+		return _title_theme
+	var t := Theme.new()
+	var copper := Color(0.50, 0.38, 0.25)
+	var pane := StyleBoxFlat.new()
+	pane.bg_color = Color(0.06, 0.22, 0.08, 0.72)
+	pane.border_color = copper
+	pane.set_border_width_all(3)
+	pane.set_corner_radius_all(10)
+	pane.set_content_margin_all(16)
+	pane.shadow_color = Color(0, 0, 0, 0.45)
+	pane.shadow_size = 10
+	t.set_stylebox("panel", "PanelContainer", pane)
+	t.set_type_variation("Pane", "PanelContainer")
+	t.set_stylebox("panel", "Pane", pane)
+	var row := StyleBoxFlat.new()
+	row.bg_color = Color(0.04, 0.16, 0.06, 0.55)
+	row.border_color = Color(0.13, 0.42, 0.16)
+	row.set_border_width_all(1)
+	row.set_corner_radius_all(4)
+	row.set_content_margin_all(6)
+	t.set_type_variation("Row", "PanelContainer")
+	t.set_stylebox("panel", "Row", row)
+	# Buttons, switches and drop-downs: the menu's green (its own buttons' boxes).
+	var probe := Button.new()
+	_style_menu_button(probe)
+	for type in ["Button", "OptionButton", "Toggle"]:
+		if type == "Toggle":
+			t.set_type_variation("Toggle", "Button")
+		for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+			var box := probe.get_theme_stylebox(state).duplicate() as StyleBox
+			box.content_margin_left = 10
+			box.content_margin_right = 10
+			box.content_margin_top = 4
+			box.content_margin_bottom = 4
+			t.set_stylebox(state, type, box)
+		t.set_stylebox("hover_pressed", type, probe.get_theme_stylebox("pressed"))
+		for color in ["font_color", "font_hover_color", "font_pressed_color", "font_disabled_color", "font_hover_pressed_color"]:
+			t.set_color(color, type, probe.get_theme_color(color if color != "font_hover_pressed_color" else "font_pressed_color"))
+		t.set_font_size("font_size", type, 16)
+	probe.free()
+	# Labels green, the sections' titles copper.
+	t.set_color("font_color", "Label", Color(0.62, 0.95, 0.62))
+	t.set_type_variation("Section", "Label")
+	t.set_color("font_color", "Section", Color(0.86, 0.68, 0.44))
+	t.set_font_size("font_size", "Section", 13)
+	t.set_type_variation("Heading", "Label")
+	t.set_color("font_color", "Heading", Color(0.75, 1.0, 0.75))
+	t.set_font_size("font_size", "Heading", 26)
+	# Sliders: a dark green groove filled in green, a copper grabber.
+	var groove := StyleBoxFlat.new()
+	groove.bg_color = Color(0.03, 0.12, 0.04, 0.9)
+	groove.set_corner_radius_all(3)
+	groove.content_margin_top = 3
+	groove.content_margin_bottom = 3
+	var filled := groove.duplicate() as StyleBoxFlat
+	filled.bg_color = Color(0.20, 0.62, 0.26)
+	t.set_stylebox("slider", "HSlider", groove)
+	t.set_stylebox("grabber_area", "HSlider", filled)
+	t.set_stylebox("grabber_area_highlight", "HSlider", filled)
+	# The drop-downs' lists and the number box.
+	var popup := StyleBoxFlat.new()
+	popup.bg_color = Color(0.04, 0.15, 0.06, 0.97)
+	popup.border_color = copper
+	popup.set_border_width_all(2)
+	popup.set_corner_radius_all(6)
+	popup.set_content_margin_all(6)
+	t.set_stylebox("panel", "PopupMenu", popup)
+	var popup_hover := StyleBoxFlat.new()
+	popup_hover.bg_color = Color(0.12, 0.40, 0.15)
+	popup_hover.set_corner_radius_all(3)
+	t.set_stylebox("hover", "PopupMenu", popup_hover)
+	t.set_color("font_color", "PopupMenu", Color(0.62, 0.95, 0.62))
+	t.set_color("font_hover_color", "PopupMenu", Color(0.9, 1.0, 0.9))
+	t.set_font_size("font_size", "PopupMenu", 16)
+	var field := StyleBoxFlat.new()
+	field.bg_color = Color(0.03, 0.12, 0.04, 0.9)
+	field.border_color = Color(0.13, 0.42, 0.16)
+	field.set_border_width_all(1)
+	field.set_corner_radius_all(3)
+	field.set_content_margin_all(4)
+	t.set_stylebox("normal", "LineEdit", field)
+	t.set_color("font_color", "LineEdit", Color(0.62, 0.95, 0.62))
+	_title_theme = t
+	return t
+
+
+## The menu panel's rectangle with its bezel (what the title's Options flies out of).
+func panel_rect() -> Rect2:
+	_panel.reset_size()
+	var home := Rect2(_panel_home(), _panel.size)
+	var pad := Vector2(home.size.x * 0.06, home.size.y * 0.07) if _rig != null else Vector2.ZERO
+	return home.grow_individual(pad.x, pad.y, pad.x, pad.y)
+
+
 ## The live buttons over the 3D face: no frame of their own.
 func _face_style() -> StyleBoxEmpty:
 	var style := StyleBoxEmpty.new()
