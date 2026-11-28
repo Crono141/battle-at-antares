@@ -6,6 +6,7 @@
 #include "antares/commands_internal.h"
 #include "antares/host.h"
 #include "antares/input_trace.h"
+#include "antares/lobby.h"
 #include "config/text_encoding.h"
 #include "miniz.h"
 #include "yyjson.h"
@@ -370,6 +371,10 @@ namespace antares::native {
         // The native galaxy is offered only where the legacy one does nothing more than wait for
         // input: single player, and not on the first turn's home star renaming.
         bool Native_Allowed(int16_t screen) {
+            if (screen == SCREEN_NEW_GAME) {
+                // WP3.13 (D30): single player only; hotseat and network keep the legacy setup.
+                return MOX::game_type == 0;
+            }
             if (screen != SCREEN_MAIN) {
                 return true;
             }
@@ -770,11 +775,29 @@ namespace antares::native {
         if (!Frontend()) {
             return false;
         }
+        if (screen == SCREEN_MAIN_MENU && MAINMENU::autoload_save_slot >= 0) {
+            return false; // -load-save: the legacy menu's first pass loads it, as before (WP3.13)
+        }
+        if (screen == SCREEN_MAIN_MENU && host::Active() && host::Native_UI() && !Claimed(screen)) {
+            // WP3.13: the first title screen comes before the frontend has had time to claim it
+            // (it is instanced once the packages are known): wait for it once, briefly, rather
+            // than starting the legacy menu's animation and handing over after it.
+            static bool waited = false;
+            if (!waited) {
+                waited = true;
+                for (int i = 0; i < 600 && !Claimed(screen); ++i) {
+                    RUSS::Mox_Update();
+                    SDL_Delay(5);
+                }
+            }
+        }
         if (!Claimed(screen) || !Native_Allowed(screen)) {
             return false;
         }
         if (screen == SCREEN_MAIN) {
             Enter_Galaxy();
+        } else if (screen == SCREEN_MAIN_MENU || screen == SCREEN_NEW_GAME || screen == SCREEN_HALL_OF_FAME) {
+            lobby::Enter(screen);
         }
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "native: screen %d", (int)screen);
         sound::Release_Held_Sounds(); // back in a native view: what the legacy screen started plays
@@ -861,6 +884,19 @@ namespace antares::native {
 
     bool Wants_Screen(int16_t screen) {
         return Frontend() && Claimed(screen) && Native_Allowed(screen);
+    }
+
+    bool Run_Hall_Of_Fame(int16_t entry_to_flash) {
+        if (!Wants_Screen(SCREEN_HALL_OF_FAME)) {
+            return false;
+        }
+        // The end of a game calls the screen directly (score.cpp, End_Of_Game_Hi_Score) and
+        // sets the main menu after it: the native loop runs while the screen is the Hall of Fame.
+        lobby::Set_Flash_Entry(entry_to_flash);
+        MOX::current_screen = SCREEN_HALL_OF_FAME;
+        Run_Screen(SCREEN_HALL_OF_FAME);
+        lobby::Set_Flash_Entry(-1);
+        return true;
     }
 
     namespace {

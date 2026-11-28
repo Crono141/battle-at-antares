@@ -13,7 +13,9 @@ extends Node
 ## pack can replace any one of them by putting a file at the same path.
 
 ## The game's screens (SCREEN_* values, res://screens.gd) this package draws natively.
-@export var claimed_screens: Array[int] = [Screens.MAIN, Screens.SHOW_COMMAND_POINTS]
+@export var claimed_screens: Array[int] = [Screens.MAIN, Screens.SHOW_COMMAND_POINTS, Screens.MAIN_MENU, Screens.NEW_GAME, Screens.HALL_OF_FAME]
+## WP3.13 (D30): the title screen, the new game and the Hall of Fame, over one backdrop (views/lobby).
+const LOBBY_SCREENS := [Screens.MAIN_MENU, Screens.NEW_GAME, Screens.HALL_OF_FAME]
 ## The request kinds its dialog answers; the rest ("choose") keep the legacy popup.
 @export var claimed_requests: PackedStringArray = ["message", "confirm", "warning", "text", "popup", "choose", "todo", "combat", "animate"]
 ## Start with the native views on (Ctrl+G switches); `-- --smoke` without `--native` starts off.
@@ -193,6 +195,17 @@ func packs_changed() -> void:
 		if scene_name != "dialog":
 			_views[scene_name].queue_free()
 			_views.erase(scene_name)
+	if native_screen in LOBBY_SCREENS:
+		_rebuild_lobby()
+
+
+## WP3.13: the title screen changes the packages back to the launch set (a loaded save had its
+## own): the lobby's views were just freed with the rest, so they come back from the new files.
+func _rebuild_lobby() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if native_screen in LOBBY_SCREENS:
+		_show_lobby(native_screen)
 
 
 func _input(event: InputEvent) -> void:
@@ -390,8 +403,18 @@ func _end_film() -> void:
 		_turn_clearing_polls = int(game.get_stats().get("input_polls", 0))
 
 
+## The Options panel's DISPLAY choices are applied once, after the launcher's window settings (the
+## game control applies those as the game starts running), so a choice made in the panel wins.
+var _display_applied := false
+
+
 func _on_native_screen(screen: int) -> void:
 	_legacy_after_frame = -1
+	if not _display_applied:
+		_display_applied = true
+		if not "--smoke" in OS.get_cmdline_user_args():
+			get_tree().create_timer(0.3).timeout.connect(func():
+				preload("views/options_menu.gd").apply_saved_display(get_window()))
 	# Just after TURN the galaxy stays a moment: if the turns pass by themselves their notices
 	# follow, and the legacy frame before the first one flashed (owner, 2026-11-13).
 	var held: bool = screen == Screens.LEGACY and native_screen == Screens.MAIN and native and \
@@ -401,6 +424,9 @@ func _on_native_screen(screen: int) -> void:
 	elif screen == Screens.LEGACY:
 		_galaxy_behind = false
 		_sounds_held = true
+	elif screen in LOBBY_SCREENS:
+		_galaxy_behind = false # no game behind the title screen
+		held = false
 	native_screen = screen
 	var in_galaxy := screen == Screens.MAIN or (screen != Screens.LEGACY and _galaxy_behind)
 	legacy.visible = not in_galaxy and screen == Screens.LEGACY and not _in_battle()
@@ -511,8 +537,87 @@ func _on_native_screen(screen: int) -> void:
 			legacy.hide()
 			points.as_screen = true
 			_drop_down("command_points", points, "", get_viewport().get_visible_rect().size.x * 0.5)
+	_show_lobby(screen)
 	if screen == Screens.LEGACY:
 		game.grab_focus()
+
+
+## WP3.13: the title backdrop for the title screen, the new game and the Hall of Fame, with the
+## new game's panel or the Hall of Fame over it; gone for any other screen.
+func _show_lobby(screen: int) -> void:
+	var lobby: Control = _views.get("lobby")
+	if not screen in LOBBY_SCREENS:
+		if lobby != null and lobby.visible:
+			_close_title_options()
+			lobby.leave()
+			for name in ["new_game", "hall_of_fame"]:
+				var view: Control = _views.get(name)
+				if view != null:
+					view.hide()
+			if not _revealed:
+				for item: CanvasItem in _reveal_items():
+					item.modulate.a = 0.0 # the galaxy's own fade-in still comes
+		return
+	lobby = _view("lobby")
+	if not lobby.options_requested.is_connected(_open_title_options):
+		lobby.options_requested.connect(_open_title_options)
+		lobby.resized.connect(_refit_title_options) # a new window size or interface scale
+	if screen != Screens.MAIN_MENU:
+		_close_title_options()
+	native_layer.move_child(lobby, 0) # under every other view and the dialog
+	native_layer.modulate.a = 1.0 # the galaxy's reveal hides the layer until a map is placed
+	galaxy.hide()
+	legacy.hide()
+	lobby.show_screen(screen)
+	var new_game := _view("new_game")
+	var hall := _view("hall_of_fame")
+	if screen == Screens.NEW_GAME:
+		hall.hide()
+		new_game.open()
+	elif screen == Screens.HALL_OF_FAME:
+		new_game.hide()
+		hall.open()
+	else:
+		new_game.hide()
+		hall.hide()
+
+
+## The title's OPTIONS (owner, 2026-11-27): the galaxy's options flyout, without its map rows.
+func _open_title_options() -> void:
+	var options := _view("options_menu")
+	options.set_title_mode(true)
+	options.theme = _view("lobby").title_theme() # the title's copper and green, not the game theme
+	options.title_anchor = _view("lobby").panel_rect()
+	options.title_face = _view("lobby").face_rect()
+	options.keys_active = false
+	if options.visible:
+		options.close()
+		return
+	options.move_to_front()
+	options.open()
+	_send({"verb": "query", "what": "options"}, func(result: Dictionary): options.show_options(result))
+
+
+func _refit_title_options() -> void:
+	var options: Control = _views.get("options_menu")
+	var lobby: Control = _views.get("lobby")
+	if options == null or lobby == null or not options.visible or not options._title_mode:
+		return
+	await get_tree().process_frame # the title laid out at its new size first
+	if not is_instance_valid(options) or not is_instance_valid(lobby):
+		return
+	options.title_anchor = lobby.panel_rect()
+	options.title_face = lobby.face_rect()
+	options.refit_title()
+
+
+func _close_title_options() -> void:
+	var options: Control = _views.get("options_menu")
+	if options != null:
+		if options.visible:
+			options.close()
+		options.set_title_mode(false)
+		options.theme = null # the game theme again (the native layer's)
 
 
 ## What fades in together: the starfield, the map and the panels.
@@ -1082,12 +1187,36 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 		_fleet_for_panel = int(dict.get("ship", -1))
 		_open_side_panel(String(dict.panel))
 		return
+	# A change to a colony (its jobs, its build list, a purchase): an open Colonies or Planets
+	# panel shows it at once (owner, 2026-11-27: pinned beside the colony's panes, it kept the old
+	# figures until closed and opened again).
+	var colony_change: bool = String(dict.get("verb", "")) in COLONY_CHANGES
 	if dict.has("_reply_to"):
 		var method: String = dict["_reply_to"]
 		dict.erase("_reply_to")
-		_send(dict, Callable(view, method))
+		var reply := Callable(view, method)
+		_send(dict, (func(result: Dictionary):
+			reply.call(result)
+			if colony_change:
+				_refresh_open_side_panels(result)) if colony_change else reply)
+	elif colony_change:
+		_send(dict, _refresh_open_side_panels)
 	else:
 		_send(dict)
+
+
+const COLONY_CHANGES := ["move_colonist", "set_occupation", "build_commit", "buy", "sell_building", "send_colonists"]
+
+
+## The Colonies and Planets panels, when open, ask for their figures again.
+func _refresh_open_side_panels(result: Dictionary) -> void:
+	if not result.get("ok", false):
+		print("frontend: a colony change was refused: %s" % JSON.stringify(result).left(200))
+		return
+	for panel_name: String in ["colonies_panel", "planets_panel"]:
+		var panel: Control = _views.get(panel_name)
+		if panel != null and panel.visible:
+			panel.refresh()
 
 
 ## The to-do list's last answer (WP3.4d, a watched query).
@@ -1704,7 +1833,9 @@ func _on_view_closed(scene_name: String) -> void:
 			galaxy.clear_system_view()
 			galaxy.redraw()
 	elif scene_name == "options_menu":
-		_view("side_tabs").show_open("options", false)
+		var tabs: Control = _views.get("side_tabs") # none yet on a cold title
+		if tabs != null:
+			tabs.show_open("options", false)
 	elif scene_name == "game_menu":
 		_view("galaxy_bar").show_game_menu(false)
 	elif scene_name == "fleet_panel":
@@ -2257,6 +2388,56 @@ func _smoke_pin(shots: String) -> bool:
 		await host.shot(shots + "/native-pin-build.png")
 	if not panel.visible or not system_pane.visible or not _view("build_pane").visible or panel.get_index() > system_pane.get_index():
 		return false
+	# A colonist moved in the colony pane: the pinned panel's row follows at once (owner,
+	# 2026-11-27: it kept the old jobs until closed and opened again); then moved back.
+	var row_jobs := func() -> Array: # colonists per job, and the first colonist of each
+		for c: Dictionary in panel.colonies:
+			if int(c.colony) == int(first.colony):
+				return (c.get("jobs", []) as Array).map(func(j: Dictionary) -> Array:
+					var people: Array = j.get("colonists", [])
+					var citizens := people.filter(func(person: Dictionary) -> bool: return String(person.get("state", "")) == "citizen")
+					return [people.size(), int(citizens[0].pop) if not citizens.is_empty() else -1])
+		return []
+	var jobs_before: Array = row_jobs.call()
+	var from_job := 0
+	while from_job < 2 and int(jobs_before[from_job][1]) < 0: # a job with a citizen (natives stay put)
+		from_job += 1
+	var to_job := 1 if from_job != 1 else 0 # farming and industry: every colony has both
+	var mover := int(jobs_before[from_job][1])
+	_view("colony_pane").command.emit({"verb": "move_colonist", "colony": int(first.colony), "pop": mover, "job": to_job})
+	await get_tree().create_timer(1.0).timeout
+	var direct: Dictionary = await _query_args({"what": "colonies"})
+	for c: Dictionary in direct.get("colonies", []):
+		if int(c.colony) == int(first.colony):
+			print("smoke: pinned colonies: the game says jobs %s (moved pop %d from job %d to %d)" % [(c.jobs as Array).map(func(j: Dictionary) -> int: return (j.colonists as Array).size()), mover, from_job, to_job])
+	var jobs_after: Array = row_jobs.call()
+	print("smoke: pinned colonies after a colonist moved: jobs %s -> %s" % [jobs_before.map(func(j: Array) -> int: return j[0]), jobs_after.map(func(j: Array) -> int: return j[0])])
+	_view("colony_pane").command.emit({"verb": "move_colonist", "colony": int(first.colony), "pop": mover, "job": from_job})
+	await get_tree().create_timer(0.8).timeout
+	if jobs_after.map(func(j: Array) -> int: return j[0]) == jobs_before.map(func(j: Array) -> int: return j[0]):
+		print("smoke: FAILED: the pinned Colonies panel did not follow the colonist's move")
+		return false
+	# A build plan changed and committed (the first item taken off): its BUILDING cell follows
+	# (no empire total changes with it, so only the commit itself can refresh the panel).
+	var row_build := func() -> String:
+		for c: Dictionary in panel.colonies:
+			if int(c.colony) == int(first.colony):
+				var b: Dictionary = c.get("build", {})
+				return "%s/%d" % [String(b.get("name", "")), int(b.get("turns", 0))]
+		return ""
+	var build_before: String = row_build.call()
+	var pinned_build := _view("build_pane")
+	if pinned_build.visible and pinned_build._queue.size() > 0:
+		pinned_build._delete(0)
+		pinned_build._ok()
+		await get_tree().create_timer(1.2).timeout
+		var build_after: String = row_build.call()
+		print("smoke: pinned colonies after a build commit: building %s -> %s" % [build_before, build_after])
+		if build_after == build_before:
+			print("smoke: FAILED: the pinned Colonies panel did not follow the build commit")
+			return false
+		_open_build_pane(int(first.colony), false) # back as the next check expects it
+		await get_tree().create_timer(0.8).timeout
 	esc.call()
 	await get_tree().create_timer(0.6).timeout
 	print("smoke: pinned Esc: panel %s, build %s, colony pane %s, system %s" % [panel.visible, _view("build_pane").visible, _view("colony_pane").visible, system_pane.visible])
@@ -4687,6 +4868,13 @@ func _smoke_native() -> void:
 	if "--new-game" in OS.get_cmdline_user_args():
 		await _smoke_new_game(shots)
 		return
+	if "--title-cold" in OS.get_cmdline_user_args():
+		if await _smoke_title_cold(shots):
+			print("smoke: title-cold OK")
+			game.request_game_quit()
+		else:
+			await host.smoke_fail("title-cold")
+		return
 	if not await _wait_screen(Screens.MAIN, 120.0):
 		await host.smoke_fail("never reached the native galaxy")
 		return
@@ -6179,7 +6367,7 @@ func _smoke_native() -> void:
 		return
 	# The side panels' steps, any of them in one launch (one game start for several checks), with
 	# quick camera flights: the steps wait on the flights.
-	var panel_steps: Array = ["--colonies", "--planets", "--pin", "--fleets", "--leaders", "--races", "--info", "--design", "--layering"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
+	var panel_steps: Array = ["--colonies", "--planets", "--pin", "--fleets", "--leaders", "--races", "--info", "--design", "--layering", "--title"].filter(func(f: String) -> bool: return f in OS.get_cmdline_user_args())
 	if not panel_steps.is_empty():
 		galaxy.flight_time = 0.15
 		await _smoke_window_setting() # SMOKE_WINDOW: a player's screen (an ultra-wide one for --pin)
@@ -6201,6 +6389,8 @@ func _smoke_native() -> void:
 				passed = await _smoke_design_panel(shots)
 			elif step == "--layering":
 				passed = await _smoke_layering(shots)
+			elif step == "--title":
+				passed = await _smoke_title(shots)
 			else:
 				passed = await _smoke_races_panel(shots)
 			if not passed:
@@ -6275,6 +6465,15 @@ func _smoke_native() -> void:
 		else:
 			print("smoke: FAILED: torpedo")
 		game.request_game_quit()
+		return
+	if "--combat-auto" in OS.get_cmdline_user_args():
+		# The owner's crash (2026-11-27): end the turn into the battle, the player's side on AUTO,
+		# to the battle's end (their save: the whole fleet lost to a starbase and drive blasts).
+		if await _smoke_combat_auto(shots):
+			print("smoke: combat-auto OK")
+			game.request_game_quit()
+		else:
+			await host.smoke_fail("combat-auto")
 		return
 	if "--combat" in OS.get_cmdline_user_args():
 		# WP3.9b: end the turn into a battle (SAVE10: Fortuna) and play it in the native scene.
@@ -6741,16 +6940,16 @@ func _smoke_galaxy(shots: String) -> bool:
 	# slot 5 with a description, then loaded from there; the native galaxy comes back.
 	game_menu.get_node("Fit/Box/Save").pressed.emit()
 	await get_tree().create_timer(0.8).timeout
-	var rows: Array = game_menu._slots_box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
+	var rows: Array = game_menu._slots._box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
 	print("smoke: save page: %d slots shown natively, legacy screen %s" % [rows.size(), native_screen == Screens.LEGACY])
 	if rows.size() != 10 or native_screen != Screens.MAIN:
 		await host.smoke_fail("Save did not show the slots natively")
 		return false
 	(rows[4] as Button).pressed.emit()
-	game_menu._name_edit.text = "Smoke save"
+	game_menu._slots._name_edit.text = "Smoke save"
 	if shots != "":
 		await host.shot(shots + "/native-save.png")
-	game_menu._save()
+	game_menu._slots._save()
 	await get_tree().create_timer(1.5).timeout
 	var saves: Dictionary = await _query("saves")
 	var slot5: Dictionary = saves.get("slots", [{}, {}, {}, {}, {}])[4]
@@ -6762,7 +6961,7 @@ func _smoke_galaxy(shots: String) -> bool:
 	await get_tree().create_timer(0.6).timeout
 	game_menu.get_node("Fit/Box/Load").pressed.emit()
 	await get_tree().create_timer(0.8).timeout
-	rows = game_menu._slots_box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
+	rows = game_menu._slots._box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
 	if shots != "":
 		await host.shot(shots + "/native-load.png")
 	var visit := int(game.get_native_visit())
@@ -7326,6 +7525,319 @@ func _wait_screen(screen: int, timeout: float) -> bool:
 		waited += 0.1
 		_smoke_answer()
 	return native_screen == screen
+
+
+## `--title` (WP3.13): the game menu's New Game to the native new game, Cancel to the native
+## title screen (the panel swings in), the Hall of Fame and back, the Load page, then a new game
+## through every step (a stock race; the custom race page is shown) to the native galaxy.
+func _smoke_title(shots: String) -> bool:
+	_send({"verb": "leave_game", "to": "main_menu"})
+	if not await _wait_screen(Screens.NEW_GAME, 20.0):
+		print("smoke: title: the game menu's New Game did not reach the native new game (screen %d)" % native_screen)
+		return false
+	var new_game := _view("new_game")
+	await get_tree().create_timer(1.5).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-galaxy.png")
+	new_game._cancel_game()
+	if not await _wait_screen(Screens.MAIN_MENU, 10.0):
+		print("smoke: title: Cancel did not reach the native title screen")
+		return false
+	var lobby := _view("lobby")
+	await get_tree().create_timer(0.7).timeout
+	if shots != "":
+		await host.shot(shots + "/title-swing.png") # mid-swing
+	print("smoke: title: motor sound handle mid-swing %d" % lobby._motor)
+	await get_tree().create_timer(1.8).timeout # the rest of the panel's swing
+	if shots != "":
+		await host.shot(shots + "/title.png")
+	print("smoke: title: menu %s" % JSON.stringify(lobby._menu).left(300))
+	# OPTIONS: the options flyout over the title, its map rows left out (owner, 2026-11-27).
+	lobby._choose("options")
+	await get_tree().create_timer(1.0).timeout
+	var title_options := _view("options_menu")
+	if shots != "":
+		await host.shot(shots + "/title-options.png")
+	print("smoke: title: options shown %s, map rows hidden %s, display rows %s" % [title_options.visible,
+		not title_options.get_node("Fit/Box/Map").visible, title_options._mode_pick != null and title_options._mode_pick.is_visible_in_tree()])
+	# As tall as the buttons' area, beside the panel; again after the interface scale changes.
+	var fits := func(label: String) -> bool:
+		var face: Rect2 = lobby.face_rect()
+		var h: float = title_options.size.y * title_options.scale.y
+		var right: float = title_options.position.x + title_options.size.x * title_options.scale.x
+		print("smoke: title: options %s: %.0f tall (buttons' area %.0f), right edge %.0f (panel %.0f)" % [label, h, face.size.y, right, lobby.panel_rect().position.x])
+		return absf(h - face.size.y) < 3.0 and right <= lobby.panel_rect().position.x
+	var fit_ok: bool = fits.call("at 100 %")
+	var scale_was := ui_scale
+	set_ui_scale(125.0, false)
+	await get_tree().create_timer(0.8).timeout
+	if shots != "":
+		await host.shot(shots + "/title-options-125.png")
+	fit_ok = fits.call("at 125 %") and fit_ok
+	set_ui_scale(scale_was, false)
+	await get_tree().create_timer(0.6).timeout
+	if not fit_ok:
+		return false
+	# The frame limit: applied at once (V-sync and the window mode are left alone under the
+	# virtual display).
+	title_options._limit_pick.select(2)
+	title_options._limit_pick.item_selected.emit(2)
+	print("smoke: title: frame limit %d" % Engine.max_fps)
+	var limit_ok := Engine.max_fps == 60
+	title_options._limit_pick.select(0)
+	title_options._limit_pick.item_selected.emit(0)
+	if not limit_ok:
+		return false
+	if not title_options.visible or title_options.get_node("Fit/Box/Map").visible:
+		return false
+	lobby._choose("options")
+	await get_tree().create_timer(0.6).timeout
+	# The swing's turn at three points (owner, 2026-11-27: it turned the wrong way): held still.
+	if lobby._rig != null and shots != "":
+		lobby._panel.hide()
+		for t in [0.2, 0.5, 0.8]:
+			lobby._turn = t
+			lobby._slide = 0.0
+			lobby._update_3d()
+			await get_tree().create_timer(0.3).timeout
+			await host.shot(shots + "/title-turn-%d.png" % int(t * 10))
+		lobby._turn = 1.0
+		lobby._slide = 1.0
+		lobby._update_3d()
+		lobby._panel.show()
+	lobby._choose("hall_of_fame")
+	if not await _wait_screen(Screens.HALL_OF_FAME, 10.0):
+		print("smoke: title: no native Hall of Fame")
+		return false
+	await get_tree().create_timer(1.5).timeout
+	var hall := _view("hall_of_fame")
+	print("smoke: title: hall of fame rows %d" % hall._rows.size())
+	if shots != "":
+		await host.shot(shots + "/title-hall-of-fame.png")
+	if hall._rows.size() != 10:
+		return false
+	hall._close_x.pressed.emit() # the X in its corner (owner, 2026-11-27)
+	if not await _wait_screen(Screens.MAIN_MENU, 10.0):
+		print("smoke: title: the Hall of Fame did not close to the title screen")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	lobby._choose("load")
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-load.png")
+	print("smoke: title: load page shown %s" % lobby._slots.visible)
+	lobby._slots.close_slots()
+	# New Game from the title, BACK on its first page: the title again (owner, 2026-11-27).
+	lobby._choose("new")
+	if not await _wait_screen(Screens.NEW_GAME, 10.0):
+		print("smoke: title: New Game did not open the native new game")
+		return false
+	await get_tree().create_timer(1.0).timeout
+	new_game._go_back()
+	if not await _wait_screen(Screens.MAIN_MENU, 10.0):
+		print("smoke: title: BACK on the galaxy page did not return to the title (note '%s')" % new_game._note.text)
+		return false
+	await get_tree().create_timer(2.5).timeout
+	lobby._choose("new")
+	if not await _wait_screen(Screens.NEW_GAME, 10.0):
+		print("smoke: title: New Game did not open the native new game")
+		return false
+	await get_tree().create_timer(1.5).timeout
+	new_game._choice["size"] = 0 # small: quick to make
+	new_game._go_next()
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-race.png")
+	new_game._custom = true
+	new_game._custom_stage = "looks"
+	new_game._rebuild()
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-looks.png")
+	new_game._start_custom(new_game._race_picks(3), "")
+	new_game._rebuild()
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-custom.png")
+	# RANDOMIZE (owner, 2026-11-27): 200 races, every one legal; how many picks they leave unused.
+	var illegal := 0
+	var unused := 0
+	for _i in 200:
+		new_game._randomize_picks()
+		if new_game._custom_problem() != "":
+			illegal += 1
+		unused += new_game._count_picks().x
+	new_game._rebuild()
+	await get_tree().create_timer(0.6).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-random.png")
+	print("smoke: title: randomize: %d of 200 illegal, %.2f picks left on average" % [illegal, unused / 200.0])
+	if illegal > 0:
+		return false
+	new_game._custom = false
+	new_game._rebuild()
+	new_game._go_next()
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-leader.png")
+	new_game._go_next()
+	await get_tree().create_timer(0.5).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-start.png")
+	new_game._go_next()
+	if not await _wait_screen(Screens.MAIN, 90.0):
+		print("smoke: title: the new game did not reach the native galaxy (screen %d, note '%s')" % [native_screen, new_game._note.text])
+		return false
+	await get_tree().create_timer(3.0).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-galaxy-view.png")
+	var empire: Dictionary = await _query("empire")
+	print("smoke: title: new game on the galaxy: %s" % JSON.stringify(empire).left(200))
+	# The galaxy's Options: the game theme and the map rows again after the title's.
+	var galaxy_options := _view("options_menu")
+	print("smoke: title: galaxy options theme cleared %s, map rows shown %s" % [galaxy_options.theme == null, galaxy_options.get_node("Fit/Box/Map").visible])
+	if galaxy_options.theme != null or not galaxy_options.get_node("Fit/Box/Map").visible:
+		return false
+	return true
+
+
+## `--title-cold` (no save loaded, godot_smoke.sh SAVE "none"): the game starts on the native title
+## screen; the credits roll on it, Multi Player (legacy) comes back to it; a slot loads from the title's Load
+## page; the game menu's New Game, Cancel, then Continue; a custom-race new game to the galaxy.
+func _smoke_title_cold(shots: String) -> bool:
+	if not await _wait_screen(Screens.MAIN_MENU, 60.0):
+		print("smoke: title-cold: the game did not start on the native title (screen %d)" % native_screen)
+		return false
+	await get_tree().create_timer(2.5).timeout
+	if shots != "":
+		await host.shot(shots + "/cold-title.png")
+	print("smoke: title-cold: menu %s" % JSON.stringify(_view("lobby")._menu).left(160))
+	# Credits: rolled on the title itself (owner, 2026-11-27).
+	var title_view := _view("lobby")
+	title_view._toggle_credits()
+	await get_tree().create_timer(4.0).timeout
+	if shots != "":
+		await host.shot(shots + "/cold-credits.png")
+	print("smoke: title-cold: credits %d lines, rolling %s, screen %d" % [title_view._credit_lines.size(), title_view._rolling, native_screen])
+	if title_view._credit_lines.is_empty() or not title_view._rolling or native_screen != Screens.MAIN_MENU:
+		return false
+	# OPTIONS on a cold title (no galaxy yet): opens without the game's rows, closes, and leaves no
+	# galaxy chrome behind.
+	title_view._choose("options")
+	await get_tree().create_timer(1.0).timeout
+	var cold_options := _view("options_menu")
+	if shots != "":
+		await host.shot(shots + "/cold-options.png")
+	var game_rows_hidden: bool = not cold_options.options_box.visible
+	title_view._choose("options")
+	await get_tree().create_timer(0.6).timeout
+	var tabs: Control = _views.get("side_tabs")
+	print("smoke: title-cold: options shown and closed %s, game rows hidden %s, side tabs %s" % [not cold_options.visible,
+		game_rows_hidden, "none" if tabs == null else str(tabs.visible)])
+	if cold_options.visible or not game_rows_hidden or (tabs != null and tabs.visible):
+		return false
+	# Multi Player (legacy), its Cancel.
+	_view("lobby")._choose("multiplayer")
+	if not await _wait_screen(Screens.LEGACY, 10.0):
+		print("smoke: title-cold: Multi Player did not open")
+		return false
+	await get_tree().create_timer(3.0).timeout
+	if shots != "":
+		game.get_frame_image().save_png(shots + "/cold-multiplayer.png")
+	await host.click_game(Vector2(320, 370)) # CANCEL
+	if not await _wait_screen(Screens.MAIN_MENU, 15.0):
+		print("smoke: title-cold: Multi Player's Cancel did not return to the title")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	# Load slot 5 from the title's Load page.
+	_view("lobby")._choose("load")
+	await get_tree().create_timer(1.0).timeout
+	var rows: Array = _view("lobby")._slots._box.get_children().filter(func(c: Node) -> bool: return c is Button and c.has_meta("slot"))
+	if rows.size() != 10:
+		print("smoke: title-cold: the Load page showed %d slots" % rows.size())
+		return false
+	(rows[4] as Button).pressed.emit()
+	if not await _wait_screen(Screens.MAIN, 40.0):
+		print("smoke: title-cold: loading slot 5 from the title did not reach the native galaxy")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	_smoke_answer()
+	var loaded: Dictionary = await _query("empire")
+	print("smoke: title-cold: loaded slot 5: %s" % JSON.stringify(loaded).left(120))
+	if shots != "":
+		await host.shot(shots + "/cold-loaded.png")
+	# Game menu > New Game, Cancel to the title, then Continue (SAVE10).
+	_send({"verb": "leave_game", "to": "main_menu"})
+	if not await _wait_screen(Screens.NEW_GAME, 20.0):
+		return false
+	await get_tree().create_timer(1.0).timeout
+	_view("new_game")._cancel_game()
+	if not await _wait_screen(Screens.MAIN_MENU, 10.0):
+		return false
+	await get_tree().create_timer(2.5).timeout
+	_view("lobby")._choose("continue")
+	if not await _wait_screen(Screens.MAIN, 40.0):
+		print("smoke: title-cold: Continue did not reach the native galaxy")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	_smoke_answer()
+	print("smoke: title-cold: Continue OK")
+	# RETURN TO TITLE (owner, 2026-11-27): the game menu's button, its question answered; the game
+	# is saved for Continue, which brings it back.
+	var title_button: Button = _view("game_menu").get_node("Fit/Box/Title")
+	title_button.pressed.emit()
+	if not await _wait_screen(Screens.MAIN_MENU, 20.0):
+		print("smoke: title-cold: RETURN TO TITLE did not reach the title (screen %d)" % native_screen)
+		return false
+	await get_tree().create_timer(2.5).timeout
+	if shots != "":
+		await host.shot(shots + "/cold-return-title.png")
+	_view("lobby")._choose("continue")
+	if not await _wait_screen(Screens.MAIN, 40.0):
+		print("smoke: title-cold: Continue after RETURN TO TITLE did not reach the galaxy")
+		return false
+	await get_tree().create_timer(2.0).timeout
+	_smoke_answer()
+	print("smoke: title-cold: return to title and Continue OK")
+	# A custom race: the Sakkra's picks plus Telepathic, named "Smokers".
+	_send({"verb": "leave_game", "to": "main_menu"})
+	if not await _wait_screen(Screens.NEW_GAME, 20.0):
+		return false
+	var new_game := _view("new_game")
+	await get_tree().create_timer(1.5).timeout
+	new_game._choice["size"] = 0
+	new_game._go_next()
+	new_game._custom = true # CUSTOM RACE...: the portraits first
+	new_game._custom_stage = "looks"
+	new_game._rebuild()
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/cold-custom-looks.png")
+	new_game._race = 10
+	new_game._start_custom(new_game._race_picks(10), "Smokers")
+	new_game._picks.specials[16] = 1 # telepathic
+	new_game._rebuild()
+	await get_tree().create_timer(1.0).timeout
+	if shots != "":
+		await host.shot(shots + "/cold-custom.png")
+	print("smoke: title-cold: custom picks left %d (problem '%s')" % [new_game._count_picks().x, new_game._custom_problem()])
+	if new_game._custom_problem() != "":
+		new_game._picks.specials[16] = 0 # not enough picks: the Sakkra as they are
+		new_game._rebuild()
+	new_game._go_next()
+	await get_tree().create_timer(0.5).timeout
+	new_game._go_next()
+	await get_tree().create_timer(0.5).timeout
+	new_game._go_next()
+	if not await _wait_screen(Screens.MAIN, 90.0):
+		print("smoke: title-cold: the custom race game did not start (note '%s')" % new_game._note.text)
+		return false
+	await get_tree().create_timer(3.0).timeout
+	var empire: Dictionary = await _query("empire")
+	print("smoke: title-cold: custom race game: race '%s'" % str(empire.get("race", "")))
+	if shots != "":
+		await host.shot(shots + "/cold-custom-galaxy.png")
+	return str(empire.get("race", "")) == "Smokers"
 
 
 ## `--new-game` (no save loaded): the new game flow through the legacy menus (the render suite's
@@ -8544,6 +9056,42 @@ func _smoke_torpedo(shots: String) -> bool:
 		view._act({"action": "end_turn"})
 		await get_tree().create_timer(1.0).timeout
 	print("smoke: torpedo: no torpedo squares in %d turns" % turns)
+	return false
+
+
+func _smoke_combat_auto(shots: String) -> bool:
+	_send({"verb": "end_turn"})
+	var waited := 0.0
+	var auto_on := false
+	var seen_battle := false
+	while waited < 880.0:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+		var view: Control = _combat
+		if view != null and view.visible:
+			seen_battle = true
+			if not auto_on and view._my_turn():
+				view._toggle_auto()
+				view._move_speed = view.MOVE_SPEEDS.size() - 1 # the fastest, and x2: the test display is slow
+				view._set_speed_x2(true)
+				auto_on = true
+				print("smoke: combat-auto: AUTO on after %.1f s" % waited)
+			continue
+		if seen_battle and native_screen == Screens.MAIN and not overlay.visible:
+			print("smoke: combat-auto: back on the galaxy after %.1f s" % waited)
+			if shots != "":
+				await host.shot(shots + "/combat-auto-after.png")
+			return true
+		var dialog: Control = _views.get("dialog")
+		if overlay.visible and dialog != null and String(dialog.popup_name) == "attack_target":
+			for i in dialog.options.size():
+				var item: Dictionary = dialog.options[i]
+				if bool(item.get("enabled", true)):
+					dialog._answer(dialog.OPTION_ANSWER + i)
+					break
+			continue
+		_smoke_answer()
+	print("smoke: combat-auto: no end after %.1f s (battle seen %s, screen %d)" % [waited, seen_battle, native_screen])
 	return false
 
 

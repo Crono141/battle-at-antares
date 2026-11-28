@@ -17,3 +17,6 @@ const TECH_CHANGE := 36
 const SHOW_COMMAND_POINTS := 43
 const REPORTS := 39
 const TURN_SUMMARY := 40
+const MAIN_MENU := 10
+const NEW_GAME := 13
+const HALL_OF_FAME := 14

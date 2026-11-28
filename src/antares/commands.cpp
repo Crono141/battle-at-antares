@@ -267,12 +267,17 @@ namespace antares::commands {
         // frontend when it answers confirmations; No leaves the galaxy as it was.
         void Leave_Game(int16_t, const s_args& args, s_out& out) {
             std::string to;
-            if (!args.Str("to", &to) || (to != "main_menu" && to != "desktop")) {
-                out.Fail("bad_args", "to: \"main_menu\" or \"desktop\"");
+            if (!args.Str("to", &to) || (to != "main_menu" && to != "desktop" && to != "title")) {
+                out.Fail("bad_args", "to: \"main_menu\", \"title\" or \"desktop\"");
                 return;
             }
             char text[200];
-            strlcpy(text, HAROLD::H_Message(to == "main_menu" ? 0xBA : 0xBB), sizeof(text));
+            if (to == "title") {
+                // RETURN TO TITLE (WP3.13, owner 2026-11-27): ours, so its question is too.
+                strlcpy(text, "Return to the title screen? The game is saved first, so Continue picks it up again.", sizeof(text));
+            } else {
+                strlcpy(text, HAROLD::H_Message(to == "main_menu" ? 0xBA : 0xBB), sizeof(text));
+            }
             if (GENDRAW::Do_Confirmation_Box(text) == 0) {
                 out.Bool("left", false);
                 return;
@@ -282,6 +287,18 @@ namespace antares::commands {
                 LOADSAVE::Save_Session_Related_Settings();
                 ERIC::Fast_Fade_Out();
                 MOX::current_screen = SCREEN_NEW_GAME;
+            } else if (to == "title") {
+                // As Quit (the auto save slot, for Continue), then the title instead of the desktop.
+                FILEDEF::Save_Game(9);
+                MOX::settings.active_save_slot = 9;
+                LOADSAVE::Save_Session_Related_Settings();
+                if (MOX::game_type == 2 || MOX::game_type == 3) {
+                    NETMOX::Human_Abdicates(static_cast<int32_t>(MOX::PLAYER_NUM));
+                    netcode::Net_Uninit();
+                }
+                MOX::game_type = 0;
+                ERIC::Fast_Fade_Out();
+                MOX::current_screen = SCREEN_MAIN_MENU;
             } else {
                 FILEDEF::Save_Game(9);
                 MOX::settings.active_save_slot = 9;
@@ -303,7 +320,18 @@ namespace antares::commands {
                 out.Fail("bad_args", "sound: a game sound number (0x28 the button click)");
                 return;
             }
-            ERICNET::Mox_Play_Sound((int16_t)sound);
+            out.Int("handle", ERICNET::Mox_Play_Sound((int16_t)sound));
+        }
+
+        // Stops a sound play_sound started (its handle): the title panel's motor stops when the
+        // panel locks, as in mainmenu.cpp's animation (WP3.13).
+        void Stop_Sound(int16_t, const s_args& args, s_out& out) {
+            int64_t handle = 0;
+            if (!args.Int("handle", &handle) || handle < 0) {
+                out.Fail("bad_args", "handle: what play_sound returned");
+                return;
+            }
+            sound::Stop_Sound((int32_t)handle);
         }
 
         void Close(int16_t, const s_args&, s_out&) {
@@ -495,14 +523,15 @@ namespace antares::commands {
                 {"open", e_kind::command, ANY_SCREEN, 0, "screen: SCREEN_* number", Open},
                 {"close", e_kind::command, ANY_SCREEN, 0, "", Close},
                 {"play_sound", e_kind::command, ANY_SCREEN, 0, "sound: game sound number (default 0x28, the click)", Play_Sound},
-                {"leave_game", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "to: main_menu | desktop (asks first)", Leave_Game},
+                {"stop_sound", e_kind::command, ANY_SCREEN, 0, "handle: from play_sound", Stop_Sound},
+                {"leave_game", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "to: main_menu (new game) | title | desktop (asks first)", Leave_Game},
                 {"scrap_ships", e_kind::command, ANY_SCREEN, 0, "ships: [ship id] (one place)", Scrap_Ships},
                 {"set_tax_rate", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "rate: 0..50 in tens", Set_Tax_Rate},
                 {"empire", e_kind::query, ANY_SCREEN, 3, "", Query_Empire},
                 {"command_points", e_kind::query, ANY_SCREEN, 1, "", Query_Command_Points},
                 {"ships", e_kind::query, ANY_SCREEN, 1, "star: star id (optional)", Query_Ships},
             };
-            static const bool galaxy_added = (internal::Add_Galaxy_Entries(&table), internal::Add_Fleet_Entries(&table), internal::Add_Colony_Entries(&table), internal::Add_Planet_Entries(&table), internal::Add_Fleet_Panel_Entries(&table), internal::Add_Empire_Panel_Entries(&table), internal::Add_Info_Entries(&table), internal::Add_Design_Entries(&table), internal::Add_Save_Entries(&table), internal::Add_Preview_Entries(&table), internal::Add_Todo_Entries(&table), true);
+            static const bool galaxy_added = (internal::Add_Galaxy_Entries(&table), internal::Add_Fleet_Entries(&table), internal::Add_Colony_Entries(&table), internal::Add_Planet_Entries(&table), internal::Add_Fleet_Panel_Entries(&table), internal::Add_Empire_Panel_Entries(&table), internal::Add_Info_Entries(&table), internal::Add_Design_Entries(&table), internal::Add_Save_Entries(&table), internal::Add_Preview_Entries(&table), internal::Add_Todo_Entries(&table), internal::Add_Lobby_Entries(&table), true);
             (void)galaxy_added;
             return table;
         }

@@ -128,6 +128,9 @@ namespace antares::native {
     // True when the frontend wants this screen natively and may have it now. A legacy handler that
     // can be left between inputs (Main_Screen) checks it and returns to the dispatcher.
     bool Wants_Screen(int16_t screen);
+    // WP3.13: the Hall of Fame natively when the frontend claims it (score.cpp's one-line hook,
+    // so the end of a game's entry flashes there too); false: the legacy screen runs.
+    bool Run_Hall_Of_Fame(int16_t entry_to_flash);
 
     // The frontend shows the legacy screen's picture (or a question over its own view): the sounds
     // held since the game left the native view play now (sound::Hold_New_Sounds).

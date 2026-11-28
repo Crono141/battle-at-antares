@@ -576,6 +576,7 @@ orion2re_add_unit_test(test_native_bridge
         tests/fakes/fake_info_runtime.cpp
         tests/fakes/fake_design_runtime.cpp
         tests/fakes/fake_save_runtime.cpp
+        tests/fakes/fake_lobby_runtime.cpp
     LIBRARIES
         ${ORION2RE_MINIZ_TARGET}
     LINK_SDL

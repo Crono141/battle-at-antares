@@ -3,6 +3,7 @@
 
 #include "config/mod_manager.h"
 #include "antares/identity.h"
+#include "antares/native.h"
 
 namespace MAINMENU {
     s_main_menu* mainmenu;
@@ -772,6 +773,9 @@ namespace MAINMENU {
                 screen_exit = true;
             }
 
+            if (!screen_exit && antares::native::Wants_Screen(SCREEN_MAIN_MENU)) { // Antares (WP3.13): hand over
+                screen_exit = true;
+            }
             if (!screen_exit) {
                 video::Set_Page_Off();
                 Draw_Main_Menu_Screen();

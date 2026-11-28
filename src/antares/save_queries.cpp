@@ -185,7 +185,7 @@ namespace antares::commands::internal {
     void Add_Save_Entries(std::vector<s_entry>* table) {
         table->push_back({"saves", e_kind::query, ANY_SCREEN, 1, "", Query_Saves});
         table->push_back({"save_game", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "slot: 0-9, description (optional)", Save_Game});
-        table->push_back({"load_game", e_kind::command, Screen_Bit(SCREEN_MAIN), 0, "slot: 0-9", Load_Game});
+        table->push_back({"load_game", e_kind::command, Screen_Bit(SCREEN_MAIN) | Screen_Bit(SCREEN_MAIN_MENU), 0, "slot: 0-9", Load_Game});
     }
 
 } // namespace antares::commands::internal

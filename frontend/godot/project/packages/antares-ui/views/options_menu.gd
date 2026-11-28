@@ -74,6 +74,7 @@ func _ready() -> void:
 		scale_changed.emit(v, true))
 	_add_flight_row()
 	_add_todo_row()
+	_add_display_rows()
 	# Sound first, above the map (owner 2026-11-24).
 	var box: VBoxContainer = $Fit/Box
 	for i in 3:
@@ -87,7 +88,9 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_THEME_CHANGED and is_node_ready():
 		_restyle()
-	elif what == NOTIFICATION_RESIZED and visible and not (_tween and _tween.is_running()):
+	elif what == NOTIFICATION_RESIZED and visible and _title_mode and title_anchor.size.x > 0.0:
+		_center_on_anchor() # its height settles after it opens (rows hidden in title mode)
+	elif what == NOTIFICATION_RESIZED and visible and not (_tween and _tween.is_running()) and not _title_mode:
 		# Rows laid out after the slide (or a refresh) widened it: keep the right edge by the tabs.
 		position.x = get_parent_area_size().x + _shown_right - size.x
 
@@ -104,14 +107,83 @@ func _restyle() -> void:
 
 
 func open() -> void:
+	_show_display() # Alt+Enter may have changed the window since
 	if not visible:
-		_slide(true)
+		if _title_mode and title_anchor.size.x > 0.0:
+			_fly_from_panel(true)
+		else:
+			_slide(true)
 
 
 func close() -> void:
 	if visible:
-		_slide(false)
+		if _title_mode and title_anchor.size.x > 0.0:
+			_fly_from_panel(false)
+		else:
+			_slide(false)
 		closed.emit()
+
+
+## Scaled so it is as tall as the buttons' area (never larger than itself).
+func _title_scale() -> float:
+	var natural := get_combined_minimum_size().y
+	var target := title_face.size.y if title_face.size.y > 0.0 else title_anchor.size.y
+	return clampf(target / maxf(natural, 1.0), 0.5, 1.0)
+
+
+func _anchor_y() -> float:
+	var area := get_parent_area_size()
+	var centre := title_face.get_center().y if title_face.size.y > 0.0 else title_anchor.get_center().y
+	var h := size.y * scale.y
+	return clampf(centre - h * 0.5, 8.0, maxf(8.0, area.y - h - 8.0))
+
+
+func _shown_x() -> float:
+	return maxf(8.0, title_anchor.position.x - size.x * scale.x - 14.0)
+
+
+func _center_on_anchor() -> void:
+	scale = Vector2.ONE * _title_scale()
+	position.y = _anchor_y()
+	if not (_tween and _tween.is_running()) and modulate.a > 0.99:
+		position.x = _shown_x()
+
+
+## The title laid out again (the window, the interface scale): the same size and place beside it.
+func refit_title() -> void:
+	if not (_title_mode and visible and title_anchor.size.x > 0.0):
+		return
+	_fit()
+	scale = Vector2.ONE * _title_scale()
+	if not (_tween and _tween.is_running()):
+		position = Vector2(_shown_x(), _anchor_y())
+	else:
+		position.y = _anchor_y()
+
+
+## On the title (owner, 2026-11-27): out from behind the menu panel to its left, fading in, and back.
+func _fly_from_panel(opening: bool) -> void:
+	if _tween:
+		_tween.kill()
+	_fit()
+	scale = Vector2.ONE * _title_scale()
+	var shown_x := _shown_x()
+	var tucked_x := title_anchor.position.x + 10.0
+	var y := _anchor_y()
+	if opening:
+		show()
+		position = Vector2(tucked_x, y)
+		modulate.a = 0.0
+		_center_on_anchor.call_deferred()
+	_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT if opening else Tween.EASE_IN)
+	_tween.tween_property(self, "position:x", shown_x if opening else tucked_x, 0.3)
+	_tween.tween_property(self, "modulate:a", 1.0 if opening else 0.0, 0.22 if opening else 0.25)
+	if opening:
+		_tween.chain().tween_callback(func(): position.x = _shown_x()) # its size settled meanwhile
+	else:
+		_tween.chain().tween_callback(func():
+			hide()
+			modulate.a = 1.0)
 
 
 ## The Alt+F1..F8 options (the `options` snapshot) as rows with an ON / OFF switch.
@@ -332,11 +404,15 @@ const FLIGHT_CHOICES := [["Slow", 1.5], ["Medium", 1.0], ["Fast", 0.5], ["Instan
 var _flight_pick: OptionButton
 
 
+var _flight_title: Label
+
+
 func _add_flight_row() -> void:
 	var box: VBoxContainer = $Fit/Box
 	var title := Label.new()
 	title.theme_type_variation = &"Section"
 	title.text = "SYSTEM ZOOM"
+	_flight_title = title
 	box.add_child(title)
 	box.move_child(title, $Fit/Box/ThemeTitle.get_index())
 	_flight_pick = OptionButton.new()
@@ -348,6 +424,116 @@ func _add_flight_row() -> void:
 	_flight_pick.item_selected.connect(func(i: int): flight_changed.emit(float(FLIGHT_CHOICES[i][1])))
 	box.add_child(_flight_pick)
 	box.move_child(_flight_pick, $Fit/Box/ThemeTitle.get_index())
+
+
+## DISPLAY (owner, 2026-11-27; in game and on the title): the window mode, V-sync and a frame
+## limit, applied at once and kept in the interface's settings (user://antares-ui.cfg, "display"),
+## which the frontend applies at start. No resolution or refresh rate lists: the interface draws at
+## the window's own size and has its own scale; the launcher sets the windowed size. A choice made
+## here wins over the launcher's "full screen" from then on.
+const WINDOW_MODES := [["Windowed", Window.MODE_WINDOWED], ["Full screen", Window.MODE_FULLSCREEN],
+	["Exclusive full screen", Window.MODE_EXCLUSIVE_FULLSCREEN]]
+const FRAME_LIMITS := [["No limit", 0], ["30 fps", 30], ["60 fps", 60], ["120 fps", 120], ["144 fps", 144], ["240 fps", 240]]
+var _mode_pick: OptionButton
+var _vsync_button: Button
+var _limit_pick: OptionButton
+
+
+func _add_display_rows() -> void:
+	var box: VBoxContainer = $Fit/Box
+	var before: int = $Fit/Box/ScaleTitle.get_index()
+	var title := Label.new()
+	title.theme_type_variation = &"Section"
+	title.text = "DISPLAY"
+	_mode_pick = OptionButton.new()
+	_mode_pick.focus_mode = Control.FOCUS_NONE
+	_mode_pick.custom_minimum_size = Vector2(0, 32)
+	_mode_pick.tooltip_text = "Windowed, full screen (borderless) or exclusive full screen (Alt+Enter switches too)"
+	for choice: Array in WINDOW_MODES:
+		_mode_pick.add_item(String(choice[0]))
+	_mode_pick.item_selected.connect(func(i: int): _set_display("mode", int(WINDOW_MODES[i][1])))
+	var row := PanelContainer.new()
+	row.theme_type_variation = &"Row"
+	var line := HBoxContainer.new()
+	row.add_child(line)
+	var label := Label.new()
+	label.text = "V-sync"
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.tooltip_text = "Wait for the display between frames: no tearing"
+	label.mouse_filter = Control.MOUSE_FILTER_PASS
+	line.add_child(label)
+	_vsync_button = Button.new()
+	_vsync_button.theme_type_variation = &"Toggle"
+	_vsync_button.toggle_mode = true
+	_vsync_button.focus_mode = Control.FOCUS_NONE
+	_vsync_button.custom_minimum_size = Vector2(60, 26)
+	_vsync_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_vsync_button.add_theme_font_size_override("font_size", 12)
+	Themes.glowing(_vsync_button)
+	_vsync_button.toggled.connect(func(on: bool):
+		_vsync_button.text = "ON" if on else "OFF"
+		_set_display("vsync", on))
+	line.add_child(_vsync_button)
+	_limit_pick = OptionButton.new()
+	_limit_pick.focus_mode = Control.FOCUS_NONE
+	_limit_pick.custom_minimum_size = Vector2(0, 32)
+	_limit_pick.tooltip_text = "The most frames a second"
+	for choice: Array in FRAME_LIMITS:
+		_limit_pick.add_item(String(choice[0]))
+	_limit_pick.item_selected.connect(func(i: int): _set_display("max_fps", int(FRAME_LIMITS[i][1])))
+	var items: Array[Control] = [title, _mode_pick, row, _limit_pick]
+	for i in items.size():
+		box.add_child(items[i])
+		box.move_child(items[i], before + i)
+	_show_display()
+
+
+func _show_display() -> void:
+	if _mode_pick == null:
+		return
+	var mode := get_window().mode
+	var index := 0
+	for i in WINDOW_MODES.size():
+		if int(WINDOW_MODES[i][1]) == mode:
+			index = i
+	_mode_pick.select(index)
+	var vsync := DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED
+	_vsync_button.set_pressed_no_signal(vsync)
+	_vsync_button.text = "ON" if vsync else "OFF"
+	Themes.glow(_vsync_button)
+	var limit := 0
+	for i in FRAME_LIMITS.size():
+		if int(FRAME_LIMITS[i][1]) == Engine.max_fps:
+			limit = i
+	_limit_pick.select(limit)
+
+
+func _set_display(key: String, value: Variant) -> void:
+	Themes.save_value("display", key, value)
+	apply_display(get_window(), key, value)
+
+
+static func apply_display(window: Window, key: String, value: Variant) -> void:
+	match key:
+		"mode":
+			window.mode = int(value) as Window.Mode
+		"vsync":
+			DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if bool(value) else DisplayServer.VSYNC_DISABLED)
+		"max_fps":
+			Engine.max_fps = int(value)
+
+
+## At start: the display choices the player made here, if any.
+static func apply_saved_display(window: Window) -> void:
+	# Only what was saved (a null default to ConfigFile.get_value counts as none: it logged an error
+	# for each key on a first start, owner's log 2026-11-27).
+	var cfg := ConfigFile.new()
+	if cfg.load(Themes.SETTINGS) == OK:
+		for key in ["mode", "vsync", "max_fps"]:
+			if cfg.has_section_key("display", key):
+				apply_display(window, key, cfg.get_value("display", key))
+	print("display: window mode %d, vsync %s, frame limit %d" % [window.mode,
+		DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED, Engine.max_fps])
 
 
 ## AUTO ADDRESS TO-DOS (owner, 2026-11-20): the stock game's way with the turn's to-dos, each
@@ -399,6 +585,27 @@ func show_flight(seconds: float) -> void:
 		if absf(float(FLIGHT_CHOICES[i][1]) - seconds) < absf(float(FLIGHT_CHOICES[best][1]) - seconds):
 			best = i
 	_flight_pick.select(best)
+
+
+## Opened from the title screen (WP3.13): no game, so the map's rows, the game options (they
+## change a game: `toggle_option` runs on the galaxy only), the system zoom and the to-dos switch
+## are left out; sound, display, interface scale and theme stay.
+## Set by the frontend in title mode: the menu panel's rectangle it flies out of, and the buttons'
+## area inside it, whose height it is scaled to (owner, 2026-11-27).
+var title_anchor := Rect2()
+var title_face := Rect2()
+var _title_mode := false
+
+
+func set_title_mode(on: bool) -> void:
+	_title_mode = on
+	if not on:
+		scale = Vector2.ONE
+	var rows: Array[Control] = [$Fit/Box/MapTitle, $Fit/Box/Influence, $Fit/Box/Map, $Fit/Box/GameTitle, options_box,
+		_flight_title, _flight_pick, todo_auto_button.get_parent().get_parent() as Control]
+	for row in rows:
+		row.visible = not on
+	_fit.call_deferred()
 
 
 ## While a battle's question is up (owner 2026-11-24): MERGE RELOC. and DISTANCE greyed out.
