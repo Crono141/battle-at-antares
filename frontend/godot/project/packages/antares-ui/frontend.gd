@@ -7542,7 +7542,7 @@ func _smoke_title(shots: String) -> bool:
 		await host.shot(shots + "/title-hall-of-fame.png")
 	if hall._rows.size() != 10:
 		return false
-	hall._leave()
+	hall._close_x.pressed.emit() # the X in its corner (owner, 2026-11-27)
 	if not await _wait_screen(Screens.MAIN_MENU, 10.0):
 		print("smoke: title: the Hall of Fame did not close to the title screen")
 		return false

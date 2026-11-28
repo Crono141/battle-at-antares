@@ -17,7 +17,14 @@ var _blink := true
 var _blink_time := 0.0
 var _reset_armed := false
 var _reset: Button
+var _close_x: Button
 var _closing := false
+## Its arrival (owner, 2026-11-27): the picture slides down from above the screen, and back up
+## when it closes; 1 is out of sight above, 0 in place.
+var _drop := 1.0
+var _slide: Tween
+const SLIDE_IN := 0.45
+const SLIDE_OUT := 0.3
 
 
 func _ready() -> void:
@@ -29,6 +36,15 @@ func _ready() -> void:
 	_reset.tooltip_text = "Replace the table with the game's made-up one (Alt+C in the original)"
 	_reset.pressed.connect(_on_reset)
 	add_child(_reset)
+	# A plain X in the picture's top right corner closes it (as Esc or a click outside it).
+	_close_x = Button.new()
+	_close_x.text = "X"
+	_close_x.focus_mode = Control.FOCUS_NONE
+	_close_x.tooltip_text = "Close (Esc)"
+	_close_x.custom_minimum_size = Vector2(52, 52)
+	_close_x.add_theme_font_size_override("font_size", 24)
+	_close_x.pressed.connect(_leave)
+	add_child(_close_x)
 	resized.connect(_layout)
 
 
@@ -37,6 +53,11 @@ func open() -> void:
 	_reset_armed = false
 	_reset.text = "RESET TABLE"
 	show()
+	_drop = 1.0
+	if _slide:
+		_slide.kill()
+	_slide = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_slide.tween_method(_set_drop, 1.0, 0.0, SLIDE_IN)
 	_layout()
 	command.emit({"verb": "query", "what": "hall_of_fame", "_reply_to": "show_table"})
 
@@ -54,15 +75,25 @@ func close() -> void:
 	closed.emit()
 
 
-## The picture's rectangle: 4:3, as tall as the screen allows less a margin.
+## The picture's rectangle: 4:3, as tall as the screen allows less a margin (above the screen by
+## its slide).
 func picture_rect() -> Rect2:
 	var h := minf(size.y * 0.96, size.x * 0.96 * 0.75)
 	var w := h / 0.75
-	return Rect2((size.x - w) * 0.5, (size.y - h) * 0.5, w, h)
+	var y := (size.y - h) * 0.5
+	return Rect2((size.x - w) * 0.5, y - (y + h + 8.0) * _drop, w, h)
+
+
+func _set_drop(value: float) -> void:
+	_drop = value
+	_layout()
 
 
 func _layout() -> void:
 	var r := picture_rect()
+	_close_x.reset_size()
+	var inset := r.size.y * 0.02
+	_close_x.position = Vector2(r.end.x - _close_x.size.x - inset, r.position.y + inset)
 	_reset.reset_size()
 	_reset.position = Vector2(r.end.x + 12, r.end.y - _reset.size.y) if r.end.x + 12 + _reset.size.x < size.x \
 		else Vector2(r.end.x - _reset.size.x - 8, r.end.y + 4)
@@ -80,7 +111,7 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, 0.55)) # the title scene, dimmed
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, 0.55 * (1.0 - _drop))) # the title scene, dimmed as it arrives
 	var r := picture_rect()
 	var s := r.size.x / 640.0
 	var tex: Texture2D = art.texture("SCORE.LBX", 0x0F, 0) if art else null
@@ -128,13 +159,18 @@ func _leave() -> void:
 	if _closing:
 		return
 	_closing = true
-	command.emit({"verb": "close_hall_of_fame"})
+	# Back up out of sight, then the game leaves the screen.
+	if _slide:
+		_slide.kill()
+	_slide = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	_slide.tween_method(_set_drop, _drop, 1.0, SLIDE_OUT)
+	_slide.tween_callback(func(): command.emit({"verb": "close_hall_of_fame"}))
 
 
 func _gui_input(event: InputEvent) -> void:
 	var press := event as InputEventMouseButton
 	if press and press.pressed and press.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
-		if not _reset.get_rect().has_point(press.position):
+		if not _reset.get_rect().has_point(press.position) and not _close_x.get_rect().has_point(press.position):
 			_leave()
 			accept_event()
 
