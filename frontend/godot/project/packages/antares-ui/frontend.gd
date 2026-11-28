@@ -1187,12 +1187,36 @@ func _on_view_command(dict: Dictionary, view: Control) -> void:
 		_fleet_for_panel = int(dict.get("ship", -1))
 		_open_side_panel(String(dict.panel))
 		return
+	# A change to a colony (its jobs, its build list, a purchase): an open Colonies or Planets
+	# panel shows it at once (owner, 2026-11-27: pinned beside the colony's panes, it kept the old
+	# figures until closed and opened again).
+	var colony_change: bool = String(dict.get("verb", "")) in COLONY_CHANGES
 	if dict.has("_reply_to"):
 		var method: String = dict["_reply_to"]
 		dict.erase("_reply_to")
-		_send(dict, Callable(view, method))
+		var reply := Callable(view, method)
+		_send(dict, (func(result: Dictionary):
+			reply.call(result)
+			if colony_change:
+				_refresh_open_side_panels(result)) if colony_change else reply)
+	elif colony_change:
+		_send(dict, _refresh_open_side_panels)
 	else:
 		_send(dict)
+
+
+const COLONY_CHANGES := ["move_colonist", "set_occupation", "build_commit", "buy", "sell_building", "send_colonists"]
+
+
+## The Colonies and Planets panels, when open, ask for their figures again.
+func _refresh_open_side_panels(result: Dictionary) -> void:
+	if not result.get("ok", false):
+		print("frontend: a colony change was refused: %s" % JSON.stringify(result).left(200))
+		return
+	for panel_name: String in ["colonies_panel", "planets_panel"]:
+		var panel: Control = _views.get(panel_name)
+		if panel != null and panel.visible:
+			panel.refresh()
 
 
 ## The to-do list's last answer (WP3.4d, a watched query).
@@ -2364,6 +2388,56 @@ func _smoke_pin(shots: String) -> bool:
 		await host.shot(shots + "/native-pin-build.png")
 	if not panel.visible or not system_pane.visible or not _view("build_pane").visible or panel.get_index() > system_pane.get_index():
 		return false
+	# A colonist moved in the colony pane: the pinned panel's row follows at once (owner,
+	# 2026-11-27: it kept the old jobs until closed and opened again); then moved back.
+	var row_jobs := func() -> Array: # colonists per job, and the first colonist of each
+		for c: Dictionary in panel.colonies:
+			if int(c.colony) == int(first.colony):
+				return (c.get("jobs", []) as Array).map(func(j: Dictionary) -> Array:
+					var people: Array = j.get("colonists", [])
+					var citizens := people.filter(func(person: Dictionary) -> bool: return String(person.get("state", "")) == "citizen")
+					return [people.size(), int(citizens[0].pop) if not citizens.is_empty() else -1])
+		return []
+	var jobs_before: Array = row_jobs.call()
+	var from_job := 0
+	while from_job < 2 and int(jobs_before[from_job][1]) < 0: # a job with a citizen (natives stay put)
+		from_job += 1
+	var to_job := 1 if from_job != 1 else 0 # farming and industry: every colony has both
+	var mover := int(jobs_before[from_job][1])
+	_view("colony_pane").command.emit({"verb": "move_colonist", "colony": int(first.colony), "pop": mover, "job": to_job})
+	await get_tree().create_timer(1.0).timeout
+	var direct: Dictionary = await _query_args({"what": "colonies"})
+	for c: Dictionary in direct.get("colonies", []):
+		if int(c.colony) == int(first.colony):
+			print("smoke: pinned colonies: the game says jobs %s (moved pop %d from job %d to %d)" % [(c.jobs as Array).map(func(j: Dictionary) -> int: return (j.colonists as Array).size()), mover, from_job, to_job])
+	var jobs_after: Array = row_jobs.call()
+	print("smoke: pinned colonies after a colonist moved: jobs %s -> %s" % [jobs_before.map(func(j: Array) -> int: return j[0]), jobs_after.map(func(j: Array) -> int: return j[0])])
+	_view("colony_pane").command.emit({"verb": "move_colonist", "colony": int(first.colony), "pop": mover, "job": from_job})
+	await get_tree().create_timer(0.8).timeout
+	if jobs_after.map(func(j: Array) -> int: return j[0]) == jobs_before.map(func(j: Array) -> int: return j[0]):
+		print("smoke: FAILED: the pinned Colonies panel did not follow the colonist's move")
+		return false
+	# A build plan changed and committed (the first item taken off): its BUILDING cell follows
+	# (no empire total changes with it, so only the commit itself can refresh the panel).
+	var row_build := func() -> String:
+		for c: Dictionary in panel.colonies:
+			if int(c.colony) == int(first.colony):
+				var b: Dictionary = c.get("build", {})
+				return "%s/%d" % [String(b.get("name", "")), int(b.get("turns", 0))]
+		return ""
+	var build_before: String = row_build.call()
+	var pinned_build := _view("build_pane")
+	if pinned_build.visible and pinned_build._queue.size() > 0:
+		pinned_build._delete(0)
+		pinned_build._ok()
+		await get_tree().create_timer(1.2).timeout
+		var build_after: String = row_build.call()
+		print("smoke: pinned colonies after a build commit: building %s -> %s" % [build_before, build_after])
+		if build_after == build_before:
+			print("smoke: FAILED: the pinned Colonies panel did not follow the build commit")
+			return false
+		_open_build_pane(int(first.colony), false) # back as the next check expects it
+		await get_tree().create_timer(0.8).timeout
 	esc.call()
 	await get_tree().create_timer(0.6).timeout
 	print("smoke: pinned Esc: panel %s, build %s, colony pane %s, system %s" % [panel.visible, _view("build_pane").visible, _view("colony_pane").visible, system_pane.visible])
