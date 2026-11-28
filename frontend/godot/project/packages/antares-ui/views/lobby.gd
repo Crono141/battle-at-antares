@@ -76,8 +76,9 @@ var _arm3d: Node3D
 var _turn := 0.0 # 0 edge-on, 1 facing the viewer
 var _slide := 0.0 # 0 at the right edge, 1 home
 var _motor := -1 # the motor sound's handle while the panel moves
-const FACE_CENTER := Vector2(-1.0, 0.0) # the face's middle from the hinge (model units)
+const FACE_CENTER := Vector2(-0.94, 0.0) # the face's middle from the hinge (model units; the 0.11 bezel)
 const FACE_SIZE := Vector2(1.70, 1.40)
+const WORN_COPPER_TINT := Color(1.2, 1.02, 0.78) # the frame strip on the bezel, warmed to the frame's copper
 const ARM_LENGTH := 2.5
 const CAMERA_DISTANCE := 12.0
 const CAMERA_FOV := 30.0
@@ -143,6 +144,7 @@ func _ready() -> void:
 	_credits.add_theme_color_override("font_color", Color(0.55, 0.85, 0.6))
 	_credits.add_theme_color_override("font_hover_color", PANEL_GREEN)
 	_credits.pressed.connect(_toggle_credits)
+	_credits.hide() # the credits roll by themselves (owner, 2026-11-27: the button did nothing); kept for the layout
 	add_child(_credits)
 
 	_roll = Control.new()
@@ -237,6 +239,47 @@ func _build_rig() -> void:
 		glass.roughness = 0.25
 		glass.metallic_specular = 0.8
 		(face as MeshInstance3D).material_override = glass
+	# The bezel's ring wears the title frame's own edge strip (owner, 2026-11-27: the plain gunmetal
+	# was bland beside the frame): art/title/frame/edge_top.png, installed with the title art; the
+	# model's UVs run it round the ring a border-width a tile. Without the art the ring stays plain.
+	var strip_tex := _texture_at(scene_file_path.get_base_dir().get_base_dir() + "/art/title/frame/edge_top.png")
+	var bezel_mesh := _model.find_child("Bezel", true, false) as MeshInstance3D
+	if strip_tex != null and bezel_mesh != null and bezel_mesh.mesh != null:
+		for i in bezel_mesh.mesh.get_surface_count():
+			var surface_material := bezel_mesh.mesh.surface_get_material(i)
+			if surface_material != null and surface_material.resource_name == "BezelStrip":
+				var strip := StandardMaterial3D.new()
+				strip.albedo_texture = strip_tex
+				strip.albedo_color = WORN_COPPER_TINT
+				strip.metallic = 0.35
+				strip.roughness = 0.6
+				# Its own picture glows a little, so it reads as the 2D frame does under any light.
+				strip.emission_enabled = true
+				strip.emission_texture = strip_tex
+				strip.emission = Color(1.0, 0.85, 0.65)
+				strip.emission_energy_multiplier = 0.25
+				strip.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+				strip.texture_repeat = true
+				strip.cull_mode = BaseMaterial3D.CULL_DISABLED
+				bezel_mesh.set_surface_override_material(i, strip)
+	# The rest of the hardware (rails, clamps, the arm) in the frame's worn copper, not chrome and
+	# gunmetal (owner, 2026-11-27: "needs to be that worn copper color the rest of the frame is").
+	for part_name in ["Bezel", "Arm"]:
+		var part := _model.find_child(part_name, true, false) as MeshInstance3D
+		if part == null or part.mesh == null:
+			continue
+		for i in part.mesh.get_surface_count():
+			var source := part.mesh.surface_get_material(i)
+			if source == null or not source.resource_name in ["Chrome", "Gunmetal", "DarkMetal"]:
+				continue
+			if part_name == "Bezel" and source.resource_name == "DarkMetal":
+				continue # the recess plate: left out below
+			var copper := StandardMaterial3D.new()
+			copper.albedo_color = {"Chrome": Color(0.40, 0.32, 0.23), "Gunmetal": Color(0.23, 0.19, 0.14),
+				"DarkMetal": Color(0.17, 0.14, 0.10)}[source.resource_name]
+			copper.metallic = 0.8 if source.resource_name == "Chrome" else 0.65
+			copper.roughness = 0.35 if source.resource_name == "Chrome" else 0.55
+			part.set_surface_override_material(i, copper)
 	# The plate closing the screen's recess (the bezel's DarkMetal; the arm keeps its own) would
 	# hide the station behind the glass: left out.
 	var bezel := _model.find_child("Bezel", true, false) as MeshInstance3D
@@ -387,7 +430,6 @@ func show_screen(new_screen: int) -> void:
 		command.emit({"verb": "query", "what": "menu", "_reply_to": "show_menu"})
 		_logo.show()
 		_version.show()
-		_credits.show()
 		_roll.visible = _rolling
 		if not _panel_in:
 			_swing_in(was == -1 or was == Screens.LEGACY)
