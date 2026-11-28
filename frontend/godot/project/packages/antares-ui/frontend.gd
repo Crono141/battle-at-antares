@@ -7489,6 +7489,21 @@ func _smoke_title(shots: String) -> bool:
 	await get_tree().create_timer(1.0).timeout
 	if shots != "":
 		await host.shot(shots + "/title-newgame-custom.png")
+	# RANDOMIZE (owner, 2026-11-27): 200 races, every one legal; how many picks they leave unused.
+	var illegal := 0
+	var unused := 0
+	for _i in 200:
+		new_game._randomize_picks()
+		if new_game._custom_problem() != "":
+			illegal += 1
+		unused += new_game._count_picks().x
+	new_game._rebuild()
+	await get_tree().create_timer(0.6).timeout
+	if shots != "":
+		await host.shot(shots + "/title-newgame-random.png")
+	print("smoke: title: randomize: %d of 200 illegal, %.2f picks left on average" % [illegal, unused / 200.0])
+	if illegal > 0:
+		return false
 	new_game._custom = false
 	new_game._rebuild()
 	new_game._go_next()

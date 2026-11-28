@@ -592,6 +592,73 @@ func _custom_problem() -> String:
 const PICKED_COLOR := Color(1.0, 0.62, 0.2) # a chosen pick's text
 
 
+## RANDOMIZE (owner, 2026-11-27): a legal race at random. A random government, up to three random
+## negative picks (within the negative limit), then random positive ones while the picks last;
+## each pick is kept only if the race stays legal (picks left >= 0, the negative limit, the
+## exclusive pairs, no food picks for Lithovores), as the pick buttons check them.
+func _randomize_picks() -> void:
+	var rules := _rules()
+	var groups: Array = rules.get("primary", [])
+	var specials: Array = rules.get("specials", [])
+	var gov: Array = rules.get("government", {}).get("choices", [])
+	var limit := int(rules.get("negative_limit", -10))
+	var food := int(rules.get("food_group", 1))
+	var lithovore := int(rules.get("lithovore", 9))
+	var exclusive: Array = rules.get("exclusive", [])
+	_picks = {"primary": [0, 0, 0, 0, 0, 0, 0, 0, 0], "government": 0, "specials": []}
+	for _i in 22:
+		(_picks.specials as Array).append(0)
+	var governments := range(gov.size())
+	governments.shuffle()
+	for g in governments:
+		_picks.government = g
+		if _count_picks().x >= 0 and _count_picks().y >= limit:
+			break
+	# Every pick as [kind, index, value, cost].
+	var options: Array = []
+	for g in mini(groups.size(), 9):
+		var choices: Array = groups[g].choices
+		for c in choices.size():
+			options.append(["primary", g, c + 1, int(choices[c].cost)])
+	for i in mini(specials.size(), 22):
+		options.append(["special", i, 1, int(specials[i].cost)])
+	var legal := func() -> bool:
+		var counts := _count_picks()
+		if counts.x < 0 or counts.y < limit:
+			return false
+		if int(_picks.specials[lithovore]) != 0 and int(_picks.primary[food]) != 0:
+			return false
+		for pair: Array in exclusive:
+			if int(_picks.specials[int(pair[0])]) != 0 and int(_picks.specials[int(pair[1])]) != 0:
+				return false
+		return true
+	var try_pick := func(option: Array) -> bool:
+		var key := "primary" if option[0] == "primary" else "specials"
+		var at := int(option[1])
+		if int(_picks[key][at]) != 0:
+			return false # that group (or ability) is taken
+		_picks[key][at] = int(option[2])
+		if legal.call():
+			return true
+		_picks[key][at] = 0
+		return false
+	var negatives := options.filter(func(o: Array) -> bool: return int(o[3]) < 0)
+	var positives := options.filter(func(o: Array) -> bool: return int(o[3]) > 0)
+	negatives.shuffle()
+	var wanted := randi_range(0, 3)
+	for option: Array in negatives:
+		if wanted <= 0:
+			break
+		if try_pick.call(option):
+			wanted -= 1
+	positives.shuffle()
+	for option: Array in positives:
+		if _count_picks().x <= 0:
+			break
+		try_pick.call(option)
+	_show_note("")
+
+
 ## The picks' rows, smaller than the theme's buttons so the page fits without scrolling.
 func _compact(button: Button) -> void:
 	button.add_theme_font_size_override("font_size", 15)
@@ -626,15 +693,38 @@ func _build_custom() -> void:
 	name_edit.text = _custom_name
 	name_edit.text_changed.connect(func(t: String): _custom_name = t)
 	top.add_child(name_edit)
+	# DEFAULT: the chosen look's own race; CLEAR: no picks at all (owner, 2026-11-27).
 	var defaults := Button.new()
 	defaults.text = "DEFAULT"
 	defaults.focus_mode = Control.FOCUS_NONE
+	defaults.tooltip_text = "The picks of the race whose portrait you chose"
 	defaults.pressed.connect(func():
+		var own := _race_picks(_race)
+		_picks = own
+		while (_picks.specials as Array).size() < 22:
+			(_picks.specials as Array).append(0)
+		_show_note("")
+		_rebuild())
+	top.add_child(defaults)
+	var clear := Button.new()
+	clear.text = "CLEAR"
+	clear.focus_mode = Control.FOCUS_NONE
+	clear.tooltip_text = "No picks: every point to spend"
+	clear.pressed.connect(func():
 		_picks = {"primary": [0, 0, 0, 0, 0, 0, 0, 0, 0], "government": 1, "specials": []}
 		for _i in 22:
 			(_picks.specials as Array).append(0)
+		_show_note("")
 		_rebuild())
-	top.add_child(defaults)
+	top.add_child(clear)
+	var random := Button.new()
+	random.text = "RANDOMIZE"
+	random.focus_mode = Control.FOCUS_NONE
+	random.tooltip_text = "A random race within the picks and the rules"
+	random.pressed.connect(func():
+		_randomize_picks()
+		_rebuild())
+	top.add_child(random)
 	var last: Dictionary = _data.get("last_custom", {})
 	if not last.is_empty():
 		var load_last := Button.new()
