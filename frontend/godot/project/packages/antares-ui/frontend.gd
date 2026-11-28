@@ -561,6 +561,7 @@ func _show_lobby(screen: int) -> void:
 	lobby = _view("lobby")
 	if not lobby.options_requested.is_connected(_open_title_options):
 		lobby.options_requested.connect(_open_title_options)
+		lobby.resized.connect(_refit_title_options) # a new window size or interface scale
 	if screen != Screens.MAIN_MENU:
 		_close_title_options()
 	native_layer.move_child(lobby, 0) # under every other view and the dialog
@@ -587,6 +588,7 @@ func _open_title_options() -> void:
 	options.set_title_mode(true)
 	options.theme = _view("lobby").title_theme() # the title's copper and green, not the game theme
 	options.title_anchor = _view("lobby").panel_rect()
+	options.title_face = _view("lobby").face_rect()
 	options.keys_active = false
 	if options.visible:
 		options.close()
@@ -594,6 +596,19 @@ func _open_title_options() -> void:
 	options.move_to_front()
 	options.open()
 	_send({"verb": "query", "what": "options"}, func(result: Dictionary): options.show_options(result))
+
+
+func _refit_title_options() -> void:
+	var options: Control = _views.get("options_menu")
+	var lobby: Control = _views.get("lobby")
+	if options == null or lobby == null or not options.visible or not options._title_mode:
+		return
+	await get_tree().process_frame # the title laid out at its new size first
+	if not is_instance_valid(options) or not is_instance_valid(lobby):
+		return
+	options.title_anchor = lobby.panel_rect()
+	options.title_face = lobby.face_rect()
+	options.refit_title()
 
 
 func _close_title_options() -> void:
@@ -7471,6 +7486,24 @@ func _smoke_title(shots: String) -> bool:
 		await host.shot(shots + "/title-options.png")
 	print("smoke: title: options shown %s, map rows hidden %s, display rows %s" % [title_options.visible,
 		not title_options.get_node("Fit/Box/Map").visible, title_options._mode_pick != null and title_options._mode_pick.is_visible_in_tree()])
+	# As tall as the buttons' area, beside the panel; again after the interface scale changes.
+	var fits := func(label: String) -> bool:
+		var face: Rect2 = lobby.face_rect()
+		var h: float = title_options.size.y * title_options.scale.y
+		var right: float = title_options.position.x + title_options.size.x * title_options.scale.x
+		print("smoke: title: options %s: %.0f tall (buttons' area %.0f), right edge %.0f (panel %.0f)" % [label, h, face.size.y, right, lobby.panel_rect().position.x])
+		return absf(h - face.size.y) < 3.0 and right <= lobby.panel_rect().position.x
+	var fit_ok: bool = fits.call("at 100 %")
+	var scale_was := ui_scale
+	set_ui_scale(125.0, false)
+	await get_tree().create_timer(0.8).timeout
+	if shots != "":
+		await host.shot(shots + "/title-options-125.png")
+	fit_ok = fits.call("at 125 %") and fit_ok
+	set_ui_scale(scale_was, false)
+	await get_tree().create_timer(0.6).timeout
+	if not fit_ok:
+		return false
 	# The frame limit: applied at once (V-sync and the window mode are left alone under the
 	# virtual display).
 	title_options._limit_pick.select(2)

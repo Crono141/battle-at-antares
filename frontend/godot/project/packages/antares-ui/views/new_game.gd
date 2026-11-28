@@ -269,12 +269,12 @@ func _build_galaxy() -> void:
 	rows.add_theme_constant_override("separation", 14)
 	_body.add_child(rows)
 	var top := _galaxy_row(rows)
-	top.add_child(_option_group("Difficulty", "difficulty", difficulties, "NEWGAME.LBX", func(i: int) -> int: return 4 + i))
-	top.add_child(_option_group("Galaxy size", "size", sizes, "NEWGAME.LBX", func(i: int) -> int: return 9 + mini(i, 3)))
-	top.add_child(_option_group("Galaxy age", "age", AGE_NAMES, "NEWGAME.LBX", func(i: int) -> int: return 1 + i))
+	top.add_child(_framed(_option_group("Difficulty", "difficulty", difficulties, "NEWGAME.LBX", func(i: int) -> int: return 4 + i)))
+	top.add_child(_framed(_option_group("Galaxy size", "size", sizes, "NEWGAME.LBX", func(i: int) -> int: return 9 + mini(i, 3))))
+	top.add_child(_framed(_option_group("Galaxy age", "age", AGE_NAMES, "NEWGAME.LBX", func(i: int) -> int: return 1 + i)))
 	var bottom := _galaxy_row(rows)
-	bottom.add_child(_option_group("Players", "players", PLAYER_NAMES, "NEWGAME.LBX", func(i: int) -> int: return 31 if i == 7 else 13 + i))
-	bottom.add_child(_option_group("Tech level", "tech", TECH_NAMES, "NEWGAME.LBX", func(i: int) -> int: return [20, 21, 32, 22][i]))
+	bottom.add_child(_framed(_option_group("Players", "players", PLAYER_NAMES, "NEWGAME.LBX", func(i: int) -> int: return 31 if i == 7 else 13 + i)))
+	bottom.add_child(_framed(_option_group("Tech level", "tech", TECH_NAMES, "NEWGAME.LBX", func(i: int) -> int: return [20, 21, 32, 22][i])))
 	var toggles := VBoxContainer.new()
 	toggles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	toggles.size_flags_stretch_ratio = 1.0
@@ -293,7 +293,19 @@ func _build_galaxy() -> void:
 		var key: String = item[0]
 		check.toggled.connect(func(on: bool): _choice[key] = on)
 		toggles.add_child(check)
-	bottom.add_child(toggles)
+	bottom.add_child(_framed(toggles))
+
+
+## A group in the theme's thin frame (owner, 2026-11-27: the pages' pictures and buttons floated on
+## the panel), taking the content's size flags.
+func _framed(content: Control) -> PanelContainer:
+	var frame := PanelContainer.new()
+	frame.theme_type_variation = &"Row"
+	frame.size_flags_horizontal = content.size_flags_horizontal
+	frame.size_flags_vertical = content.size_flags_vertical
+	frame.size_flags_stretch_ratio = content.size_flags_stretch_ratio
+	frame.add_child(content)
+	return frame
 
 
 func _galaxy_row(parent: Control) -> HBoxContainer:
@@ -311,7 +323,7 @@ func _option_group(title: String, key: String, names: Array, lbx: String, pictur
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_theme_constant_override("separation", 14)
-	var side := clampf(minf((size.y - 290.0) * 0.5, (size.x - 120.0) / 3.0 - 230.0), 110.0, 480.0)
+	var side := clampf(minf((size.y - 340.0) * 0.5, (size.x - 180.0) / 3.0 - 250.0), 110.0, 480.0) # inside its frame
 	var picture := TextureRect.new()
 	picture.custom_minimum_size = Vector2(side, side)
 	picture.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
@@ -373,12 +385,13 @@ func _build_race() -> void:
 	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	detail.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	detail.add_theme_constant_override("separation", 20)
-	row.add_child(detail)
+	row.add_child(_framed(detail))
 	var list := GridContainer.new()
 	list.columns = 2
 	list.add_theme_constant_override("h_separation", 8)
 	list.add_theme_constant_override("v_separation", 8)
-	row.add_child(list)
+	list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.add_child(_framed(list))
 	var group := ButtonGroup.new()
 	for race: Dictionary in _races():
 		var button := _race_button(str(race.name))
@@ -426,7 +439,7 @@ func _show_race(detail: HBoxContainer) -> void:
 	for child in detail.get_children():
 		child.queue_free()
 	var race := _race_data(_race)
-	var room := Vector2(size.x - 80.0 - RACE_LIST_WIDTH - 24.0 - TRAITS_WIDTH - 20.0, size.y - 250.0)
+	var room := Vector2(size.x - 120.0 - RACE_LIST_WIDTH - 24.0 - TRAITS_WIDTH - 20.0, size.y - 280.0) # less the frames
 	var height := minf(room.y, room.x / PORTRAIT_ASPECT)
 	var portrait := TextureRect.new()
 	portrait.custom_minimum_size = Vector2(height * PORTRAIT_ASPECT, height)
@@ -495,8 +508,8 @@ func _build_looks() -> void:
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
-	_body.add_child(grid)
-	var cell_w := maxf(110.0, (size.x - 80.0 - 6 * 10.0) / 7.0)
+	_body.add_child(_framed(grid))
+	var cell_w := maxf(110.0, (size.x - 110.0 - 6 * 10.0) / 7.0)
 	var cell_h := minf(cell_w * 1.1, maxf(120.0, (size.y - 330.0) * 0.5))
 	for race: Dictionary in _races():
 		var id := int(race.race)
@@ -590,6 +603,7 @@ func _custom_problem() -> String:
 
 
 const PICKED_COLOR := Color(1.0, 0.62, 0.2) # a chosen pick's text
+const Tiles := preload("fleets_panel.gd") # its ship tiles' look, for the banners
 
 
 ## RANDOMIZE (owner, 2026-11-27): a legal race at random. A random government, up to three random
@@ -822,13 +836,13 @@ func _build_custom() -> void:
 	# choices, so it shares the last with one group).
 	var column_of := func(i: int) -> int: return 0 if i < 3 else (1 if i < 6 else (2 if i < 8 else 3))
 	for i in boxes.size():
-		stat_columns[mini(int(column_of.call(i)), 3)].add_child(boxes[i])
+		stat_columns[mini(int(column_of.call(i)), 3)].add_child(_framed(boxes[i]))
 
 	# The special abilities, two columns beside them.
 	var specials_box := VBoxContainer.new()
 	specials_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	specials_box.size_flags_stretch_ratio = 2.0
-	columns.add_child(specials_box)
+	columns.add_child(_framed(specials_box))
 	var specials_title := Label.new()
 	specials_title.theme_type_variation = &"Name"
 	specials_title.text = str(rules.get("specials_title", "Special abilities"))
@@ -875,7 +889,7 @@ func _build_leader() -> void:
 		_random_leader()
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	_body.add_child(row)
+	_body.add_child(_framed(row))
 	var label := Label.new()
 	label.theme_type_variation = &"Name"
 	label.text = "Your name, leader of the %s:" % (_custom_name if _custom else str(_race_data(_race).get("name", "")))
@@ -904,9 +918,9 @@ func _build_leader() -> void:
 	banners.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	banners.add_theme_constant_override("h_separation", 16)
 	banners.add_theme_constant_override("v_separation", 12)
-	_body.add_child(banners)
-	var cell_w := maxf(160.0, (size.x - 80.0 - 3 * 16.0) / 4.0)
-	var cell_h := clampf((size.y - 360.0) * 0.5, 120.0, cell_w * 0.85)
+	_body.add_child(_framed(banners))
+	var cell_w := maxf(160.0, (size.x - 110.0 - 3 * 16.0) / 4.0)
+	var cell_h := clampf((size.y - 420.0) * 0.5, 120.0, cell_w * 0.85)
 	var group := ButtonGroup.new()
 	for c in 8:
 		var box := VBoxContainer.new()
@@ -918,6 +932,12 @@ func _build_leader() -> void:
 		button.custom_minimum_size = Vector2(cell_w, cell_h)
 		button.button_pressed = _color == c
 		button.tooltip_text = BANNER_NAMES[c]
+		# As the fleets' ship tiles (owner, 2026-11-27): clear, blue when chosen, no button face.
+		for state in ["normal", "disabled", "focus"]:
+			button.add_theme_stylebox_override(state, Tiles._tile_style(false, false))
+		button.add_theme_stylebox_override("hover", Tiles._tile_style(false, true))
+		button.add_theme_stylebox_override("pressed", Tiles._tile_style(true, false))
+		button.add_theme_stylebox_override("hover_pressed", Tiles._tile_style(true, true))
 		var picture := TextureRect.new()
 		picture.set_anchors_preset(Control.PRESET_FULL_RECT)
 		picture.offset_left = 8
@@ -971,16 +991,16 @@ func _build_start() -> void:
 	row.add_theme_constant_override("separation", 24)
 	_body.add_child(row)
 	var portrait := TextureRect.new()
-	var height := minf(size.y - 260.0, (size.x * 0.45) / PORTRAIT_ASPECT)
+	var height := minf(size.y - 290.0, (size.x * 0.45) / PORTRAIT_ASPECT)
 	portrait.custom_minimum_size = Vector2(height * PORTRAIT_ASPECT, height)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_set_texture(portrait, "RACESEL.LBX", 0x0F + _race)
-	row.add_child(portrait)
+	row.add_child(_framed(portrait))
 	var column := VBoxContainer.new()
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	column.add_theme_constant_override("separation", 12)
-	row.add_child(column)
+	row.add_child(_framed(column))
 	var banner := TextureRect.new()
 	banner.custom_minimum_size = Vector2(200, 200 * 94.0 / 84.0)
 	banner.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN

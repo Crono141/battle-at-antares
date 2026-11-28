@@ -124,13 +124,41 @@ func close() -> void:
 		closed.emit()
 
 
+## Scaled so it is as tall as the buttons' area (never larger than itself).
+func _title_scale() -> float:
+	var natural := get_combined_minimum_size().y
+	var target := title_face.size.y if title_face.size.y > 0.0 else title_anchor.size.y
+	return clampf(target / maxf(natural, 1.0), 0.5, 1.0)
+
+
 func _anchor_y() -> float:
 	var area := get_parent_area_size()
-	return clampf(title_anchor.get_center().y - size.y * 0.5, 8.0, maxf(8.0, area.y - size.y - 8.0))
+	var centre := title_face.get_center().y if title_face.size.y > 0.0 else title_anchor.get_center().y
+	var h := size.y * scale.y
+	return clampf(centre - h * 0.5, 8.0, maxf(8.0, area.y - h - 8.0))
+
+
+func _shown_x() -> float:
+	return maxf(8.0, title_anchor.position.x - size.x * scale.x - 14.0)
 
 
 func _center_on_anchor() -> void:
+	scale = Vector2.ONE * _title_scale()
 	position.y = _anchor_y()
+	if not (_tween and _tween.is_running()) and modulate.a > 0.99:
+		position.x = _shown_x()
+
+
+## The title laid out again (the window, the interface scale): the same size and place beside it.
+func refit_title() -> void:
+	if not (_title_mode and visible and title_anchor.size.x > 0.0):
+		return
+	_fit()
+	scale = Vector2.ONE * _title_scale()
+	if not (_tween and _tween.is_running()):
+		position = Vector2(_shown_x(), _anchor_y())
+	else:
+		position.y = _anchor_y()
 
 
 ## On the title (owner, 2026-11-27): out from behind the menu panel to its left, fading in, and back.
@@ -138,7 +166,8 @@ func _fly_from_panel(opening: bool) -> void:
 	if _tween:
 		_tween.kill()
 	_fit()
-	var shown_x := maxf(8.0, title_anchor.position.x - size.x - 14.0)
+	scale = Vector2.ONE * _title_scale()
+	var shown_x := _shown_x()
 	var tucked_x := title_anchor.position.x + 10.0
 	var y := _anchor_y()
 	if opening:
@@ -149,7 +178,9 @@ func _fly_from_panel(opening: bool) -> void:
 	_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT if opening else Tween.EASE_IN)
 	_tween.tween_property(self, "position:x", shown_x if opening else tucked_x, 0.3)
 	_tween.tween_property(self, "modulate:a", 1.0 if opening else 0.0, 0.22 if opening else 0.25)
-	if not opening:
+	if opening:
+		_tween.chain().tween_callback(func(): position.x = _shown_x()) # its size settled meanwhile
+	else:
 		_tween.chain().tween_callback(func():
 			hide()
 			modulate.a = 1.0)
@@ -559,13 +590,17 @@ func show_flight(seconds: float) -> void:
 ## Opened from the title screen (WP3.13): no game, so the map's rows, the game options (they
 ## change a game: `toggle_option` runs on the galaxy only), the system zoom and the to-dos switch
 ## are left out; sound, display, interface scale and theme stay.
-## Set by the frontend in title mode: the menu panel's rectangle it flies out of.
+## Set by the frontend in title mode: the menu panel's rectangle it flies out of, and the buttons'
+## area inside it, whose height it is scaled to (owner, 2026-11-27).
 var title_anchor := Rect2()
+var title_face := Rect2()
 var _title_mode := false
 
 
 func set_title_mode(on: bool) -> void:
 	_title_mode = on
+	if not on:
+		scale = Vector2.ONE
 	var rows: Array[Control] = [$Fit/Box/MapTitle, $Fit/Box/Influence, $Fit/Box/Map, $Fit/Box/GameTitle, options_box,
 		_flight_title, _flight_pick, todo_auto_button.get_parent().get_parent() as Control]
 	for row in rows:

@@ -78,7 +78,7 @@ var _slide := 0.0 # 0 at the right edge, 1 home
 var _motor := -1 # the motor sound's handle while the panel moves
 const FACE_CENTER := Vector2(-0.94, 0.0) # the face's middle from the hinge (model units; the 0.11 bezel)
 const FACE_SIZE := Vector2(1.70, 1.40)
-const WORN_COPPER_TINT := Color(1.2, 1.02, 0.78) # the frame strip on the bezel, warmed to the frame's copper
+const WORN_COPPER_TINT := Color(1.05, 0.89, 0.68) # a hair darker (owner, 2026-11-27) # the frame strip on the bezel, warmed to the frame's copper
 const ARM_LENGTH := 2.5
 const CAMERA_DISTANCE := 12.0
 const CAMERA_FOV := 30.0
@@ -257,7 +257,7 @@ func _build_rig() -> void:
 				strip.emission_enabled = true
 				strip.emission_texture = strip_tex
 				strip.emission = Color(1.0, 0.85, 0.65)
-				strip.emission_energy_multiplier = 0.25
+				strip.emission_energy_multiplier = 0.18
 				strip.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 				strip.texture_repeat = true
 				strip.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -275,8 +275,8 @@ func _build_rig() -> void:
 			if part_name == "Bezel" and source.resource_name == "DarkMetal":
 				continue # the recess plate: left out below
 			var copper := StandardMaterial3D.new()
-			copper.albedo_color = {"Chrome": Color(0.40, 0.32, 0.23), "Gunmetal": Color(0.23, 0.19, 0.14),
-				"DarkMetal": Color(0.17, 0.14, 0.10)}[source.resource_name]
+			copper.albedo_color = {"Chrome": Color(0.35, 0.28, 0.20), "Gunmetal": Color(0.20, 0.165, 0.12),
+				"DarkMetal": Color(0.15, 0.12, 0.09)}[source.resource_name]
 			copper.metallic = 0.8 if source.resource_name == "Chrome" else 0.65
 			copper.roughness = 0.35 if source.resource_name == "Chrome" else 0.55
 			part.set_surface_override_material(i, copper)
@@ -417,8 +417,18 @@ func title_theme() -> Theme:
 	field.set_content_margin_all(4)
 	t.set_stylebox("normal", "LineEdit", field)
 	t.set_color("font_color", "LineEdit", Color(0.62, 0.95, 0.62))
+	# Close rows: the pane is scaled to the button area's height, so less air, less shrinking.
+	t.set_constant("separation", "VBoxContainer", 3)
+	t.set_constant("separation", "HBoxContainer", 6)
+	t.set_font_size("font_size", "Label", 15)
 	_title_theme = t
 	return t
+
+
+## The buttons' area inside the bezel (the title's Options is made as tall).
+func face_rect() -> Rect2:
+	_panel.reset_size()
+	return Rect2(_panel_home(), _panel.size)
 
 
 ## The menu panel's rectangle with its bezel (what the title's Options flies out of).
@@ -829,8 +839,9 @@ func _layout() -> void:
 		_logo.size = Vector2(logo_w, logo_h)
 		_logo.position = Vector2(shown.position.x + shown.size.y * 0.09, shown.position.y + shown.size.y * 0.07)
 	_version.reset_size()
-	var below := _panel.size.y * (0.2 if _rig != null else 0.0) + 10.0 # under the bezel
-	_version.position = Vector2(_panel_home().x + (_panel.size.x - _version.size.x) * 0.5, _panel_home().y + _panel.size.y + below)
+	# The window's bottom right corner, a margin in (owner, 2026-11-27: it followed the panel).
+	var margin := maxf(10.0, size.y * 0.015)
+	_version.position = size - _version.size - Vector2(margin, margin)
 	_credits.reset_size()
 	_credits.position = Vector2(shown.position.x + shown.size.y * 0.09, shown.end.y - shown.size.y * 0.12 - _credits.size.y)
 	_mods.reset_size()
