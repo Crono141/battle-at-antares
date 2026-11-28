@@ -6311,6 +6311,15 @@ func _smoke_native() -> void:
 			print("smoke: FAILED: torpedo")
 		game.request_game_quit()
 		return
+	if "--combat-auto" in OS.get_cmdline_user_args():
+		# The owner's crash (2026-11-27): end the turn into the battle, the player's side on AUTO,
+		# to the battle's end (their save: the whole fleet lost to a starbase and drive blasts).
+		if await _smoke_combat_auto(shots):
+			print("smoke: combat-auto OK")
+			game.request_game_quit()
+		else:
+			await host.smoke_fail("combat-auto")
+		return
 	if "--combat" in OS.get_cmdline_user_args():
 		# WP3.9b: end the turn into a battle (SAVE10: Fortuna) and play it in the native scene.
 		var start: Dictionary = await _query("empire")
@@ -8784,6 +8793,42 @@ func _smoke_torpedo(shots: String) -> bool:
 		view._act({"action": "end_turn"})
 		await get_tree().create_timer(1.0).timeout
 	print("smoke: torpedo: no torpedo squares in %d turns" % turns)
+	return false
+
+
+func _smoke_combat_auto(shots: String) -> bool:
+	_send({"verb": "end_turn"})
+	var waited := 0.0
+	var auto_on := false
+	var seen_battle := false
+	while waited < 880.0:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+		var view: Control = _combat
+		if view != null and view.visible:
+			seen_battle = true
+			if not auto_on and view._my_turn():
+				view._toggle_auto()
+				view._move_speed = view.MOVE_SPEEDS.size() - 1 # the fastest, and x2: the test display is slow
+				view._set_speed_x2(true)
+				auto_on = true
+				print("smoke: combat-auto: AUTO on after %.1f s" % waited)
+			continue
+		if seen_battle and native_screen == Screens.MAIN and not overlay.visible:
+			print("smoke: combat-auto: back on the galaxy after %.1f s" % waited)
+			if shots != "":
+				await host.shot(shots + "/combat-auto-after.png")
+			return true
+		var dialog: Control = _views.get("dialog")
+		if overlay.visible and dialog != null and String(dialog.popup_name) == "attack_target":
+			for i in dialog.options.size():
+				var item: Dictionary = dialog.options[i]
+				if bool(item.get("enabled", true)):
+					dialog._answer(dialog.OPTION_ANSWER + i)
+					break
+			continue
+		_smoke_answer()
+	print("smoke: combat-auto: no end after %.1f s (battle seen %s, screen %d)" % [waited, seen_battle, native_screen])
 	return false
 
 

@@ -455,10 +455,13 @@ static func apply_display(window: Window, key: String, value: Variant) -> void:
 
 ## At start: the display choices the player made here, if any.
 static func apply_saved_display(window: Window) -> void:
-	for key in ["mode", "vsync", "max_fps"]:
-		var value: Variant = Themes.saved_value("display", key, null)
-		if value != null:
-			apply_display(window, key, value)
+	# Only what was saved (a null default to ConfigFile.get_value counts as none: it logged an error
+	# for each key on a first start, owner's log 2026-11-27).
+	var cfg := ConfigFile.new()
+	if cfg.load(Themes.SETTINGS) == OK:
+		for key in ["mode", "vsync", "max_fps"]:
+			if cfg.has_section_key("display", key):
+				apply_display(window, key, cfg.get_value("display", key))
 	print("display: window mode %d, vsync %s, frame limit %d" % [window.mode,
 		DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED, Engine.max_fps])
 
